@@ -65,6 +65,7 @@
 
       this._ignoreFocus = false;
       this._engines = null;
+      this.telemetrySelectedIndex = -1;
     }
 
     connectedCallback() {
@@ -345,15 +346,16 @@
       let textBox = this._textbox;
       let textValue = textBox.value;
 
-      let selection = this.telemetrySearchDetails;
+      let selectedIndex = this.telemetrySelectedIndex;
       let oneOffRecorded = false;
 
-      BrowserSearchTelemetry.recordSearchbarSelectedResultMethod(
+      BrowserSearchTelemetry.recordSearchSuggestionSelectionMethod(
         aEvent,
-        selection ? selection.index : -1
+        "searchbar",
+        selectedIndex
       );
 
-      if (!selection || selection.index == -1) {
+      if (selectedIndex == -1) {
         oneOffRecorded = this.textbox.popup.oneOffButtons.maybeRecordTelemetry(
           aEvent
         );
@@ -379,7 +381,10 @@
           if (!aEngine) {
             aEngine = this.currentEngine;
           }
-          BrowserSearch.recordOneoffSearchInTelemetry(aEngine, source, type);
+          BrowserSearchTelemetry.recordSearch(gBrowser, aEngine, source, {
+            type,
+            isOneOff: true,
+          });
         }
       }
 
@@ -427,19 +432,22 @@
       }
 
       let submission = engine.getSubmission(aData, null, "searchbar");
-      let telemetrySearchDetails = this.telemetrySearchDetails;
-      this.telemetrySearchDetails = null;
-      if (telemetrySearchDetails && telemetrySearchDetails.index == -1) {
-        telemetrySearchDetails = null;
-      }
+
       // If we hit here, we come either from a one-off, a plain search or a suggestion.
       const details = {
         isOneOff: aOneOff,
-        isSuggestion: !aOneOff && telemetrySearchDetails,
-        selection: telemetrySearchDetails,
+        isSuggestion: !aOneOff && this.telemetrySelectedIndex != -1,
         url: submission.uri,
       };
-      BrowserSearch.recordSearchInTelemetry(engine, "searchbar", details);
+
+      this.telemetrySelectedIndex = -1;
+
+      BrowserSearchTelemetry.recordSearch(
+        gBrowser,
+        engine,
+        "searchbar",
+        details
+      );
       // null parameter below specifies HTML response for search
       let params = {
         postData: submission.postData,
@@ -805,9 +813,9 @@
           }
           engine = oneOff.engine;
         }
-        if (this.textbox._selectionDetails) {
-          BrowserSearch.searchBar.telemetrySearchDetails = this.textbox._selectionDetails;
-          this.textbox._selectionDetails = null;
+        if (this.textbox.popupSelectedIndex != -1) {
+          this.telemetrySelectedIndex = this.textbox.popupSelectedIndex;
+          this.textbox.popupSelectedIndex = -1;
         }
         this.handleSearchCommand(event, engine);
       };

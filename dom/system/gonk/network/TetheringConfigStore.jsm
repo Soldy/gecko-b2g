@@ -13,8 +13,6 @@ const { NetUtil } = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 this.EXPORTED_SYMBOLS = ["TetheringConfigStore"];
 
-var gDebug = false;
-
 this.TetheringConfigStore = (function() {
   var tetheringConfigStore = {};
 
@@ -32,19 +30,8 @@ this.TetheringConfigStore = (function() {
   // TetheringConfigStore functions
   tetheringConfigStore.read = read;
   tetheringConfigStore.write = write;
-  tetheringConfigStore.setDebug = setDebug;
   tetheringConfigStore.TETHERING_TYPE_WIFI = TETHERING_TYPE_WIFI;
   tetheringConfigStore.TETHERING_TYPE_USB = TETHERING_TYPE_USB;
-
-  function setDebug(aDebug) {
-    gDebug = aDebug;
-  }
-
-  function debug(aMsg) {
-    if (gDebug) {
-      console.log("-*- TetheringConfigStore: " + aMsg);
-    }
-  }
 
   function read(aType) {
     let path =

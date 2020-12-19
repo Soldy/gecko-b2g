@@ -48,6 +48,7 @@ class FirefoxConnector {
     this.onResourceUpdated = this.onResourceUpdated.bind(this);
 
     this.networkFront = null;
+    this.listenForNetworkEvents = true;
   }
 
   get currentTarget() {
@@ -121,13 +122,11 @@ class FirefoxConnector {
   }
 
   async pause() {
-    await this.removeListeners();
+    this.listenForNetworkEvents = false;
   }
 
   async resume() {
-    // On resume, we shoud prevent fetching all cached network events
-    // and only restart recording for the new ones.
-    await this.addListeners(true);
+    this.listenForNetworkEvents = true;
   }
 
   async onTargetAvailable({ targetFront, isTargetSwitching }) {
@@ -176,6 +175,10 @@ class FirefoxConnector {
 
       if (resource.resourceType === TYPES.DOCUMENT_EVENT) {
         this.onDocEvent(resource);
+        continue;
+      }
+
+      if (!this.listenForNetworkEvents) {
         continue;
       }
 
@@ -234,7 +237,8 @@ class FirefoxConnector {
     for (const { resource, update } of updates) {
       if (
         resource.resourceType ===
-        this.toolbox.resourceWatcher.TYPES.NETWORK_EVENT
+          this.toolbox.resourceWatcher.TYPES.NETWORK_EVENT &&
+        this.listenForNetworkEvents
       ) {
         this.dataProvider.onNetworkResourceUpdated(resource, update);
       }
@@ -391,8 +395,18 @@ class FirefoxConnector {
    *
    * @param {object} data data payload would like to sent to backend
    */
-  sendHTTPRequest(data) {
-    return this.webConsoleFront.sendHTTPRequest(data);
+  async sendHTTPRequest(data) {
+    if (this.hasResourceWatcherSupport && this.currentTarget) {
+      const networkContentFront = await this.currentTarget.getFront(
+        "networkContent"
+      );
+      const { channelId } = await networkContentFront.sendHTTPRequest(data);
+      return { channelId };
+    }
+    const {
+      eventActor: { actor },
+    } = await this.webConsoleFront.sendHTTPRequest(data);
+    return { actor };
   }
 
   /**

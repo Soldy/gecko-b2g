@@ -109,6 +109,7 @@ enum class VMFunctionId;
 //
 
 class ICStub;
+class ICCacheIRStub;
 class ICFallbackStub;
 
 #define FORWARD_DECLARE_STUBS(kindName) class IC##kindName;
@@ -237,7 +238,7 @@ class ICStubIterator {
  private:
   ICEntry* icEntry_;
   ICFallbackStub* fallbackStub_;
-  ICStub* previousStub_;
+  ICCacheIRStub* previousStub_;
   ICStub* currentStub_;
   bool unlinked_;
 
@@ -278,7 +279,8 @@ class ICStub {
   friend class ICFallbackStub;
 
  public:
-  enum Kind : uint16_t {
+  // TODO(no-TI): move to ICFallbackStub, make enum class.
+  enum Kind : uint8_t {
     INVALID = 0,
 #define DEF_ENUM_KIND(kindName) kindName,
     IC_BASELINE_STUB_KIND_LIST(DEF_ENUM_KIND)
@@ -287,7 +289,6 @@ class ICStub {
   };
 
   static bool IsValidKind(Kind k) { return (k > INVALID) && (k < LIMIT); }
-  static bool IsCacheIRKind(Kind k) { return k == CacheIR_Regular; }
 
   static const char* KindString(Kind k) {
     switch (k) {
@@ -300,15 +301,6 @@ class ICStub {
         MOZ_CRASH("Invalid kind.");
     }
   }
-
-  // TODO(no-TI): remove enum
-  enum Trait : uint16_t {
-    Regular = 0x0,
-    Fallback = 0x1,
-  };
-
-  void updateCode(JitCode* stubCode);
-  void trace(JSTracer* trc);
 
   template <typename T, typename... Args>
   static T* New(JSContext* cx, ICStubSpace* space, JitCode* code,
@@ -337,74 +329,24 @@ class ICStub {
   // The raw jitcode to call for this stub.
   uint8_t* stubCode_;
 
-  // Pointer to next IC stub.  This is null for the last IC stub, which should
-  // either be a fallback or inert IC stub.
-  ICStub* next_ = nullptr;
+  // Counts the number of times the stub was entered
+  //
+  // See Bug 1494473 comment 6 for a mechanism to handle overflow if overflow
+  // becomes a concern.
+  uint32_t enteredCount_ = 0;
 
-  // A 16-bit field usable by subtypes of ICStub for subtype-specific small-info
-  uint16_t extra_ = 0;
+  // Whether this is an ICFallbackStub or an ICCacheIRStub.
+  bool isFallback_;
 
-  // A 16-bit field storing the trait and kind.
-  // Unused bits are filled with a magic value and verified when tracing.
-  uint16_t traitKindBits_;
-
-  static const uint16_t TRAIT_OFFSET = 0;
-  static const uint16_t TRAIT_BITS = 3;
-  static const uint16_t TRAIT_MASK = (1 << TRAIT_BITS) - 1;
-  static const uint16_t KIND_OFFSET = TRAIT_OFFSET + TRAIT_BITS;
-  static const uint16_t KIND_BITS = 5;
-  static const uint16_t KIND_MASK = (1 << KIND_BITS) - 1;
-  static const uint16_t MAGIC_OFFSET = KIND_OFFSET + KIND_BITS;
-  static const uint16_t MAGIC_BITS = 8;
-  static const uint16_t MAGIC_MASK = (1 << MAGIC_BITS) - 1;
-  static const uint16_t EXPECTED_MAGIC = 0b11100011;
-
-  static_assert(LIMIT <= (1 << KIND_BITS), "Not enough kind bits");
-  static_assert(LIMIT > (1 << (KIND_BITS - 1)), "Too many kind bits");
-  static_assert(TRAIT_BITS + KIND_BITS + MAGIC_BITS == 16, "Unused bits");
-
-  inline ICStub(Kind kind, uint8_t* stubCode) : stubCode_(stubCode) {
-    setTraitKind(Regular, kind);
+  ICStub(uint8_t* stubCode, bool isFallback)
+      : stubCode_(stubCode), isFallback_(isFallback) {
     MOZ_ASSERT(stubCode != nullptr);
   }
-
-  inline ICStub(Kind kind, JitCode* stubCode) : ICStub(kind, stubCode->raw()) {
-    MOZ_ASSERT(stubCode != nullptr);
-  }
-
-  inline ICStub(Kind kind, Trait trait, uint8_t* stubCode)
-      : stubCode_(stubCode) {
-    setTraitKind(trait, kind);
-    MOZ_ASSERT(stubCode != nullptr);
-  }
-
-  inline ICStub(Kind kind, Trait trait, JitCode* stubCode)
-      : ICStub(kind, trait, stubCode->raw()) {
-    MOZ_ASSERT(stubCode != nullptr);
-  }
-
-  inline Trait trait() const {
-    return (Trait)((traitKindBits_ >> TRAIT_OFFSET) & TRAIT_MASK);
-  }
-
-  inline void setTraitKind(Trait trait, Kind kind) {
-    traitKindBits_ = (trait << TRAIT_OFFSET) | (kind << KIND_OFFSET) |
-                     (EXPECTED_MAGIC << MAGIC_OFFSET);
-  }
-
-#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
-  inline void checkTraceMagic() {
-    uint16_t magic = (traitKindBits_ >> MAGIC_OFFSET) & MAGIC_MASK;
-    MOZ_DIAGNOSTIC_ASSERT(magic == EXPECTED_MAGIC);
-  }
-#endif
 
  public:
-  inline Kind kind() const {
-    return (Kind)((traitKindBits_ >> KIND_OFFSET) & KIND_MASK);
-  }
+  inline bool isFallback() const { return isFallback_; }
 
-  inline bool isFallback() const { return trait() == Fallback; }
+  inline ICStub* maybeNext() const;
 
   inline const ICFallbackStub* toFallbackStub() const {
     MOZ_ASSERT(isFallback());
@@ -415,6 +357,72 @@ class ICStub {
     MOZ_ASSERT(isFallback());
     return reinterpret_cast<ICFallbackStub*>(this);
   }
+
+  ICCacheIRStub* toCacheIRStub() {
+    MOZ_ASSERT(!isFallback());
+    return reinterpret_cast<ICCacheIRStub*>(this);
+  }
+  const ICCacheIRStub* toCacheIRStub() const {
+    MOZ_ASSERT(!isFallback());
+    return reinterpret_cast<const ICCacheIRStub*>(this);
+  }
+
+  bool usesTrampolineCode() const {
+    // All fallback code is stored in a single JitCode instance, so we can't
+    // call JitCode::FromExecutable on the raw pointer.
+    return isFallback();
+  }
+  JitCode* jitCode() {
+    MOZ_ASSERT(!usesTrampolineCode());
+    return JitCode::FromExecutable(stubCode_);
+  }
+
+  inline uint8_t* rawStubCode() const { return stubCode_; }
+
+  uint32_t enteredCount() const { return enteredCount_; }
+  inline void incrementEnteredCount() { enteredCount_++; }
+  void resetEnteredCount() { enteredCount_ = 0; }
+
+  inline ICFallbackStub* getChainFallback();
+
+  inline ICStubConstIterator beginHere() {
+    return ICStubConstIterator::StartingAt(this);
+  }
+
+  static constexpr size_t offsetOfStubCode() {
+    return offsetof(ICStub, stubCode_);
+  }
+  static constexpr size_t offsetOfEnteredCount() {
+    return offsetof(ICStub, enteredCount_);
+  }
+
+  bool makesGCCalls() const;
+};
+
+class ICFallbackStub : public ICStub {
+  friend class ICStubConstIterator;
+
+ protected:
+  // Fallback stubs need these fields to easily add new stubs to
+  // the linked list of stubs for an IC.
+
+  // The IC entry in JitScript for this linked list of stubs.
+  ICEntry* icEntry_ = nullptr;
+
+  // The state of this IC.
+  ICState state_{};
+
+  Kind kind_;
+
+  ICFallbackStub(Kind kind, TrampolinePtr stubCode)
+      : ICStub(stubCode.value, /* isFallback = */ true), kind_(kind) {
+    isFallback_ = true;
+  }
+
+ public:
+  inline ICEntry* icEntry() const { return icEntry_; }
+
+  inline Kind kind() const { return kind_; }
 
 #define KIND_METHODS(kindName)                                    \
   inline bool is##kindName() const { return kind() == kindName; } \
@@ -429,97 +437,6 @@ class ICStub {
   IC_BASELINE_STUB_KIND_LIST(KIND_METHODS)
 #undef KIND_METHODS
 
-  inline ICStub* next() const { return next_; }
-
-  inline bool hasNext() const { return next_ != nullptr; }
-
-  inline void setNext(ICStub* stub) { next_ = stub; }
-
-  inline ICStub** addressOfNext() { return &next_; }
-
-  bool usesTrampolineCode() const {
-    // All fallback code is stored in a single JitCode instance, so we can't
-    // call JitCode::FromExecutable on the raw pointer.
-    return isFallback();
-  }
-  JitCode* jitCode() {
-    MOZ_ASSERT(!usesTrampolineCode());
-    return JitCode::FromExecutable(stubCode_);
-  }
-
-  inline uint8_t* rawStubCode() const { return stubCode_; }
-
-  inline ICFallbackStub* getChainFallback() {
-    ICStub* lastStub = this;
-    while (lastStub->next_) {
-      lastStub = lastStub->next_;
-    }
-    MOZ_ASSERT(lastStub->isFallback());
-    return lastStub->toFallbackStub();
-  }
-
-  inline ICStubConstIterator beginHere() {
-    return ICStubConstIterator::StartingAt(this);
-  }
-
-  static inline size_t offsetOfNext() { return offsetof(ICStub, next_); }
-
-  static inline size_t offsetOfStubCode() {
-    return offsetof(ICStub, stubCode_);
-  }
-
-  static inline size_t offsetOfExtra() { return offsetof(ICStub, extra_); }
-
-  static bool NonCacheIRStubMakesGCCalls(Kind kind);
-  bool makesGCCalls() const;
-
-  // Returns the number of times this stub has been entered. Must only be called
-  // on stubs that have an enteredCount_ field (CacheIR or fallback stubs).
-  uint32_t getEnteredCount() const;
-
-  // Optimized stubs get purged on GC.  But some stubs can be active on the
-  // stack during GC - specifically the ones that can make calls.  To ensure
-  // that these do not get purged, all stubs that can make calls are allocated
-  // in the fallback stub space.
-  bool allocatedInFallbackSpace() const {
-    MOZ_ASSERT(next());
-    return makesGCCalls();
-  }
-
-  const CacheIRStubInfo* cacheIRStubInfo() const;
-  const uint8_t* cacheIRStubData();
-};
-
-class ICFallbackStub : public ICStub {
-  friend class ICStubConstIterator;
-
- protected:
-  // Fallback stubs need these fields to easily add new stubs to
-  // the linked list of stubs for an IC.
-
-  // The IC entry in JitScript for this linked list of stubs.
-  ICEntry* icEntry_ = nullptr;
-
-  // The state of this IC
-  ICState state_{};
-
-  // Counts the number of times the stub was entered
-  //
-  // See Bug 1494473 comment 6 for a mechanism to handle overflow if overflow
-  // becomes a concern.
-  uint32_t enteredCount_ = 0;
-
-  ICFallbackStub(Kind kind, TrampolinePtr stubCode)
-      : ICStub(kind, ICStub::Fallback, stubCode.value) {}
-
-  ICFallbackStub(Kind kind, Trait trait, TrampolinePtr stubCode)
-      : ICStub(kind, trait, stubCode.value) {
-    MOZ_ASSERT(trait == ICStub::Fallback);
-  }
-
- public:
-  inline ICEntry* icEntry() const { return icEntry_; }
-
   inline size_t numOptimizedStubs() const { return state_.numOptimizedStubs(); }
 
   bool newStubIsFirstStub() const {
@@ -528,6 +445,8 @@ class ICFallbackStub : public ICStub {
   }
 
   ICState& state() { return state_; }
+
+  void trace(JSTracer* trc);
 
   // The icEntry_ field can't be initialized when the stub is created since we
   // won't know the ICEntry address until we add the stub to JitScript. This
@@ -538,12 +457,7 @@ class ICFallbackStub : public ICStub {
   }
 
   // Add a new stub to the IC chain terminated by this fallback stub.
-  void addNewStub(ICStub* stub) {
-    MOZ_ASSERT(stub->next() == nullptr);
-    stub->setNext(icEntry_->firstStub());
-    icEntry_->setFirstStub(stub);
-    state_.trackAttached();
-  }
+  inline void addNewStub(ICCacheIRStub* stub);
 
   ICStubConstIterator beginChainConst() const {
     return ICStubConstIterator(icEntry_->firstStub());
@@ -569,41 +483,67 @@ class ICFallbackStub : public ICStub {
   // code.
   void maybeInvalidateWarp(JSContext* cx, JSScript* script);
 
-  void unlinkStubDontInvalidateWarp(Zone* zone, ICStub* prev, ICStub* stub);
-
-  // Return the number of times this stub has successfully provided a value to
-  // the caller.
-  uint32_t enteredCount() const { return enteredCount_; }
-  inline void incrementEnteredCount() { enteredCount_++; }
-  void resetEnteredCount() { enteredCount_ = 0; }
+  void unlinkStubDontInvalidateWarp(Zone* zone, ICCacheIRStub* prev,
+                                    ICCacheIRStub* stub);
 };
 
-class ICCacheIR_Regular : public ICStub {
- protected:
+class ICCacheIRStub : public ICStub {
+  // Pointer to next IC stub.
+  ICStub* next_ = nullptr;
+
   const CacheIRStubInfo* stubInfo_;
 
-  // Counts the number of times the stub was entered
-  //
-  // See Bug 1494473 comment 6 for a mechanism to handle overflow if overflow
-  // becomes a concern.
-  uint32_t enteredCount_ = 0;
-
  public:
-  ICCacheIR_Regular(JitCode* stubCode, const CacheIRStubInfo* stubInfo)
-      : ICStub(ICStub::CacheIR_Regular, stubCode), stubInfo_(stubInfo) {}
+  ICCacheIRStub(JitCode* stubCode, const CacheIRStubInfo* stubInfo)
+      : ICStub(stubCode->raw(), /* isFallback = */ false),
+        stubInfo_(stubInfo) {}
+
+  ICStub* next() const { return next_; }
+  void setNext(ICStub* stub) { next_ = stub; }
 
   const CacheIRStubInfo* stubInfo() const { return stubInfo_; }
   uint8_t* stubDataStart();
 
-  // Return the number of times this stub has successfully provided a value to
-  // the caller.
-  uint32_t enteredCount() const { return enteredCount_; }
-  void resetEnteredCount() { enteredCount_ = 0; }
+  void trace(JSTracer* trc);
 
-  static constexpr size_t offsetOfEnteredCount() {
-    return offsetof(ICCacheIR_Regular, enteredCount_);
+  // Optimized stubs get purged on GC.  But some stubs can be active on the
+  // stack during GC - specifically the ones that can make calls.  To ensure
+  // that these do not get purged, all stubs that can make calls are allocated
+  // in the fallback stub space.
+  bool allocatedInFallbackSpace() const { return makesGCCalls(); }
+
+  static constexpr size_t offsetOfNext() {
+    return offsetof(ICCacheIRStub, next_);
   }
 };
+
+// Assert stub size is what we expect to catch regressions.
+#ifdef JS_64BIT
+static_assert(sizeof(ICFallbackStub) == 4 * sizeof(uintptr_t));
+static_assert(sizeof(ICCacheIRStub) == 4 * sizeof(uintptr_t));
+#else
+static_assert(sizeof(ICFallbackStub) == 5 * sizeof(uintptr_t));
+static_assert(sizeof(ICCacheIRStub) == 5 * sizeof(uintptr_t));
+#endif
+
+inline ICStub* ICStub::maybeNext() const {
+  return isFallback() ? nullptr : toCacheIRStub()->next();
+}
+
+inline void ICFallbackStub::addNewStub(ICCacheIRStub* stub) {
+  MOZ_ASSERT(stub->next() == nullptr);
+  stub->setNext(icEntry_->firstStub());
+  icEntry_->setFirstStub(stub);
+  state_.trackAttached();
+}
+
+inline ICFallbackStub* ICStub::getChainFallback() {
+  ICStub* lastStub = this;
+  while (!lastStub->isFallback()) {
+    lastStub = lastStub->toCacheIRStub()->next();
+  }
+  return lastStub->toFallbackStub();
+}
 
 AllocatableGeneralRegisterSet BaselineICAvailableGeneralRegs(size_t numInputs);
 

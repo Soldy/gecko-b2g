@@ -1034,7 +1034,10 @@ nsresult nsDOMCameraControl::NotifyRecordingStatusChange(const nsString& aMsg) {
     ReleaseAudioChannelAgent();
   }
 
-  nsresult rv = MediaManager::NotifyRecordingStatusChange(mWindow);
+  bool recording = aMsg.EqualsLiteral("starting");
+  RefPtr<MediaManager> mediaManager = MediaManager::GetInstance();
+  nsresult rv = mediaManager->UpdateExternalRecordingStatus(
+      this, mWindow, /* aAudio = */ recording, /* aVideo = */ recording);
 
   if (NS_FAILED(rv)) {
     return rv;

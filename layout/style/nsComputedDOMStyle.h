@@ -73,7 +73,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   NS_DECL_NSIDOMCSSSTYLEDECLARATION_HELPER
   nsresult GetPropertyValue(const nsCSSPropertyID aPropID,
-                            nsAString& aValue) override;
+                            nsACString& aValue) override;
   void SetPropertyValue(const nsCSSPropertyID aPropID, const nsACString& aValue,
                         nsIPrincipal* aSubjectPrincipal,
                         mozilla::ErrorResult& aRv) override;
@@ -137,6 +137,10 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   NS_DECL_NSIMUTATIONOBSERVER_PARENTCHAINCHANGED
 
  private:
+  nsresult GetPropertyValue(const nsCSSPropertyID aPropID,
+                            const nsACString& aMaybeCustomPropertyNme,
+                            nsACString& aValue);
+
   virtual ~nsComputedDOMStyle();
 
   void AssertFlushedPendingReflows() {

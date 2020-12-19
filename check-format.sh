@@ -34,6 +34,18 @@ help() {
   echo
 }
 
+check_merge_base() {
+  # if the ci is triggered by a different repository, need to check in the right clone dir.
+  pushd ${GIT_CLONE_PATH}
+  local remote_head=`git ls-remote -q --refs ${CI_MERGE_REQUEST_PROJECT_URL}.git ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} | tr -s ' ' | cut -f 1`
+  local merge_base=`git log --pretty=tformat:"%H" | grep ${remote_head}`
+  if [ -z "${merge_base}" ]; then
+    warn "Please rebase and update the MR."
+    exit -1
+  fi
+  popd
+}
+
 check_commit_msg() {
   COMMIT_MESSAGE_PATTERN="^(Bug|MozBug) [[:digit:]]+ \- "
   local msg="${1}"
@@ -156,4 +168,8 @@ if [ ${#other_files[@]} -gt 0 ]; then
     exit 1
   }
 fi
+
+# bail out if the base is out of date.
+check_merge_base
+
 exit 0

@@ -586,6 +586,9 @@ void PDMFactory::CreateDefaultPDMs() {
                StaticPrefs::media_android_media_codec_preferred());
   }
 #endif
+#ifdef MOZ_WIDGET_GONK
+  CreateAndStartupPDM<GonkDecoderModule>();
+#endif
 
   CreateAndStartupPDM<AgnosticDecoderModule>();
 

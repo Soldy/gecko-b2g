@@ -96,6 +96,13 @@ bool HyperTextIterator::NormalizeForward() {
 
     // If there is a link at this offset, mutate into it.
     if (link && link->IsHyperText()) {
+      if (mCurrentStartOffset > 0 &&
+          mCurrentContainer->LinkIndexAtOffset(mCurrentStartOffset) ==
+              mCurrentContainer->LinkIndexAtOffset(mCurrentStartOffset - 1)) {
+        MOZ_ASSERT_UNREACHABLE("Same link for previous offset");
+        return false;
+      }
+
       mCurrentContainer = link->AsHyperText();
       if (link->IsHTMLListItem()) {
         Accessible* bullet = link->AsHTMLListItem()->Bullet();
@@ -536,7 +543,9 @@ void HyperTextAccessibleWrap::RangeOfChild(Accessible* aChild,
 Accessible* HyperTextAccessibleWrap::LeafAtOffset(int32_t aOffset) {
   HyperTextAccessible* text = this;
   Accessible* child = nullptr;
-  int32_t innerOffset = aOffset;
+  // The offset needed should "attach" the previous accessible if
+  // in between two accessibles.
+  int32_t innerOffset = aOffset > 0 ? aOffset - 1 : aOffset;
   do {
     int32_t childIdx = text->GetChildIndexAtOffset(innerOffset);
     if (childIdx == -1) {

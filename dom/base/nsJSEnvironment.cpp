@@ -97,13 +97,9 @@ static StaticRefPtr<IdleTaskRunner> sCCRunner;
 static nsITimer* sFullGCTimer;
 static StaticRefPtr<IdleTaskRunner> sInterSliceGCRunner;
 
-static TimeStamp sCurrentGCStartTime;
-
 static JS::GCSliceCallback sPrevGCSliceCallback;
 
 static bool sIncrementalCC = false;
-
-static TimeStamp sFirstCollectionTime;
 
 static bool sIsInitialized;
 static bool sShuttingDown;
@@ -117,6 +113,12 @@ static bool sIsCompactingOnUserInactive = false;
 static TimeDuration sGCUnnotifiedTotalTime;
 
 static CCGCScheduler sScheduler;
+
+inline TimeStamp mozilla::CCGCScheduler::Now() { return TimeStamp::Now(); }
+
+inline uint32_t mozilla::CCGCScheduler::SuspectedCCObjects() {
+  return nsCycleCollector_suspectedCount();
+}
 
 struct CycleCollectorStats {
   constexpr CycleCollectorStats() = default;
@@ -272,6 +274,7 @@ void FindExceptionStackForConsoleReport(nsPIDOMWindowInner* win,
 } /* namespace xpc */
 
 static TimeDuration GetCollectionTimeDelta() {
+  static TimeStamp sFirstCollectionTime;
   TimeStamp now = TimeStamp::Now();
   if (sFirstCollectionTime) {
     return now - sFirstCollectionTime;
@@ -1123,14 +1126,14 @@ static void FinishAnyIncrementalGC() {
   }
 }
 
-static void FireForgetSkippable(uint32_t aSuspected, bool aRemoveChildless,
-                                TimeStamp aDeadline) {
+static void FireForgetSkippable(bool aRemoveChildless, TimeStamp aDeadline) {
   AUTO_PROFILER_TRACING_MARKER(
       "CC", aDeadline.IsNull() ? "ForgetSkippable" : "IdleForgetSkippable",
       GCCC);
   TimeStamp startTimeStamp = TimeStamp::Now();
   FinishAnyIncrementalGC();
 
+  uint32_t suspectedBefore = nsCycleCollector_suspectedCount();
   js::SliceBudget budget =
       sScheduler.ComputeForgetSkippableBudget(startTimeStamp, aDeadline);
   bool earlyForgetSkippable = sScheduler.IsEarlyForgetSkippable();
@@ -1138,7 +1141,7 @@ static void FireForgetSkippable(uint32_t aSuspected, bool aRemoveChildless,
                                    earlyForgetSkippable);
   TimeStamp now = TimeStamp::Now();
   uint32_t removedPurples =
-      sScheduler.NoteForgetSkippableComplete(now, aSuspected);
+      sScheduler.NoteForgetSkippableComplete(now, suspectedBefore);
 
   TimeDuration duration = now - startTimeStamp;
 
@@ -1161,6 +1164,12 @@ static void FireForgetSkippable(uint32_t aSuspected, bool aRemoveChildless,
         uint32_t(idleDuration.ToSeconds() / duration.ToSeconds() * 100);
     Telemetry::Accumulate(Telemetry::FORGET_SKIPPABLE_DURING_IDLE, percent);
   }
+}
+
+MOZ_ALWAYS_INLINE
+static TimeDuration TimeBetween(TimeStamp aStart, TimeStamp aEnd) {
+  MOZ_ASSERT(aEnd >= aStart);
+  return aEnd - aStart;
 }
 
 static TimeDuration TimeUntilNow(TimeStamp start) {
@@ -1482,8 +1491,7 @@ void nsJSContext::BeginCycleCollectionCallback() {
   // is particularly useful if we recently finished a GC.
   if (sScheduler.IsEarlyForgetSkippable()) {
     while (sScheduler.IsEarlyForgetSkippable()) {
-      FireForgetSkippable(nsCycleCollector_suspectedCount(), false,
-                          TimeStamp());
+      FireForgetSkippable(false, TimeStamp());
     }
     sCCStats.AfterSyncForgetSkippable(startTime);
   }
@@ -1519,7 +1527,7 @@ void nsJSContext::EndCycleCollectionCallback(CycleCollectorResults& aResults) {
                    kMaxICCDuration.ToMilliseconds(),
                "A max duration ICC shouldn't reduce GC delay to 0");
 
-    PokeGC(JS::GCReason::CC_WAITING, nullptr,
+    PokeGC(JS::GCReason::CC_FINISHED, nullptr,
            StaticPrefs::javascript_options_gc_delay() -
                std::min(ccNowDuration, kMaxICCDuration).ToMilliseconds());
   }
@@ -1616,28 +1624,23 @@ void ShrinkingGCTimerFired(nsITimer* aTimer, void* aClosure) {
 static bool CCRunnerFired(TimeStamp aDeadline) {
   bool didDoWork = false;
 
-  using CCRunnerAction = CCGCScheduler::CCRunnerAction;
-  using CCRunnerStep = CCGCScheduler::CCRunnerStep;
-
   // The CC/GC scheduler (sScheduler) decides what action(s) to take during
   // this invocation of the CC runner.
   //
   // This may be zero, one, or multiple actions. (Zero is when CC is blocked by
   // incremental GC, or when the scheduler determined that a CC is no longer
-  // needed.) Loop until an action is requested that finishes this invocation,
-  // or the scheduler decides that this invocation should finish by returning
-  // `Yield`.
+  // needed.) Loop until the scheduler finishes this invocation by returning
+  // `Yield` in step.mYield.
   CCRunnerStep step;
   do {
-    uint32_t suspected = nsCycleCollector_suspectedCount();
-    step = sScheduler.GetNextCCRunnerAction(aDeadline, suspected);
+    step = sScheduler.GetNextCCRunnerAction(aDeadline);
     switch (step.mAction) {
       case CCRunnerAction::None:
         break;
 
       case CCRunnerAction::ForgetSkippable:
         // 'Forget skippable' only, then end this invocation.
-        FireForgetSkippable(suspected, bool(step.mRemoveChildless), aDeadline);
+        FireForgetSkippable(bool(step.mRemoveChildless), aDeadline);
         break;
 
       case CCRunnerAction::CleanupContentUnbinder:
@@ -1665,7 +1668,7 @@ static bool CCRunnerFired(TimeStamp aDeadline) {
     if (step.mAction != CCRunnerAction::None) {
       didDoWork = true;
     }
-  } while (step.mYield == CCGCScheduler::CCRunnerYield::Continue);
+  } while (step.mYield == CCRunnerYield::Continue);
 
   return didDoWork;
 }
@@ -1803,7 +1806,7 @@ void nsJSContext::PokeGC(JS::GCReason aReason, JSObject* aObj,
   if (aObj) {
     JS::Zone* zone = JS::GetObjectZone(aObj);
     CycleCollectedJSRuntime::Get()->AddZoneWaitingForGC(zone);
-  } else if (aReason != JS::GCReason::CC_WAITING) {
+  } else if (aReason != JS::GCReason::CC_FINISHED) {
     sScheduler.SetNeedsFullGC();
   }
 
@@ -1905,6 +1908,8 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
                                const JS::GCDescription& aDesc) {
   NS_ASSERTION(NS_IsMainThread(), "GCs must run on the main thread");
 
+  static TimeStamp sCurrentGCStartTime;
+
   switch (aProgress) {
     case JS::GC_CYCLE_BEGIN: {
       // Prevent cycle collections and shrinking during incremental GC.
@@ -1948,14 +1953,11 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
         }
       } else {
         nsJSContext::KillFullGCTimer();
-      }
-
-      if (sScheduler.IsCCNeeded(nsCycleCollector_suspectedCount())) {
-        nsCycleCollector_dispatchDeferredDeletion();
-      }
-
-      if (!aDesc.isZone_) {
         sScheduler.SetNeedsFullGC(false);
+      }
+
+      if (sScheduler.IsCCNeeded()) {
+        nsCycleCollector_dispatchDeferredDeletion();
       }
 
       Telemetry::Accumulate(Telemetry::GC_IN_PROGRESS_MS,
@@ -1986,7 +1988,7 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
             [] { return sShuttingDown; });
       }
 
-      if (sScheduler.IsCCNeeded(nsCycleCollector_suspectedCount())) {
+      if (sScheduler.IsCCNeeded()) {
         nsCycleCollector_dispatchDeferredDeletion();
       }
 

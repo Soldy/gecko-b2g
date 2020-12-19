@@ -3527,7 +3527,7 @@ nsresult nsContentUtils::LoadImage(
     nsIPrincipal* aLoadingPrincipal, uint64_t aRequestContextID,
     nsIReferrerInfo* aReferrerInfo, imgINotificationObserver* aObserver,
     int32_t aLoadFlags, const nsAString& initiatorType,
-    imgRequestProxy** aRequest, uint32_t aContentPolicyType,
+    imgRequestProxy** aRequest, nsContentPolicyType aContentPolicyType,
     bool aUseUrgentStartForChannel, bool aLinkPreload) {
   MOZ_ASSERT(aURI, "Must have a URI");
   MOZ_ASSERT(aContext, "Must have a context");
@@ -10065,7 +10065,6 @@ bool nsContentUtils::IsMessageInputEvent(const IPC::Message& aMsg) {
       case mozilla::dom::PBrowser::Msg_RealDragEvent__ID:
       case mozilla::dom::PBrowser::Msg_UpdateDimensions__ID:
       case mozilla::dom::PBrowser::Msg_MouseEvent__ID:
-      case mozilla::dom::PBrowser::Msg_SetDocShellIsActive__ID:
         return true;
     }
   }

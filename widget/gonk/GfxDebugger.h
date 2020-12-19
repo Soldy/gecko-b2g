@@ -8,6 +8,8 @@
 #define GFX_DEBUGGER_H
 
 #include <sys/socket.h>
+
+#include "GfxDebugger_defs.h"
 #include "mozilla/ipc/ListenSocket.h"
 #include "mozilla/ipc/ListenSocketConsumer.h"
 #include "mozilla/ipc/StreamSocket.h"

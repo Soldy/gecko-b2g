@@ -509,6 +509,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "etagere"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "euclid 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svg_fmt 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "euclid"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1789,6 +1799,7 @@ dependencies = [
  "cstr 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more 0.99.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "etagere 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2090,6 +2101,7 @@ dependencies = [
 "checksum dwrote 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "439a1c2ba5611ad3ed731280541d36d2e9c4ac5e7fb818a27b604bdc5a6aa65b"
 "checksum either 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "bb1f6b1ce1c140482ea30ddd3335fc0024ac7ee112895426e0a629a6c20adfe3"
 "checksum env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)" = "15b0a4d2e39f8420210be8b27eeda28029729e2fd4291019455016c348240c38"
+"checksum etagere 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c08b0c1a67320904a4d6e37931945c17447eb94057c8ebcc8d3ffd2789b6fb7b"
 "checksum euclid 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7ab0e07e345fb061928646949fdf5fb888e5d75a57385e7f5856e45be289e745"
 "checksum expat-sys 2.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "658f19728920138342f68408b7cf7644d90d4784353d8ebc32e7e8663dbe45fa"
 "checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"

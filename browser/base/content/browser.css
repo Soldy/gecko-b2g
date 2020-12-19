@@ -651,7 +651,7 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
   }
 }
 
-#urlbar[actionoverride] > #urlbar-input-container > #urlbar-label-box,
+#urlbar[actiontype="switchtab"][actionoverride] > #urlbar-input-container > #urlbar-label-box,
 #urlbar:not([actiontype="switchtab"], [actiontype="extension"], [searchmode]) > #urlbar-input-container > #urlbar-label-box,
 #urlbar:not([actiontype="switchtab"]) > #urlbar-input-container > #urlbar-label-box > #urlbar-label-switchtab,
 #urlbar:not([actiontype="extension"]) > #urlbar-input-container > #urlbar-label-box > #urlbar-label-extension,
@@ -1408,8 +1408,14 @@ toolbarpaletteitem > toolbaritem {
 }
 
 .printPreviewBrowser {
+  display: none;
   opacity: 1;
   transition: opacity 60ms;
+}
+
+.previewStack[previewtype="primary"] > .printPreviewBrowser[previewtype="primary"],
+.previewStack[previewtype="selection"] > .printPreviewBrowser[previewtype="selection"] {
+  display: block;
 }
 
 .previewStack[rendering=true] > .printPreviewBrowser {

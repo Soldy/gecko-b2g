@@ -291,7 +291,7 @@ let JSWINDOWACTORS = {
     },
 
     allFrames: true,
-    messageManagerGroups: ["browsers", ""],
+    messageManagerGroups: ["browsers", "webext-browsers", ""],
   },
 
   ManifestMessages: {
@@ -364,6 +364,13 @@ let JSWINDOWACTORS = {
         printPreviewUpdate: { capture: true },
       },
     },
+  },
+
+  PrintingSelection: {
+    child: {
+      moduleURI: "resource://gre/actors/PrintingSelectionChild.jsm",
+    },
+    allFrames: true,
   },
 
   PurgeSessionHistory: {

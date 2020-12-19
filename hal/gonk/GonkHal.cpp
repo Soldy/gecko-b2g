@@ -197,10 +197,12 @@ VibratorRunnable::Run() {
   while (!sShuttingDown) {
     if (mIndex < mPattern.Length()) {
       uint32_t duration = mPattern[mIndex];
-      if (mIndex % 2 == 0) {
-        // Get a handle to the HIDL vibrator service.
-        auto vibrator =
-            android::hardware::vibrator::V1_0::IVibrator::getService();
+      // Get a handle to the HIDL vibrator service.
+      auto vibrator =
+          android::hardware::vibrator::V1_0::IVibrator::getService();
+      if ((mPattern.Length() == 1) && (duration == 0)) {
+        vibrator->off();
+      } else if (mIndex % 2 == 0) {
         vibrator->on(duration);
       }
       mIndex++;

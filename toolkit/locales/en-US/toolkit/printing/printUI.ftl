@@ -53,6 +53,7 @@ printui-duplex-checkbox = Print on both sides
 printui-options = Options
 printui-headers-footers-checkbox = Print headers and footers
 printui-backgrounds-checkbox = Print backgrounds
+printui-selection-checkbox = Print selection only
 
 printui-color-mode-label = Color mode
 printui-color-mode-color = Color
@@ -62,11 +63,15 @@ printui-margins = Margins
 printui-margins-default = Default
 printui-margins-min = Minimum
 printui-margins-none = None
-printui-margins-custom = Custom
+printui-margins-custom-inches = Custom (inches)
 printui-margins-custom-top = Top
+printui-margins-custom-top-inches = Top (inches)
 printui-margins-custom-bottom = Bottom
+printui-margins-custom-bottom-inches = Bottom (inches)
 printui-margins-custom-left = Left
+printui-margins-custom-left-inches = Left (inches)
 printui-margins-custom-right = Right
+printui-margins-custom-right-inches = Right (inches)
 
 printui-system-dialog-link = Print using the system dialog…
 
@@ -83,6 +88,10 @@ printui-preview-label =
     .aria-label = Print Preview
 
 printui-pages-per-sheet = Pages per sheet
+
+# This is shown next to the Print button with an indefinite loading spinner
+# when the user prints a page and it is being sent to the printer.
+printui-print-progress-indicator = Printing…
 
 ## Paper sizes that may be supported by the Save to PDF destination:
 

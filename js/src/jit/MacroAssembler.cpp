@@ -3233,16 +3233,6 @@ void MacroAssembler::branchTestObjCompartment(
   branchPtr(cond, scratch, ImmPtr(compartment), label);
 }
 
-void MacroAssembler::branchIfPretenuredGroup(const ObjectGroup* group,
-                                             Register scratch, Label* label) {
-  movePtr(ImmGCPtr(group), scratch);
-  branchIfPretenuredGroup(scratch, label);
-}
-
-void MacroAssembler::branchIfPretenuredGroup(Register group, Label* label) {
-  // TODO(no-TI): remove.
-}
-
 void MacroAssembler::branchIfNonNativeObj(Register obj, Register scratch,
                                           Label* label) {
   loadObjClassUnsafe(obj, scratch);
@@ -3259,13 +3249,6 @@ void MacroAssembler::branchIfObjectNotExtensible(Register obj, Register scratch,
   // based on this check.
   branchTest32(Assembler::NonZero, Address(scratch, BaseShape::offsetOfFlags()),
                Imm32(js::BaseShape::NOT_EXTENSIBLE), label);
-}
-
-void MacroAssembler::copyObjGroupNoPreBarrier(Register sourceObj,
-                                              Register destObj,
-                                              Register scratch) {
-  loadPtr(Address(sourceObj, JSObject::offsetOfGroup()), scratch);
-  storePtr(scratch, Address(destObj, JSObject::offsetOfGroup()));
 }
 
 void MacroAssembler::maybeBranchTestType(MIRType type, MDefinition* maybeDef,
@@ -3472,15 +3455,15 @@ CodeOffset MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc,
   MOZ_ASSERT(callee.which() == wasm::CalleeDesc::WasmTable);
 
   // Write the functype-id into the ABI functype-id register.
-  wasm::FuncTypeIdDesc funcTypeId = callee.wasmTableSigId();
+  wasm::TypeIdDesc funcTypeId = callee.wasmTableSigId();
   switch (funcTypeId.kind()) {
-    case wasm::FuncTypeIdDescKind::Global:
+    case wasm::TypeIdDescKind::Global:
       loadWasmGlobalPtr(funcTypeId.globalDataOffset(), WasmTableCallSigReg);
       break;
-    case wasm::FuncTypeIdDescKind::Immediate:
+    case wasm::TypeIdDescKind::Immediate:
       move32(Imm32(funcTypeId.immediate()), WasmTableCallSigReg);
       break;
-    case wasm::FuncTypeIdDescKind::None:
+    case wasm::TypeIdDescKind::None:
       break;
   }
 

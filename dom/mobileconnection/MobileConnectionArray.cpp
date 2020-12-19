@@ -10,6 +10,7 @@
 #include "nsServiceManagerUtils.h"
 
 // Service instantiation
+#include "fallback/ImsRegService.h"
 #include "ipc/ImsRegIPCService.h"
 #include "ipc/MobileConnectionIPCService.h"
 #if defined(MOZ_WIDGET_GONK) && defined(MOZ_B2G_RIL)
@@ -111,7 +112,6 @@ NS_CreateMobileConnectionService() {
 already_AddRefed<nsIImsRegService> NS_CreateImsRegService() {
   nsCOMPtr<nsIImsRegService> service;
 
-  // Could be nullptr if the IMS feature is not enabled by the device.
   if (XRE_IsContentProcess()) {
     service = mozilla::dom::mobileconnection::ImsRegIPCService::GetSingleton();
   } else {
@@ -120,6 +120,13 @@ already_AddRefed<nsIImsRegService> NS_CreateImsRegService() {
 #if defined(MOZ_WIDGET_GONK) && defined(MOZ_B2G_RIL)
     service = do_GetService(GONK_IMSREGSERVICE_CONTRACTID);
 #endif
+  }
+
+  // The JS side doesn't deal well with nullptr instances of nsIImsRegService,
+  // so provide a dummy implementation instead.
+  // This works in both parent and child processes.
+  if (!service) {
+    service = new mobileconnection::FallbackImsRegService();
   }
 
   return service.forget();

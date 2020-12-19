@@ -16,7 +16,6 @@
 #include "CopyOrMoveToTask.h"
 #include "RenameToTask.h"
 
-#include "nsCharSeparatedTokenizer.h"
 #include "nsIFile.h"
 #include "nsString.h"
 #include "mozilla/dom/BlobImpl.h"

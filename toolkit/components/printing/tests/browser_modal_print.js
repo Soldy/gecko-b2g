@@ -209,20 +209,39 @@ add_task(async function testPrintOnNewWindowDoesntClose() {
     set: [["print.tab_modal.enabled", true]],
   });
   let win = await BrowserTestUtils.openNewBrowserWindow();
-  let browser = win.gBrowser.selectedBrowser;
-  BrowserTestUtils.loadURI(browser, PrintHelper.defaultTestPageUrl);
-  await BrowserTestUtils.browserLoaded(
-    browser,
-    true,
-    PrintHelper.defaultTestPageUrl
-  );
-  let helper = new PrintHelper(browser);
-  await helper.startPrint();
-  let file = helper.mockFilePicker("print_new_window_close.pdf");
-  await helper.assertPrintToFile(file, () => {
-    EventUtils.sendKey("return", helper.win);
+
+  await PrintHelper.withTestPage(async helper => {
+    await helper.startPrint();
+    let file = helper.mockFilePicker("print_new_window_close.pdf");
+    await helper.assertPrintToFile(file, () => {
+      EventUtils.sendKey("return", helper.win);
+    });
   });
   ok(!win.closed, "Shouldn't be closed");
   await BrowserTestUtils.closeWindow(win);
   await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function testPrintProgressIndicator() {
+  await PrintHelper.withTestPage(async helper => {
+    await helper.startPrint();
+
+    helper.setupMockPrint();
+
+    let progressIndicator = helper.get("print-progress");
+    ok(progressIndicator.hidden, "Progress indicator is hidden");
+
+    let indicatorShown = BrowserTestUtils.waitForAttributeRemoval(
+      "hidden",
+      progressIndicator
+    );
+    helper.click(helper.get("print-button"));
+    await indicatorShown;
+
+    ok(!progressIndicator.hidden, "Progress indicator is shown on print start");
+
+    await helper.withClosingFn(async () => {
+      await helper.resolvePrint();
+    });
+  });
 });

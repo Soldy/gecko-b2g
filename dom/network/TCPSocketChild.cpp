@@ -148,12 +148,14 @@ mozilla::ipc::IPCResult TCPSocketChild::RecvCallback(
   return IPC_OK();
 }
 
-void TCPSocketChild::SendSend(const nsACString& aData) {
-  SendData(nsCString(aData));
+void TCPSocketChild::SendSend(const nsACString& aData,
+                              uint32_t aTrackingNumber) {
+  SendData(nsCString(aData), aTrackingNumber);
 }
 
 nsresult TCPSocketChild::SendSend(const ArrayBuffer& aData,
-                                  uint32_t aByteOffset, uint32_t aByteLength) {
+                                  uint32_t aByteOffset, uint32_t aByteLength,
+                                  uint32_t aTrackingNumber) {
   uint32_t buflen = aData.Length();
   uint32_t offset = std::min(buflen, aByteOffset);
   uint32_t nbytes = std::min(buflen - aByteOffset, aByteLength);
@@ -163,7 +165,7 @@ nsresult TCPSocketChild::SendSend(const ArrayBuffer& aData,
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  SendData(SendableData{std::move(fallibleArr)});
+  SendData(SendableData{std::move(fallibleArr)}, aTrackingNumber);
   return NS_OK;
 }
 

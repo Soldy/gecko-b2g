@@ -306,6 +306,7 @@ struct ParamTraits<nsIMobileConnectionInfo*> {
     bool pBool;
     nsCOMPtr<nsIMobileNetworkInfo> pNetworkInfo;
     nsCOMPtr<nsIMobileCellInfo> pCellInfo;
+    int32_t pLong;
     JS::Rooted<JS::Value> pJsval(cx);
 
     aParam->GetState(pString);
@@ -330,6 +331,9 @@ struct ParamTraits<nsIMobileConnectionInfo*> {
     aParam->GetCell(getter_AddRefs(pCellInfo));
     // Release ref when WriteParam is finished.
     WriteParam(aMsg, pCellInfo.forget().take());
+
+    aParam->GetReasonDataDenied(&pLong);
+    WriteParam(aMsg, pLong);
 
     // We release the ref here given that ipdl won't handle reference counting.
     aParam->Release();
@@ -357,6 +361,7 @@ struct ParamTraits<nsIMobileConnectionInfo*> {
     nsString type;
     nsIMobileNetworkInfo* networkInfo = nullptr;
     nsIMobileCellInfo* cellInfo = nullptr;
+    int32_t reasonDataDenied;
 
     // It's not important to us where it fails, but rather if it fails
     if (!(ReadParam(aMsg, aIter, &state) &&
@@ -364,12 +369,14 @@ struct ParamTraits<nsIMobileConnectionInfo*> {
           ReadParam(aMsg, aIter, &emergencyOnly) &&
           ReadParam(aMsg, aIter, &roaming) && ReadParam(aMsg, aIter, &type) &&
           ReadParam(aMsg, aIter, &networkInfo) &&
-          ReadParam(aMsg, aIter, &cellInfo))) {
+          ReadParam(aMsg, aIter, &cellInfo) &&
+          ReadParam(aMsg, aIter, &reasonDataDenied))) {
       return false;
     }
 
-    *aResult = new MobileConnectionInfo(state, connected, emergencyOnly,
-                                        roaming, networkInfo, type, cellInfo);
+    *aResult =
+        new MobileConnectionInfo(state, connected, emergencyOnly, roaming,
+                                 networkInfo, type, cellInfo, reasonDataDenied);
     // We release this ref after receiver finishes processing.
     NS_ADDREF(*aResult);
     // We already clone the data into MobileConnectionInfo, so release the ref

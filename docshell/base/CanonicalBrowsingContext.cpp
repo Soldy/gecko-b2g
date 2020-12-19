@@ -469,7 +469,9 @@ void CanonicalBrowsingContext::CallOnAllTopDescendants(
 
 void CanonicalBrowsingContext::SessionHistoryCommit(uint64_t aLoadId,
                                                     const nsID& aChangeID,
-                                                    uint32_t aLoadType) {
+                                                    uint32_t aLoadType,
+                                                    bool aPersist,
+                                                    bool aCloneEntryChildren) {
   MOZ_LOG(gSHLog, LogLevel::Verbose,
           ("CanonicalBrowsingContext::SessionHistoryCommit %p %" PRIu64, this,
            aLoadId));
@@ -523,7 +525,7 @@ void CanonicalBrowsingContext::SessionHistoryCommit(uint64_t aLoadId,
           }
 
           if (addEntry) {
-            shistory->AddEntry(mActiveEntry, mActiveEntry->GetPersist());
+            shistory->AddEntry(mActiveEntry, aPersist);
           }
         }
       } else {
@@ -552,9 +554,8 @@ void CanonicalBrowsingContext::SessionHistoryCommit(uint64_t aLoadId,
             } else {
               // AddChildSHEntryHelper does update the index of the session
               // history!
-              // FIXME Need to figure out the right value for aCloneChildren.
               shistory->AddChildSHEntryHelper(mActiveEntry, newActiveEntry,
-                                              Top(), true);
+                                              Top(), aCloneEntryChildren);
               mActiveEntry = newActiveEntry;
             }
           } else {
@@ -1317,6 +1318,13 @@ CanonicalBrowsingContext::PendingRemotenessChange::~PendingRemotenessChange() {
   MOZ_ASSERT(!mPromise && !mTarget && !mContentParent && !mSpecificGroup &&
                  !mPrepareToChangePromise,
              "should've already been Cancel() or Complete()-ed");
+}
+
+BrowserParent* CanonicalBrowsingContext::GetBrowserParent() const {
+  if (auto* wg = GetCurrentWindowGlobal()) {
+    return wg->GetBrowserParent();
+  }
+  return nullptr;
 }
 
 RefPtr<CanonicalBrowsingContext::RemotenessPromise>

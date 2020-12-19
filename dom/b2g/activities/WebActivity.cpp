@@ -4,11 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/dom/WebActivity.h"
-#include "mozilla/dom/WebActivityWorker.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ToJSValue.h"
+#include "mozilla/dom/WebActivity.h"
+#include "mozilla/dom/WebActivityWorker.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsIConsoleService.h"
@@ -151,8 +152,7 @@ nsresult WebActivityMain::PermissionCheck() {
 
   Document* document = window->GetExtantDoc();
 
-  bool isActive;
-  window->GetDocShell()->GetIsActive(&isActive);
+  bool isActive = window->GetDocShell()->GetBrowsingContext()->IsActive();
 
   if (!isActive && !nsContentUtils::IsChromeDoc(document)) {
     nsCOMPtr<nsIConsoleService> console(

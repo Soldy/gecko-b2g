@@ -340,10 +340,8 @@ void Navigator::GetAcceptLanguages(nsTArray<nsString>& aLanguages) {
   Preferences::GetLocalizedString("intl.accept_languages", acceptLang);
 
   // Split values on commas.
-  nsCharSeparatedTokenizer langTokenizer(acceptLang, ',');
-  while (langTokenizer.hasMoreTokens()) {
-    nsDependentSubstring lang = langTokenizer.nextToken();
-
+  for (nsDependentSubstring lang :
+       nsCharSeparatedTokenizer(acceptLang, ',').ToRange()) {
     // Replace "_" with "-" to avoid POSIX/Windows "en_US" notation.
     // NOTE: we should probably rely on the pref being set correctly.
     if (lang.Length() > 2 && lang[2] == char16_t('_')) {
@@ -354,12 +352,10 @@ void Navigator::GetAcceptLanguages(nsTArray<nsString>& aLanguages) {
     // only uppercase 2-letter country codes, not "zh-Hant", "de-DE-x-goethe".
     // NOTE: we should probably rely on the pref being set correctly.
     if (lang.Length() > 2) {
-      nsCharSeparatedTokenizer localeTokenizer(lang, '-');
       int32_t pos = 0;
       bool first = true;
-      while (localeTokenizer.hasMoreTokens()) {
-        const nsAString& code = localeTokenizer.nextToken();
-
+      for (const nsAString& code :
+           nsCharSeparatedTokenizer(lang, '-').ToRange()) {
         if (code.Length() == 2 && !first) {
           nsAutoString upper(code);
           ToUpperCase(upper);
@@ -1063,6 +1059,9 @@ B2G* Navigator::B2g() {
 
   if (!mB2G) {
     mB2G = new B2G(mWindow->AsGlobal());
+    if (NS_WARN_IF(NS_FAILED(mB2G->Init()))) {
+      mB2G = nullptr;
+    }
   }
 
   return mB2G;

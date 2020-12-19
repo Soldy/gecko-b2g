@@ -21,7 +21,7 @@ variables:
       printf "\033[0;31mYou're using GECKO_PATH defined from ${CI_PROJECT_PATH} !\033[0m\n"
       cd ${GECKO_PATH}
       git init
-      git fetch ${CI_SERVER_URL}/KaiOS/gecko-dev.git gonk --no-tags --depth 1
+      git fetch ${CI_SERVER_URL}/KaiOS/gecko-dev.git next --no-tags --depth 1
       git checkout FETCH_HEAD
       check_format_opt="${check_format_opt} --koost"
     else

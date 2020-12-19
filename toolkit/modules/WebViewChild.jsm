@@ -855,22 +855,14 @@ var WebViewChild = {
   recvScrollTo(data) {
     this.log(`Received WebView::ScrollTo`);
     let content = this.global.content;
-    let winUtils = content?.windowUtils;
-    if (!winUtils) {
-      return;
-    }
 
-    // Get the current viewport position in order to preserve the X position.
-    const x = {};
-    const y = {};
-    winUtils.getVisualViewportOffset(x, y);
     let params = data.json;
-
-    winUtils.scrollToVisual(
-      x.value,
-      params.where === "top" ? 0 : content.ownerGlobal.scrollMaxY,
-      winUtils.UPDATE_MAIN_THREAD,
-      params.smooth ? winUtils.SCROLL_MODE_SMOOTH : winUtils.SCROLL_MODE_INSTANT
-    );
+    let options = {
+      top: params.where === "top" ? 0 : content.scrollMaxY,
+    };
+    if (params.smooth) {
+      options.behavior = "smooth";
+    }
+    content.scrollTo(options);
   },
 };

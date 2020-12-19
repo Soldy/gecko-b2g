@@ -70,6 +70,7 @@
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/IdentifierMapEntry.h"
+#include "mozilla/InputTaskManager.h"
 #include "mozilla/IntegerRange.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/Likely.h"
@@ -6556,6 +6557,12 @@ bool Document::ShouldThrottleFrameRequests() const {
     return false;  // Can't do anything smarter.
   }
 
+  if (!mPresShell->IsActive()) {
+    // The pres shell is not active (we're an invisible OOP iframe or such), so
+    // throttle.
+    return true;
+  }
+
   nsIFrame* frame = mPresShell->GetRootFrame();
   if (!frame) {
     return false;  // Can't do anything smarter.
@@ -8729,7 +8736,7 @@ void Document::DoNotifyPossibleTitleChange() {
 }
 
 already_AddRefed<MediaQueryList> Document::MatchMedia(
-    const nsAString& aMediaQueryList, CallerType aCallerType) {
+    const nsACString& aMediaQueryList, CallerType aCallerType) {
   RefPtr<MediaQueryList> result =
       new MediaQueryList(this, aMediaQueryList, aCallerType);
 
@@ -14122,14 +14129,12 @@ nsTArray<Element*> Document::GetTopLayer() const {
 
 // Returns true if aDoc is in the focused tab in the active window.
 bool IsInActiveTab(Document* aDoc) {
-  nsCOMPtr<nsIDocShell> docshell = aDoc->GetDocShell();
-  if (!docshell) {
+  BrowsingContext* bc = aDoc->GetBrowsingContext();
+  if (!bc) {
     return false;
   }
 
-  bool isActive = false;
-  docshell->GetIsActive(&isActive);
-  if (!isActive) {
+  if (!bc->IsActive()) {
     return false;
   }
 
@@ -14141,7 +14146,10 @@ bool IsInActiveTab(Document* aDoc) {
   if (XRE_IsParentProcess()) {
     // Keep dom/tests/mochitest/chrome/test_MozDomFullscreen_event.xhtml happy
     // by retaining the old code path for the parent process.
-
+    nsIDocShell* docshell = aDoc->GetDocShell();
+    if (!docshell) {
+      return false;
+    }
     nsCOMPtr<nsIDocShellTreeItem> rootItem;
     docshell->GetInProcessRootTreeItem(getter_AddRefs(rootItem));
     if (!rootItem) {
@@ -14161,17 +14169,7 @@ bool IsInActiveTab(Document* aDoc) {
     return activeWindow == rootWin;
   }
 
-  BrowsingContext* bc = aDoc->GetBrowsingContext();
-  if (!bc) {
-    return false;
-  }
-
-  BrowsingContext* activeBrowsingContext = fm->GetActiveBrowsingContext();
-  if (!activeBrowsingContext) {
-    return false;
-  }
-
-  return activeBrowsingContext == bc->Top();
+  return fm->GetActiveBrowsingContext() == bc->Top();
 }
 
 void Document::RemoteFrameFullscreenChanged(Element* aFrameElement) {
@@ -14622,7 +14620,7 @@ static const char* GetPointerLockError(Element* aElement, Element* aCurrentLock,
   BrowsingContext* bc = ownerDoc->GetBrowsingContext();
   BrowsingContext* topBC = bc ? bc->Top() : nullptr;
   WindowContext* topWC = ownerDoc->GetTopLevelWindowContext();
-  if (!topBC || !topBC->GetIsActive() || !topWC ||
+  if (!topBC || !topBC->IsActive() || !topWC ||
       topWC != topBC->GetCurrentWindowContext()) {
     return "PointerLockDeniedHidden";
   }
@@ -15619,7 +15617,9 @@ static CallState MarkDocumentTreeToBeInSyncOperation(
   return CallState::Continue;
 }
 
-nsAutoSyncOperation::nsAutoSyncOperation(Document* aDoc) {
+nsAutoSyncOperation::nsAutoSyncOperation(Document* aDoc,
+                                         SyncOperationBehavior aSyncBehavior)
+    : mSyncBehavior(aSyncBehavior) {
   mMicroTaskLevel = 0;
   CycleCollectedJSContext* ccjs = CycleCollectedJSContext::Get();
   if (ccjs) {
@@ -15634,6 +15634,13 @@ nsAutoSyncOperation::nsAutoSyncOperation(Document* aDoc) {
         }
       }
     }
+
+    mBrowsingContext = aDoc->GetBrowsingContext();
+    if (mBrowsingContext &&
+        mSyncBehavior == SyncOperationBehavior::eSuspendInput &&
+        InputTaskManager::CanSuspendInputEvent()) {
+      mBrowsingContext->Group()->IncInputEventSuspensionLevel();
+    }
   }
 }
 
@@ -15647,6 +15654,12 @@ nsAutoSyncOperation::~nsAutoSyncOperation() {
   CycleCollectedJSContext* ccjs = CycleCollectedJSContext::Get();
   if (ccjs) {
     ccjs->SetMicroTaskLevel(mMicroTaskLevel);
+  }
+
+  if (mBrowsingContext &&
+      mSyncBehavior == SyncOperationBehavior::eSuspendInput &&
+      InputTaskManager::CanSuspendInputEvent()) {
+    mBrowsingContext->Group()->DecInputEventSuspensionLevel();
   }
 }
 
@@ -16551,7 +16564,17 @@ already_AddRefed<mozilla::dom::Promise> Document::RequestStorageAccess(
   //         user for explicit permission. Reject if some rule is not fulfilled.
   if (CookieJarSettings()->GetRejectThirdPartyContexts()) {
     // Only do something special for third-party tracking content.
-    if (StorageDisabledByAntiTracking(this, nullptr)) {
+    uint32_t antiTrackingRejectedReason = 0;
+    if (StorageDisabledByAntiTracking(this, nullptr,
+                                      antiTrackingRejectedReason)) {
+      // If storage is disabled because of a custom cookie permission for the
+      // site, reject.
+      if (antiTrackingRejectedReason ==
+          nsIWebProgressListener::STATE_COOKIES_BLOCKED_BY_PERMISSION) {
+        promise->MaybeRejectWithUndefined();
+        return promise.forget();
+      }
+
       // Note: If this has returned true, the top-level document is guaranteed
       // to not be on the Content Blocking allow list.
       MOZ_ASSERT(!CookieJarSettings()->GetIsOnContentBlockingAllowList());

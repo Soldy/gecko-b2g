@@ -31,16 +31,11 @@ XPCOMUtils.defineLazyServiceGetter(
 
 const WIFI_CTRL_INTERFACE = "wl0.1";
 
-var DEBUG = true;
+var DEBUG = false;
 function updateDebug() {
-  //TODO: always true for now.
-  /*
   try {
-    DEBUG =
-      DEBUG || Services.prefs.getBoolPref(PREF_NETWORK_DEBUG_ENABLED);
+    DEBUG = DEBUG || Services.prefs.getBoolPref(PREF_NETWORK_DEBUG_ENABLED);
   } catch (e) {}
-
-  */
 }
 
 function debug(s) {

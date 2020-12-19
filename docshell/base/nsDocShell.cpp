@@ -351,7 +351,7 @@ static bool IsUrgentStart(BrowsingContext* aBrowsingContext,
     return true;
   }
 
-  return aBrowsingContext->GetIsActive();
+  return aBrowsingContext->IsActive();
 }
 
 nsDocShell::nsDocShell(BrowsingContext* aBrowsingContext,
@@ -1218,7 +1218,7 @@ bool nsDocShell::MaybeInitTiming() {
   }
 
   mTiming->NotifyNavigationStart(
-      mBrowsingContext->GetIsActive()
+      mBrowsingContext->IsActive()
           ? nsDOMNavigationTiming::DocShellState::eActive
           : nsDOMNavigationTiming::DocShellState::eInactive);
 
@@ -2586,9 +2586,6 @@ nsresult nsDocShell::SetDocLoaderParent(nsDocLoader* aParent) {
     if (mAllowWindowControl &&
         NS_SUCCEEDED(parentAsDocShell->GetAllowWindowControl(&value))) {
       SetAllowWindowControl(value);
-    }
-    if (NS_SUCCEEDED(parentAsDocShell->GetIsActive(&value))) {
-      SetIsActive(value);
     }
     if (NS_FAILED(parentAsDocShell->GetAllowDNSPrefetch(&value))) {
       value = false;
@@ -3996,10 +3993,19 @@ nsDocShell::Reload(uint32_t aReloadFlags) {
     bool forceReload = IsForceReloadType(loadType);
     if (!XRE_IsParentProcess()) {
       RefPtr<nsDocShell> docShell(this);
+      nsCOMPtr<nsIContentViewer> cv(mContentViewer);
+
+      bool okToUnload = true;
+      MOZ_TRY(cv->PermitUnload(&okToUnload));
+      if (!okToUnload) {
+        return NS_OK;
+      }
+
       RefPtr<Document> doc(GetDocument());
       RefPtr<BrowsingContext> browsingContext(mBrowsingContext);
       nsCOMPtr<nsIURI> currentURI(mCurrentURI);
       nsCOMPtr<nsIReferrerInfo> referrerInfo(mReferrerInfo);
+
       ContentChild::GetSingleton()->SendNotifyOnHistoryReload(
           mBrowsingContext, forceReload,
           [docShell, doc, loadType, browsingContext, currentURI, referrerInfo](
@@ -4019,16 +4025,18 @@ nsDocShell::Reload(uint32_t aReloadFlags) {
               MOZ_LOG(
                   gSHLog, LogLevel::Debug,
                   ("nsDocShell %p Reload - LoadHistoryEntry", docShell.get()));
+              loadState.ref()->SetNotifiedBeforeUnloadListeners(true);
               docShell->LoadHistoryEntry(loadState.ref(), loadType,
                                          reloadingActiveEntry.ref());
             } else {
               MOZ_LOG(gSHLog, LogLevel::Debug,
                       ("nsDocShell %p ReloadDocument", docShell.get()));
               ReloadDocument(docShell, doc, loadType, browsingContext,
-                             currentURI, referrerInfo);
+                             currentURI, referrerInfo,
+                             /* aNotifiedBeforeUnloadListeners */ true);
             }
           },
-          [](ResponseRejectReason) {});
+          [](mozilla::ipc::ResponseRejectReason) {});
     } else {
       // Parent process
       bool canReload = false;
@@ -4082,7 +4090,8 @@ nsresult nsDocShell::ReloadDocument(nsDocShell* aDocShell, Document* aDocument,
                                     uint32_t aLoadType,
                                     BrowsingContext* aBrowsingContext,
                                     nsIURI* aCurrentURI,
-                                    nsIReferrerInfo* aReferrerInfo) {
+                                    nsIReferrerInfo* aReferrerInfo,
+                                    bool aNotifiedBeforeUnloadListeners) {
   if (!aDocument) {
     return NS_OK;
   }
@@ -4155,6 +4164,7 @@ nsresult nsDocShell::ReloadDocument(nsDocShell* aDocShell, Document* aDocument,
   loadState->SetBaseURI(baseURI);
   loadState->SetHasValidUserGestureActivation(
       context && context->HasValidTransientUserGestureActivation());
+  loadState->SetNotifiedBeforeUnloadListeners(aNotifiedBeforeUnloadListeners);
   return aDocShell->InternalLoad(loadState);
 }
 
@@ -4776,28 +4786,21 @@ nsDocShell::GetIsOffScreenBrowser(bool* aIsOffScreen) {
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsDocShell::SetIsActive(bool aIsActive) {
-  // Keep track ourselves.
-  // Changing the activeness on a discarded browsing context has no effect.
-  Unused << mBrowsingContext->SetIsActive(aIsActive);
-
-  // Tell the PresShell about it.
+void nsDocShell::ActivenessMaybeChanged() {
+  bool isActive = mBrowsingContext->IsActive();
   if (RefPtr<PresShell> presShell = GetPresShell()) {
-    presShell->SetIsActive(aIsActive);
+    presShell->SetIsActive(isActive);
   }
 
   // Tell the window about it
   if (mScriptGlobal) {
-    mScriptGlobal->SetIsBackground(!aIsActive);
+    mScriptGlobal->SetIsBackground(!isActive);
     if (RefPtr<Document> doc = mScriptGlobal->GetExtantDoc()) {
       // Update orientation when the top-level browsing context becomes active.
-      if (aIsActive) {
-        if (mBrowsingContext->IsTop()) {
-          // We only care about the top-level browsing context.
-          uint16_t orientation = mBrowsingContext->GetOrientationLock();
-          ScreenOrientation::UpdateActiveOrientationLock(orientation);
-        }
+      if (isActive && mBrowsingContext->IsTop()) {
+        // We only care about the top-level browsing context.
+        uint16_t orientation = mBrowsingContext->GetOrientationLock();
+        ScreenOrientation::UpdateActiveOrientationLock(orientation);
       }
 
       doc->PostVisibilityUpdateEvent();
@@ -4813,37 +4816,22 @@ nsDocShell::SetIsActive(bool aIsActive) {
   }
   if (timing) {
     timing->NotifyDocShellStateChanged(
-        aIsActive ? nsDOMNavigationTiming::DocShellState::eActive
-                  : nsDOMNavigationTiming::DocShellState::eInactive);
-  }
-
-  // Recursively tell all of our children, but don't tell <iframe mozbrowser>
-  // children; they handle their state separately.
-  for (auto* child : mChildList.ForwardRange()) {
-    nsCOMPtr<nsIDocShell> docshell = do_QueryObject(child);
-    if (!docshell) {
-      continue;
-    }
-
-    docshell->SetIsActive(aIsActive);
+        isActive ? nsDOMNavigationTiming::DocShellState::eActive
+                 : nsDOMNavigationTiming::DocShellState::eInactive);
   }
 
   // Restart or stop meta refresh timers if necessary
   if (mDisableMetaRefreshWhenInactive) {
-    if (mBrowsingContext->GetIsActive()) {
+    if (isActive) {
       ResumeRefreshURIs();
     } else {
       SuspendRefreshURIs();
     }
   }
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocShell::GetIsActive(bool* aIsActive) {
-  *aIsActive = mBrowsingContext->GetIsActive();
-  return NS_OK;
+  if (InputTaskManager::CanSuspendInputEvent()) {
+    mBrowsingContext->Group()->UpdateInputTaskManagerIfNeeded(isActive);
+  }
 }
 
 NS_IMETHODIMP
@@ -5110,7 +5098,7 @@ nsDocShell::RefreshURI(nsIURI* aURI, nsIPrincipal* aPrincipal, int32_t aDelay,
   }
 
   if (busyFlags & BUSY_FLAGS_BUSY ||
-      (!mBrowsingContext->GetIsActive() && mDisableMetaRefreshWhenInactive)) {
+      (!mBrowsingContext->IsActive() && mDisableMetaRefreshWhenInactive)) {
     // We don't  want to create the timer right now. Instead queue up the
     // request and trigger the timer in EndPageLoad() or whenever we become
     // active.
@@ -5635,7 +5623,7 @@ nsresult nsDocShell::RefreshURIFromQueue() {
 
 nsresult nsDocShell::Embed(nsIContentViewer* aContentViewer,
                            WindowGlobalChild* aWindowActor,
-                           bool aIsTransientAboutBlank) {
+                           bool aIsTransientAboutBlank, bool aPersist) {
   // Save the LayoutHistoryState of the previous document, before
   // setting up new document
   PersistLayoutHistoryState();
@@ -5661,7 +5649,7 @@ nsresult nsDocShell::Embed(nsIContentViewer* aContentViewer,
 
   if (!aIsTransientAboutBlank && mozilla::SessionHistoryInParent()) {
     MOZ_LOG(gSHLog, LogLevel::Debug, ("document %p Embed", this));
-    MoveLoadingToActiveEntry();
+    MoveLoadingToActiveEntry(aPersist);
   }
 
   bool updateHistory = true;
@@ -6451,7 +6439,7 @@ nsresult nsDocShell::EndPageLoad(nsIWebProgress* aProgress,
 
   // if there's a refresh header in the channel, this method
   // will set it up for us.
-  if (mBrowsingContext->GetIsActive() || !mDisableMetaRefreshWhenInactive)
+  if (mBrowsingContext->IsActive() || !mDisableMetaRefreshWhenInactive)
     RefreshURIFromQueue();
 
   // Test whether this is the top frame or a subframe
@@ -6708,7 +6696,7 @@ nsresult nsDocShell::CreateAboutBlankContentViewer(
       // hook 'em up
       if (viewer) {
         viewer->SetContainer(this);
-        rv = Embed(viewer, aActor, true);
+        rv = Embed(viewer, aActor, true, false);
         NS_ENSURE_SUCCESS(rv, rv);
 
         SetCurrentURI(blankDoc->GetDocumentURI(), nullptr, true, 0);
@@ -7945,7 +7933,9 @@ nsresult nsDocShell::CreateContentViewer(const nsACString& aContentType,
     }
   }
 
-  NS_ENSURE_SUCCESS(Embed(viewer), NS_ERROR_FAILURE);
+  NS_ENSURE_SUCCESS(Embed(viewer, nullptr, false,
+                          ShouldAddToSessionHistory(finalURI, aOpenedChannel)),
+                    NS_ERROR_FAILURE);
 
   if (!mBrowsingContext->GetHasLoadedNonInitialDocument()) {
     MOZ_ALWAYS_SUCCEEDS(mBrowsingContext->SetHasLoadedNonInitialDocument(true));
@@ -8322,7 +8312,7 @@ bool nsDocShell::JustStartedNetworkLoad() {
 //
 // This return value will be used when we call NS_CheckContentLoadPolicy, and
 // later when we call DoURILoad.
-uint32_t nsDocShell::DetermineContentType() {
+nsContentPolicyType nsDocShell::DetermineContentType() {
   if (!IsFrame()) {
     return nsIContentPolicy::TYPE_DOCUMENT;
   }
@@ -8870,24 +8860,10 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
           ("Moving the loading entry to the active entry on nsDocShell %p to "
            "%s",
            this, mLoadingEntry->mInfo.GetURI()->GetSpecOrDefault().get()));
+      bool hadActiveEntry = !!mActiveEntry;
       mActiveEntry = MakeUnique<SessionHistoryInfo>(mLoadingEntry->mInfo);
-      nsID changeID = {};
-      if (XRE_IsParentProcess()) {
-        mBrowsingContext->Canonical()->SessionHistoryCommit(
-            mLoadingEntry->mLoadId, changeID, mLoadType);
-      } else {
-        RefPtr<ChildSHistory> rootSH = GetRootSessionHistory();
-        if (rootSH) {
-          // This is a load from session history, so we can update
-          // index and length immediately.
-          rootSH->SetIndexAndLength(mLoadingEntry->mRequestedIndex,
-                                    mLoadingEntry->mSessionHistoryLength,
-                                    changeID);
-        }
-        ContentChild* cc = ContentChild::GetSingleton();
-        mozilla::Unused << cc->SendHistoryCommit(
-            mBrowsingContext, mLoadingEntry->mLoadId, changeID, mLoadType);
-      }
+      mBrowsingContext->SessionHistoryCommit(*mLoadingEntry, mLoadType,
+                                             hadActiveEntry, true , true);
       // FIXME Need to set postdata.
       SetCacheKeyOnHistoryEntry(nullptr, cacheKey);
 
@@ -9216,7 +9192,8 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
   }
   // Check if the page doesn't want to be unloaded. The javascript:
   // protocol handler deals with this for javascript: URLs.
-  if (!isJavaScript && isNotDownload && mContentViewer) {
+  if (!isJavaScript && isNotDownload &&
+      !aLoadState->NotifiedBeforeUnloadListeners() && mContentViewer) {
     bool okToUnload;
     rv = mContentViewer->PermitUnload(&okToUnload);
 
@@ -9266,7 +9243,7 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
     MOZ_ASSERT(mBrowsingContext->IsTop());
     MOZ_ALWAYS_SUCCEEDS(
         mBrowsingContext->SetOrientationLock(hal::eScreenOrientation_None));
-    if (mBrowsingContext->GetIsActive()) {
+    if (mBrowsingContext->IsActive()) {
       ScreenOrientation::UpdateActiveOrientationLock(
           hal::eScreenOrientation_None);
     }
@@ -9931,7 +9908,7 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
   }
 
   nsresult rv;
-  uint32_t contentPolicyType = DetermineContentType();
+  nsContentPolicyType contentPolicyType = DetermineContentType();
 
   if (IsFrame()) {
     MOZ_ASSERT(contentPolicyType == nsIContentPolicy::TYPE_INTERNAL_IFRAME ||
@@ -9949,7 +9926,7 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
             mBrowsingContext->GetParentWindowContext();
         MOZ_ASSERT(parentContext);
         const bool popupBlocked = [&] {
-          const bool active = mBrowsingContext->GetIsActive();
+          const bool active = mBrowsingContext->IsActive();
 
           // For same-origin-with-top windows, we grant a single free popup
           // without user activation, see bug 1680721.
@@ -13270,7 +13247,7 @@ void nsDocShell::SetLoadingSessionHistoryInfo(
   mLoadingEntry = MakeUnique<LoadingSessionHistoryInfo>(aLoadingInfo);
 }
 
-void nsDocShell::MoveLoadingToActiveEntry() {
+void nsDocShell::MoveLoadingToActiveEntry(bool aPersist) {
   MOZ_ASSERT(mozilla::SessionHistoryInParent());
 
   MOZ_LOG(gSHLog, LogLevel::Debug,
@@ -13292,40 +13269,9 @@ void nsDocShell::MoveLoadingToActiveEntry() {
 
   if (mActiveEntry) {
     MOZ_ASSERT(loadingEntry);
-    nsID changeID = {};
     uint32_t loadType =
         mLoadType == LOAD_ERROR_PAGE ? mFailedLoadType : mLoadType;
-    if (XRE_IsParentProcess()) {
-      mBrowsingContext->Canonical()->SessionHistoryCommit(loadingEntry->mLoadId,
-                                                          changeID, loadType);
-    } else {
-      RefPtr<ChildSHistory> rootSH = GetRootSessionHistory();
-      if (rootSH) {
-        if (!loadingEntry->mLoadIsFromSessionHistory) {
-          // We try to mimic as closely as possible what will happen in
-          // CanonicalBrowsingContext::SessionHistoryCommit. We'll be
-          // incrementing the session history length if we're not replacing,
-          // this is a top-level load or it's not the initial load in an iframe,
-          // and ShouldUpdateSessionHistory(loadType) returns true.
-          // It is possible that this leads to wrong length temporarily, but
-          // so would not having the check for replace.
-          if (!LOAD_TYPE_HAS_FLAGS(
-                  mLoadType, nsIWebNavigation::LOAD_FLAGS_REPLACE_HISTORY) &&
-              (mBrowsingContext->IsTop() || hadActiveEntry) &&
-              mBrowsingContext->ShouldUpdateSessionHistory(loadType)) {
-            changeID = rootSH->AddPendingHistoryChange();
-          }
-        } else {
-          // This is a load from session history, so we can update
-          // index and length immediately.
-          rootSH->SetIndexAndLength(loadingEntry->mRequestedIndex,
-                                    loadingEntry->mSessionHistoryLength,
-                                    changeID);
-        }
-      }
-      ContentChild* cc = ContentChild::GetSingleton();
-      mozilla::Unused << cc->SendHistoryCommit(
-          mBrowsingContext, loadingEntry->mLoadId, changeID, loadType);
-    }
+    mBrowsingContext->SessionHistoryCommit(*loadingEntry, loadType,
+                                           hadActiveEntry, aPersist, false);
   }
 }

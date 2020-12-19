@@ -21,7 +21,7 @@ class FMRadioRequestParent final : public PFMRadioRequestParent,
 
   virtual void ActorDestroy(ActorDestroyReason aWhy) override;
 
-  NS_IMETHOD Run();
+  NS_IMETHOD Run() override;
 
  private:
   bool mActorDestroyed;

@@ -1120,6 +1120,8 @@ nsresult nsAppShell::Init() {
     obsServ->AddObserver(this, "browser-ui-startup-complete", false);
     obsServ->AddObserver(this, "network-active-changed", false);
   }
+  obsServ->AddObserver(this, "content-document-global-created", false);
+  obsServ->AddObserver(this, "chrome-document-global-created", false);
 
   // Delay initializing input devices until the screen has been
   // initialized (and we know the resolution).
@@ -1186,6 +1188,32 @@ nsAppShell::Observe(nsISupports* aSubject, const char* aTopic,
 
     NotifyEvent();
     return NS_OK;
+  } else if (!strcmp(aTopic, "content-document-global-created") ||
+             !strcmp(aTopic, "chrome-document-global-created")) {
+    nsCOMPtr<mozIDOMWindowProxy> domWindow = do_QueryInterface(aSubject);
+    MOZ_ASSERT(domWindow);
+    nsPIDOMWindowOuter* outer = nsPIDOMWindowOuter::From(domWindow);
+
+    nsCOMPtr<nsIWidget> domWidget = WidgetUtils::DOMWindowToWidget(outer);
+    NS_ENSURE_TRUE(domWidget, NS_OK);
+
+    if (XRE_IsParentProcess() && outer->GetBrowsingContext()->IsTop()) {
+      nsWindow* widget = static_cast<nsWindow*>(domWidget.get());
+      RefPtr<TextEventDispatcherListener> listener =
+          widget->GetNativeTextEventDispatcherListener();
+      if (!listener) {
+        RefPtr<GeckoEditableSupport> editableSupport =
+            new GeckoEditableSupport(outer);
+        widget->SetNativeTextEventDispatcherListener(editableSupport);
+      }
+    } else if (XRE_IsContentProcess() &&
+               outer->GetBrowsingContext()->IsTopContent()) {
+      // Associate the PuppetWidget of the newly-created BrowserChild with a
+      // B2GEditableChild instance.
+      GeckoEditableSupport::SetOnBrowserChild(
+          domWidget->GetOwningBrowserChild(), outer);
+    }
+    return NS_OK;
   }
 
   return nsBaseAppShell::Observe(aSubject, aTopic, aData);
@@ -1198,6 +1226,8 @@ nsAppShell::Exit() {
   if (obsServ) {
     obsServ->RemoveObserver(this, "browser-ui-startup-complete");
     obsServ->RemoveObserver(this, "network-active-changed");
+    obsServ->RemoveObserver(this, "content-document-global-created");
+    obsServ->RemoveObserver(this, "chrome-document-global-created");
   }
   return nsBaseAppShell::Exit();
 }

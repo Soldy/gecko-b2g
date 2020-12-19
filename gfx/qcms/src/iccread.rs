@@ -22,14 +22,12 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::{
-    ptr::null_mut,
-    slice,
     sync::atomic::{AtomicBool, Ordering},
     sync::Arc,
 };
 
 use ::libc;
-use libc::{fclose, fopen, fread, free, malloc, memset, FILE};
+use libc::{free, malloc, memset};
 
 use crate::{
     double_to_s15Fixed16Number,
@@ -76,7 +74,7 @@ pub const XYZ_SIGNATURE: u32 = 0x58595A20;
 pub const LAB_SIGNATURE: u32 = 0x4C616220;
 
 #[repr(C)]
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct qcms_profile {
     pub(crate) class_type: u32,
     pub(crate) color_space: u32,
@@ -99,11 +97,11 @@ pub struct qcms_profile {
     pub(crate) output_table_b: Option<Arc<precache_output>>,
 }
 
-#[repr(C)]
-#[derive(Clone, Default)]
-pub struct lutmABType {
+#[derive(Default)]
+pub(crate) struct lutmABType {
     pub num_in_channels: u8,
     pub num_out_channels: u8,
+    // 16 is the upperbound, actual is 0..num_in_channels.
     pub num_grid_points: [u8; 16],
     pub e00: s15Fixed16Number,
     pub e01: s15Fixed16Number,
@@ -117,6 +115,7 @@ pub struct lutmABType {
     pub e21: s15Fixed16Number,
     pub e22: s15Fixed16Number,
     pub e23: s15Fixed16Number,
+    // reversed elements (for mBA)
     pub reversed: bool,
     pub clut_table: Option<Vec<f32>>,
     pub a_curves: [Option<Box<curveType>>; 10],
@@ -124,17 +123,15 @@ pub struct lutmABType {
     pub m_curves: [Option<Box<curveType>>; 10],
 }
 
-#[repr(C)]
-#[derive(Clone)]
-pub enum curveType {
+pub(crate) enum curveType {
     Curve(Vec<uInt16Number>),
     Parametric(Vec<f32>),
 }
-pub type uInt16Number = u16;
+type uInt16Number = u16;
 
-#[repr(C)]
-#[derive(Clone)]
-pub struct lutType {
+/* should lut8Type and lut16Type be different types? */
+pub(crate) struct lutType {
+    // used by lut8Type/lut16Type (mft2) only
     pub num_input_channels: u8,
     pub num_output_channels: u8,
     pub num_clut_grid_points: u8,
@@ -179,9 +176,7 @@ pub struct qcms_CIE_xyYTRIPLE {
     pub blue: qcms_CIE_xyY,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct tag {
+struct tag {
     pub signature: u32,
     pub offset: u32,
     pub size: u32,
@@ -197,10 +192,7 @@ type tag_index = [tag];
 
 /* a wrapper around the memory that we are going to parse
  * into a qcms_profile */
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct mem_source<'a> {
+struct mem_source<'a> {
     pub buf: &'a [u8],
     pub valid: bool,
     pub invalid_reason: Option<&'static str>,
@@ -229,40 +221,40 @@ fn be16_to_cpu(mut v: be16) -> u16 {
     u16::from_be(v)
 }
 fn invalid_source(mut mem: &mut mem_source, reason: &'static str) {
-    (*mem).valid = false;
-    (*mem).invalid_reason = Some(reason);
+    mem.valid = false;
+    mem.invalid_reason = Some(reason);
 }
 fn read_u32(mut mem: &mut mem_source, mut offset: usize) -> u32 {
     /* Subtract from mem->size instead of the more intuitive adding to offset.
      * This avoids overflowing offset. The subtraction is safe because
      * mem->size is guaranteed to be > 4 */
-    if offset > (*mem).buf.len() - 4 {
+    if offset > mem.buf.len() - 4 {
         invalid_source(mem, "Invalid offset");
         return 0;
     } else {
         let k = unsafe {
-            std::ptr::read_unaligned((*mem).buf.as_ptr().offset(offset as isize) as *const be32)
+            std::ptr::read_unaligned(mem.buf.as_ptr().offset(offset as isize) as *const be32)
         };
         return be32_to_cpu(k);
     };
 }
 fn read_u16(mut mem: &mut mem_source, mut offset: usize) -> u16 {
-    if offset > (*mem).buf.len() - 2 {
+    if offset > mem.buf.len() - 2 {
         invalid_source(mem, "Invalid offset");
         return 0u16;
     } else {
         let k = unsafe {
-            std::ptr::read_unaligned((*mem).buf.as_ptr().offset(offset as isize) as *const be16)
+            std::ptr::read_unaligned(mem.buf.as_ptr().offset(offset as isize) as *const be16)
         };
         return be16_to_cpu(k);
     };
 }
 fn read_u8(mut mem: &mut mem_source, mut offset: usize) -> u8 {
-    if offset > (*mem).buf.len() - 1 {
+    if offset > mem.buf.len() - 1 {
         invalid_source(mem, "Invalid offset");
         return 0u8;
     } else {
-        return unsafe { *((*mem).buf.as_ptr().offset(offset as isize) as *mut u8) };
+        return unsafe { *(mem.buf.as_ptr().offset(offset as isize) as *mut u8) };
     };
 }
 fn read_s15Fixed16Number(mut mem: &mut mem_source, mut offset: usize) -> s15Fixed16Number {
@@ -282,7 +274,7 @@ unsafe extern "C" fn write_u16(mut mem: *mut libc::c_void, mut offset: usize, mu
 }
 
 /* An arbitrary 4MB limit on profile size */
-const MAX_PROFILE_SIZE: usize = 1024 * 1024 * 4;
+pub(crate) const MAX_PROFILE_SIZE: usize = 1024 * 1024 * 4;
 const MAX_TAG_COUNT: u32 = 1024;
 
 fn check_CMM_type_signature(mut src: &mut mem_source) {
@@ -318,8 +310,8 @@ const ABSTRACT_PROFILE: u32 = 0x61627374; // 'abst'
 const NAMED_COLOR_PROFILE: u32 = 0x6e6d636c; // 'nmcl'
 
 fn read_class_signature(mut profile: &mut qcms_profile, mut mem: &mut mem_source) {
-    (*profile).class_type = read_u32(mem, 12);
-    match (*profile).class_type {
+    profile.class_type = read_u32(mem, 12);
+    match profile.class_type {
         DISPLAY_DEVICE_PROFILE
         | INPUT_DEVICE_PROFILE
         | OUTPUT_DEVICE_PROFILE
@@ -330,8 +322,8 @@ fn read_class_signature(mut profile: &mut qcms_profile, mut mem: &mut mem_source
     };
 }
 fn read_color_space(mut profile: &mut qcms_profile, mut mem: &mut mem_source) {
-    (*profile).color_space = read_u32(mem, 16);
-    match (*profile).color_space {
+    profile.color_space = read_u32(mem, 16);
+    match profile.color_space {
         RGB_SIGNATURE | GRAY_SIGNATURE => {}
         _ => {
             invalid_source(mem, "Unsupported colorspace");
@@ -339,8 +331,8 @@ fn read_color_space(mut profile: &mut qcms_profile, mut mem: &mut mem_source) {
     };
 }
 fn read_pcs(mut profile: &mut qcms_profile, mut mem: &mut mem_source) {
-    (*profile).pcs = read_u32(mem, 20);
-    match (*profile).pcs {
+    profile.pcs = read_u32(mem, 20);
+    match profile.pcs {
         XYZ_SIGNATURE | LAB_SIGNATURE => {}
         _ => {
             invalid_source(mem, "Unsupported pcs");
@@ -457,25 +449,25 @@ pub extern "C" fn qcms_profile_is_bogus(mut profile: &mut qcms_profile) -> bool 
     let mut negative: bool;
     let mut i: libc::c_uint;
     // We currently only check the bogosity of RGB profiles
-    if (*profile).color_space != RGB_SIGNATURE {
+    if profile.color_space != RGB_SIGNATURE {
         return false;
     }
-    if !(*profile).A2B0.is_none()
-        || !(*profile).B2A0.is_none()
-        || !(*profile).mAB.is_none()
-        || !(*profile).mBA.is_none()
+    if !profile.A2B0.is_none()
+        || !profile.B2A0.is_none()
+        || !profile.mAB.is_none()
+        || !profile.mBA.is_none()
     {
         return false;
     }
-    rX = s15Fixed16Number_to_float((*profile).redColorant.X);
-    rY = s15Fixed16Number_to_float((*profile).redColorant.Y);
-    rZ = s15Fixed16Number_to_float((*profile).redColorant.Z);
-    gX = s15Fixed16Number_to_float((*profile).greenColorant.X);
-    gY = s15Fixed16Number_to_float((*profile).greenColorant.Y);
-    gZ = s15Fixed16Number_to_float((*profile).greenColorant.Z);
-    bX = s15Fixed16Number_to_float((*profile).blueColorant.X);
-    bY = s15Fixed16Number_to_float((*profile).blueColorant.Y);
-    bZ = s15Fixed16Number_to_float((*profile).blueColorant.Z);
+    rX = s15Fixed16Number_to_float(profile.redColorant.X);
+    rY = s15Fixed16Number_to_float(profile.redColorant.Y);
+    rZ = s15Fixed16Number_to_float(profile.redColorant.Z);
+    gX = s15Fixed16Number_to_float(profile.greenColorant.X);
+    gY = s15Fixed16Number_to_float(profile.greenColorant.Y);
+    gZ = s15Fixed16Number_to_float(profile.greenColorant.Z);
+    bX = s15Fixed16Number_to_float(profile.blueColorant.X);
+    bY = s15Fixed16Number_to_float(profile.blueColorant.Y);
+    bZ = s15Fixed16Number_to_float(profile.blueColorant.Z);
     // Sum the values; they should add up to something close to white
     sum[0] = rX + gX + bX;
     sum[1] = rY + gY + bY;
@@ -569,7 +561,7 @@ fn read_tag_s15Fixed16ArrayType(
     };
     if let Some(tag) = tag {
         let mut i: u8;
-        let mut offset: u32 = (*tag).offset;
+        let mut offset: u32 = tag.offset;
         let mut type_0: u32 = read_u32(src, offset as usize);
         // Check mandatory type signature for s16Fixed16ArrayType
         if type_0 != CHROMATIC_TYPE {
@@ -596,7 +588,7 @@ fn read_tag_XYZType(mut src: &mut mem_source, mut index: &tag_index, mut tag_id:
     };
     let mut tag = find_tag(&index, tag_id);
     if let Some(tag) = tag {
-        let mut offset: u32 = (*tag).offset;
+        let mut offset: u32 = tag.offset;
         let mut type_0: u32 = read_u32(src, offset as usize);
         if type_0 != XYZ_TYPE {
             invalid_source(src, "unexpected type, expected XYZ");
@@ -671,7 +663,7 @@ fn read_tag_curveType(
     let mut tag = find_tag(index, tag_id);
     if let Some(tag) = tag {
         let mut len: u32 = 0;
-        return read_curveType(src, (*tag).offset, &mut len);
+        return read_curveType(src, tag.offset, &mut len);
     } else {
         invalid_source(src, "missing curvetag");
     }
@@ -689,9 +681,8 @@ fn read_nested_curveType(
     i = 0;
     while i < num_channels as i32 {
         let mut tag_len: u32 = 0;
-        (*curveArray)[i as usize] =
-            read_curveType(src, curve_offset + channel_offset, &mut tag_len);
-        if (*curveArray)[i as usize].is_none() {
+        curveArray[i as usize] = read_curveType(src, curve_offset + channel_offset, &mut tag_len);
+        if curveArray[i as usize].is_none() {
             invalid_source(src, "invalid nested curveType curve");
             break;
         } else {
@@ -707,7 +698,7 @@ fn read_nested_curveType(
 
 /* See section 10.10 for specs */
 fn read_tag_lutmABType(mut src: &mut mem_source, mut tag: &tag) -> Option<Box<lutmABType>> {
-    let mut offset: u32 = (*tag).offset;
+    let mut offset: u32 = tag.offset;
     let mut a_curve_offset: u32;
     let mut b_curve_offset: u32;
     let mut m_curve_offset: u32;
@@ -845,13 +836,13 @@ fn read_tag_lutmABType(mut src: &mut mem_source, mut tag: &tag) -> Option<Box<lu
             invalid_source(src, "Invalid clut precision");
         }
     }
-    if !(*src).valid {
+    if !src.valid {
         return None;
     }
     return Some(lut);
 }
 fn read_tag_lutType(mut src: &mut mem_source, mut tag: &tag) -> Option<Box<lutType>> {
-    let mut offset: u32 = (*tag).offset;
+    let mut offset: u32 = tag.offset;
     let mut type_0: u32 = read_u32(src, offset as usize);
     let mut num_input_table_entries: u16;
     let mut num_output_table_entries: u16;
@@ -1003,8 +994,8 @@ fn read_tag_lutType(mut src: &mut mem_source, mut tag: &tag) -> Option<Box<lutTy
     }))
 }
 fn read_rendering_intent(mut profile: &mut qcms_profile, mut src: &mut mem_source) {
-    (*profile).rendering_intent = read_u32(src, 64);
-    match (*profile).rendering_intent {
+    profile.rendering_intent = read_u32(src, 64);
+    match profile.rendering_intent {
         0 | 2 | 1 | 3 => {}
         _ => {
             invalid_source(src, "unknown rendering intent");
@@ -1076,69 +1067,7 @@ fn curve_from_gamma(mut gamma: f32) -> Box<curveType> {
 // everything in a profile was initialized regardless of how it was created
 //XXX: should this also be taking a black_point?
 /* similar to CGColorSpaceCreateCalibratedRGB */
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_create_rgb_with_gamma_set(
-    mut white_point: qcms_CIE_xyY,
-    mut primaries: qcms_CIE_xyYTRIPLE,
-    mut redGamma: f32,
-    mut greenGamma: f32,
-    mut blueGamma: f32,
-) -> *mut qcms_profile {
-    let mut profile = qcms_profile_create();
-
-    //XXX: should store the whitepoint
-    if !set_rgb_colorants(&mut profile, white_point, primaries) {
-        return null_mut();
-    }
-    profile.redTRC = Some(curve_from_gamma(redGamma));
-    profile.blueTRC = Some(curve_from_gamma(blueGamma));
-    profile.greenTRC = Some(curve_from_gamma(greenGamma));
-    profile.class_type = DISPLAY_DEVICE_PROFILE;
-    profile.rendering_intent = QCMS_INTENT_PERCEPTUAL;
-    profile.color_space = RGB_SIGNATURE;
-    profile.pcs = XYZ_TYPE;
-    return Box::into_raw(profile);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_create_gray_with_gamma(mut gamma: f32) -> *mut qcms_profile {
-    let mut profile = qcms_profile_create();
-
-    profile.grayTRC = Some(curve_from_gamma(gamma));
-    if profile.grayTRC.is_none() {
-        return null_mut();
-    }
-    profile.class_type = DISPLAY_DEVICE_PROFILE;
-    profile.rendering_intent = QCMS_INTENT_PERCEPTUAL;
-    profile.color_space = GRAY_SIGNATURE;
-    profile.pcs = XYZ_TYPE;
-    return Box::into_raw(profile);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_create_rgb_with_gamma(
-    mut white_point: qcms_CIE_xyY,
-    mut primaries: qcms_CIE_xyYTRIPLE,
-    mut gamma: f32,
-) -> *mut qcms_profile {
-    return qcms_profile_create_rgb_with_gamma_set(white_point, primaries, gamma, gamma, gamma);
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_create_rgb_with_table(
-    mut white_point: qcms_CIE_xyY,
-    mut primaries: qcms_CIE_xyYTRIPLE,
-    mut table: *const u16,
-    mut num_entries: i32,
-) -> *mut qcms_profile {
-    let table = slice::from_raw_parts(table, num_entries as usize);
-    let profile = profile_create_rgb_with_table(white_point, primaries, table);
-    match profile {
-        Some(profile) => Box::into_raw(profile),
-        None => null_mut(),
-    }
-}
-
-fn profile_create_rgb_with_table(
+pub fn profile_create_rgb_with_table(
     mut white_point: qcms_CIE_xyY,
     mut primaries: qcms_CIE_xyYTRIPLE,
     table: &[u16],
@@ -1243,26 +1172,39 @@ pub fn profile_sRGB() -> Option<Box<qcms_profile>> {
 
     profile_create_rgb_with_table(D65, Rec709Primaries, &table)
 }
-#[no_mangle]
-pub extern "C" fn qcms_profile_sRGB() -> *mut qcms_profile {
-    let profile = profile_sRGB();
-    match profile {
-        Some(profile) => Box::into_raw(profile),
-        None => null_mut(),
-    }
+
+pub fn profile_create_gray_with_gamma(gamma: f32) -> Option<Box<qcms_profile>> {
+    let mut profile = qcms_profile_create();
+
+    profile.grayTRC = Some(curve_from_gamma(gamma));
+    profile.class_type = DISPLAY_DEVICE_PROFILE;
+    profile.rendering_intent = QCMS_INTENT_PERCEPTUAL;
+    profile.color_space = GRAY_SIGNATURE;
+    profile.pcs = XYZ_TYPE;
+    Some(profile)
 }
-/* qcms_profile_from_memory does not hold a reference to the memory passed in */
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_from_memory(
-    mut mem: *const libc::c_void,
-    mut size: usize,
-) -> *mut qcms_profile {
-    let mem = slice::from_raw_parts(mem as *const libc::c_uchar, size);
-    let profile = profile_from_slice(mem);
-    match profile {
-        Some(profile) => Box::into_raw(profile),
-        None => null_mut(),
+
+pub fn profile_create_rgb_with_gamma_set(
+    mut white_point: qcms_CIE_xyY,
+    mut primaries: qcms_CIE_xyYTRIPLE,
+    mut redGamma: f32,
+    mut greenGamma: f32,
+    mut blueGamma: f32,
+) -> Option<Box<qcms_profile>> {
+    let mut profile = qcms_profile_create();
+
+    //XXX: should store the whitepoint
+    if !set_rgb_colorants(&mut profile, white_point, primaries) {
+        return None;
     }
+    profile.redTRC = Some(curve_from_gamma(redGamma));
+    profile.blueTRC = Some(curve_from_gamma(blueGamma));
+    profile.greenTRC = Some(curve_from_gamma(greenGamma));
+    profile.class_type = DISPLAY_DEVICE_PROFILE;
+    profile.rendering_intent = QCMS_INTENT_PERCEPTUAL;
+    profile.color_space = RGB_SIGNATURE;
+    profile.pcs = XYZ_TYPE;
+    Some(profile)
 }
 
 pub fn profile_from_slice(mem: &[u8]) -> Option<Box<qcms_profile>> {
@@ -1281,7 +1223,7 @@ pub fn profile_from_slice(mem: &[u8]) -> Option<Box<qcms_profile>> {
     length = read_u32(src, 0);
     if length as usize <= mem.len() {
         // shrink the area that we can read if appropriate
-        (*src).buf = &(*src).buf[0..length as usize];
+        src.buf = &src.buf[0..length as usize];
     } else {
         return None;
     }
@@ -1298,68 +1240,68 @@ pub fn profile_from_slice(mem: &[u8]) -> Option<Box<qcms_profile>> {
     read_color_space(&mut profile, src);
     read_pcs(&mut profile, src);
     //TODO read rest of profile stuff
-    if !(*src).valid {
+    if !src.valid {
         return None;
     }
 
     index = read_tag_table(&mut profile, src);
-    if !(*src).valid || index.is_empty() {
+    if !src.valid || index.is_empty() {
         return None;
     }
 
     if find_tag(&index, TAG_CHAD).is_some() {
-        (*profile).chromaticAdaption = read_tag_s15Fixed16ArrayType(src, &index, TAG_CHAD)
+        profile.chromaticAdaption = read_tag_s15Fixed16ArrayType(src, &index, TAG_CHAD)
     } else {
-        (*profile).chromaticAdaption.invalid = true //Signal the data is not present
+        profile.chromaticAdaption.invalid = true //Signal the data is not present
     }
 
-    if (*profile).class_type == DISPLAY_DEVICE_PROFILE
-        || (*profile).class_type == INPUT_DEVICE_PROFILE
-        || (*profile).class_type == OUTPUT_DEVICE_PROFILE
-        || (*profile).class_type == COLOR_SPACE_PROFILE
+    if profile.class_type == DISPLAY_DEVICE_PROFILE
+        || profile.class_type == INPUT_DEVICE_PROFILE
+        || profile.class_type == OUTPUT_DEVICE_PROFILE
+        || profile.class_type == COLOR_SPACE_PROFILE
     {
-        if (*profile).color_space == RGB_SIGNATURE {
+        if profile.color_space == RGB_SIGNATURE {
             if let Some(A2B0) = find_tag(&index, TAG_A2B0) {
                 let lut_type = read_u32(src, A2B0.offset as usize);
                 if lut_type == LUT8_TYPE || lut_type == LUT16_TYPE {
-                    (*profile).A2B0 = read_tag_lutType(src, A2B0)
+                    profile.A2B0 = read_tag_lutType(src, A2B0)
                 } else if lut_type == LUT_MAB_TYPE {
-                    (*profile).mAB = read_tag_lutmABType(src, A2B0)
+                    profile.mAB = read_tag_lutmABType(src, A2B0)
                 }
             }
             if let Some(B2A0) = find_tag(&index, TAG_B2A0) {
                 let lut_type = read_u32(src, B2A0.offset as usize);
                 if lut_type == LUT8_TYPE || lut_type == LUT16_TYPE {
-                    (*profile).B2A0 = read_tag_lutType(src, B2A0)
+                    profile.B2A0 = read_tag_lutType(src, B2A0)
                 } else if lut_type == LUT_MBA_TYPE {
-                    (*profile).mBA = read_tag_lutmABType(src, B2A0)
+                    profile.mBA = read_tag_lutmABType(src, B2A0)
                 }
             }
             if find_tag(&index, TAG_rXYZ).is_some() || !qcms_supports_iccv4.load(Ordering::Relaxed)
             {
-                (*profile).redColorant = read_tag_XYZType(src, &index, TAG_rXYZ);
-                (*profile).greenColorant = read_tag_XYZType(src, &index, TAG_gXYZ);
-                (*profile).blueColorant = read_tag_XYZType(src, &index, TAG_bXYZ)
+                profile.redColorant = read_tag_XYZType(src, &index, TAG_rXYZ);
+                profile.greenColorant = read_tag_XYZType(src, &index, TAG_gXYZ);
+                profile.blueColorant = read_tag_XYZType(src, &index, TAG_bXYZ)
             }
-            if !(*src).valid {
+            if !src.valid {
                 return None;
             }
 
             if find_tag(&index, TAG_rTRC).is_some() || !qcms_supports_iccv4.load(Ordering::Relaxed)
             {
-                (*profile).redTRC = read_tag_curveType(src, &index, TAG_rTRC);
-                (*profile).greenTRC = read_tag_curveType(src, &index, TAG_gTRC);
-                (*profile).blueTRC = read_tag_curveType(src, &index, TAG_bTRC);
-                if (*profile).redTRC.is_none()
-                    || (*profile).blueTRC.is_none()
-                    || (*profile).greenTRC.is_none()
+                profile.redTRC = read_tag_curveType(src, &index, TAG_rTRC);
+                profile.greenTRC = read_tag_curveType(src, &index, TAG_gTRC);
+                profile.blueTRC = read_tag_curveType(src, &index, TAG_bTRC);
+                if profile.redTRC.is_none()
+                    || profile.blueTRC.is_none()
+                    || profile.greenTRC.is_none()
                 {
                     return None;
                 }
             }
-        } else if (*profile).color_space == GRAY_SIGNATURE {
-            (*profile).grayTRC = read_tag_curveType(src, &index, TAG_kTRC);
-            if (*profile).grayTRC.is_none() {
+        } else if profile.color_space == GRAY_SIGNATURE {
+            profile.grayTRC = read_tag_curveType(src, &index, TAG_kTRC);
+            if profile.grayTRC.is_none() {
                 return None;
             }
         } else {
@@ -1370,149 +1312,10 @@ pub fn profile_from_slice(mem: &[u8]) -> Option<Box<qcms_profile>> {
         return None;
     }
 
-    if !(*src).valid {
+    if !src.valid {
         return None;
     }
     Some(profile)
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_get_rendering_intent(
-    mut profile: *mut qcms_profile,
-) -> qcms_intent {
-    return (*profile).rendering_intent;
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_get_color_space(
-    mut profile: *mut qcms_profile,
-) -> icColorSpaceSignature {
-    return (*profile).color_space;
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_release(mut profile: *mut qcms_profile) {
-    drop(Box::from_raw(profile));
-}
-unsafe extern "C" fn qcms_data_from_file(
-    mut file: *mut FILE,
-    mut mem: *mut *mut libc::c_void,
-    mut size: *mut usize,
-) {
-    let mut length: u32;
-    let mut remaining_length: u32;
-    let mut read_length: usize;
-    let mut length_be: be32 = 0;
-    let mut data: *mut libc::c_void;
-    *mem = 0 as *mut libc::c_void;
-    *size = 0;
-    if fread(
-        &mut length_be as *mut be32 as *mut libc::c_void,
-        1,
-        ::std::mem::size_of::<be32>(),
-        file,
-    ) != ::std::mem::size_of::<be32>()
-    {
-        return;
-    }
-    length = be32_to_cpu(length_be);
-    if length > MAX_PROFILE_SIZE as libc::c_uint
-        || (length as libc::c_ulong) < ::std::mem::size_of::<be32>() as libc::c_ulong
-    {
-        return;
-    }
-    /* allocate room for the entire profile */
-    data = malloc(length as usize);
-    if data.is_null() {
-        return;
-    }
-    /* copy in length to the front so that the buffer will contain the entire profile */
-    *(data as *mut be32) = length_be;
-    remaining_length =
-        (length as libc::c_ulong - ::std::mem::size_of::<be32>() as libc::c_ulong) as u32;
-    /* read the rest profile */
-    read_length = fread(
-        (data as *mut libc::c_uchar).offset(::std::mem::size_of::<be32>() as isize)
-            as *mut libc::c_void,
-        1,
-        remaining_length as usize,
-        file,
-    ) as usize;
-    if read_length != remaining_length as usize {
-        free(data);
-        return;
-    }
-    /* successfully get the profile.*/
-    *mem = data;
-    *size = length as usize;
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_from_file(mut file: *mut FILE) -> *mut qcms_profile {
-    let mut length: usize = 0;
-    let mut profile: *mut qcms_profile;
-    let mut data: *mut libc::c_void = 0 as *mut libc::c_void;
-    qcms_data_from_file(file, &mut data, &mut length);
-    if data.is_null() || length == 0 {
-        return 0 as *mut qcms_profile;
-    }
-    profile = qcms_profile_from_memory(data, length);
-    free(data);
-    return profile;
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_from_path(
-    mut path: *const libc::c_char,
-) -> *mut qcms_profile {
-    let mut profile: *mut qcms_profile = 0 as *mut qcms_profile;
-    let mut file = fopen(path, b"rb\x00" as *const u8 as *const libc::c_char);
-    if !file.is_null() {
-        profile = qcms_profile_from_file(file);
-        fclose(file);
-    }
-    return profile;
-}
-#[no_mangle]
-pub unsafe extern "C" fn qcms_data_from_path(
-    mut path: *const libc::c_char,
-    mut mem: *mut *mut libc::c_void,
-    mut size: *mut usize,
-) {
-    *mem = 0 as *mut libc::c_void;
-    *size = 0;
-    let file = fopen(path, b"rb\x00" as *const u8 as *const libc::c_char);
-    if !file.is_null() {
-        qcms_data_from_file(file, mem, size);
-        fclose(file);
-    };
-}
-
-#[cfg(windows)]
-extern "C" {
-    pub fn _wfopen(filename: *const libc::wchar_t, mode: *const libc::wchar_t) -> *mut FILE;
-}
-
-#[cfg(windows)]
-#[no_mangle]
-pub unsafe extern "C" fn qcms_profile_from_unicode_path(mut path: *const libc::wchar_t) {
-    let mut file = _wfopen(path, ['r' as u16, 'b' as u16, '\0' as u16].as_ptr());
-    if !file.is_null() {
-        qcms_profile_from_file(file);
-        fclose(file);
-    };
-}
-
-#[cfg(windows)]
-#[no_mangle]
-pub unsafe extern "C" fn qcms_data_from_unicode_path(
-    mut path: *const libc::wchar_t,
-    mut mem: *mut *mut libc::c_void,
-    mut size: *mut usize,
-) {
-    *mem = 0 as *mut libc::c_void;
-    *size = 0;
-    let mut file = _wfopen(path, ['r' as u16, 'b' as u16, '\0' as u16].as_ptr());
-    if !file.is_null() {
-        qcms_data_from_file(file, mem, size);
-        fclose(file);
-    };
 }
 
 #[no_mangle]

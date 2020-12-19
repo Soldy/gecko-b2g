@@ -187,8 +187,10 @@ class B2G final : public nsIDOMMozWakeLockListener, public nsWrapperCache {
 
   void SetDispatchKeyToContentFirst(bool aEnable);
 
-  // Shutting down.
+  // Shutting down, main thread only
   void Shutdown();
+  // Main thread only
+  nsresult Init();
 
  private:
   ~B2G();

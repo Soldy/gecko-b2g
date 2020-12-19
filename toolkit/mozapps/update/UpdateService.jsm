@@ -21,7 +21,6 @@ const {
 const { FileUtils } = ChromeUtils.import(
   "resource://gre/modules/FileUtils.jsm"
 );
-const { OS } = ChromeUtils.import("resource://gre/modules/osfile.jsm");
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
@@ -35,7 +34,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   CertUtils: "resource://gre/modules/CertUtils.jsm",
   ctypes: "resource://gre/modules/ctypes.jsm",
   DeferredTask: "resource://gre/modules/DeferredTask.jsm",
-  OS: "resource://gre/modules/osfile.jsm",
   setTimeout: "resource://gre/modules/Timer.jsm",
   UpdateUtils: "resource://gre/modules/UpdateUtils.jsm",
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.jsm",
@@ -52,6 +50,12 @@ const PREF_APP_UPDATE_BITS_ENABLED = "app.update.BITS.enabled";
 const PREF_APP_UPDATE_CANCELATIONS = "app.update.cancelations";
 const PREF_APP_UPDATE_CANCELATIONS_OSX = "app.update.cancelations.osx";
 const PREF_APP_UPDATE_CANCELATIONS_OSX_MAX = "app.update.cancelations.osx.max";
+const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_ENABLED =
+  "app.update.checkOnlyInstance.enabled";
+const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_INTERVAL =
+  "app.update.checkOnlyInstance.interval";
+const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_TIMEOUT =
+  "app.update.checkOnlyInstance.timeout";
 const PREF_APP_UPDATE_DISABLEDFORTESTING = "app.update.disabledForTesting";
 const PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS = "app.update.download.attempts";
 const PREF_APP_UPDATE_DOWNLOAD_MAXATTEMPTS = "app.update.download.maxAttempts";
@@ -245,6 +249,18 @@ const XML_SAVER_INTERVAL_MS = 200;
 // update before proceeding anyway.
 const LANGPACK_UPDATE_DEFAULT_TIMEOUT = 300000;
 
+// Interval between rechecks for other instances after the initial check finds
+// at least one other instance.
+const ONLY_INSTANCE_CHECK_DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Wait this long after detecting that another instance is running (having been
+// polling that entire time) before giving up and applying the update anyway.
+const ONLY_INSTANCE_CHECK_DEFAULT_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// The other instance check timeout can be overridden via a pref, but we limit
+// that value to this so that the pref can't effectively disable the feature.
+const ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
+
 // Object to keep track of the current phase of the update and whether there
 // has been a write failure for the phase so only one telemetry ping is made
 // for the phase.
@@ -253,8 +269,8 @@ var gUpdateMutexHandle = null;
 // The permissions of the update directory should be fixed no more than once per
 // session
 var gUpdateDirPermissionFixAttempted = false;
-// This is used for serializing writes to the update log file
-var gLogfileWritePromise;
+// This is the file stream used for the log file.
+var gLogfileOutputStream;
 // This value will be set to true if it appears that BITS is being used by
 // another user to download updates. We don't really want two users using BITS
 // at once. Computers with many users (ex: a school computer), should not end
@@ -315,6 +331,111 @@ function unwrap(obj) {
  * progress.
  */
 const LangPackUpdates = new WeakMap();
+
+/**
+ * When we're polling to see if other running instances of the application have
+ * exited, there's no need to ever start polling again in parallel. To prevent
+ * doing that, we keep track of the promise that resolves when polling completes
+ * and return that if a second simultaneous poll is requested, so that the
+ * multiple callers end up waiting for the same promise to resolve.
+ */
+let gOtherInstancePollPromise;
+
+/**
+ * Query the update sync manager to see if another instance of this same
+ * installation of this application is currently running, under the context of
+ * any operating system user (not just the current one).
+ * This function immediately returns the current, instantaneous status of any
+ * other instances.
+ *
+ * @return true if at least one other instance is running, false if not
+ */
+function isOtherInstanceRunning(callback) {
+  const checkEnabled = Services.prefs.getBoolPref(
+    PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_ENABLED,
+    true
+  );
+  if (!checkEnabled) {
+    LOG("isOtherInstanceRunning - disabled by pref, skipping check");
+    return false;
+  }
+
+  try {
+    let syncManager = Cc[
+      "@mozilla.org/updates/update-sync-manager;1"
+    ].getService(Ci.nsIUpdateSyncManager);
+    return syncManager.isOtherInstanceRunning();
+  } catch (ex) {
+    LOG(`isOtherInstanceRunning - sync manager failed with exception: ${ex}`);
+    return false;
+  }
+}
+
+/**
+ * Query the update sync manager to see if another instance of this same
+ * installation of this application is currently running, under the context of
+ * any operating system user (not just the one running this instance).
+ * This function polls for the status of other instances continually
+ * (asynchronously) until either none exist or a timeout expires.
+ *
+ * @return a Promise that resolves with false if at any point during polling no
+ *         other instances can be found, or resolves with true if the timeout
+ *         expires when other instances are still running
+ */
+function waitForOtherInstances() {
+  // If we're already in the middle of a poll, reuse it rather than start again.
+  if (gOtherInstancePollPromise) {
+    return gOtherInstancePollPromise;
+  }
+
+  let timeout = Services.prefs.getIntPref(
+    PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_TIMEOUT,
+    ONLY_INSTANCE_CHECK_DEFAULT_TIMEOUT_MS
+  );
+  // Don't allow the pref to set a super high timeout and break this feature.
+  if (timeout > ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS) {
+    timeout = ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS;
+  }
+
+  let interval = Services.prefs.getIntPref(
+    PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_INTERVAL,
+    ONLY_INSTANCE_CHECK_DEFAULT_POLL_INTERVAL_MS
+  );
+  // Don't allow an interval longer than the timeout.
+  interval = Math.min(interval, timeout);
+
+  let iterations = 0;
+  const maxIterations = Math.ceil(timeout / interval);
+
+  gOtherInstancePollPromise = new Promise(function(resolve, reject) {
+    let poll = function() {
+      iterations++;
+      if (!isOtherInstanceRunning()) {
+        LOG("waitForOtherInstances - no other instances found, exiting");
+        resolve(false);
+        gOtherInstancePollPromise = undefined;
+      } else if (iterations >= maxIterations) {
+        LOG(
+          "waitForOtherInstances - timeout expired while other instances " +
+            "are still running"
+        );
+        resolve(true);
+        gOtherInstancePollPromise = undefined;
+      } else if (iterations + 1 == maxIterations && timeout % interval != 0) {
+        // In case timeout isn't a multiple of interval, set the next timeout
+        // for the remainder of the time rather than for the usual interval.
+        setTimeout(poll, timeout % interval);
+      } else {
+        setTimeout(poll, interval);
+      }
+    };
+
+    LOG("waitForOtherInstances - beginning polling");
+    poll();
+  });
+
+  return gOtherInstancePollPromise;
+}
 
 /**
  * Tests to make sure that we can write to a given directory.
@@ -762,39 +883,22 @@ function LOG(string) {
     }
 
     if (gLogfileEnabled) {
-      if (!gLogfileWritePromise) {
+      if (!gLogfileOutputStream) {
         let logfile = Services.dirsvc.get(KEY_PROFILE_DIR, Ci.nsIFile);
         logfile.append(FILE_UPDATE_MESSAGES);
-        gLogfileWritePromise = OS.File.open(logfile.path, {
-          write: true,
-          append: true,
-        }).catch(error => {
-          dump("*** AUS:SVC Unable to open messages file: " + error + "\n");
-          Services.console.logStringMessage(
-            "AUS:SVC Unable to open messages file: " + error
-          );
-          // Reject on failure so that writes are not attempted without a file
-          // handle.
-          return Promise.reject(error);
-        });
+        gLogfileOutputStream = FileUtils.openAtomicFileOutputStream(logfile);
       }
-      gLogfileWritePromise = gLogfileWritePromise.then(async logfile => {
-        // Catch failures from write promises and always return the logfile.
-        // This allows subsequent write attempts and ensures that the file
-        // handle keeps getting passed down the promise chain so that it will
-        // be properly closed on shutdown.
-        try {
-          let encoded = new TextEncoder().encode(string + "\n");
-          await logfile.write(encoded);
-          await logfile.flush();
-        } catch (e) {
-          dump("*** AUS:SVC Unable to write to messages file: " + e + "\n");
-          Services.console.logStringMessage(
-            "AUS:SVC Unable to write to messages file: " + e
-          );
-        }
-        return logfile;
-      });
+
+      try {
+        let encoded = new TextEncoder().encode(string + "\n");
+        gLogfileOutputStream.write(encoded, encoded.length);
+        gLogfileOutputStream.flush();
+      } catch (e) {
+        dump("*** AUS:SVC Unable to write to messages file: " + e + "\n");
+        Services.console.logStringMessage(
+          "AUS:SVC Unable to write to messages file: " + e
+        );
+      }
     }
   }
 }
@@ -2285,16 +2389,8 @@ UpdateService.prototype = {
           .createInstance(Ci.nsIUpdateChecker)
           .stopCurrentCheck();
 
-        if (gLogfileWritePromise) {
-          // Intentionally passing a null function for the failure case, which
-          // occurs when the file was not opened successfully.
-          gLogfileWritePromise = gLogfileWritePromise.then(
-            logfile => {
-              logfile.close();
-            },
-            () => {}
-          );
-          await gLogfileWritePromise;
+        if (gLogfileOutputStream) {
+          gLogfileOutputStream.close();
         }
         break;
       case "test-close-handle-update-mutex":
@@ -2355,7 +2451,7 @@ UpdateService.prototype = {
         "UpdateService:_postUpdateProcessing - unable to apply " +
           "updates... returning early"
       );
-      if (!this.isOtherInstanceHandlingUpdates) {
+      if (hasUpdateMutex()) {
         // If the update is present in the update directory somehow,
         // it would prevent us from notifying the user of further updates.
         cleanupUpdate();
@@ -2908,6 +3004,8 @@ UpdateService.prototype = {
           );
         } else if (!hasUpdateMutex()) {
           AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_NO_MUTEX);
+        } else if (isOtherInstanceRunning()) {
+          AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_OTHER_INSTANCE);
         } else if (!this.canCheckForUpdates) {
           AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_UNABLE_TO_CHECK);
         }
@@ -3233,6 +3331,15 @@ UpdateService.prototype = {
       return false;
     }
 
+    if (isOtherInstanceRunning()) {
+      // This doesn't block update checks, but we will have to wait until either
+      // the other instance is gone or we time out waiting for it.
+      LOG(
+        "UpdateService.canCheckForUpdates - another instance is holding the " +
+          "lock, will need to wait for it prior to checking for updates"
+      );
+    }
+
     LOG("UpdateService.canCheckForUpdates - able to check for updates");
     return true;
   },
@@ -3248,7 +3355,9 @@ UpdateService.prototype = {
    * See nsIUpdateService.idl
    */
   get canApplyUpdates() {
-    return getCanApplyUpdates() && hasUpdateMutex();
+    return (
+      getCanApplyUpdates() && hasUpdateMutex() && !isOtherInstanceRunning()
+    );
   },
 
   /**
@@ -3262,7 +3371,7 @@ UpdateService.prototype = {
    * See nsIUpdateService.idl
    */
   get isOtherInstanceHandlingUpdates() {
-    return !hasUpdateMutex();
+    return !hasUpdateMutex() || isOtherInstanceRunning();
   },
 
   /**
@@ -3434,7 +3543,7 @@ UpdateService.prototype = {
     this.canStageUpdates;
     LOG("Elevation required: " + this.elevationRequired);
     LOG(
-      "Update being handled by other instance: " +
+      "Other instance of the application currently running: " +
         this.isOtherInstanceHandlingUpdates
     );
     LOG("Downloading: " + !!this.isDownloading);
@@ -3760,7 +3869,7 @@ UpdateManager.prototype = {
           file.path
       );
       try {
-        await OS.File.remove(file.path, { ignoreAbsent: true });
+        await IOUtils.remove(file.path);
       } catch (e) {
         LOG(
           "UpdateManager:_writeUpdatesToXMLFile - Delete file exception: " + e
@@ -3791,13 +3900,10 @@ UpdateManager.prototype = {
       // If the destination file existed and is removed while the following is
       // being performed the copy of the tmp file to the destination file will
       // fail.
-      await OS.File.writeAtomic(file.path, xml, {
-        encoding: "utf-8",
+      await IOUtils.writeUTF8(file.path, xml, {
         tmpPath: file.path + ".tmp",
       });
-      await OS.File.setPermissions(file.path, {
-        unixMode: FileUtils.PERMS_FILE,
-      });
+      await IOUtils.setPermissions(file.path, FileUtils.PERMS_FILE);
     } catch (e) {
       LOG("UpdateManager:_writeUpdatesToXMLFile - Exception: " + e);
       return false;
@@ -3877,7 +3983,7 @@ UpdateManager.prototype = {
   /**
    * See nsIUpdateService.idl
    */
-  refreshUpdateStatus: function UM_refreshUpdateStatus() {
+  refreshUpdateStatus: async function UM_refreshUpdateStatus() {
     var update = this._readyUpdate;
     if (!update) {
       return;
@@ -4114,47 +4220,62 @@ Checker.prototype = {
       return;
     }
 
-    this.getUpdateURL(force).then(url => {
-      if (!url) {
-        return;
-      }
+    waitForOtherInstances()
+      .then(() => this.getUpdateURL(force))
+      .then(url => {
+        if (!url) {
+          return;
+        }
 
-      this._request = new XMLHttpRequest();
-      this._request.open("GET", url, true);
-      this._request.channel.notificationCallbacks = new CertUtils.BadCertHandler(
-        false
-      );
-      // Prevent the request from reading from the cache.
-      this._request.channel.loadFlags |= Ci.nsIRequest.LOAD_BYPASS_CACHE;
-      // Prevent the request from writing to the cache.
-      this._request.channel.loadFlags |= Ci.nsIRequest.INHIBIT_CACHING;
-      // Disable cutting edge features, like TLS 1.3, where middleboxes might brick us
-      this._request.channel.QueryInterface(
-        Ci.nsIHttpChannelInternal
-      ).beConservative = true;
+        // It's possible that another check was kicked off and that request sent
+        // while we were waiting for other instances to exit here; if the other
+        // instances were closed and also the other check was started during the
+        // same interval between polls, then here we could now be about to start
+        // a second overlapping check, which should not happen. So make sure we
+        // don't have a request already active before we start a new one.
+        if (this._request) {
+          LOG(
+            "Checker: checkForUpdates: check request already active, aborting"
+          );
+          return;
+        }
 
-      this._request.overrideMimeType("text/xml");
-      // The Cache-Control header is only interpreted by proxies and the
-      // final destination. It does not help if a resource is already
-      // cached locally.
-      this._request.setRequestHeader("Cache-Control", "no-cache");
-      // HTTP/1.0 servers might not implement Cache-Control and
-      // might only implement Pragma: no-cache
-      this._request.setRequestHeader("Pragma", "no-cache");
+        this._request = new XMLHttpRequest();
+        this._request.open("GET", url, true);
+        this._request.channel.notificationCallbacks = new CertUtils.BadCertHandler(
+          false
+        );
+        // Prevent the request from reading from the cache.
+        this._request.channel.loadFlags |= Ci.nsIRequest.LOAD_BYPASS_CACHE;
+        // Prevent the request from writing to the cache.
+        this._request.channel.loadFlags |= Ci.nsIRequest.INHIBIT_CACHING;
+        // Disable cutting edge features, like TLS 1.3, where middleboxes might brick us
+        this._request.channel.QueryInterface(
+          Ci.nsIHttpChannelInternal
+        ).beConservative = true;
 
-      var self = this;
-      this._request.addEventListener("error", function(event) {
-        self.onError(event);
+        this._request.overrideMimeType("text/xml");
+        // The Cache-Control header is only interpreted by proxies and the
+        // final destination. It does not help if a resource is already
+        // cached locally.
+        this._request.setRequestHeader("Cache-Control", "no-cache");
+        // HTTP/1.0 servers might not implement Cache-Control and
+        // might only implement Pragma: no-cache
+        this._request.setRequestHeader("Pragma", "no-cache");
+
+        var self = this;
+        this._request.addEventListener("error", function(event) {
+          self.onError(event);
+        });
+        this._request.addEventListener("load", function(event) {
+          self.onLoad(event);
+        });
+
+        LOG("Checker:checkForUpdates - sending request to: " + url);
+        this._request.send(null);
+
+        this._callback = listener;
       });
-      this._request.addEventListener("load", function(event) {
-        self.onLoad(event);
-      });
-
-      LOG("Checker:checkForUpdates - sending request to: " + url);
-      this._request.send(null);
-
-      this._callback = listener;
-    });
   },
 
   /**
@@ -5561,7 +5682,7 @@ Downloader.prototype = {
       let update = this._update;
       promiseLangPacksUpdated(update).then(() => {
         LOG(
-          "UpdateManager:refreshUpdateStatus - Notifying observers that " +
+          "Downloader:onStopRequest - Notifying observers that " +
             "an update was downloaded. topic: update-downloaded, status: " +
             update.state
         );

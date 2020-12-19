@@ -115,17 +115,11 @@ const MOBILE_DUN_CONNECT_TIMEOUT = 15000;
 const MOBILE_DUN_RETRY_INTERVAL = 5000;
 const MOBILE_DUN_MAX_RETRIES = 2;
 
-var DEBUG = true;
+var DEBUG = false;
 function updateDebug() {
-  //TODO: always true for now.
-  /*
-  let debugPref = false; // set default value here.
   try {
-    DEBUG =
-      DEBUG || Services.prefs.getBoolPref(PREF_NETWORK_DEBUG_ENABLED);
+    DEBUG = DEBUG || Services.prefs.getBoolPref(PREF_NETWORK_DEBUG_ENABLED);
   } catch (e) {}
-
-  */
 }
 
 function debug(s) {

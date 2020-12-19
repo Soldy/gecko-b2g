@@ -333,10 +333,8 @@ bool nsMediaFragmentURIParser::ParseMozSampleSize(nsDependentSubstring aString)
 void nsMediaFragmentURIParser::Parse(nsACString& aRef) {
   // Create an array of possibly-invalid media fragments.
   nsTArray<std::pair<nsCString, nsCString> > fragments;
-  nsCCharSeparatedTokenizer tokenizer(aRef, '&');
 
-  while (tokenizer.hasMoreTokens()) {
-    const nsACString& nv = tokenizer.nextToken();
+  for (const nsACString& nv : nsCCharSeparatedTokenizer(aRef, '&').ToRange()) {
     int32_t index = nv.FindChar('=');
     if (index >= 0) {
       nsAutoCString name;

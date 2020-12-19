@@ -293,8 +293,7 @@ var UrlbarUtils = {
       return { url, postData, mayInheritPrincipal };
     }
 
-    await Services.search.init();
-    let engine = Services.search.getEngineByAlias(keyword);
+    let engine = await Services.search.getEngineByAlias(keyword);
     if (engine) {
       let submission = engine.getSubmission(param, null, "keyword");
       return {
@@ -584,10 +583,6 @@ var UrlbarUtils = {
    *   setSearchMode documentation for details.
    */
   searchModeForToken(token) {
-    if (!UrlbarPrefs.get("update2")) {
-      return null;
-    }
-
     if (token == UrlbarTokenizer.RESTRICT.SEARCH) {
       return {
         engineName: UrlbarSearchUtils.getDefaultEngine(this.isPrivate).name,

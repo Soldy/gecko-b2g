@@ -629,7 +629,7 @@ class BrowserParent final : public PBrowserParent,
   bool SendPasteTransferable(const IPCDataTransfer& aDataTransfer,
                              const bool& aIsPrivateData,
                              nsIPrincipal* aRequestingPrincipal,
-                             const uint32_t& aContentPolicyType);
+                             const nsContentPolicyType& aContentPolicyType);
 
   // Helper for transforming a point
   LayoutDeviceIntPoint TransformPoint(
@@ -773,6 +773,10 @@ class BrowserParent final : public PBrowserParent,
 
   mozilla::ipc::IPCResult RecvAudioChannelActivityNotification(
       const uint32_t& aAudioChannel, const bool& aActive);
+
+#ifdef MOZ_B2G
+  mozilla::ipc::IPCResult RecvNotifyRecordingStatus(bool aAudio, bool aVideo);
+#endif
 
   mozilla::ipc::IPCResult RecvShowCanvasPermissionPrompt(
       const nsCString& aOrigin, const bool& aHideDoorHanger);
@@ -987,9 +991,6 @@ class BrowserParent final : public PBrowserParent,
 #ifdef DEBUG
   int32_t mActiveSupressDisplayportCount = 0;
 #endif
-
-  // Cached value indicating the docshell active state of the remote browser.
-  bool mDocShellIsActive : 1;
 
   // When true, we've initiated normal shutdown and notified our managing
   // PContent.

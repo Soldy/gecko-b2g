@@ -23,7 +23,7 @@
 
 static const char16_t UNICODE_BULLET = 0x2022;
 
-nsLookAndFeel::nsLookAndFeel() : nsXPLookAndFeel() {}
+nsLookAndFeel::nsLookAndFeel(const LookAndFeelCache* aCache) {}
 
 nsLookAndFeel::~nsLookAndFeel() {}
 

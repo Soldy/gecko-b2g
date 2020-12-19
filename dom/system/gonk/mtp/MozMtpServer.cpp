@@ -251,15 +251,25 @@ already_AddRefed<MozMtpDatabase> MozMtpServer::GetMozMtpDatabase() {
 
 bool MozMtpServer::Init() {
   MOZ_ASSERT(MessageLoop::current() == XRE_GetIOMessageLoop());
+  char propValueManufacturer[PROPERTY_VALUE_MAX];
+  char propValueModel[PROPERTY_VALUE_MAX];
+  char propValueDeviceVersion[PROPERTY_VALUE_MAX];
+  char propValueSerialNumber[PROPERTY_VALUE_MAX];
+
+  property_get("ro.product.manufacturer", propValueManufacturer, "");
+  property_get("ro.product.model", propValueModel, "");
+  property_get("ro.version", propValueDeviceVersion, "");
+  property_get("ro.serialno", propValueSerialNumber, "");
 
   mMozMtpDatabase = new MozMtpDatabase();
-  mMtpServer = new RefCountedMtpServer(mMozMtpDatabase.get(),  // IMtpDatabase
-                                       0,                      // controlFd
-                                       false,                  // ptp?
-                                       "",   // deviceInfoManufacturer
-                                       "",   // deviceInfoModel
-                                       "",   // deviceInfoDeviceVersion
-                                       "");  // deviceInfoSerialNumber
+  mMtpServer = new RefCountedMtpServer(
+      mMozMtpDatabase.get(),   // IMtpDatabase
+      0,                       // controlFd
+      false,                   // ptp?
+      propValueManufacturer,   // deviceInfoManufacturer
+      propValueModel,          // deviceInfoModel
+      propValueDeviceVersion,  // deviceInfoDeviceVersion
+      propValueSerialNumber);  // deviceInfoSerialNumber
   return true;
 }
 

@@ -904,8 +904,6 @@ function PlacesToolbar(aPlace) {
     ["_dropIndicator", "PlacesToolbarDropIndicator"],
     ["_chevron", "PlacesChevron"],
     ["_chevronPopup", "PlacesChevronPopup"],
-    ["_otherBookmarks", "OtherBookmarks"],
-    ["_otherBookmarksPopup", "OtherBookmarksPopup"],
   ].forEach(function(elementGlobal) {
     let [name, id] = elementGlobal;
     thisView.__defineGetter__(name, function() {
@@ -994,7 +992,7 @@ PlacesToolbar.prototype = {
       this._chevron._placesView.uninit();
     }
 
-    if (this._otherBookmarks._placesView) {
+    if (this._otherBookmarks?._placesView) {
       this._otherBookmarks._placesView.uninit();
     }
 
@@ -1006,6 +1004,18 @@ PlacesToolbar.prototype = {
 
   get _isAlive() {
     return this._resultNode && this._rootElt;
+  },
+
+  _runBeforeFrameRender(callback) {
+    return new Promise((resolve, reject) => {
+      window.requestAnimationFrame(() => {
+        try {
+          resolve(callback());
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
   },
 
   async _rebuild() {
@@ -1028,37 +1038,35 @@ PlacesToolbar.prototype = {
       // calculate a precise number of visible items, thus we guess a size from
       // the first non-separator node (because separators have flexible size).
       let startIndex = 0;
-      let limit = await new Promise(resolve =>
-        window.requestAnimationFrame(() => {
-          if (!this._isAlive) {
-            return resolve(cc);
-          }
+      let limit = await this._runBeforeFrameRender(() => {
+        if (!this._isAlive) {
+          return cc;
+        }
 
-          // Look for the first non-separator node.
-          let elt;
-          while (startIndex < cc) {
-            elt = this._insertNewItem(
-              this._resultNode.getChild(startIndex),
-              this._rootElt
-            );
-            ++startIndex;
-            if (elt.localName != "toolbarseparator") {
-              break;
-            }
+        // Look for the first non-separator node.
+        let elt;
+        while (startIndex < cc) {
+          elt = this._insertNewItem(
+            this._resultNode.getChild(startIndex),
+            this._rootElt
+          );
+          ++startIndex;
+          if (elt.localName != "toolbarseparator") {
+            break;
           }
-          if (!elt) {
-            return resolve(cc);
-          }
+        }
+        if (!elt) {
+          return cc;
+        }
 
-          return window.promiseDocumentFlushed(() => {
-            // We assume a button with just the icon will be more or less a square,
-            // then compensate the measurement error by considering a larger screen
-            // width. Moreover the window could be bigger than the screen.
-            let size = elt.clientHeight || 1; // Sanity fallback.
-            resolve(Math.min(cc, parseInt((window.screen.width * 1.5) / size)));
-          });
-        })
-      );
+        return window.promiseDocumentFlushed(() => {
+          // We assume a button with just the icon will be more or less a square,
+          // then compensate the measurement error by considering a larger screen
+          // width. Moreover the window could be bigger than the screen.
+          let size = elt.clientHeight || 1; // Sanity fallback.
+          return Math.min(cc, parseInt((window.screen.width * 1.5) / size));
+        });
+      });
 
       if (!this._isAlive) {
         return;
@@ -1082,6 +1090,10 @@ PlacesToolbar.prototype = {
       // Otherwise, it will be initialized when the toolbar overflows.
       this._chevronPopup.place = this.place;
     }
+
+    // Rebuild the "Other Bookmarks" folder if it already exists.
+    let otherBookmarks = document.getElementById("OtherBookmarks");
+    otherBookmarks?.remove();
 
     BookmarkingUI.maybeShowOtherBookmarksFolder();
   },
@@ -1342,9 +1354,8 @@ PlacesToolbar.prototype = {
         bubbles: true,
       });
       this._viewElt.dispatchEvent(event);
+      this._updatingNodesVisibility = false;
     });
-
-    this._updatingNodesVisibility = false;
   },
 
   nodeInserted: function PT_nodeInserted(

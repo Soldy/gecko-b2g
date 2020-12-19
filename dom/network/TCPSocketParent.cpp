@@ -112,7 +112,8 @@ mozilla::ipc::IPCResult TCPSocketParent::RecvResume() {
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult TCPSocketParent::RecvData(const SendableData& aData) {
+mozilla::ipc::IPCResult TCPSocketParent::RecvData(
+    const SendableData& aData, const uint32_t& aTrackingNumber) {
   ErrorResult rv;
 
   switch (aData.type()) {
@@ -128,13 +129,13 @@ mozilla::ipc::IPCResult TCPSocketParent::RecvData(const SendableData& aData) {
         return IPC_FAIL_NO_REASON(this);
       }
       Optional<uint32_t> byteLength(buffer.Length());
-      mSocket->Send(data, 0, byteLength, rv);
+      mSocket->SendWithTrackingNumber(data, 0, byteLength, aTrackingNumber, rv);
       break;
     }
 
     case SendableData::TnsCString: {
       const nsCString& strData = aData.get_nsCString();
-      mSocket->Send(strData, rv);
+      mSocket->SendWithTrackingNumber(strData, aTrackingNumber, rv);
       break;
     }
 

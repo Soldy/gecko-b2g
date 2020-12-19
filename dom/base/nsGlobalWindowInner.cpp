@@ -1313,6 +1313,7 @@ void nsGlobalWindowInner::FreeInnerObjects() {
 
 #ifdef MOZ_GLEAN
   mGlean = nullptr;
+  mGleanPings = nullptr;
 #endif
 
   mParentTarget = nullptr;
@@ -1407,6 +1408,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
 
 #ifdef MOZ_GLEAN
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGlean)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGleanPings)
 #endif
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOuterWindow)
@@ -1505,6 +1507,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
 
 #ifdef MOZ_GLEAN
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlean)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mGleanPings)
 #endif
 
   if (tmp->mOuterWindow) {
@@ -2833,6 +2836,14 @@ mozilla::glean::Glean* nsGlobalWindowInner::Glean() {
 
   return mGlean;
 }
+
+mozilla::glean::GleanPings* nsGlobalWindowInner::GleanPings() {
+  if (!mGleanPings) {
+    mGleanPings = new mozilla::glean::GleanPings();
+  }
+
+  return mGleanPings;
+}
 #endif
 
 Nullable<WindowProxyHolder> nsGlobalWindowInner::GetParent(
@@ -3536,7 +3547,7 @@ void nsGlobalWindowInner::CancelAnimationFrame(int32_t aHandle,
 }
 
 already_AddRefed<MediaQueryList> nsGlobalWindowInner::MatchMedia(
-    const nsAString& aMediaQueryList, CallerType aCallerType,
+    const nsACString& aMediaQueryList, CallerType aCallerType,
     ErrorResult& aError) {
   ENSURE_ACTIVE_DOCUMENT(aError, nullptr);
   return mDoc->MatchMedia(aMediaQueryList, aCallerType);

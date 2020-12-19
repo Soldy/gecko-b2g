@@ -643,21 +643,18 @@ Icc.prototype = {
         aCallback.notifySuccessWithBoolean(spn == aMvnoData);
         break;
       case Ci.nsIIcc.CARD_MVNO_TYPE_GID:
-        this._radioInterface.sendWorkerMessage("getGID1", null, aResponse => {
-          let gid = aResponse.gid1;
-          let mvnoDataLength = aMvnoData.length;
-
-          if (!gid) {
-            aCallback.notifyError(RIL.GECKO_ERROR_GENERIC_FAILURE);
-          } else if (mvnoDataLength > gid.length) {
-            aCallback.notifySuccessWithBoolean(false);
-          } else {
-            let result =
-              gid.substring(0, mvnoDataLength).toLowerCase() ==
-              aMvnoData.toLowerCase();
-            aCallback.notifySuccessWithBoolean(result);
-          }
-        });
+        let gid = this.iccInfo && this.iccInfo.gid1;
+        let mvnoDataLength = aMvnoData.length;
+        if (!gid) {
+          aCallback.notifyError(RIL.GECKO_ERROR_GENERIC_FAILURE);
+        } else if (mvnoDataLength > gid.length) {
+          aCallback.notifySuccessWithBoolean(false);
+        } else {
+          let result =
+            gid.substring(0, mvnoDataLength).toLowerCase() ==
+            aMvnoData.toLowerCase();
+          aCallback.notifySuccessWithBoolean(result);
+        }
         break;
       default:
         aCallback.notifyError(RIL.GECKO_ERROR_MODE_NOT_SUPPORTED);

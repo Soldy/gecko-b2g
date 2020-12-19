@@ -303,10 +303,6 @@ Inspector.prototype = {
     return this._highlighters;
   },
 
-  get isHighlighterReady() {
-    return !!this._highlighters;
-  },
-
   get is3PaneModeEnabled() {
     if (this.currentTarget.chrome) {
       if (!this._is3PaneModeChromeEnabled) {
@@ -1676,7 +1672,6 @@ Inspector.prototype = {
 
     if (this._highlighters) {
       this._highlighters.destroy();
-      this._highlighters = null;
     }
 
     if (this._markupFrame) {
@@ -1948,10 +1943,10 @@ Inspector.prototype = {
     );
   },
 
-  async inspectNodeActor(nodeActor, reason) {
-    const nodeFront = await this.inspectorFront.getNodeFrontFromNodeGrip({
-      actor: nodeActor,
-    });
+  async inspectNodeActor(nodeGrip, reason) {
+    const nodeFront = await this.inspectorFront.getNodeFrontFromNodeGrip(
+      nodeGrip
+    );
     if (!nodeFront) {
       console.error(
         "The object cannot be linked to the inspector, the " +

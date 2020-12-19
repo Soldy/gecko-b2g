@@ -1474,6 +1474,7 @@ void gfxDWriteFontList::InitSharedFontListForPlatform() {
   if (FAILED(hr)) {
     Telemetry::Accumulate(Telemetry::DWRITEFONT_INIT_PROBLEM,
                           uint32_t(errGDIInterop));
+    mSharedFontList.reset(nullptr);
     return;
   }
 
@@ -1482,6 +1483,7 @@ void gfxDWriteFontList::InitSharedFontListForPlatform() {
   if (!mSystemFonts) {
     Telemetry::Accumulate(Telemetry::DWRITEFONT_INIT_PROBLEM,
                           uint32_t(errSystemFontCollection));
+    mSharedFontList.reset(nullptr);
     return;
   }
 #ifdef MOZ_BUNDLED_FONTS
@@ -1495,9 +1497,8 @@ void gfxDWriteFontList::InitSharedFontListForPlatform() {
         "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families",
         classicFamilies);
     if (NS_SUCCEEDED(rv)) {
-      nsCCharSeparatedTokenizer tokenizer(classicFamilies, ',');
-      while (tokenizer.hasMoreTokens()) {
-        nsAutoCString name(tokenizer.nextToken());
+      for (auto name :
+           nsCCharSeparatedTokenizer(classicFamilies, ',').ToRange()) {
         BuildKeyNameFromFontName(name);
         forceClassicFams.AppendElement(name);
       }

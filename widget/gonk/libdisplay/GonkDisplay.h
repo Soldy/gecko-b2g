@@ -104,7 +104,10 @@ class MOZ_EXPORT GonkDisplay {
 
   virtual void UnlockScreen() = 0;
 
-  virtual android::sp<ANativeWindow> GetSurface() = 0;
+  virtual android::sp<ANativeWindow> GetSurface(DisplayType aDisplayType) = 0;
+
+  virtual android::sp<android::GraphicBuffer> GetFrameBuffer(
+      DisplayType aDisplayType) = 0;
 
   typedef void (*GonkDisplayVsyncCBFun)(int display, int64_t timestamp);
   virtual void registerVsyncCallBack(GonkDisplayVsyncCBFun func) {

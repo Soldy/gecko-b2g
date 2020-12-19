@@ -9,7 +9,6 @@
  * All other trademarks are the property of their respective owners.
  */
 
-#include "GfxDebugger.h"
 #include <binder/Parcel.h>
 #include <pwd.h>
 #include <sys/stat.h>
@@ -17,6 +16,8 @@
 #include <sys/un.h>
 #include <utils/String8.h>
 
+#include "GfxDebugger.h"
+#include "GonkScreenshot.h"
 #include "mozilla/layers/LayerManagerComposite.h"
 #include "mozilla/layers/CompositorBridgeParent.h"
 #include "mozilla/layers/SharedBufferManagerParent.h"
@@ -40,24 +41,12 @@ using mozilla::layers::APZCTreeManager;
 using mozilla::layers::AsyncPanZoomController;
 using mozilla::layers::SharedBufferManagerParent;
 
-enum {
-  GD_CMD_GRALLOC,
-  GD_CMD_LAYER,
-  GD_CMD_APZ,
-
-  GD_ERR,
-};
-
-enum {
-  GRALLOC_OP_LIST,
-  GRALLOC_OP_DUMP,
-};
-
 namespace mozilla {
   namespace ipc {
 
-GfxDebuggerConnector::GfxDebuggerConnector(const nsACString& aSocketName, const char** const aAllowedUsers) :
-    mSocketName(aSocketName),
+GfxDebuggerConnector::GfxDebuggerConnector(const nsACString& aSocketName,
+                                           const char** const aAllowedUsers)
+  : mSocketName(aSocketName),
     mAllowedUsers(aAllowedUsers)
 {
 };
@@ -139,7 +128,8 @@ nsresult GfxDebuggerConnector::CheckPermission(int aFd) const
   return NS_ERROR_FAILURE;
 }
 
-nsresult GfxDebuggerConnector::CreateAddress(struct sockaddr& aAddress, socklen_t& aAddressLength) const
+nsresult GfxDebuggerConnector::CreateAddress(struct sockaddr& aAddress,
+                                             socklen_t& aAddressLength) const
 {
   struct sockaddr_un* address =
     reinterpret_cast<struct sockaddr_un*>(&aAddress);
@@ -159,9 +149,10 @@ nsresult GfxDebuggerConnector::CreateAddress(struct sockaddr& aAddress, socklen_
   return NS_OK;
 }
 
-nsresult GfxDebuggerConnector::ConvertAddressToString(const struct sockaddr& aAddress,
-    socklen_t aAddressLength,
-    nsACString& aAddressString)
+nsresult GfxDebuggerConnector::ConvertAddressToString(
+                               const struct sockaddr& aAddress,
+                               socklen_t aAddressLength,
+                               nsACString& aAddressString)
 {
   MOZ_ASSERT(aAddress.sa_family == AF_UNIX);
 
@@ -176,8 +167,8 @@ nsresult GfxDebuggerConnector::ConvertAddressToString(const struct sockaddr& aAd
 }
 
 nsresult GfxDebuggerConnector::CreateListenSocket(struct sockaddr* aAddress,
-    socklen_t* aAddressLength,
-    int& aListenFd)
+                                                  socklen_t* aAddressLength,
+                                                  int& aListenFd)
 {
   ScopedClose fd;
 
@@ -202,9 +193,9 @@ nsresult GfxDebuggerConnector::CreateListenSocket(struct sockaddr* aAddress,
 
 
 nsresult GfxDebuggerConnector::AcceptStreamSocket(int aListenFd,
-    struct sockaddr* aAddress,
-    socklen_t* aAddressLength,
-    int& aStreamFd)
+                                                  struct sockaddr* aAddress,
+                                                  socklen_t* aAddressLength,
+                                                  int& aStreamFd)
 {
   ScopedClose fd(
       TEMP_FAILURE_RETRY(accept(aListenFd, aAddress, aAddressLength)));
@@ -227,8 +218,8 @@ nsresult GfxDebuggerConnector::AcceptStreamSocket(int aListenFd,
 }
 
 nsresult GfxDebuggerConnector::CreateStreamSocket(struct sockaddr* aAddress,
-    socklen_t* aAddressLength,
-    int& aStreamFd)
+                                                  socklen_t* aAddressLength,
+                                                  int& aStreamFd)
 {
   return NS_ERROR_FAILURE;
 }
@@ -292,7 +283,8 @@ void GfxDebugger::Listen()
   if (!mListenSocket) {
     // We only ever allocate one |ListenSocket|...
     mListenSocket = new ListenSocket(this, LISTEN_SOCKET);
-    mConnector = new GfxDebuggerConnector(mSocketName, GFXDEBUGGER_ALLOWED_USERS);
+    mConnector = new GfxDebuggerConnector(mSocketName,
+      GFXDEBUGGER_ALLOWED_USERS);
     mListenSocket->Listen(mConnector, mStreamSocket);
   } else {
     // ... but keep it open.
@@ -300,7 +292,8 @@ void GfxDebugger::Listen()
   }
 }
 
-void GfxDebugger::ReceiveSocketData(int aIndex, UniquePtr<UnixSocketBuffer>& aBuffer)
+void GfxDebugger::ReceiveSocketData(int aIndex,
+                                    UniquePtr<UnixSocketBuffer>& aBuffer)
 {
   Parcel parcel;
   UnixSocketBuffer *usb = aBuffer.get();
@@ -317,7 +310,6 @@ void GfxDebugger::ReceiveSocketData(int aIndex, UniquePtr<UnixSocketBuffer>& aBu
         aBuffer->Consume(usb->GetSize());
 
         switch (op) {
-
           case GRALLOC_OP_LIST: {
             std::vector<int64_t> gb_indices;
             SharedBufferManagerParent::ListGrallocBuffers(gb_indices);
@@ -329,7 +321,7 @@ void GfxDebugger::ReceiveSocketData(int aIndex, UniquePtr<UnixSocketBuffer>& aBu
             }
             write(mConnector->mStreamFd, reply.data(), reply.dataSize());
             break;
-            }
+          }
 
           case GRALLOC_OP_DUMP: {
             uint32_t index = parcel.readUint32();
@@ -340,14 +332,35 @@ void GfxDebugger::ReceiveSocketData(int aIndex, UniquePtr<UnixSocketBuffer>& aBu
 
             Parcel reply;
             reply.writeCString(filename);
-            GD_LOGD("filename=%s, strlen=%d, writed %d bytes", filename, strlen(filename), reply.dataSize());
+            GD_LOGD("filename=%s, strlen=%d, writed %d bytes", filename,
+              strlen(filename), reply.dataSize());
             write(mConnector->mStreamFd, reply.data(), reply.dataSize());
             break;
-            }
           }
+        }
+      } // case GD_CMD_GRALLOC
+      break;
 
-        break;
-        } // case GD_CMD_GRALLOC
+      case GD_CMD_SCREENCAP: {
+        uint32_t op = parcel.readUint32();
+        aBuffer->Consume(usb->GetSize());
+
+        switch (op) {
+          case SCREENCAP_OP_CAPTURE: {
+            uint32_t displayId = parcel.readUint32();
+            const char* filePath = parcel.readCString();
+            GD_LOGD("screencap[%s]:", filePath);
+            int res = GonkScreenshot::capture(displayId, filePath);
+
+            Parcel reply;
+            reply.writeUint32(res);
+            GD_LOGD("screencap result: %d", res);
+            write(mConnector->mStreamFd, reply.data(), reply.dataSize());
+            break;
+          }
+        }
+      } // case GD_CMD_SCREENCAP
+      break;
 
       default:
         GD_LOGE("Unknown command: %d", cmd);
@@ -371,8 +384,8 @@ void GfxDebugger::OnConnectSuccess(int aIndex)
   stat(GD_SOCKET_NAME, &fstat);
   uint32_t new_mode = fstat.st_mode & 511;
 
-  GD_LOGD("Connector::CreateListenSocket- changing socket mode from %04o to %04o(octal)",
-      old_mode, new_mode);
+  GD_LOGD("Connector::CreateListenSocket- changing socket mode from "
+      "%04o to %04o(octal)", old_mode, new_mode);
 }
 
 void GfxDebugger::OnConnectError(int aIndex)
@@ -384,7 +397,7 @@ void GfxDebugger::OnDisconnect(int aIndex)
 {
   switch (aIndex) {
     case LISTEN_SOCKET:
-      // Listen socket disconnected; start anew.
+      // Listen socket disconnected; start a new one.
       mListenSocket = nullptr;
       Listen();
       break;

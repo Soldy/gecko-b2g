@@ -17,11 +17,6 @@ namespace dom {
 
 B2G::B2G(nsIGlobalObject* aGlobal) : mOwner(aGlobal) {
   MOZ_ASSERT(aGlobal);
-
-  RefPtr<power::PowerManagerService> pmService =
-      power::PowerManagerService::GetInstance();
-
-  pmService->AddWakeLockListener(this);
 }
 
 B2G::~B2G() {}
@@ -87,6 +82,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(B2G)
 
 void B2G::Shutdown() {
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+
   if (mFlashlightManager) {
     mFlashlightManager->Shutdown();
     mFlashlightManager = nullptr;
@@ -1000,6 +997,21 @@ UsbManager* B2G::GetUsbManager(ErrorResult& aRv) {
 
 void B2G::SetDispatchKeyToContentFirst(bool aEnable) {
   EventStateManager::SetDispatchKeyToContentFirst(aEnable);
+}
+
+nsresult B2G::Init() {
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+
+  RefPtr<power::PowerManagerService> pmService =
+      power::PowerManagerService::GetInstance();
+
+  if (!pmService) {
+    return NS_ERROR_FAILURE;
+  }
+
+  pmService->AddWakeLockListener(this);
+
+  return NS_OK;
 }
 
 }  // namespace dom

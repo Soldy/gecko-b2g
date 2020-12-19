@@ -318,6 +318,7 @@
     "opensearch",
     "pagetitlechanged",
     "promptpermission",
+    "recordingstatus",
     "resize",
     "scroll",
   ];
@@ -528,6 +529,7 @@
         case "manifestchange":
         case "metachange":
         case "opensearch":
+        case "recordingstatus":
         case "resize":
         case "scroll":
           this.dispatchCustomEvent(event.type, event.detail);

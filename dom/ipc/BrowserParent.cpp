@@ -149,6 +149,10 @@
 #  include "GeckoViewHistory.h"
 #endif
 
+#ifdef MOZ_B2G
+#  include "mozilla/MediaManager.h"
+#endif
+
 #include "mozilla/dom/VirtualCursorService.h"
 
 using namespace mozilla::dom;
@@ -231,7 +235,6 @@ BrowserParent::BrowserParent(ContentParent* aManager, const TabId& aTabId,
       mCustomCursorHotspotY(0),
       mVerifyDropLinks{},
       mVsyncParent(nullptr),
-      mDocShellIsActive(false),
       mMarkedDestroying(false),
       mIsDestroyed(false),
       mRemoteTargetSetsCursor(false),
@@ -1496,11 +1499,23 @@ void BrowserParent::SendRealMouseEvent(WidgetMouseEvent& aEvent) {
       MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
       return;
     }
+
+    if (!aEvent.mFlags.mIsSynthesizedForTests) {
+      DebugOnly<bool> ret =
+          isInputPriorityEventEnabled
+              ? SendRealMouseMoveEvent(aEvent, guid, blockId)
+              : SendNormalPriorityRealMouseMoveEvent(aEvent, guid, blockId);
+      NS_WARNING_ASSERTION(ret, "SendRealMouseMoveEvent() failed");
+      MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
+      return;
+    }
+
     DebugOnly<bool> ret =
         isInputPriorityEventEnabled
-            ? SendRealMouseMoveEvent(aEvent, guid, blockId)
-            : SendNormalPriorityRealMouseMoveEvent(aEvent, guid, blockId);
-    NS_WARNING_ASSERTION(ret, "SendRealMouseMoveEvent() failed");
+            ? SendRealMouseMoveEventForTests(aEvent, guid, blockId)
+            : SendNormalPriorityRealMouseMoveEventForTests(aEvent, guid,
+                                                           blockId);
+    NS_WARNING_ASSERTION(ret, "SendRealMouseMoveEventForTests() failed");
     MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
     return;
   }
@@ -3004,10 +3019,10 @@ bool BrowserParent::SendSelectionEvent(WidgetSelectionEvent& aEvent) {
   return true;
 }
 
-bool BrowserParent::SendPasteTransferable(const IPCDataTransfer& aDataTransfer,
-                                          const bool& aIsPrivateData,
-                                          nsIPrincipal* aRequestingPrincipal,
-                                          const uint32_t& aContentPolicyType) {
+bool BrowserParent::SendPasteTransferable(
+    const IPCDataTransfer& aDataTransfer, const bool& aIsPrivateData,
+    nsIPrincipal* aRequestingPrincipal,
+    const nsContentPolicyType& aContentPolicyType) {
   return PBrowserParent::SendPasteTransferable(
       aDataTransfer, aIsPrivateData, aRequestingPrincipal, aContentPolicyType);
 }
@@ -3324,6 +3339,14 @@ mozilla::ipc::IPCResult BrowserParent::RecvAudioChannelActivityNotification(
   return IPC_OK();
 }
 
+#ifdef MOZ_B2G
+mozilla::ipc::IPCResult BrowserParent::RecvNotifyRecordingStatus(bool aAudio,
+                                                                 bool aVideo) {
+  MediaManager::NotifyRecordingStatus(mFrameElement, aAudio, aVideo);
+  return IPC_OK();
+}
+#endif
+
 already_AddRefed<nsFrameLoader> BrowserParent::GetFrameLoader(
     bool aUseCachedFrameLoaderAfterDestroy) const {
   if (mIsDestroyed && !aUseCachedFrameLoaderAfterDestroy) {
@@ -3418,29 +3441,8 @@ mozilla::ipc::IPCResult BrowserParent::RecvRespondStartSwipeEvent(
   return IPC_OK();
 }
 
-bool BrowserParent::GetDocShellIsActive() { return mDocShellIsActive; }
-
-void BrowserParent::SetDocShellIsActive(bool isActive) {
-  mDocShellIsActive = isActive;
-  SetRenderLayers(isActive);
-  Unused << SendSetDocShellIsActive(isActive);
-
-  // update active accessible documents on windows
-#if defined(XP_WIN) && defined(ACCESSIBILITY)
-  if (a11y::Compatibility::IsDolphin()) {
-    if (a11y::DocAccessibleParent* tabDoc = GetTopLevelDocAccessible()) {
-      HWND window = tabDoc->GetEmulatedWindowHandle();
-      MOZ_ASSERT(window);
-      if (window) {
-        if (isActive) {
-          a11y::nsWinUtils::ShowNativeWindow(window);
-        } else {
-          a11y::nsWinUtils::HideNativeWindow(window);
-        }
-      }
-    }
-  }
-#endif
+bool BrowserParent::GetDocShellIsActive() {
+  return mBrowsingContext && mBrowsingContext->IsActive();
 }
 
 bool BrowserParent::GetHasPresented() { return mHasPresented; }

@@ -562,6 +562,28 @@ GonkDisplay::NativeData GonkDisplayP::GetNativeData(
   return data;
 }
 
+android::sp<ANativeWindow> GonkDisplayP::GetSurface(
+    DisplayType aDisplayType) {
+  if (aDisplayType == DisplayType::DISPLAY_PRIMARY) {
+    return mSTClient? mSTClient : nullptr;
+  } else if (aDisplayType == DisplayType::DISPLAY_EXTERNAL) {
+    return mExtSTClient? mExtSTClient : nullptr;
+  }
+
+  return nullptr;
+}
+
+android::sp<GraphicBuffer> GonkDisplayP::GetFrameBuffer(
+    DisplayType aDisplayType) {
+  if (aDisplayType == DisplayType::DISPLAY_PRIMARY) {
+    return mDispSurface? mDispSurface->GetCurrentFrameBuffer() : nullptr;
+  } else if (aDisplayType == DisplayType::DISPLAY_EXTERNAL) {
+    return mExtDispSurface? mExtDispSurface->GetCurrentFrameBuffer() : nullptr;
+  }
+
+  return nullptr;
+}
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wignored-attributes"
 __attribute__((visibility("weak"))) GonkDisplay* GetGonkDisplay() {

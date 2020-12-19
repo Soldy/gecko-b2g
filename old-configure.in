@@ -3018,6 +3018,17 @@ if test "$B2G_IMS"; then
 fi
 AC_SUBST(B2G_IMS)
 
+dnl ========================================================
+dnl Build B2G custom modules if the dir exists
+dnl ========================================================
+if test -d "$_topsrcdir/koost/C001" ; then
+  B2G_CUSTOM_MODULE=C001
+  AC_DEFINE(B2G_CUSTOM_MODULE, C001)
+else
+  B2G_CUSTOM_MODULE=
+fi
+AC_SUBST(B2G_CUSTOM_MODULE, C001)
+
 MOZ_CREATE_CONFIG_STATUS()
 
 rm -fr confdefs* $ac_clean_files

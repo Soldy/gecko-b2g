@@ -146,7 +146,7 @@ JitCode* BaselineCacheIRCompiler::compile() {
 #endif
   // Count stub entries: We count entries rather than successes as it much
   // easier to ensure ICStubReg is valid at entry than at exit.
-  Address enteredCount(ICStubReg, ICCacheIR_Regular::offsetOfEnteredCount());
+  Address enteredCount(ICStubReg, ICCacheIRStub::offsetOfEnteredCount());
   masm.add32(Imm32(1), enteredCount);
 
   CacheIRReader reader(writer_);
@@ -2208,14 +2208,8 @@ bool BaselineCacheIRCompiler::init(CacheKind kind) {
 }
 
 static void ResetEnteredCounts(ICFallbackStub* stub) {
-  for (ICStubIterator iter = stub->beginChain(); !iter.atEnd(); iter++) {
-    switch (iter->kind()) {
-      case ICStub::CacheIR_Regular:
-        iter->toCacheIR_Regular()->resetEnteredCount();
-        break;
-      default:
-        break;
-    }
+  for (ICStubIterator iter = stub->beginChain(); *iter != stub; iter++) {
+    iter->toCacheIRStub()->resetEnteredCount();
   }
   stub->resetEnteredCount();
 }
@@ -2228,7 +2222,7 @@ static ICStubSpace* StubSpaceForStub(bool makesGCCalls, JSScript* script,
   return script->zone()->jitZone()->optimizedStubSpace();
 }
 
-ICStub* js::jit::AttachBaselineCacheIRStub(
+ICCacheIRStub* js::jit::AttachBaselineCacheIRStub(
     JSContext* cx, const CacheIRWriter& writer, CacheKind kind,
     JSScript* outerScript, ICScript* icScript, ICFallbackStub* stub,
     bool* attached) {
@@ -2249,7 +2243,7 @@ ICStub* js::jit::AttachBaselineCacheIRStub(
   MOZ_ASSERT(stub->numOptimizedStubs() < MaxOptimizedCacheIRStubs);
 #endif
 
-  uint32_t stubDataOffset = sizeof(ICCacheIR_Regular);
+  uint32_t stubDataOffset = sizeof(ICCacheIRStub);
 
   JitZone* jitZone = cx->zone()->jitZone();
 
@@ -2303,7 +2297,7 @@ ICStub* js::jit::AttachBaselineCacheIRStub(
   // conditions.
   for (ICStubConstIterator iter = stub->beginChainConst(); *iter != stub;
        iter++) {
-    auto otherStub = iter->toCacheIR_Regular();
+    auto otherStub = iter->toCacheIRStub();
     if (otherStub->stubInfo() != stubInfo) {
       continue;
     }
@@ -2350,14 +2344,14 @@ ICStub* js::jit::AttachBaselineCacheIRStub(
       break;
   }
 
-  auto newStub = new (newStubMem) ICCacheIR_Regular(code, stubInfo);
+  auto newStub = new (newStubMem) ICCacheIRStub(code, stubInfo);
   writer.copyStubData(newStub->stubDataStart());
   stub->addNewStub(newStub);
   *attached = true;
   return newStub;
 }
 
-uint8_t* ICCacheIR_Regular::stubDataStart() {
+uint8_t* ICCacheIRStub::stubDataStart() {
   return reinterpret_cast<uint8_t*>(this) + stubInfo_->stubDataOffset();
 }
 

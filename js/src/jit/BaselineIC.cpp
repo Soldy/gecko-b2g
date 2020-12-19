@@ -197,9 +197,12 @@ void ICEntry::trace(JSTracer* trc) {
   // If we have filled our padding with a magic value, check it now.
   MOZ_DIAGNOSTIC_ASSERT(traceMagic_ == EXPECTED_TRACE_MAGIC);
 #endif
-  for (ICStub* stub = firstStub(); stub; stub = stub->next()) {
-    stub->trace(trc);
+  ICStub* stub = firstStub();
+  while (!stub->isFallback()) {
+    stub->toCacheIRStub()->trace(trc);
+    stub = stub->toCacheIRStub()->next();
   }
+  stub->toFallbackStub()->trace(trc);
 }
 
 // Allocator for Baseline IC fallback stubs. These stubs use trampoline code
@@ -549,7 +552,7 @@ bool ICScript::initICEntries(JSContext* cx, JSScript* script) {
 
 ICStubConstIterator& ICStubConstIterator::operator++() {
   MOZ_ASSERT(currentStub_ != nullptr);
-  currentStub_ = currentStub_->next();
+  currentStub_ = currentStub_->toCacheIRStub()->next();
   return *this;
 }
 
@@ -561,34 +564,36 @@ ICStubIterator::ICStubIterator(ICFallbackStub* fallbackStub, bool end)
       unlinked_(false) {}
 
 ICStubIterator& ICStubIterator::operator++() {
-  MOZ_ASSERT(currentStub_->next() != nullptr);
+  MOZ_ASSERT(!currentStub_->isFallback());
   if (!unlinked_) {
-    previousStub_ = currentStub_;
+    previousStub_ = currentStub_->toCacheIRStub();
   }
-  currentStub_ = currentStub_->next();
+  currentStub_ = currentStub_->toCacheIRStub()->next();
   unlinked_ = false;
   return *this;
 }
 
 void ICStubIterator::unlink(JSContext* cx, JSScript* script) {
-  MOZ_ASSERT(currentStub_->next() != nullptr);
   MOZ_ASSERT(currentStub_ != fallbackStub_);
+  MOZ_ASSERT(currentStub_->maybeNext() != nullptr);
   MOZ_ASSERT(!unlinked_);
 
   fallbackStub_->maybeInvalidateWarp(cx, script);
   fallbackStub_->unlinkStubDontInvalidateWarp(cx->zone(), previousStub_,
-                                              currentStub_);
+                                              currentStub_->toCacheIRStub());
 
   // Mark the current iterator position as unlinked, so operator++ works
   // properly.
   unlinked_ = true;
 }
 
-/* static */
-bool ICStub::NonCacheIRStubMakesGCCalls(Kind kind) {
-  MOZ_ASSERT(IsValidKind(kind));
-  MOZ_ASSERT(!IsCacheIRKind(kind));
+bool ICStub::makesGCCalls() const {
+  if (!isFallback()) {
+    return toCacheIRStub()->stubInfo()->makesGCCalls();
+  }
 
+  Kind kind = toFallbackStub()->kind();
+  MOZ_ASSERT(IsValidKind(kind));
   switch (kind) {
     case Call_Fallback:
     // These three fallback stubs don't actually make non-tail calls,
@@ -603,24 +608,6 @@ bool ICStub::NonCacheIRStubMakesGCCalls(Kind kind) {
   }
 }
 
-bool ICStub::makesGCCalls() const {
-  switch (kind()) {
-    case CacheIR_Regular:
-      return toCacheIR_Regular()->stubInfo()->makesGCCalls();
-    default:
-      return NonCacheIRStubMakesGCCalls(kind());
-  }
-}
-
-uint32_t ICStub::getEnteredCount() const {
-  switch (kind()) {
-    case CacheIR_Regular:
-      return toCacheIR_Regular()->enteredCount();
-    default:
-      return toFallbackStub()->enteredCount();
-  }
-}
-
 void ICFallbackStub::trackNotAttached(JSContext* cx, JSScript* script) {
   maybeInvalidateWarp(cx, script);
   state().trackNotAttached();
@@ -631,7 +618,6 @@ void ICFallbackStub::maybeInvalidateWarp(JSContext* cx, JSScript* script) {
     return;
   }
 
-  MOZ_ASSERT(JitOptions.warpBuilder);
   clearUsedByTranspiler();
 
   if (script->hasIonScript()) {
@@ -641,22 +627,16 @@ void ICFallbackStub::maybeInvalidateWarp(JSContext* cx, JSScript* script) {
   }
 }
 
-void ICStub::updateCode(JitCode* code) {
-  // Write barrier on the old code.
-  gc::PreWriteBarrier(jitCode());
-  stubCode_ = code->raw();
+void ICCacheIRStub::trace(JSTracer* trc) {
+  JitCode* stubJitCode = jitCode();
+  TraceManuallyBarrieredEdge(trc, &stubJitCode, "baseline-ic-stub-code");
+
+  TraceCacheIRStub(trc, this, stubInfo());
 }
 
-/* static */
-void ICStub::trace(JSTracer* trc) {
-#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
-  checkTraceMagic();
-#endif
+void ICFallbackStub::trace(JSTracer* trc) {
   // Fallback stubs use runtime-wide trampoline code we don't need to trace.
-  if (!usesTrampolineCode()) {
-    JitCode* stubJitCode = jitCode();
-    TraceManuallyBarrieredEdge(trc, &stubJitCode, "baseline-ic-stub-code");
-  }
+  MOZ_ASSERT(usesTrampolineCode());
 
   switch (kind()) {
     case ICStub::NewArray_Fallback: {
@@ -678,9 +658,6 @@ void ICStub::trace(JSTracer* trc) {
       TraceEdge(trc, &stub->templateObject(), "baseline-rest-template");
       break;
     }
-    case ICStub::CacheIR_Regular:
-      TraceCacheIRStub(trc, this, toCacheIR_Regular()->stubInfo());
-      break;
     default:
       break;
   }
@@ -725,10 +702,9 @@ static void TryAttachStub(const char* name, JSContext* cx, BaselineFrame* frame,
   }
 }
 
-void ICFallbackStub::unlinkStubDontInvalidateWarp(Zone* zone, ICStub* prev,
-                                                  ICStub* stub) {
-  MOZ_ASSERT(stub->next());
-
+void ICFallbackStub::unlinkStubDontInvalidateWarp(Zone* zone,
+                                                  ICCacheIRStub* prev,
+                                                  ICCacheIRStub* stub) {
   if (prev) {
     MOZ_ASSERT(prev->next() == stub);
     prev->setNext(stub->next());
@@ -745,9 +721,6 @@ void ICFallbackStub::unlinkStubDontInvalidateWarp(Zone* zone, ICStub* prev,
     stub->trace(zone->barrierTracer());
   }
 
-#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
-  stub->checkTraceMagic();
-#endif
 #ifdef DEBUG
   // Poison stub code to ensure we don't call this stub again. However, if
   // this stub can make calls, a pointer to it may be stored in a stub frame
@@ -2795,24 +2768,6 @@ bool JitRuntime::generateBaselineICFallbackCode(JSContext* cx) {
 
   fallbackCode.initCode(code);
   return true;
-}
-
-const CacheIRStubInfo* ICStub::cacheIRStubInfo() const {
-  switch (kind()) {
-    case ICStub::CacheIR_Regular:
-      return toCacheIR_Regular()->stubInfo();
-    default:
-      MOZ_CRASH("Not a CacheIR stub");
-  }
-}
-
-const uint8_t* ICStub::cacheIRStubData() {
-  switch (kind()) {
-    case ICStub::CacheIR_Regular:
-      return toCacheIR_Regular()->stubDataStart();
-    default:
-      MOZ_CRASH("Not a CacheIR stub");
-  }
 }
 
 }  // namespace jit

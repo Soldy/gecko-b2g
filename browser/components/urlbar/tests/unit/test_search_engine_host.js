@@ -53,8 +53,6 @@ add_task(async function test_searchEngine_autoFill() {
 });
 
 add_task(async function test_searchEngine_noautoFill() {
-  Services.prefs.setBoolPref("browser.urlbar.update2", true);
-  Services.prefs.setBoolPref("browser.urlbar.update2.tabToComplete", true);
   Services.prefs.setIntPref(
     "browser.urlbar.tabToSearch.onboard.interactionsLeft",
     0
@@ -96,6 +94,4 @@ add_task(async function test_searchEngine_noautoFill() {
   Services.prefs.clearUserPref(
     "browser.urlbar.tabToSearch.onboard.interactionsLeft"
   );
-  Services.prefs.clearUserPref("browser.urlbar.update2.tabToComplete");
-  Services.prefs.clearUserPref("browser.urlbar.update2");
 });

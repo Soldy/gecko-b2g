@@ -189,7 +189,6 @@ class GonkAudioPortCallback : public AudioSystem::AudioPortCallback {
           MOZ_ASSERT(NS_IsMainThread());
           RefPtr<AudioManager> audioManager = AudioManager::GetInstance();
           NS_ENSURE_TRUE(audioManager.get(), );
-          audioManager->UpdateCachedActiveDevicesForStreams();
           audioManager->MaybeUpdateVolumeSettingToDatabase();
         });
     NS_DispatchToMainThread(runnable);
@@ -512,32 +511,34 @@ void AudioManager::UpdateHeadsetConnectionState(hal::SwitchState aState) {
   bool lineoutConnected = mConnectedDevices.Get(AUDIO_DEVICE_OUT_LINE, nullptr);
 
   if (aState == hal::SWITCH_STATE_HEADSET) {
-    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_WIRED_HEADSET, ""_ns);
-    UpdateDeviceConnectionState(true, AUDIO_DEVICE_IN_WIRED_HEADSET, ""_ns);
-
+    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_WIRED_HEADSET);
+    UpdateDeviceConnectionState(true, AUDIO_DEVICE_IN_WIRED_HEADSET);
   } else if (aState == hal::SWITCH_STATE_HEADPHONE) {
-    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_WIRED_HEADPHONE, ""_ns);
+    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_WIRED_HEADPHONE);
   } else if (aState == hal::SWITCH_STATE_LINEOUT) {
-    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_LINE, ""_ns);
+    UpdateDeviceConnectionState(true, AUDIO_DEVICE_OUT_LINE);
   } else if (aState == hal::SWITCH_STATE_OFF) {
     if (headsetConnected) {
-      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_WIRED_HEADSET, ""_ns);
-      UpdateDeviceConnectionState(false, AUDIO_DEVICE_IN_WIRED_HEADSET, ""_ns);
+      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_WIRED_HEADSET);
+      UpdateDeviceConnectionState(false, AUDIO_DEVICE_IN_WIRED_HEADSET);
     }
     if (headphoneConnected) {
-      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_WIRED_HEADPHONE,
-                                  ""_ns);
+      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_WIRED_HEADPHONE);
     }
     if (lineoutConnected) {
-      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_LINE, ""_ns);
+      UpdateDeviceConnectionState(false, AUDIO_DEVICE_OUT_LINE);
     }
   }
 }
 
-static void setDeviceConnectionStateInternal(audio_devices_t device,
-                                             audio_policy_dev_state_t state,
-                                             const char* device_address) {
-  AudioSystem::setDeviceConnectionState(device, state, device_address, "",
+static void SetDeviceConnectionStateInternal(bool aIsConnected,
+                                             uint32_t aDevice,
+                                             const nsCString& aDeviceAddress) {
+  auto device = static_cast<audio_devices_t>(aDevice);
+  auto state = aIsConnected ? AUDIO_POLICY_DEVICE_STATE_AVAILABLE
+                            : AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE;
+
+  AudioSystem::setDeviceConnectionState(device, state, aDeviceAddress.get(), "",
                                         AUDIO_FORMAT_DEFAULT);
 }
 
@@ -553,30 +554,26 @@ uint32_t AudioManager::GetSpecificVolumeCount() {
   return count;
 }
 
-void AudioManager::UpdateDeviceConnectionState(bool aIsConnected,
-                                               uint32_t aDevice,
-                                               const nsCString& aDeviceName) {
-  bool isConnected = mConnectedDevices.Get(aDevice, nullptr);
-  if (isConnected && !aIsConnected) {
-    setDeviceConnectionStateInternal(static_cast<audio_devices_t>(aDevice),
-                                     AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
-                                     aDeviceName.get());
-    mConnectedDevices.Remove(aDevice);
-  } else if (!isConnected && aIsConnected) {
-    setDeviceConnectionStateInternal(static_cast<audio_devices_t>(aDevice),
-                                     AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                                     aDeviceName.get());
-    mConnectedDevices.Put(aDevice, aDeviceName);
+void AudioManager::UpdateDeviceConnectionState(
+    bool aIsConnected, uint32_t aDevice, const nsCString& aDeviceAddress) {
+  // If the connection state is not changed, just return.
+  if (aIsConnected == mConnectedDevices.Get(aDevice, nullptr)) {
+    return;
   }
+
+  if (aIsConnected) {
+    mConnectedDevices.Put(aDevice, aDeviceAddress);
+  } else {
+    mConnectedDevices.Remove(aDevice);
+  }
+  SetDeviceConnectionStateInternal(aIsConnected, aDevice, aDeviceAddress);
 }
 
 void AudioManager::SetAllDeviceConnectionStates() {
   for (auto iter = mConnectedDevices.Iter(); !iter.Done(); iter.Next()) {
-    const uint32_t& device = iter.Key();
-    nsCString& deviceAddress = iter.Data();
-    setDeviceConnectionStateInternal(static_cast<audio_devices_t>(device),
-                                     AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                                     deviceAddress.get());
+    const auto& device = iter.Key();
+    const auto& deviceAddress = iter.Data();
+    SetDeviceConnectionStateInternal(true, device, deviceAddress);
   }
 }
 
@@ -826,7 +823,6 @@ AudioManager::AudioManager()
     uint32_t volIndex = sDefaultStreamVolumeTbl[streamType];
     SetStreamVolumeForDevice(streamType, volIndex, AUDIO_DEVICE_OUT_DEFAULT);
   }
-  UpdateCachedActiveDevicesForStreams();
 
   RegisterSwitchObserver(hal::SWITCH_HEADPHONES, mObserver.get());
   // Initialize headhone/heaset status
@@ -1081,9 +1077,7 @@ AudioManager::SetForceForUse(int32_t aUsage, int32_t aForce) {
       (audio_policy_force_use_t)aUsage, (audio_policy_forced_cfg_t)aForce);
 
   // AudioPortListUpdate may not be triggered after setting force use, so
-  // manually update cached devices here, and make sure this is done before
-  // SetFmRouting().
-  UpdateCachedActiveDevicesForStreams();
+  // manually update volume settings here.
   MaybeUpdateVolumeSettingToDatabase();
 
   if (aUsage == USE_MEDIA) {
@@ -1099,8 +1093,8 @@ AudioManager::GetForceForUse(int32_t aUsage, int32_t* aForce) {
 }
 
 NS_IMETHODIMP
-AudioManager::GetFmRadioAudioEnabled(bool* aFmRadioAudioEnabled) {
-  *aFmRadioAudioEnabled = IsFmOutConnected();
+AudioManager::GetFmRadioAudioEnabled(bool* aEnabled) {
+  *aEnabled = IsFmOutConnected();
   return NS_OK;
 }
 
@@ -1169,14 +1163,14 @@ void AudioManager::SetFmMuted(bool aMuted) {
 }
 
 NS_IMETHODIMP
-AudioManager::SetFmRadioAudioEnabled(bool aFmRadioAudioEnabled) {
+AudioManager::SetFmRadioAudioEnabled(bool aEnabled) {
   // Mute FM audio first, and unmute it after the correct routing and volume are
   // set.
-  if (aFmRadioAudioEnabled) {
+  if (aEnabled) {
     SetFmMuted(true);
   }
 #if defined(PRODUCT_MANUFACTURER_QUALCOMM)
-  if (aFmRadioAudioEnabled) {
+  if (aEnabled) {
     if (IsFmOutConnected()) {
       // Stop FM audio and start it again with correct routing.
       SetFmRouting();
@@ -1189,18 +1183,14 @@ AudioManager::SetFmRadioAudioEnabled(bool aFmRadioAudioEnabled) {
     SetParameters("handle_fm=%d", GetDeviceForFm());
   }
 #elif defined(PRODUCT_MANUFACTURER_SPRD)
-  UpdateDeviceConnectionState(aFmRadioAudioEnabled, AUDIO_DEVICE_OUT_FM_HEADSET,
-                              ""_ns);
-
-  UpdateDeviceConnectionState(aFmRadioAudioEnabled, AUDIO_DEVICE_OUT_FM_SPEAKER,
-                              ""_ns);
+  UpdateDeviceConnectionState(aEnabled, AUDIO_DEVICE_OUT_FM_HEADSET);
+  UpdateDeviceConnectionState(aEnabled, AUDIO_DEVICE_OUT_FM_SPEAKER);
 #elif defined(PRODUCT_MANUFACTURER_MTK)
-  UpdateDeviceConnectionState(aFmRadioAudioEnabled, AUDIO_DEVICE_IN_FM_TUNER,
-                              ""_ns);
+  UpdateDeviceConnectionState(aEnabled, AUDIO_DEVICE_IN_FM_TUNER);
 #else
   MOZ_CRASH("FM radio not supported");
 #endif
-  if (aFmRadioAudioEnabled) {
+  if (aEnabled) {
     SetFmMuted(false);
   }
   return NS_OK;
@@ -1409,28 +1399,7 @@ void AudioManager::MaybeUpdateVolumeSettingToDatabase(bool aForce) {
   }
 }
 
-void AudioManager::UpdateCachedActiveDevicesForStreams() {
-  // This function updates cached active devices for streams.
-  // It is used for optimization of GetDevicesForStream() since L.
-  // AudioManager could know when active devices
-  // are changed in AudioPolicyManager by onAudioPortListUpdate().
-  // Except it, AudioManager normally do not need to ask AuidoPolicyManager
-  // about current active devices of streams and could use cached values.
-  // Before L, onAudioPortListUpdate() does not exist and GetDevicesForStream()
-  // does not use the cache. Therefore this function do nothing.
-  for (auto& streamState : mStreamStates) {
-    // Update cached active devices of stream
-    streamState->IsDevicesChanged(false /* aFromCache */);
-  }
-}
-
-uint32_t AudioManager::GetDevicesForStream(int32_t aStream, bool aFromCache) {
-  // Since Lollipop, devices update could be notified by AudioPortCallback.
-  // Cached values can be used if there is no update.
-  if (aFromCache) {
-    return mStreamStates[aStream]->GetLastDevices();
-  }
-
+uint32_t AudioManager::GetDevicesForStream(int32_t aStream) {
   audio_devices_t devices = AudioSystem::getDevicesForStream(
       static_cast<audio_stream_type_t>(aStream));
 
@@ -1523,8 +1492,8 @@ AudioManager::VolumeStreamState::VolumeStreamState(AudioManager& aManager,
   InitStreamVolume();
 }
 
-bool AudioManager::VolumeStreamState::IsDevicesChanged(bool aFromCache) {
-  uint32_t devices = mManager.GetDevicesForStream(mStreamType, aFromCache);
+bool AudioManager::VolumeStreamState::IsDevicesChanged() {
+  uint32_t devices = mManager.GetDevicesForStream(mStreamType);
   if (devices != mLastDevices) {
     mLastDevices = devices;
     mIsDevicesChanged = true;
@@ -1551,10 +1520,6 @@ void AudioManager::VolumeStreamState::InitStreamVolume() {
 
 uint32_t AudioManager::VolumeStreamState::GetMaxIndex() {
   return sMaxStreamVolumeTbl[mStreamType];
-}
-
-uint32_t AudioManager::VolumeStreamState::GetDefaultIndex() {
-  return sDefaultStreamVolumeTbl[mStreamType];
 }
 
 uint32_t AudioManager::VolumeStreamState::GetVolumeIndex() {

@@ -516,6 +516,9 @@ bool shell::enableWasmMultiValue = true;
 #ifdef ENABLE_WASM_SIMD
 bool shell::enableWasmSimd = true;
 #endif
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+bool shell::enableWasmSimdWormhole = false;
+#endif
 bool shell::enableWasmVerbose = false;
 bool shell::enableTestWasmAwaitTier2 = false;
 bool shell::enableSourcePragmas = true;
@@ -5564,7 +5567,7 @@ static bool FrontendTest(JSContext* cx, unsigned argc, Value* vp,
 
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
   frontend::CompilationState compilationState(cx, allocScope, options,
-                                              compilationInfo.get().stencil);
+                                              compilationInfo.get());
 
   if (isAscii) {
     const Latin1Char* latin1 = stableChars.latin1Range().begin().get();
@@ -5638,7 +5641,7 @@ static bool SyntaxParse(JSContext* cx, unsigned argc, Value* vp) {
 
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
   frontend::CompilationState compilationState(cx, allocScope, options,
-                                              compilationInfo.get().stencil);
+                                              compilationInfo.get());
 
   Parser<frontend::SyntaxParseHandler, char16_t> parser(
       cx, options, chars, length, false, compilationInfo.get(),
@@ -10412,6 +10415,9 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
 #ifdef ENABLE_WASM_SIMD
   enableWasmSimd = !op.getBoolOption("no-wasm-simd");
 #endif
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+  enableWasmSimdWormhole = op.getBoolOption("wasm-simd-wormhole");
+#endif
 #ifdef ENABLE_WASM_EXCEPTIONS
   enableWasmExceptions = op.getBoolOption("wasm-exceptions");
 #endif
@@ -10459,6 +10465,9 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
 #endif
 #ifdef ENABLE_WASM_SIMD
       .setWasmSimd(enableWasmSimd)
+#endif
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+      .setWasmSimdWormhole(enableWasmSimdWormhole)
 #endif
 #ifdef ENABLE_WASM_EXCEPTIONS
       .setWasmExceptions(enableWasmExceptions)
@@ -10697,6 +10706,22 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
     jit::JitOptions.baselineJit = false;
   }
 
+  if (op.getBoolOption("no-warp-async")) {
+    jit::JitOptions.warpAsync = false;
+  }
+
+  if (op.getBoolOption("no-warp-generator")) {
+    jit::JitOptions.warpGenerator = false;
+  }
+
+  if (op.getBoolOption("warp-async")) {
+    jit::JitOptions.warpAsync = true;
+  }
+
+  if (op.getBoolOption("warp-generator")) {
+    jit::JitOptions.warpGenerator = true;
+  }
+
   if (op.getBoolOption("no-ion")) {
     jit::JitOptions.ion = false;
   }
@@ -10851,6 +10876,9 @@ static void SetWorkerContextOptions(JSContext* cx) {
 #endif
 #ifdef ENABLE_WASM_SIMD
       .setWasmSimd(enableWasmSimd)
+#endif
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+      .setWasmSimdWormhole(enableWasmSimdWormhole)
 #endif
 #ifdef ENABLE_WASM_EXCEPTIONS
       .setWasmExceptions(enableWasmExceptions)
@@ -11300,6 +11328,12 @@ int main(int argc, char** argv, char** envp) {
 #else
       !op.addBoolOption('\0', "no-wasm-simd", "No-op") ||
 #endif
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+      !op.addBoolOption('\0', "wasm-simd-wormhole",
+                        "Enable wasm SIMD wormhole (UTSL)") ||
+#else
+      !op.addBoolOption('\0', "wasm-simd-wormhole", "No-op") ||
+#endif
 #ifdef ENABLE_WASM_EXCEPTIONS
       !op.addBoolOption('\0', "wasm-exceptions",
                         "Enable wasm exceptions features") ||
@@ -11440,6 +11474,13 @@ int main(int argc, char** argv, char** envp) {
       !op.addBoolOption('\0', "baseline",
                         "Enable baseline compiler (default)") ||
       !op.addBoolOption('\0', "no-baseline", "Disable baseline compiler") ||
+      !op.addBoolOption('\0', "no-warp-async",
+                        "Don't Warp compile Async Functions") ||
+      !op.addBoolOption('\0', "no-warp-generator",
+                        "Warp compile Generator Functions") ||
+      !op.addBoolOption('\0', "warp-async", "Warp compile Async Functions") ||
+      !op.addBoolOption('\0', "warp-generator",
+                        "Don't Warp compile Generator Functions") ||
       !op.addBoolOption('\0', "baseline-eager",
                         "Always baseline-compile methods") ||
       !op.addIntOption(

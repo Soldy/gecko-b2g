@@ -766,6 +766,14 @@ void MozMtpDatabase::endSendObject(MtpObjectHandle aHandle, bool aSucceeded) {
       new_times.actime = sb.st_atime;  // Preserve atime
       new_times.modtime = entry->mDateModified;
       utime(entry->mPath.get(), &new_times);
+      // Android Q doesn't pass the size of the file in api
+      // MozMtpDatabase::beginSendObject. Update the size of the file when the
+      // transfer is finished.
+      if (MTP_FORMAT_ASSOCIATION != entry->mObjectFormat) {
+        entry->mObjectSize = sb.st_size;
+        MTP_DBG("Path: %s, file size: %d bytes", entry->mPath.get(),
+                entry->mObjectSize);
+      }
 
       MtpWatcherNotify(entry, "modified");
     }

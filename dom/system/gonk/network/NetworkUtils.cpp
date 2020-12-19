@@ -64,7 +64,7 @@ using android::net::IDnsResolver;
 using android::net::ResolverParamsParcel;
 using mozilla::system::Property;
 
-static bool ENABLE_DEBUG = false;
+static bool ENABLE_NU_DEBUG = false;
 
 static const int32_t SUCCESS = 0;
 
@@ -127,12 +127,9 @@ static nsTArray<nsCString> gIpv6TetheringInterfaces;
 static nsTArray<CommandChain*> gCommandChainQueue;
 
 static void NU_DBG(const char* format, ...) {
-  // TODO: always true for now.
-#if 0
-  if (!ENABLE_DEBUG) {
+  if (!ENABLE_NU_DEBUG) {
     return;
   }
-#endif
   va_list args;
   va_start(args, format);
   __android_log_vprint(ANDROID_LOG_INFO, "NetworkUtils", format, args);
@@ -2672,10 +2669,10 @@ void NetworkUtils::dumpParams(NetworkParams& aOptions, const char* aType) {
 }
 
 void NetworkUtils::updateDebug() {
-  ENABLE_DEBUG =
+  ENABLE_NU_DEBUG =
       mozilla::Preferences::GetBool(PREF_NETWORK_DEBUG_ENABLED, false);
   if (gNetdUnsolService) {
-    gNetdUnsolService->updateDebug(ENABLE_DEBUG);
+    gNetdUnsolService->updateDebug(ENABLE_NU_DEBUG);
   }
 }
 

@@ -83,9 +83,9 @@ class RemoveLoadCursorTaskOnMainThread final : public Runnable {
  public:
   RemoveLoadCursorTaskOnMainThread(nsCursor aCursor,
                                    GLCursorImageManager* aManager)
-      : mCursor(aCursor),
-        mManager(aManager),
-        Runnable("RemoveLoadCursorTask") {}
+      : Runnable("RemoveLoadCursorTask"),
+        mCursor(aCursor),
+        mManager(aManager) {}
 
   NS_IMETHOD Run() override {
     if (mManager) {
@@ -204,7 +204,7 @@ void GLCursorImageManager::PrepareCursorImage(nsCursor aCursor,
     cursorElementHolder = doc->InsertAnonymousContent(*image, rv);
 
     if (cursorElementHolder) {
-      dom::Element &element = cursorElementHolder->ContentNode();
+      dom::Element& element = cursorElementHolder->ContentNode();
       nsIFrame* frame = element.GetPrimaryFrame();
       if (!frame) {
         // Force the document to construct a primary frame immediately if
@@ -223,11 +223,12 @@ void GLCursorImageManager::PrepareCursorImage(nsCursor aCursor,
       MOZ_ASSERT(ui->mCursor.images.Length() > 0);
       Span<const StyleCursorImage> item = ui->mCursor.images.AsSpan();
 
-      nsIntPoint hotspot= nsIntPoint((int)item[0].hotspot_x, (int)item[0].hotspot_y);
+      nsIntPoint hotspot =
+          nsIntPoint((int)item[0].hotspot_x, (int)item[0].hotspot_y);
       loadRequest.mTask = new LoadCursorTask(supportedCursor, hotspot, this);
 
       item[0].url.GetImage()->Clone(loadRequest.mTask.get(),
-                              getter_AddRefs(loadRequest.mRequest));
+                                    getter_AddRefs(loadRequest.mRequest));
 
       loadRequest.mRequest->StartDecoding(imgIContainer::FLAG_NONE);
 

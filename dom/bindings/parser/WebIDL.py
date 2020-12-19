@@ -4185,10 +4185,6 @@ class IDLValue(IDLObject):
             # extra normalization step.
             assert self.type.isDOMString()
             return self
-        elif self.type.isDOMString() and type.treatNullAsEmpty:
-            # TreatNullAsEmpty is a different type for resolution reasons,
-            # however once you have a value it doesn't matter
-            return self
         elif self.type.isString() and (
             type.isByteString() or type.isJSString() or type.isUTF8String()
         ):
@@ -4210,6 +4206,10 @@ class IDLValue(IDLObject):
                     )
 
             return IDLValue(self.location, type, self.value)
+        elif self.type.isDOMString() and type.treatNullAsEmpty:
+            # TreatNullAsEmpty is a different type for resolution reasons,
+            # however once you have a value it doesn't matter
+            return self
 
         raise NoCoercionFoundError(
             "Cannot coerce type %s to type %s." % (self.type, type), [location]
@@ -5635,10 +5635,14 @@ class IDLAttribute(IDLInterfaceMember):
 
     def expand(self, members):
         assert self.stringifier
-        if not self.type.isDOMString() and not self.type.isUSVString():
+        if (
+            not self.type.isDOMString()
+            and not self.type.isUSVString()
+            and not self.type.isUTF8String()
+        ):
             raise WebIDLError(
                 "The type of a stringifer attribute must be "
-                "either DOMString or USVString",
+                "either DOMString, USVString or UTF8String",
                 [self.location],
             )
         identifier = IDLUnresolvedIdentifier(

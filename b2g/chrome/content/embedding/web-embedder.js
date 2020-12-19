@@ -410,7 +410,7 @@ XPCOMUtils.defineLazyServiceGetter(
       Services.obs.addObserver((detail, subject, data) => {
         _webembed_log(`receive almost-low-disk-space: ${data}`);
         this.dispatchEvent(
-          new CustomEvent("almost-low-disk-space", { detail: data })
+          new CustomEvent("almost-low-disk-space", { detail: data === "true" })
         );
       }, "almost-low-disk-space");
 

@@ -6,7 +6,7 @@
 
 "use strict";
 
-const EXPORTED_SYMBOLS = ["MarionetteCommandsChild"];
+const EXPORTED_SYMBOLS = ["MarionetteCommandsChild", "clearActionInputState"];
 
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
@@ -27,6 +27,8 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 });
 
 XPCOMUtils.defineLazyGetter(this, "logger", () => Log.get());
+
+let inputStateIsDirty = false;
 
 class MarionetteCommandsChild extends JSWindowActorChild {
   constructor() {
@@ -57,21 +59,7 @@ class MarionetteCommandsChild extends JSWindowActorChild {
         `for window id ${this.innerWindowId}`
     );
 
-    // Listen for click event to indicate one click has happened, so actions
-    // code can send dblclick event
-    this.document.defaultView.addEventListener(
-      "click",
-      event.DoubleClickTracker.setClick
-    );
-    this.document.defaultView.addEventListener(
-      "dblclick",
-      event.DoubleClickTracker.resetClick
-    );
-    this.document.defaultView.addEventListener(
-      "unload",
-      event.DoubleClickTracker.resetClick,
-      true
-    );
+    clearActionInputState();
   }
 
   async receiveMessage(msg) {
@@ -448,6 +436,8 @@ class MarionetteCommandsChild extends JSWindowActorChild {
       this.document.defaultView,
       !capabilities["moz:useNonSpecCompliantPointerOrigin"]
     );
+    inputStateIsDirty =
+      action.inputsToCancel.length || action.inputStateMap.size;
   }
 
   /**
@@ -462,8 +452,7 @@ class MarionetteCommandsChild extends JSWindowActorChild {
       0,
       this.document.defaultView
     );
-    action.inputsToCancel.length = 0;
-    action.inputStateMap.clear();
+    clearActionInputState();
 
     event.DoubleClickTracker.resetClick();
   }
@@ -537,5 +526,17 @@ class MarionetteCommandsChild extends JSWindowActorChild {
     const browsingContext = this.browsingContext.parent || this.browsingContext;
 
     return { browsingContextId: browsingContext.id };
+  }
+}
+
+/**
+ * Reset Action API input state
+ */
+function clearActionInputState() {
+  // Avoid loading the action module before it is needed by a command
+  if (inputStateIsDirty) {
+    action.inputStateMap.clear();
+    action.inputsToCancel.length = 0;
+    inputStateIsDirty = false;
   }
 }

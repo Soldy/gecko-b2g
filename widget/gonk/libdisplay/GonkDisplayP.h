@@ -71,7 +71,10 @@ public:
 
     virtual void UnlockScreen();
 
-    virtual android::sp<ANativeWindow> GetSurface() { return mSTClient; };
+    virtual android::sp<ANativeWindow> GetSurface(DisplayType aDisplayType);
+
+    virtual android::sp<android::GraphicBuffer> GetFrameBuffer(
+        DisplayType aDisplayType);
 
 private:
     void CreateFramebufferSurface(android::sp<ANativeWindow>& aNativeWindow,

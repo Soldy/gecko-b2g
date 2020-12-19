@@ -16,9 +16,13 @@ const { PromiseUtils } = ChromeUtils.import(
 );
 
 Cu.import("resource://gre/modules/ril_consts.js");
+
+var RIL_DEBUG = ChromeUtils.import(
+  "resource://gre/modules/ril_consts_debug.js"
+);
+
 // set to true in ril_consts.js to see debug messages
-//var DEBUG = DEBUG_WORKER;
-var DEBUG = true;
+var DEBUG = RIL_DEBUG.DEBUG_RIL;
 var GLOBAL = this;
 
 // Timeout value for emergency callback mode.
@@ -71,6 +75,16 @@ if (!this.debug) {
     dump("SimIOHelper: " + message + "\n");
   };
 }
+
+function updateDebugFlag() {
+  // Read debug setting from pref
+  try {
+    DEBUG =
+      RIL_DEBUG.DEBUG_RIL ||
+      Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
+  } catch (e) {}
+}
+updateDebugFlag();
 
 //TODO: Find better place
 function LatLng(alat, alng) {
@@ -226,6 +240,7 @@ Circle.prototype = {
 function Context(aRadioInterfcae) {
   this.clientId = aRadioInterfcae.clientId;
   this.RIL = aRadioInterfcae;
+  updateDebugFlag();
 }
 Context.prototype = {
   RIL: null,
@@ -2775,13 +2790,6 @@ GsmPDUHelperObject.prototype = {
       this.context.debug("writeMessage: " + JSON.stringify(options));
     }
 
-    if (!options.segmentSeq) {
-      // Fist segment to send
-      options.segmentSeq = 1;
-      options.body = options.segments[0].body;
-      options.encodedBodyLength = options.segments[0].encodedBodyLength;
-    }
-
     let address = options.number;
     let body = options.body;
     let dcs = options.dcs;
@@ -3109,7 +3117,7 @@ GsmPDUHelperObject.prototype = {
     let bufAdapter = {
       context: this.context,
       readHexOctet() {
-        return (this.readHexNibble() << 4) | this.readHexNibble();
+        return (this.context.GsmPDUHelper.readHexNibble() << 4) | this.context.GsmPDUHelper.readHexNibble();
       },
     };
 
@@ -3305,7 +3313,7 @@ GsmPDUHelperObject.prototype = {
     let bufAdapter = {
       context: this.context,
       readHexOctet() {
-        return (this.readHexNibble() << 4) | this.readHexNibble();
+        return (this.context.GsmPDUHelper.readHexNibble() << 4) | this.context.GsmPDUHelper.readHexNibble();
       },
     };
 

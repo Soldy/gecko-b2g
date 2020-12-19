@@ -308,6 +308,11 @@ this.PermissionsTable = {
     signed: DENY_ACTION,
     core: ALLOW_ACTION,
   },
+  volumemanager: {
+    pwa: DENY_ACTION,
+    signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+  },
   "wifi-manage": {
     pwa: DENY_ACTION,
     signed: DENY_ACTION,

@@ -6,6 +6,7 @@
 #include "nsISupports.idl"
 
 interface nsIPrincipal;
+interface nsIURI;
 
 /**
  * A push subscription, passed as an argument to a subscription callback.
@@ -144,4 +145,10 @@ interface nsIPushQuotaManager : nsISupports
    * determine if push quota should be relaxed.
    */
   void notificationForOriginClosed(in string origin);
+
+  /**
+   * Informs the quota manager that a document
+   * for the given URI has been visited.
+   */
+  void visitURI(in nsIURI aURI);
 };

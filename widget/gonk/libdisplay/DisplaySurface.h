@@ -90,6 +90,8 @@ class DisplaySurface : public ConsumerBase {
 
   virtual int GetPrevDispAcquireFd() = 0;
 
+  virtual sp<GraphicBuffer> GetCurrentFrameBuffer() = 0;
+
   buffer_handle_t lastHandle;
 
  protected:

@@ -60,6 +60,11 @@ UNIFIED_SOURCES += [
     "PushUtil.cpp",
 ]
 
+if CONFIG["MOZ_B2G"]:
+    DIRS += [
+        'history',
+    ]
+
 TEST_DIRS += ["test/xpcshell"]
 
 include("/ipc/chromium/chromium-config.mozbuild")

@@ -7,6 +7,7 @@
 #include "SpeakerManager.h"
 
 #include "AudioChannelService.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/Services.h"
@@ -86,7 +87,7 @@ nsresult SpeakerManager::Init(nsPIDOMWindowInner* aWindow) {
 
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(GetOwner());
   NS_ENSURE_TRUE(docshell, NS_ERROR_FAILURE);
-  docshell->GetIsActive(&mVisible);
+  mVisible = docshell->GetBrowsingContext()->IsActive();
 
   nsCOMPtr<EventTarget> target = do_QueryInterface(GetOwner());
   NS_ENSURE_TRUE(target, NS_ERROR_FAILURE);
@@ -177,8 +178,7 @@ SpeakerManager::HandleEvent(Event* aEvent) {
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(GetOwner());
   NS_ENSURE_TRUE(docshell, NS_ERROR_FAILURE);
 
-  bool visible = false;
-  docshell->GetIsActive(&visible);
+  bool visible = docshell->GetBrowsingContext()->IsActive();
   if (mVisible != visible) {
     MOZ_LOG(SpeakerManagerService::GetSpeakerManagerLog(), LogLevel::Debug,
             ("SpeakerManager, HandleEvent, visible %d", visible));

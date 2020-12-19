@@ -6,6 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #import "mozAccessible.h"
+#include "MOXAccessibleBase.h"
 
 #import "MacUtils.h"
 #import "mozView.h"
@@ -39,8 +40,6 @@ using namespace mozilla::a11y;
 
 @interface mozAccessible ()
 - (BOOL)providesLabelNotTitle;
-
-- (nsStaticAtom*)ARIARole;
 
 - (void)maybePostLiveRegionChanged;
 @end
@@ -831,6 +830,33 @@ struct RoleDescrComparator {
   return nil;
 }
 
+- (id)moxHighestEditableAncestor {
+  id highestAncestor = [self moxEditableAncestor];
+  while ([highestAncestor conformsToProtocol:@protocol(MOXAccessible)]) {
+    id ancestorParent = [highestAncestor moxUnignoredParent];
+    if (![ancestorParent conformsToProtocol:@protocol(MOXAccessible)]) {
+      break;
+    }
+
+    id higherAncestor = [ancestorParent moxEditableAncestor];
+
+    if (!higherAncestor) {
+      break;
+    }
+
+    highestAncestor = higherAncestor;
+  }
+
+  return highestAncestor;
+}
+
+- (id)moxFocusableAncestor {
+  // XXX: Checking focusable state up the chain can be expensive. For now,
+  // we can just return AXEditableAncestor since the main use case for this
+  // is rich text editing with links.
+  return [self moxEditableAncestor];
+}
+
 #ifndef RELEASE_OR_BETA
 - (NSString*)moxMozDebugDescription {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
@@ -1016,9 +1042,15 @@ struct RoleDescrComparator {
       mIsLiveRegion = false;
       break;
     case nsIAccessibleEvent::EVENT_REORDER:
-    case nsIAccessibleEvent::EVENT_NAME_CHANGE:
       [self maybePostLiveRegionChanged];
       break;
+    case nsIAccessibleEvent::EVENT_NAME_CHANGE: {
+      if (![self providesLabelNotTitle]) {
+        [self moxPostNotification:NSAccessibilityTitleChangedNotification];
+      }
+      [self maybePostLiveRegionChanged];
+      break;
+    }
   }
 }
 

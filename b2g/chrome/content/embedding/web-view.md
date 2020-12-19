@@ -69,6 +69,8 @@ Each event type is prefixed with `mozbrowser` for historical compatibility reaso
       - `granted` : bool type, granted or not.
       - `remember` : bool type, remember the decision or not.
       - `choice` : an object with keys of permission types, such as `{"video-capture": "back"}`.
+- `recordingstatus` : `{ audio: boolean, video: boolean }`
+  - dispatched when the recording status of this page is updated. `detail.audio` is true when the page is capturing audio through `MediaDevices.getUserMedia()` or recording audio through camera API. Same goes for `detail.video`.
 - `resize` : `{ width: int, height: int}`
 - `scroll` : `{ top: int, left: int}`
 - `securitychange` : `{ state: string, mixedState: string, extendedValidation: boolean, mixedContent: boolean }`

@@ -161,40 +161,31 @@ template <XDRMode mode>
   return Ok();
 };
 
-template <XDRMode mode>
-static XDRResult XDRParserBindingName(XDRState<mode>* xdr,
-                                      ParserBindingName& bnamep) {
-  // We'll be encoding the binding-name flags in a byte.
-  uint8_t flags = 0;
-  const ParserAtom* atom = nullptr;
+template <typename NameType>
+struct CanEncodeNameType {
+  static constexpr bool value = false;
+};
 
-  if (mode == XDR_ENCODE) {
-    flags = bnamep.flagsForXDR();
-    atom = bnamep.name();
-  }
-
-  // Handle the binding name flags.
-  MOZ_TRY(xdr->codeUint8(&flags));
-
-  // Handle the atom itself, which may be null.
-  MOZ_TRY(XDRParserAtomOrNull(xdr, &atom));
-
-  if (mode == XDR_ENCODE) {
-    return Ok();
-  }
-
-  MOZ_ASSERT(mode == XDR_DECODE);
-  bnamep = ParserBindingName::fromXDR(atom, flags);
-  return Ok();
-}
+template <>
+struct CanEncodeNameType<TaggedParserAtomIndex> {
+  static constexpr bool value = true;
+};
 
 template <typename ScopeDataT, XDRMode mode>
 static XDRResult XDRParserTrailingNames(XDRState<mode>* xdr, ScopeDataT& data,
                                         uint32_t length) {
-  // Handle each atom in turn.
-  for (uint32_t i = 0; i < length; i++) {
-    MOZ_TRY(XDRParserBindingName(xdr, data.trailingNames[i]));
-  }
+#ifdef __cpp_lib_has_unique_object_representations
+  // We check endianess before decoding so if structures are fully packed, we
+  // may transcode them directly as raw bytes.
+  static_assert(std::has_unique_object_representations<
+                    AbstractTrailingNamesArray<TaggedParserAtomIndex>>(),
+                "trailingNames structure must be fully packed");
+#endif
+  static_assert(CanEncodeNameType<typename ScopeDataT::NameType>::value);
+
+  MOZ_TRY(xdr->codeBytes(
+      data.trailingNames.start(),
+      sizeof(AbstractBindingName<TaggedParserAtomIndex>) * length));
 
   return Ok();
 }
@@ -458,9 +449,8 @@ template <XDRMode mode>
   return Ok();
 }
 
-template <XDRMode mode, typename VecType, typename... ConstructArgs>
-static XDRResult XDRVector(XDRState<mode>* xdr, VecType& vec,
-                           ConstructArgs&&... args) {
+template <XDRMode mode, typename VecType>
+static XDRResult XDRVector(XDRState<mode>* xdr, VecType& vec) {
   uint32_t length;
 
   if (mode == XDR_ENCODE) {
@@ -472,14 +462,40 @@ static XDRResult XDRVector(XDRState<mode>* xdr, VecType& vec,
 
   if (mode == XDR_DECODE) {
     MOZ_ASSERT(vec.empty());
-    if (!vec.reserve(length)) {
+    if (!vec.resize(length)) {
       js::ReportOutOfMemory(xdr->cx());
       return xdr->fail(JS::TranscodeResult_Throw);
     }
-    for (uint64_t i = 0; i < length; ++i) {
-      vec.infallibleEmplaceBack(std::forward<ConstructArgs>(args)...);
+  }
+
+  return Ok();
+}
+
+template <typename ItemType, XDRMode mode, typename VecType>
+static XDRResult XDRVectorContent(XDRState<mode>* xdr, VecType& vec) {
+#ifdef __cpp_lib_has_unique_object_representations
+  static_assert(std::has_unique_object_representations<ItemType>(),
+                "vector item structure must be fully packed");
+#endif
+
+  uint32_t length;
+
+  if (mode == XDR_ENCODE) {
+    MOZ_ASSERT(vec.length() <= UINT32_MAX);
+    length = vec.length();
+  }
+
+  MOZ_TRY(xdr->codeUint32(&length));
+
+  if (mode == XDR_DECODE) {
+    MOZ_ASSERT(vec.empty());
+    if (!vec.growByUninitialized(length)) {
+      js::ReportOutOfMemory(xdr->cx());
+      return xdr->fail(JS::TranscodeResult_Throw);
     }
   }
+
+  MOZ_TRY(xdr->codeBytes(vec.begin(), sizeof(ItemType) * length));
 
   return Ok();
 }
@@ -765,25 +781,6 @@ template <XDRMode mode>
 }
 
 template <XDRMode mode>
-/* static */ XDRResult StencilXDR::RegExp(XDRState<mode>* xdr,
-                                          RegExpStencil& stencil) {
-  uint8_t flags;
-
-  if (mode == XDR_ENCODE) {
-    flags = stencil.flags_.value();
-  }
-
-  MOZ_TRY(XDRTaggedParserAtomIndex(xdr, &stencil.atom_));
-  MOZ_TRY(xdr->codeUint8(&flags));
-
-  if (mode == XDR_DECODE) {
-    stencil.flags_ = JS::RegExpFlags(flags);
-  }
-
-  return Ok();
-}
-
-template <XDRMode mode>
 /* static */
 XDRResult StencilXDR::SharedData(XDRState<mode>* xdr,
                                  RefPtr<SharedImmutableScriptData>& sisd) {
@@ -869,10 +866,7 @@ XDRResult XDRCompilationStencil(XDRState<mode>* xdr,
     MOZ_TRY(StencilXDR::Scope(xdr, entry));
   }
 
-  MOZ_TRY(XDRVector(xdr, stencil.regExpData));
-  for (auto& entry : stencil.regExpData) {
-    MOZ_TRY(StencilXDR::RegExp(xdr, entry));
-  }
+  MOZ_TRY(XDRVectorContent<RegExpStencil>(xdr, stencil.regExpData));
 
   MOZ_TRY(XDRVector(xdr, stencil.bigIntData));
   for (auto& entry : stencil.bigIntData) {

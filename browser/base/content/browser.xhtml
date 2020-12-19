@@ -271,7 +271,7 @@
     </menulist>
 
     <html:template id="printPreviewStackTemplate">
-      <stack class="previewStack" rendering="true" flex="1">
+      <stack class="previewStack" rendering="true" flex="1" previewtype="primary">
         <vbox class="previewRendering" flex="1">
           <h1 class="print-pending-label" data-l10n-id="printui-loading"></h1>
         </vbox>
@@ -2097,19 +2097,6 @@
                          placespopup="true"
                          tooltip="bhTooltip" popupsinherittooltip="true"
                          context="placesContext"/>
-            </toolbarbutton>
-            <toolbarbutton type="menu"
-                           id="OtherBookmarks"
-                           class="bookmark-item"
-                           hidden="true"
-                           label="&bookmarksMenuButton.other.label;"
-                           container="true"
-                           onpopupshowing="document.getElementById('PlacesToolbar')
-                                                   ._placesView._onOtherBookmarksPopupShowing(event);">
-              <menupopup id="OtherBookmarksPopup"
-                         is="places-popup"
-                         placespopup="true"
-                         context="placesContext" />
             </toolbarbutton>
           </hbox>
         </hbox>

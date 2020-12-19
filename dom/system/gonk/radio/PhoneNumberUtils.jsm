@@ -17,6 +17,49 @@
 
 this.EXPORTED_SYMBOLS = ["PhoneNumberUtils"];
 
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
+);
+
+ChromeUtils.import("resource://gre/modules/systemlibs.js");
+
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+
+const { libcutils } = ChromeUtils.import(
+  "resource://gre/modules/systemlibs.js"
+);
+
+var RIL_DEBUG = ChromeUtils.import(
+  "resource://gre/modules/ril_consts_debug.js"
+);
+
+ChromeUtils.defineModuleGetter(
+  this,
+  "MCC_ISO3166_TABLE",
+  "resource://gre/modules/mcc_iso3166_table.jsm"
+);
+
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gIccService",
+  "@mozilla.org/icc/iccservice;1",
+  "nsIIccService"
+);
+
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gMobileConnectionService",
+  "@mozilla.org/mobileconnection/mobileconnectionservice;1",
+  "nsIMobileConnectionService"
+);
+
+var DEBUG = RIL_DEBUG.DEBUG_RIL;
+function debug(s) {
+  if (DEBUG) {
+    dump("-*- PhoneNumberutils: " + s + "\n");
+  }
+}
+
 //TODO: MIN_MATCH should support customization for different project/region.
 const MIN_MATCH = 7;
 const MAX_PHONE_NUMBER_LENGTH = 50;
@@ -55,6 +98,16 @@ var E161 = {
   y: 9,
   z: 9,
 };
+
+function updateDebugFlag() {
+  // Read debug setting from pref
+  try {
+    DEBUG =
+      RIL_DEBUG.DEBUG_RIL ||
+      Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
+  } catch (e) {}
+}
+updateDebugFlag();
 
 this.PhoneNumberUtils = {
   normalize(aNumber, numbersOnly) {
@@ -115,5 +168,80 @@ this.PhoneNumberUtils = {
       return true;
     }
     return false;
+  },
+
+  //  1. See whether we have a network mcc
+  //  2. If we don't have that, look for the simcard mcc
+  //  3. If we don't have that or its 0 (not activated), pick up the last used mcc
+  //  4. If we don't have, use oem default country code setting
+
+  // countrycode for oem setting
+  _defaultCountryCode: libcutils.property_get("ro.default.countrycode", ""),
+
+  defaultCountryCode() {
+    return this._defaultCountryCode;
+  },
+
+  _persistCountryCode: libcutils.property_get("persist.device.countrycode", ""),
+
+  persistCountryCode() {
+    return this._persistCountryCode;
+  },
+
+  getCountryName() {
+    let mcc;
+    let countryName;
+
+    // TODO: Bug 926740 - PhoneNumberUtils for multisim
+    // In Multi-sim, there is more than one client in
+    // iccService/mobileConnectionService. Each client represents a
+    // icc/mobileConnection service. To maintain the backward compatibility with
+    // single sim, we always use client 0 for now. Adding support for multiple
+    // sim will be addressed in bug 926740, if needed.
+    let clientId = 0;
+
+    // Get network mcc
+    let connection = gMobileConnectionService.getItemByServiceId(clientId);
+    let voice = connection && connection.voice;
+    if (voice && voice.network && voice.network.mcc) {
+      mcc = voice.network.mcc;
+      if (DEBUG) {
+        debug("Network MCC: " + mcc);
+      }
+    }
+
+    // Get SIM mcc
+    let icc = gIccService.getIccByServiceId(clientId);
+    let iccInfo = icc && icc.iccInfo;
+    if (!mcc && iccInfo && iccInfo.mcc) {
+      mcc = iccInfo.mcc;
+      if (DEBUG) {
+        debug("SIM MCC: " + mcc);
+      }
+    }
+
+    // Attempt to grab last known sim mcc from prefs
+    if (!mcc) {
+      try {
+        mcc = Services.prefs.getCharPref("ril.lastKnownSimMcc");
+        if (DEBUG) {
+          debug("Last known MCC: " + mcc);
+        }
+      } catch (e) {}
+    }
+
+    countryName =
+      MCC_ISO3166_TABLE[mcc] ||
+      this.persistCountryCode() ||
+      this.defaultCountryCode();
+
+    if (countryName !== this.persistCountryCode()) {
+      libcutils.property_set("persist.device.countrycode", countryName);
+    }
+
+    if (DEBUG) {
+      debug("MCC: " + mcc + " countryName: " + countryName);
+    }
+    return countryName;
   },
 };

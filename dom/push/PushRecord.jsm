@@ -30,6 +30,8 @@ const EXPORTED_SYMBOLS = ["PushRecord"];
 
 const prefs = Services.prefs.getBranch("dom.push.");
 
+const kMaxUnregisterTries = 3;
+
 /**
  * The push subscription record, stored in IndexedDB.
  */
@@ -39,6 +41,7 @@ function PushRecord(props) {
   this.originAttributes = props.originAttributes;
   this.pushCount = props.pushCount || 0;
   this.lastPush = props.lastPush || 0;
+  this.lastVisit = props.lastVisit || 0;
   this.p256dhPublicKey = props.p256dhPublicKey;
   this.p256dhPrivateKey = props.p256dhPrivateKey;
   this.authenticationSecret = props.authenticationSecret;
@@ -47,6 +50,7 @@ function PushRecord(props) {
   this.recentMessageIDs = props.recentMessageIDs;
   this.setQuota(props.quota);
   this.ctime = typeof props.ctime === "number" ? props.ctime : 0;
+  this.unregisterTries = props.unregisterTries || 0;
 }
 
 PushRecord.prototype = {
@@ -142,6 +146,10 @@ PushRecord.prototype = {
       // If the registration isn't subject to quota, or the user already
       // has the site open, skip expensive database queries.
       return Date.now();
+    }
+
+    if (AppConstants.MOZ_B2G) {
+      return this.lastVisit == 0 ? this.ctime : this.lastVisit;
     }
 
     if (AppConstants.MOZ_ANDROID_HISTORY) {
@@ -252,9 +260,15 @@ PushRecord.prototype = {
   },
 
   quotaApplies() {
-    if (this.systemRecord || prefs.getBoolPref("quota.disabled", false)) {
+    if (this.systemRecord) {
       return false;
     }
+    if (AppConstants.MOZ_B2G) {
+      if (this.uri.host.endsWith(".localhost")) {
+        return false;
+      }
+    }
+    // PWA or an iframe will go to here
     return true;
   },
 
@@ -303,6 +317,13 @@ PushRecord.prototype = {
       quota: this.quotaApplies() ? this.quota : -1,
       systemRecord: this.systemRecord,
     };
+  },
+
+  reachMaxUnregisterTries() {
+    if (this.unregisterTries >= kMaxUnregisterTries) {
+      return true;
+    }
+    return false;
   },
 };
 

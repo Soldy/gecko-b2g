@@ -146,9 +146,7 @@ let executeScriptFn = dispatch(executeScript);
 let sendKeysToElementFn = dispatch(sendKeysToElement);
 
 function startListeners() {
-  if (!MarionettePrefs.useActors) {
-    eventDispatcher.enable();
-  }
+  eventDispatcher.enable();
 
   addMessageListener("Marionette:actionChain", actionChainFn);
   addMessageListener("Marionette:clearElement", clearElementFn);
@@ -190,9 +188,7 @@ function startListeners() {
 }
 
 function deregister() {
-  if (!MarionettePrefs.useActors) {
-    eventDispatcher.disable();
-  }
+  eventDispatcher.disable();
 
   removeMessageListener("Marionette:actionChain", actionChainFn);
   removeMessageListener("Marionette:clearElement", clearElementFn);
@@ -245,12 +241,6 @@ function deleteSession() {
   curContainer.frame.focus();
 
   legacyactions.touchIds = {};
-  if (action.inputStateMap !== undefined) {
-    action.inputStateMap.clear();
-  }
-  if (action.inputsToCancel !== undefined) {
-    action.inputsToCancel.length = 0;
-  }
 }
 
 /**
@@ -1071,8 +1061,6 @@ function registerSelf() {
 
   sandboxes.clear();
   legacyactions.mouseEventsOnly = false;
-  action.inputStateMap = new Map();
-  action.inputsToCancel = [];
 
   let reply = sendSyncMessage("Marionette:Register", {
     frameId: contentId,

@@ -30,7 +30,8 @@ class MobileConnectionInfo final : public nsIMobileConnectionInfo,
   MobileConnectionInfo(const nsAString& aState, bool aConnected,
                        bool aEmergencyCallsOnly, bool aRoaming,
                        nsIMobileNetworkInfo* aNetworkInfo,
-                       const nsAString& aType, nsIMobileCellInfo* aCellInfo);
+                       const nsAString& aType, nsIMobileCellInfo* aCellInfo,
+                       int32_t aReasonDataDenied);
 
   void UpdateDOMNetworkInfo(nsIMobileConnectionInfo* aInfo);
 
@@ -56,6 +57,8 @@ class MobileConnectionInfo final : public nsIMobileConnectionInfo,
 
   MobileCellInfo* GetCell() const { return mCellInfo; }
 
+  int32_t ReasonDataDenied() const { return mReasonDataDenied; }
+
  private:
   ~MobileConnectionInfo() {}
 
@@ -69,6 +72,7 @@ class MobileConnectionInfo final : public nsIMobileConnectionInfo,
   RefPtr<MobileCellInfo> mCellInfo;
   Nullable<MobileConnectionState> mState;
   Nullable<MobileConnectionType> mType;
+  int32_t mReasonDataDenied;
 };
 
 }  // namespace dom

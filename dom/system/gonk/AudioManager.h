@@ -60,8 +60,7 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
   class VolumeStreamState {
    public:
     explicit VolumeStreamState(AudioManager& aManager, int32_t aStreamType);
-    int32_t GetStreamType() { return mStreamType; }
-    bool IsDevicesChanged(bool aFromCache = true);
+    bool IsDevicesChanged();
     // Returns true if this stream stores separate volume index for each output
     // device. For example, speaker volume of media stream is different from
     // headset volume of media stream. Returns false if this stream shares one
@@ -71,13 +70,10 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
     void ClearDevicesChanged();
     void ClearDevicesWithVolumeChange();
     uint32_t GetDevicesWithVolumeChange();
-    uint32_t GetLastDevices() { return mLastDevices; }
     void InitStreamVolume();
     uint32_t GetMaxIndex();
-    uint32_t GetDefaultIndex();
     uint32_t GetVolumeIndex();
     uint32_t GetVolumeIndex(uint32_t aDevice);
-    void ClearCurrentVolumeUpdated();
     // Set volume index to all active devices.
     // Active devices are chosen by android AudioPolicyManager.
     nsresult SetVolumeIndexToActiveDevices(uint32_t aIndex);
@@ -107,10 +103,6 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
 
   bool mIsVolumeInited = false;
 
-  // A bitwise variable for volume update of audio output devices,
-  // clear it after store the value into database.
-  uint32_t mAudioOutDevicesUpdated;
-
   // Connected devices that are controlled by setDeviceConnectionState()
   nsDataHashtable<nsUint32HashKey, nsCString> mConnectedDevices;
 
@@ -121,7 +113,6 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
   bool mA2dpSwitchDone = true;
 #endif
   nsTArray<UniquePtr<VolumeStreamState> > mStreamStates;
-  uint32_t mLastChannelVolume[AUDIO_STREAM_CNT];
 
   RefPtr<mozilla::dom::WakeLock> mWakeLock;
 
@@ -132,9 +123,8 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
   nsresult SetStreamVolumeIndex(int32_t aStream, uint32_t aIndex);
   nsresult GetStreamVolumeIndex(int32_t aStream, uint32_t* aIndex);
 
-  void UpdateCachedActiveDevicesForStreams();
   uint32_t GetSpecificVolumeCount();
-  uint32_t GetDevicesForStream(int32_t aStream, bool aFromCache = true);
+  uint32_t GetDevicesForStream(int32_t aStream);
   uint32_t GetDeviceForStream(int32_t aStream);
   uint32_t GetDeviceForFm();
   // Choose one device as representative of active devices.
@@ -171,7 +161,7 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
 
   void UpdateHeadsetConnectionState(hal::SwitchState aState);
   void UpdateDeviceConnectionState(bool aIsConnected, uint32_t aDevice,
-                                   const nsCString& aDeviceName);
+                                   const nsCString& aDeviceAddress = ""_ns);
   void SetAllDeviceConnectionStates();
 
   void CreateWakeLock();

@@ -22,29 +22,20 @@ namespace widget {
 
 static const sRGBColor sBackgroundColor(sRGBColor(1.0f, 1.0f, 1.0f));
 static const sRGBColor sBackgroundActiveColor(sRGBColor(0.88f, 0.88f, 0.9f));
-static const sRGBColor sBackgroundActiveColorDisabled(sRGBColor(0.88f, 0.88f,
-                                                                0.9f, 0.4f));
 static const sRGBColor sBorderColor(sRGBColor(0.62f, 0.62f, 0.68f));
 static const sRGBColor sBorderColorDisabled(sRGBColor(0.44f, 0.44f, 0.44f,
                                                       0.4f));
 static const sRGBColor sBorderHoverColor(sRGBColor(0.5f, 0.5f, 0.56f));
-static const sRGBColor sBorderHoverColorDisabled(sRGBColor(0.5f, 0.5f, 0.56f,
-                                                           0.4f));
 static const sRGBColor sBorderFocusColor(sRGBColor(0.04f, 0.52f, 1.0f));
 static const sRGBColor sCheckBackgroundColor(sRGBColor(0.18f, 0.39f, 0.89f));
 static const sRGBColor sCheckBackgroundColorDisabled(sRGBColor(0.18f, 0.39f,
                                                                0.89f, 0.4f));
 static const sRGBColor sCheckBackgroundHoverColor(sRGBColor(0.02f, 0.24f,
                                                             0.58f));
-static const sRGBColor sCheckBackgroundHoverColorDisabled(
-    sRGBColor(0.02f, 0.24f, 0.58f, 0.4f));
 static const sRGBColor sCheckBackgroundActiveColor(sRGBColor(0.03f, 0.19f,
                                                              0.45f));
-static const sRGBColor sCheckBackgroundActiveColorDisabled(
-    sRGBColor(0.03f, 0.19f, 0.45f, 0.4f));
 static const sRGBColor sDisabledColor(sRGBColor(0.89f, 0.89f, 0.89f));
 static const sRGBColor sActiveColor(sRGBColor(0.47f, 0.47f, 0.48f));
-static const sRGBColor sInputHoverColor(sRGBColor(0.05f, 0.05f, 0.05f, 0.5f));
 static const sRGBColor sRangeInputBackgroundColor(sRGBColor(0.89f, 0.89f,
                                                             0.89f));
 static const sRGBColor sScrollbarColor(sRGBColor(0.94f, 0.94f, 0.94f));
@@ -57,7 +48,6 @@ static const sRGBColor sScrollbarThumbColorHover(sRGBColor(0.65f, 0.65f,
 static const sRGBColor sScrollbarArrowColor(sRGBColor(0.375f, 0.375f, 0.375f));
 static const sRGBColor sScrollbarArrowColorActive(sRGBColor(1.0f, 1.0f, 1.0f));
 static const sRGBColor sScrollbarArrowColorHover(sRGBColor(0.0f, 0.0f, 0.0f));
-static const sRGBColor sScrollbarButtonColor(sScrollbarColor);
 static const sRGBColor sScrollbarButtonActiveColor(sRGBColor(0.375f, 0.375f,
                                                              0.375f));
 static const sRGBColor sScrollbarButtonHoverColor(sRGBColor(0.86f, 0.86f,

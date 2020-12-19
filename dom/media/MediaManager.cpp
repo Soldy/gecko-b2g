@@ -14,7 +14,6 @@
 #include "MediaTrackConstraints.h"
 #include "MediaTrackGraphImpl.h"
 #include "MediaTrackListener.h"
-#include "ThreadSafeRefcountingWithMainThreadDestruction.h"
 #include "VideoStreamTrack.h"
 #include "VideoUtils.h"
 #include "mozilla/Base64.h"
@@ -73,6 +72,8 @@
 
 #ifdef MOZ_B2G
 #  include "MediaPermissionGonk.h"
+#  include "mozilla/dom/BrowserChild.h"
+#  include "mozilla/dom/CustomEvent.h"
 #endif
 
 #if defined(XP_WIN)
@@ -307,7 +308,7 @@ class SourceListener : public SupportsWeakPtr {
   typedef MozPromise<bool /* aIgnored */, RefPtr<MediaMgrError>, true>
       SourceListenerPromise;
 
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_MAIN_THREAD_DESTRUCTION(
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_DELETE_ON_MAIN_THREAD(
       SourceListener)
 
   SourceListener();
@@ -1951,9 +1952,10 @@ RefPtr<MediaManager::MgrPromise> MediaManager::EnumerateRawDevices(
     // Need to ask permission to retrieve list of all devices;
     // notify frontend observer and wait for callback notification to post task.
     const char16_t* const type =
-        (aVideoInputType != MediaSourceEnum::Camera)       ? u"audio"
-        : (aAudioInputType != MediaSourceEnum::Microphone) ? u"video"
-                                                           : u"all";
+        (aVideoInputType != MediaSourceEnum::Camera)
+            ? u"audio"
+            : (aAudioInputType != MediaSourceEnum::Microphone) ? u"video"
+                                                               : u"all";
     nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
     obs->NotifyObservers(static_cast<nsIRunnable*>(task),
                          "getUserMedia:ask-device-permission", type);
@@ -2189,10 +2191,115 @@ RefPtr<MozPromiseType> MediaManager::Dispatch(const char* aName,
   return promise;
 }
 
+#ifdef MOZ_B2G
+/* static */
+nsresult MediaManager::NotifyRecordingStatus(dom::EventTarget* aTarget,
+                                             bool aAudio, bool aVideo) {
+  NS_ENSURE_ARG(aTarget);
+
+  // This function is equivalent to this JS snippet:
+  //
+  //   aTarget.dispatchEvent(
+  //     bubbles: false,
+  //     new CustomEvent("recordingstatus", {
+  //       detail: {
+  //         audio: aAudio,
+  //         video: aVideo,
+  //       },
+  //     })
+  //   );
+  RefPtr<dom::CustomEvent> event =
+      NS_NewDOMCustomEvent(aTarget, nullptr, nullptr);
+
+  AutoJSAPI jsapi;
+  bool success = jsapi.Init(event->GetParentObject());
+  NS_ENSURE_TRUE(success, NS_ERROR_FAILURE);
+
+  JSContext* cx = jsapi.cx();
+  JS::RootedObject obj(cx, JS_NewPlainObject(cx));
+  NS_ENSURE_TRUE(obj, NS_ERROR_FAILURE);
+
+  JS::RootedValue audio(cx, JS::BooleanValue(aAudio));
+  JS::RootedValue video(cx, JS::BooleanValue(aVideo));
+  JS_SetProperty(cx, obj, "audio", audio);
+  JS_SetProperty(cx, obj, "video", video);
+  JS::RootedValue detail(cx, JS::ObjectValue(*obj));
+
+  event->InitCustomEvent(cx, u"recordingstatus"_ns, false, false, detail);
+  event->SetTrusted(true);
+  aTarget->DispatchEvent(*event);
+  return NS_OK;
+}
+
+nsresult MediaManager::CollectRecordingStatus(nsPIDOMWindowInner* aWindow) {
+  NS_ENSURE_ARG(aWindow);
+
+  nsCOMPtr<nsPIDOMWindowOuter> topWindow =
+      aWindow->GetOuterWindow()->GetInProcessTop();
+
+  // Combine status in the same window tree.
+  bool audio = false, video = false;
+  for (auto iter = mActiveWindows.Iter(); !iter.Done(); iter.Next()) {
+    auto listener = iter.UserData();
+    auto* win = nsGlobalWindowInner::GetInnerWindowWithId(listener->WindowID());
+    if (!win) {
+      continue;
+    }
+    nsCOMPtr<nsPIDOMWindowOuter> top = win->GetOuterWindow()->GetInProcessTop();
+    if (top == topWindow) {
+      audio = audio || listener->CapturingAudio();
+      video = video || listener->CapturingVideo();
+    }
+  }
+
+  // Combine external status in the same window tree.
+  for (auto iter = mExternalRecorders.Iter(); !iter.Done(); iter.Next()) {
+    auto& data = iter.Data();
+    auto* win = nsGlobalWindowInner::GetInnerWindowWithId(data.mWindowID);
+    if (!win) {
+      continue;
+    }
+    nsCOMPtr<nsPIDOMWindowOuter> top = win->GetOuterWindow()->GetInProcessTop();
+    if (top == topWindow) {
+      audio = audio || data.mAudio;
+      video = video || data.mVideo;
+    }
+  }
+
+  if (XRE_IsParentProcess()) {
+    NotifyRecordingStatus(topWindow->GetChromeEventHandler(), audio, video);
+  } else {
+    RefPtr<BrowserChild> browserChild = BrowserChild::GetFrom(topWindow);
+    browserChild->SendNotifyRecordingStatus(audio, video);
+  }
+  return NS_OK;
+}
+
+nsresult MediaManager::UpdateExternalRecordingStatus(
+    void* aOwner, nsPIDOMWindowInner* aWindow, bool aAudio, bool aVideo) {
+  NS_ENSURE_ARG(aWindow);
+
+  if (!aAudio && !aVideo) {
+    mExternalRecorders.Remove(aOwner);
+  } else {
+    auto& data = mExternalRecorders.GetOrInsert(aOwner);
+    data.mWindowID = aWindow->WindowID();
+    data.mAudio = aAudio;
+    data.mVideo = aVideo;
+  }
+  return CollectRecordingStatus(aWindow);
+}
+#endif
+
 /* static */
 nsresult MediaManager::NotifyRecordingStatusChange(
     nsPIDOMWindowInner* aWindow) {
   NS_ENSURE_ARG(aWindow);
+
+#ifdef MOZ_B2G
+  RefPtr<MediaManager> manager = MediaManager::GetInstance();
+  manager->CollectRecordingStatus(aWindow);
+#endif
 
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   if (!obs) {

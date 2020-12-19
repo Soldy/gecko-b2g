@@ -224,6 +224,10 @@ Object.assign(PushServiceParent.prototype, {
     this.service.notificationForOriginClosed(origin);
   },
 
+  visitURI(uri) {
+    this.service.visitURI(uri);
+  },
+
   // nsIPushErrorReporter methods
 
   reportDeliveryError(messageId, reason) {

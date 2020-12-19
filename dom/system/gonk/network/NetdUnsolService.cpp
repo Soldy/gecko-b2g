@@ -18,12 +18,9 @@ using android::binder::Status;
 static bool ENABLE_NUS_DEBUG = false;
 
 static void NUS_DBG(const char* format, ...) {
-  // TODO: always true for now.
-#if 0
-  if (!ENABLE_DEBUG) {
+  if (!ENABLE_NUS_DEBUG) {
     return;
   }
-#endif
 
   va_list args;
   va_start(args, format);

@@ -20,7 +20,7 @@
 #include "builtin/ModuleObject.h"
 #include "debugger/DebugAPI.h"
 #include "frontend/CompilationInfo.h"  // frontend::CompilationStencil, frontend::CompilationInfo, frontend::CompilationInfoVector
-#include "frontend/ParserAtom.h"       // XDRParserAtomData
+#include "frontend/ParserAtom.h"       // frontend::ParserAtomEntry
 #include "js/BuildId.h"                // JS::BuildIdCharVector
 #include "vm/JSContext.h"
 #include "vm/JSScript.h"
@@ -315,16 +315,14 @@ static XDRResult ParserAtomTable(XDRState<mode>* xdr,
     }
     MOZ_TRY(XDRAtomCount(xdr, &atomCount));
 
-    for (const auto& entry : stencil.parserAtomData) {
+    for (auto& entry : stencil.parserAtomData) {
       if (!entry) {
         continue;
       }
       if (entry->isUsedByStencil()) {
-        const frontend::ParserAtom* atom = entry->asAtom();
-        uint32_t index = atom->toParserAtomIndex();
+        uint32_t index = entry->toParserAtomIndex();
         MOZ_TRY(xdr->codeUint32(&index));
-        MOZ_TRY(
-            XDRParserAtomDataAt(xdr, &atom, frontend::ParserAtomIndex(index)));
+        MOZ_TRY(XDRParserAtomEntry(xdr, &entry));
       }
     }
 
@@ -343,10 +341,11 @@ static XDRResult ParserAtomTable(XDRState<mode>* xdr,
   MOZ_ASSERT(!xdr->hasAtomTable());
 
   for (uint32_t i = 0; i < atomCount; i++) {
-    const frontend::ParserAtom* atom = nullptr;
+    frontend::ParserAtomEntry* entry = nullptr;
     uint32_t index;
     MOZ_TRY(xdr->codeUint32(&index));
-    MOZ_TRY(XDRParserAtomDataAt(xdr, &atom, frontend::ParserAtomIndex(index)));
+    MOZ_TRY(XDRParserAtomEntry(xdr, &entry));
+    xdr->frontendAtoms().set(frontend::ParserAtomIndex(index), entry);
   }
   xdr->finishAtomTable();
 
@@ -739,10 +738,9 @@ XDRResult XDRStencilDecoder::codeStencils(
   MOZ_ASSERT(compilationInfos.delazifications.length() == 0);
 
   frontend::ParserAtomVectorBuilder parserAtomBuilder(
-      cx()->runtime(), compilationInfos.initial.stencil.alloc,
-      compilationInfos.initial.stencil.parserAtomData);
+      cx()->runtime(), compilationInfos.initial.stencil.parserAtomData);
   parserAtomBuilder_ = &parserAtomBuilder;
-  stencilAlloc_ = &compilationInfos.initial.stencil.alloc;
+  stencilAlloc_ = &compilationInfos.initial.alloc;
 
   MOZ_TRY(codeStencil(compilationInfos.initial));
 
@@ -751,19 +749,20 @@ XDRResult XDRStencilDecoder::codeStencils(
     return fail(JS::TranscodeResult_Throw);
   }
 
+  // All delazification share CompilationInfoVector.allocForDelazifications.
+  stencilAlloc_ = &compilationInfos.allocForDelazifications;
+
   for (size_t i = 1; i < nchunks_; i++) {
-    compilationInfos.delazifications.infallibleEmplaceBack(
-        cx(), compilationInfos.initial.input.options);
-    auto& funInfo = compilationInfos.delazifications[i - 1];
+    compilationInfos.delazifications.infallibleEmplaceBack();
+    auto& delazification = compilationInfos.delazifications[i - 1];
 
     hasFinishedAtomTable_ = false;
 
     frontend::ParserAtomVectorBuilder parserAtomBuilder(
-        cx()->runtime(), funInfo.stencil.alloc, funInfo.stencil.parserAtomData);
+        cx()->runtime(), delazification.parserAtomData);
     parserAtomBuilder_ = &parserAtomBuilder;
-    stencilAlloc_ = &funInfo.stencil.alloc;
 
-    MOZ_TRY(codeFunctionStencil(funInfo.stencil));
+    MOZ_TRY(codeFunctionStencil(delazification));
   }
 
   return Ok();
@@ -776,7 +775,7 @@ XDRResult XDRIncrementalStencilEncoder::codeStencils(
   MOZ_TRY(codeStencil(compilationInfos.initial));
 
   for (auto& delazification : compilationInfos.delazifications) {
-    MOZ_TRY(codeFunctionStencil(delazification.stencil));
+    MOZ_TRY(codeFunctionStencil(delazification));
   }
 
   return Ok();

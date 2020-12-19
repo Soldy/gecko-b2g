@@ -502,7 +502,7 @@ CellBroadcastService.prototype = {
       aCellBroadcastMessage.language,
       aCellBroadcastMessage.body,
       aCellBroadcastMessage.messageClass,
-      aCellBroadcastMessage.timestamp,
+      aCellBroadcastMessage.timeStamp,
       aCellBroadcastMessage.cdmaServiceCategory,
       aCellBroadcastMessage.hasEtwsInfo,
       aCellBroadcastMessage.etwsWarningType,
@@ -521,7 +521,7 @@ CellBroadcastService.prototype = {
           aCellBroadcastMessage.language,
           aCellBroadcastMessage.body,
           aCellBroadcastMessage.messageClass,
-          aCellBroadcastMessage.timestamp,
+          aCellBroadcastMessage.timeStamp,
           aCellBroadcastMessage.cdmaServiceCategory,
           aCellBroadcastMessage.hasEtwsInfo,
           aCellBroadcastMessage.etwsWarningType,
@@ -538,9 +538,9 @@ CellBroadcastService.prototype = {
    */
   notifyMessageReceived(aServiceId, aCellBroadcastMessage) {
     this._acquireCbHandledWakeLock();
-    if (aCellBroadcastMessage.geoFencingTriggerType != null) {
+    if (aCellBroadcastMessage.geoFencingTriggerType) {
       this._handleGeoFencingTrigger(aServiceId, aCellBroadcastMessage);
-    } else if (aCellBroadcastMessage.geometries != null) {
+    } else if (aCellBroadcastMessage.geometries) {
       gMobileMessageDBService.saveCellBroadcastMessage(aCellBroadcastMessage);
       this._handleGeometryMessage(aServiceId, aCellBroadcastMessage);
     } else {

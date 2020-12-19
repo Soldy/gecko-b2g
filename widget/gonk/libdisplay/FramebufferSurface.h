@@ -61,6 +61,8 @@ public:
 
     virtual int GetPrevDispAcquireFd();
 
+    virtual sp<GraphicBuffer> GetCurrentFrameBuffer() { return mCurrentBuffer; }
+
 private:
     virtual ~FramebufferSurface() { }; // this class cannot be overloaded
 

@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "nsIDOMEventListener.h"
 #include "nsPIDOMWindow.h"
@@ -110,8 +111,7 @@ void AudioChannelManager::NotifyVolumeControlChannelChanged() {
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(GetOwner());
   NS_ENSURE_TRUE_VOID(docshell);
 
-  bool isActive = false;
-  docshell->GetIsActive(&isActive);
+  bool isActive = docshell->GetBrowsingContext()->IsActive();
 
   RefPtr<AudioChannelService> service = AudioChannelService::GetOrCreate();
   if (!service) {

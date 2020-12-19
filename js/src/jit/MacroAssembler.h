@@ -1576,9 +1576,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void branchTestObjCompartment(Condition cond, Register obj,
                                 const JS::Compartment* compartment,
                                 Register scratch, Label* label);
-  void branchIfPretenuredGroup(Register group, Label* label);
-  void branchIfPretenuredGroup(const ObjectGroup* group, Register scratch,
-                               Label* label);
 
   void branchIfNonNativeObj(Register obj, Register scratch, Label* label);
 
@@ -1593,9 +1590,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void branchTestProxyHandlerFamily(Condition cond, Register proxy,
                                            Register scratch,
                                            const void* handlerp, Label* label);
-
-  void copyObjGroupNoPreBarrier(Register sourceObj, Register destObj,
-                                Register scratch);
 
   // Emit type case branch on tag matching if the type tag in the definition
   // might actually be that type.

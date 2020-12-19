@@ -393,12 +393,16 @@ const browsingContextTargetPrototype = {
     return null;
   },
 
+  get browsingContext() {
+    return this.docShell?.browsingContext;
+  },
+
   get browsingContextID() {
-    return this.docShell && this.docShell.browsingContext.id;
+    return this.browsingContext?.id;
   },
 
   get browserId() {
-    return this.docShell && this.docShell.browsingContext.browserId;
+    return this.browsingContext?.browserId;
   },
 
   /**
@@ -1084,7 +1088,6 @@ const browsingContextTargetPrototype = {
     return {};
   },
 
-  // @backward-compat { version 79 }
   goForward() {
     // Wait a tick so that the response packet can be dispatched before the
     // subsequent navigation event packet.
@@ -1103,7 +1106,6 @@ const browsingContextTargetPrototype = {
     return {};
   },
 
-  // @backward-compat { version 79 }
   goBack() {
     // Wait a tick so that the response packet can be dispatched before the
     // subsequent navigation event packet.
@@ -1277,7 +1279,7 @@ const browsingContextTargetPrototype = {
     this._setServiceWorkersTestingEnabled(false);
     this._setPaintFlashingEnabled(false);
 
-    if (this._restoreFocus && this.window.docShell.isActive) {
+    if (this._restoreFocus && this.browsingContext?.isActive) {
       this.window.focus();
     }
   },

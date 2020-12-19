@@ -54,6 +54,7 @@ const kSettingsToObserve = {
   "apz.overscroll.enabled": true,
   "browser.safebrowsing.enabled": true,
   "browser.safebrowsing.malware.enabled": true,
+  "device.storage.writable.name": "sdcard",
   "layers.effect.invert": false,
   "mms.debugging.enabled": false,
   "network.debugging.enabled": false,

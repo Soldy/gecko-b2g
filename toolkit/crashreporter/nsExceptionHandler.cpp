@@ -201,6 +201,9 @@ static XP_CHAR* memoryReportPath;
 static XP_CHAR* libraryPath;  // Path where the NSS library is
 #endif
 
+// forward declaration
+static bool MoveToPending(nsIFile*, nsIFile*, nsIFile*);
+
 // Where crash events should go.
 static XP_CHAR* eventsDirectory;
 
@@ -1518,6 +1521,31 @@ bool MinidumpCallback(
 #  ifdef XP_WIN
   TerminateProcess(GetCurrentProcess(), 1);
 #  endif
+#endif
+
+#ifdef MOZ_WIDGET_GONK
+  if (returnValue && doReport) {
+    // *.dmp
+    nsCOMPtr<nsIFile> dmp = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
+    dmp->InitWithNativePath(nsDependentCString(minidumpPath));
+
+    // *.extra
+    size_t size = XP_PATH_MAX;
+    XP_CHAR extraFile[XP_PATH_MAX];
+    XP_CHAR* p;
+    p = Concat(extraFile, descriptor.path(), &size);
+    // Skip back past the .dmp extension, if any.
+    if (*(p - 4) == XP_TEXT('.')) {
+      p -= 4;
+      size += 4;
+    }
+    Concat(p, extraFileExtension, &size);
+    nsCOMPtr<nsIFile> extra = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
+    extra->InitWithNativePath(nsDependentCString(extraFile));
+
+    // Move *.dmp and *.extra to pending folder.
+    MoveToPending(dmp, extra, nullptr);
+  }
 #endif
 
   return returnValue;

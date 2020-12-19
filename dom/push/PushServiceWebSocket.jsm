@@ -49,7 +49,7 @@ XPCOMUtils.defineLazyServiceGetter(
 );
 
 const kPUSHWSDB_DB_NAME = "pushapi";
-const kPUSHWSDB_DB_VERSION = 5; // Change this if the IndexedDB format changes
+const kPUSHWSDB_DB_VERSION = 6; // Change this if the IndexedDB format changes
 const kPUSHWSDB_STORE_NAME = "pushapi";
 
 // WebSocket close code sent by the server to indicate that the client should
@@ -70,6 +70,7 @@ const kUNREGISTER_REASON_TO_CODE = {
   [Ci.nsIPushErrorReporter.UNSUBSCRIBE_MANUAL]: 200,
   [Ci.nsIPushErrorReporter.UNSUBSCRIBE_QUOTA_EXCEEDED]: 201,
   [Ci.nsIPushErrorReporter.UNSUBSCRIBE_PERMISSION_REVOKED]: 202,
+  [Ci.nsIPushErrorReporter.UNSUBSCRIBE_PENDING_RECORD]: 203,
 };
 
 const kDELIVERY_REASON_TO_CODE = {
@@ -1179,6 +1180,7 @@ var PushServiceWebSocket = {
 
       this._dataEnabled = !!reply.use_webpush;
       if (this._dataEnabled) {
+        this._mainPushService.executeAllPendingUnregistering();
         this._mainPushService
           .getAllUnexpired()
           .then(records =>
@@ -1268,6 +1270,16 @@ var PushServiceWebSocket = {
 
     let success = reply.status === 200;
     request.resolve(success);
+
+    if (success) {
+      if (typeof reply.channelID !== "string") {
+        console.warn(
+          "handleUnregisterReply: Discarding delete db without channel ID"
+        );
+        return;
+      }
+      this._mainPushService.removePendingUnsubscribe(reply.channelID);
+    }
   },
 
   _queueUpdateStart: Promise.resolve(),

@@ -2931,9 +2931,7 @@ void LIRGenerator::visitPostWriteElementBarrier(MPostWriteElementBarrier* ins) {
 void LIRGenerator::visitArrayLength(MArrayLength* ins) {
   MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
   auto* lir = new (alloc()) LArrayLength(useRegisterAtStart(ins->elements()));
-  if (JitOptions.warpBuilder) {
-    assignSnapshot(lir, ins->bailoutKind());
-  }
+  assignSnapshot(lir, ins->bailoutKind());
   define(lir, ins);
 }
 
@@ -3460,9 +3458,7 @@ void LIRGenerator::visitArraySlice(MArraySlice* ins) {
       useRegisterAtStart(ins->object()), useRegisterAtStart(ins->begin()),
       useRegisterAtStart(ins->end()), tempFixed(CallTempReg0),
       tempFixed(CallTempReg1));
-  if (JitOptions.warpBuilder) {
-    assignSnapshot(lir, ins->bailoutKind());
-  }
+  assignSnapshot(lir, ins->bailoutKind());
   defineReturn(lir, ins);
   assignSafepoint(lir, ins);
 }
@@ -5230,6 +5226,12 @@ void LIRGenerator::visitThrowRuntimeLexicalError(
   assignSafepoint(lir, ins);
 }
 
+void LIRGenerator::visitThrowMsg(MThrowMsg* ins) {
+  LThrowMsg* lir = new (alloc()) LThrowMsg();
+  add(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitGlobalDeclInstantiation(MGlobalDeclInstantiation* ins) {
   LGlobalDeclInstantiation* lir = new (alloc()) LGlobalDeclInstantiation();
   add(lir, ins);
@@ -5308,6 +5310,43 @@ void LIRGenerator::visitCheckThisReinit(MCheckThisReinit* ins) {
   assignSafepoint(lir, ins);
 }
 
+void LIRGenerator::visitGenerator(MGenerator* ins) {
+  auto* lir =
+      new (alloc()) LGenerator(useRegisterAtStart(ins->callee()),
+                               useRegisterAtStart(ins->environmentChain()),
+                               useRegisterAtStart(ins->argsObject()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitAsyncResolve(MAsyncResolve* ins) {
+  auto* lir = new (alloc()) LAsyncResolve(useRegisterAtStart(ins->generator()),
+                                          useBoxAtStart(ins->valueOrReason()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitAsyncAwait(MAsyncAwait* ins) {
+  MOZ_ASSERT(ins->generator()->type() == MIRType::Object);
+  auto* lir = new (alloc()) LAsyncAwait(useBoxAtStart(ins->value()),
+                                        useRegisterAtStart(ins->generator()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitCanSkipAwait(MCanSkipAwait* ins) {
+  auto* lir = new (alloc()) LCanSkipAwait(useBoxAtStart(ins->value()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitMaybeExtractAwaitValue(MMaybeExtractAwaitValue* ins) {
+  auto* lir = new (alloc()) LMaybeExtractAwaitValue(
+      useBoxAtStart(ins->value()), useRegisterAtStart(ins->canSkip()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitDebugCheckSelfHosted(MDebugCheckSelfHosted* ins) {
   MDefinition* checkVal = ins->checkValue();
   MOZ_ASSERT(checkVal->type() == MIRType::Value);
@@ -5378,6 +5417,14 @@ void LIRGenerator::visitBuiltinObject(MBuiltinObject* ins) {
   auto* lir = new (alloc()) LBuiltinObject();
   defineReturn(lir, ins);
   assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitReturn(MReturn* ret) {
+  return visitReturnImpl(ret->getOperand(0));
+}
+
+void LIRGenerator::visitGeneratorReturn(MGeneratorReturn* ret) {
+  return visitReturnImpl(ret->getOperand(0), true);
 }
 
 void LIRGenerator::visitSuperFunction(MSuperFunction* ins) {
@@ -5992,3 +6039,7 @@ void LIRGenerator::visitWasmFence(MWasmFence* ins) {
 
 static_assert(!std::is_polymorphic_v<LIRGenerator>,
               "LIRGenerator should not have any virtual methods");
+
+#ifdef JS_CODEGEN_NONE
+void LIRGenerator::visitReturnImpl(MDefinition*, bool) { MOZ_CRASH(); }
+#endif

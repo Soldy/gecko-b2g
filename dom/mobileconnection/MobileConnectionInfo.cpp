@@ -60,10 +60,11 @@ MobileConnectionInfo::MobileConnectionInfo(nsPIDOMWindowInner* aWindow)
 MobileConnectionInfo::MobileConnectionInfo(
     const nsAString& aState, bool aConnected, bool aEmergencyCallsOnly,
     bool aRoaming, nsIMobileNetworkInfo* aNetworkInfo, const nsAString& aType,
-    nsIMobileCellInfo* aCellInfo)
+    nsIMobileCellInfo* aCellInfo, int32_t aReasonDataDenied)
     : mConnected(aConnected),
       mEmergencyCallsOnly(aEmergencyCallsOnly),
-      mRoaming(aRoaming) {
+      mRoaming(aRoaming),
+      mReasonDataDenied(aReasonDataDenied) {
   // The instance created by this way is only used for IPC stuff. It won't be
   // exposed to JS directly, we will clone this instance to the one that is
   // maintained in MobileConnectionChild.
@@ -93,6 +94,9 @@ void MobileConnectionInfo::Update(nsIMobileConnectionInfo* aInfo) {
   aInfo->GetConnected(&mConnected);
   aInfo->GetEmergencyCallsOnly(&mEmergencyCallsOnly);
   aInfo->GetRoaming(&mRoaming);
+
+  // Update mReasonDataDenied
+  aInfo->GetReasonDataDenied(&mReasonDataDenied);
 
   // Update mState
   nsAutoString state;
@@ -197,5 +201,11 @@ MobileConnectionInfo::GetType(nsAString& aType) {
 NS_IMETHODIMP
 MobileConnectionInfo::GetCell(nsIMobileCellInfo** aInfo) {
   NS_IF_ADDREF(*aInfo = GetCell());
+  return NS_OK;
+}
+
+NS_IMETHODIMP MobileConnectionInfo::GetReasonDataDenied(
+    int32_t* aReasonDataDenied) {
+  *aReasonDataDenied = ReasonDataDenied();
   return NS_OK;
 }

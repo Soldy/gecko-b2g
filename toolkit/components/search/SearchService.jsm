@@ -1417,7 +1417,7 @@ SearchService.prototype = {
     return this._getSortedEngines(false);
   },
 
-  async getDefaultEngines() {
+  async getAppProvidedEngines() {
     await this.init();
 
     return this._sortEnginesByDefaults(
@@ -1451,8 +1451,8 @@ SearchService.prototype = {
     return this._engines.get(engineName) || null;
   },
 
-  getEngineByAlias(alias) {
-    this._ensureInitialized();
+  async getEngineByAlias(alias) {
+    await this.init();
     for (var engine of this._engines.values()) {
       if (engine && engine.aliases.includes(alias)) {
         return engine;

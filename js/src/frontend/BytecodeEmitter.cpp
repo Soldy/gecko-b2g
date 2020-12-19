@@ -1641,8 +1641,7 @@ void BytecodeEmitter::reportError(const Maybe<uint32_t>& maybeOffset,
 bool BytecodeEmitter::addObjLiteralData(ObjLiteralWriter& writer,
                                         GCThingIndex* outIndex) {
   size_t len = writer.getCode().size();
-  auto* code =
-      compilationInfo.stencil.alloc.newArrayUninitialized<uint8_t>(len);
+  auto* code = compilationInfo.alloc.newArrayUninitialized<uint8_t>(len);
   if (!code) {
     js::ReportOutOfMemory(cx);
     return false;
@@ -6285,7 +6284,12 @@ bool BytecodeEmitter::emitAwaitInInnermostScope(UnaryNode* awaitNode) {
 }
 
 bool BytecodeEmitter::emitAwaitInScope(EmitterScope& currentScope) {
-  if (!emit1(JSOp::TrySkipAwait)) {
+  if (!emit1(JSOp::CanSkipAwait)) {
+    //              [stack] VALUE CANSKIP
+    return false;
+  }
+
+  if (!emit1(JSOp::MaybeExtractAwaitValue)) {
     //              [stack] VALUE_OR_RESOLVED CANSKIP
     return false;
   }
@@ -7533,12 +7537,17 @@ bool BytecodeEmitter::isRestParameter(ParseNode* expr) {
   if (paramLoc && lookupName(name) == *paramLoc) {
     ParserFunctionScopeData* bindings = funbox->functionScopeBindings();
     if (bindings->nonPositionalFormalStart > 0) {
-      // |paramName| can be nullptr when the rest destructuring syntax is
-      // used: `function f(...[]) {}`.
-      const ParserAtom* paramName =
+      auto index =
           bindings->trailingNames[bindings->nonPositionalFormalStart - 1]
               .name();
-      return paramName && name == paramName;
+      if (index.isNull()) {
+        // Rest parameter name can be null when the rest destructuring syntax is
+        // used: `function f(...[]) {}`.
+        return false;
+      }
+      const ParserAtom* paramName =
+          compilationInfo.stencil.getParserAtomAt(cx, index);
+      return name == paramName;
     }
   }
 
@@ -10343,7 +10352,7 @@ bool BytecodeEmitter::emitClass(
       MOZ_ASSERT(!constructorScope->isEmptyScope());
       MOZ_ASSERT(constructorScope->scopeBindings()->length == 1);
       MOZ_ASSERT(constructorScope->scopeBindings()->trailingNames[0].name() ==
-                 cx->parserNames().dotInitializers);
+                 cx->parserNames().dotInitializers->toIndex());
 
       auto needsInitializer = [](ParseNode* propdef) {
         return NeedsFieldInitializer(propdef, false) ||
@@ -11285,8 +11294,7 @@ bool BytecodeEmitter::intoScriptStencil(ScriptStencil* script) {
 
   // Copy the TaggedScriptThingIndex data from the emitter to the stencil.
   mozilla::Span<TaggedScriptThingIndex> stencilThings =
-      NewScriptThingSpanUninitialized(cx, compilationInfo.stencil.alloc,
-                                      ngcthings);
+      NewScriptThingSpanUninitialized(cx, compilationInfo.alloc, ngcthings);
   if (stencilThings.empty()) {
     return false;
   }
@@ -11308,7 +11316,14 @@ bool BytecodeEmitter::intoScriptStencil(ScriptStencil* script) {
   // Update flags specific to functions.
   if (sc->isFunctionBox()) {
     FunctionBox* funbox = sc->asFunctionBox();
-    funbox->copyScriptFields(*script);
+    MOZ_ASSERT(script == &funbox->functionStencil());
+    funbox->copyUpdatedImmutableFlags();
+    MOZ_ASSERT(funbox->extent().sourceStart == script->extent.sourceStart);
+    MOZ_ASSERT(funbox->extent().sourceEnd == script->extent.sourceEnd);
+    MOZ_ASSERT(funbox->extent().toStringStart == script->extent.toStringStart);
+    MOZ_ASSERT(funbox->extent().toStringEnd == script->extent.toStringEnd);
+    MOZ_ASSERT(funbox->extent().lineno == script->extent.lineno);
+    MOZ_ASSERT(funbox->extent().column == script->extent.column);
     MOZ_ASSERT(script->isFunction());
   } else {
     sc->copyScriptFields(*script);

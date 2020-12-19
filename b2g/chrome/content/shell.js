@@ -274,18 +274,6 @@ document.addEventListener(
       return;
     }
 
-    document.addEventListener(
-      "keydown",
-      event => {
-        if (event.key == "AudioVolumeUp") {
-          console.log("Toggling GPU profiler display");
-          toggle_bool_pref("gfx.webrender.debug.profiler");
-          toggle_bool_pref("gfx.webrender.debug.compact-profiler");
-        }
-      },
-      true
-    );
-
     // eslint-disable-next-line no-undef
     RemoteDebugger.init(window);
 

@@ -649,6 +649,7 @@ function RadioInterface(aClientId) {
   this._radioCapability = {};
 
   this._pendingSentSmsMap = {};
+  this._pendingSmsRequest = null;
 
   this._isInEmergencyCbMode = false;
 
@@ -807,6 +808,11 @@ RadioInterface.prototype = {
    * Outgoing messages waiting for SMS-STATUS-REPORT.
    */
   _pendingSentSmsMap: null,
+
+  /**
+   * Pending send message request.
+   */
+  _pendingSmsRequest: null,
 
   /**
    * True if we are in emergency callback mode.
@@ -2402,13 +2408,131 @@ RadioInterface.prototype = {
       : Ci.nsICellBroadcastService.GSM_ETWS_WARNING_INVALID;
   },
 
+  _processReceivedSmsCbPage(original) {
+    if (original.numPages <= 1) {
+      if (original.body) {
+        original.fullBody = original.body;
+        delete original.body;
+      } else if (original.data) {
+        original.fullData = original.data;
+        delete original.data;
+      }
+      return original;
+    }
+
+    // Hash = <serial>:<mcc>:<mnc>:<lac>:<cid>
+    let hash =
+      original.serial + ":" + this.iccInfo.mcc + ":" + this.iccInfo.mnc + ":";
+    switch (original.geographicalScope) {
+      case RIL.CB_GSM_GEOGRAPHICAL_SCOPE_CELL_WIDE_IMMEDIATE:
+      case RIL.CB_GSM_GEOGRAPHICAL_SCOPE_CELL_WIDE:
+        hash +=
+          this.voiceRegistrationState.cell.gsmLocationAreaCode +
+          ":" +
+          this.voiceRegistrationState.cell.gsmCellId;
+        break;
+      case RIL.CB_GSM_GEOGRAPHICAL_SCOPE_LOCATION_AREA_WIDE:
+        hash += this.voiceRegistrationState.cell.gsmLocationAreaCode + ":";
+        break;
+      default:
+        hash += ":";
+        break;
+    }
+
+    let index = original.pageIndex;
+
+    let options = this._receivedSmsCbPagesMap[hash];
+    if (!options) {
+      options = original;
+      this._receivedSmsCbPagesMap[hash] = options;
+
+      options.receivedPages = 0;
+      options.pages = [];
+    } else if (options.pages[index]) {
+      // Duplicated page?
+      if (DEBUG) {
+        this.debug(
+          "Got duplicated page no." +
+            index +
+            " of a multipage SMSCB: " +
+            JSON.stringify(original)
+        );
+      }
+      return null;
+    }
+
+    if (options.encoding == RIL.PDU_DCS_MSG_CODING_8BITS_ALPHABET) {
+      options.pages[index] = original.data;
+      delete original.data;
+    } else {
+      options.pages[index] = original.body;
+      delete original.body;
+    }
+    options.receivedPages++;
+    if (options.receivedPages < options.numPages) {
+      if (DEBUG) {
+        this.debug(
+          "Got page no." +
+            index +
+            " of a multipage SMSCB: " +
+            JSON.stringify(options)
+        );
+      }
+      return null;
+    }
+
+    // Remove from map
+    delete this._receivedSmsCbPagesMap[hash];
+
+    // Rebuild full body
+    if (options.encoding == RIL.PDU_DCS_MSG_CODING_8BITS_ALPHABET) {
+      // Uint8Array doesn't have `concat`, so we have to merge all pages by hand.
+      let fullDataLen = 0;
+      for (let i = 1; i <= options.numPages; i++) {
+        fullDataLen += options.pages[i].length;
+      }
+
+      options.fullData = new Uint8Array(fullDataLen);
+      for (let d = 0, i = 1; i <= options.numPages; i++) {
+        let data = options.pages[i];
+        for (let j = 0; j < data.length; j++) {
+          options.fullData[d++] = data[j];
+        }
+      }
+    } else {
+      options.fullBody = options.pages.join("");
+    }
+
+    if (DEBUG) {
+      this.debug("Got full multipage SMSCB: " + JSON.stringify(options));
+    }
+
+    return options;
+  },
+
   handleCellbroadcastMessageReceived(aMessage) {
     let data = {};
-    let dataLength = aMessage.GetNewBroadcastSms(data);
+    let dataLength = aMessage.getNewBroadcastSms(data);
+
     let GsmPDUHelper = this.simIOcontext.GsmPDUHelper;
     GsmPDUHelper.initWith(data.value);
 
+    if (DEBUG) {
+      this.debug("Receive Cellbroadcast pdu: " + JSON.stringify(data));
+    }
+
     let message = GsmPDUHelper.readCbMessage(dataLength);
+    if (DEBUG) {
+      this.debug("Receive Cellbroadcast Message: " + JSON.stringify(message));
+    }
+
+    message = this._processReceivedSmsCbPage(message);
+    if (!message) {
+      return;
+    }
+    if (DEBUG) {
+      this.debug("New Cellbroadcast Message: " + JSON.stringify(message));
+    }
 
     let etwsInfo = message.etws;
     let hasEtwsInfo = etwsInfo != null;
@@ -2437,16 +2561,23 @@ RadioInterface.prototype = {
       etwsPopup: hasEtwsInfo ? etwsInfo.popup : false,
     };
 
-    if (message.geoFencingTrigger != null) {
+    if (message.geoFencingTrigger) {
       gonkCellBroadcastMessage.geoFencingTriggerType =
         message.geoFencingTrigger.type;
       gonkCellBroadcastMessage.cellBroadcastIdentifiers =
         message.geoFencingTrigger.cbIdentifiers;
     }
-    if (message.geometries != null) {
+    if (message.geometries) {
       gonkCellBroadcastMessage.geometries = message.geometries;
       gonkCellBroadcastMessage.maximumWaitingTimeSec =
         message.maximumWaitingTimeSec;
+    }
+
+    if (DEBUG) {
+      this.debug(
+        "New gonkCellBroadcastMessage: " +
+          JSON.stringify(gonkCellBroadcastMessage)
+      );
     }
 
     gCellBroadcastService.notifyMessageReceived(
@@ -3822,9 +3953,9 @@ RadioInterface.prototype = {
               "RILJ: [" + response.rilMessageToken + "] < REQUEST_SEND_SMS"
             );
           }
-          //TODO: Handle segment and check if requestStatusReport is on
-          this._pendingSentSmsMap[response.sms.messageRef] = response;
-          result = response;
+          let message = this._pendingSmsRequest;
+          this._pendingSmsRequest = null;
+          result = this.handleSmsSendResult(response, message);
         } else if (DEBUG) {
           this.debug(
             "RILJ: [" +
@@ -4402,6 +4533,19 @@ RadioInterface.prototype = {
       curState.emergencyCallsOnly = !curState.connected;
     }
 
+    // Handle the reasonDataDenied
+    if (curState.state === RIL.GECKO_MOBILE_CONNECTION_STATE_DENIED) {
+      if (
+        curState.reasonDataDenied === undefined ||
+        curState.reasonDataDenied !== newState.reasonDataDenied
+      ) {
+        changed = true;
+        curState.reasonDataDenied = newState.reasonDataDenied;
+      }
+    } else {
+      curState.reasonDataDenied = 0;
+    }
+
     if (!curState.cell) {
       curState.cell = {};
     }
@@ -4482,6 +4626,7 @@ RadioInterface.prototype = {
       curState.radioTech = radioTech;
       curState.type = RIL.GECKO_RADIO_TECH[radioTech] || null;
     }
+
     // From TS 23.003, 0000 and 0xfffe are indicated that no valid LAI exists
     // in MS. So we still need to report the '0000' as well.
     /*let lac = this.parseInt(newState[1], -1, 16);
@@ -4886,6 +5031,49 @@ RadioInterface.prototype = {
 
     result.result = neighboringCellIds;
     return result;
+  },
+
+  /**
+   * Helper for processing sent multipart SMS.
+   */
+  _processSentSmsSegment(options) {
+    // Setup attributes for sending next segment
+    let next = options.segmentSeq;
+    options.body = options.segments[next].body;
+    options.encodedBodyLength = options.segments[next].encodedBodyLength;
+    options.segmentSeq = next + 1;
+    let callback = this.tokenCallbackMap[options.rilMessageToken];
+    delete this.tokenCallbackMap[options.rilMessageToken];
+    if (DEBUG) {
+      this.debug("postpone sendSMS callback to next sms segment");
+    }
+    this.sendRilRequest("sendSMS", options, callback);
+  },
+
+  /**
+   * Helper for processing result of send SMS.
+   *
+   */
+  handleSmsSendResult(response, message) {
+    message.messageRef = response.sms.messageRef;
+    message.ackPDU = response.sms.ackPDU;
+    message.errorCode = response.sms.errorCode;
+    if (
+      message.segmentMaxSeq > 1 &&
+      message.segmentSeq < message.segmentMaxSeq
+    ) {
+      // Not last segment
+      this._processSentSmsSegment(message);
+    } else if (message.requestStatusReport) {
+      // Last segment sent with success.
+      if (DEBUG) {
+        this.debug(
+          "waiting SMS-STATUS-REPORT for messageRef " + message.messageRef
+        );
+      }
+      this._pendingSentSmsMap[response.sms.messageRef] = message;
+    }
+    return message;
   },
 
   /**
@@ -5866,6 +6054,18 @@ RadioInterface.prototype = {
               "RILJ: [" + message.rilMessageToken + "] > REQUEST_SEND_SMS"
             );
           }
+          message.langIndex =
+            message.langIndex || RIL.PDU_NL_IDENTIFIER_DEFAULT;
+          message.langShiftIndex =
+            message.langShiftIndex || RIL.PDU_NL_IDENTIFIER_DEFAULT;
+
+          if (!message.segmentSeq) {
+            // Fist segment to send
+            message.segmentSeq = 1;
+            message.body = message.segments[0].body;
+            message.encodedBodyLength = message.segments[0].encodedBodyLength;
+          }
+          this._pendingSmsRequest = message;
           let GsmPDUHelper = this.simIOcontext.GsmPDUHelper;
           GsmPDUHelper.initWith();
           GsmPDUHelper.writeMessage(message);

@@ -519,9 +519,9 @@ class MediaTrack : public mozilla::LinkedListElement<MediaTrack> {
   virtual void DecrementSuspendCount();
 
  protected:
-  // Called on graph thread before handing control to the main thread to
-  // release tracks.
-  virtual void NotifyForcedShutdown() {}
+  // Called on graph thread either during destroy handling or before handing
+  // graph control to the main thread to release tracks.
+  virtual void OnGraphThreadDone() {}
 
   // |AdvanceTimeVaryingValuesToCurrentTime| will be override in
   // SourceMediaTrack.
@@ -738,8 +738,9 @@ class SourceMediaTrack : public MediaTrack {
     bool mEnded;
     // True if the producer of this track is having data pulled by the graph.
     bool mPullingEnabled;
-    // True if the graph has notified this track of forced shutdown.
-    bool mInForcedShutdown;
+    // True if the graph has notified this track that it will not be used
+    // again on the graph thread.
+    bool mGraphThreadDone;
   };
 
   bool NeedsMixing();
@@ -758,12 +759,12 @@ class SourceMediaTrack : public MediaTrack {
    */
   void NotifyDirectConsumers(MediaSegment* aSegment);
 
-  void NotifyForcedShutdown() override {
+  void OnGraphThreadDone() override {
     MutexAutoLock lock(mMutex);
     if (!mUpdateTrack) {
       return;
     }
-    mUpdateTrack->mInForcedShutdown = true;
+    mUpdateTrack->mGraphThreadDone = true;
     if (!mUpdateTrack->mData) {
       return;
     }

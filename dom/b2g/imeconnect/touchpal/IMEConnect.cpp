@@ -708,6 +708,10 @@ void IMEConnect::FetchCandidates() {
   ret = CT_SearchDictionary(mDictFile.dic, &input, &result);
   if (ret != 0) {
     CT_LOGW("FetchCandidates::CT_SearchDictionary failed ret=%d", ret);
+    if (mKeyboardId == eKeyboardQwerty) {
+      mCandidateWord.AssignLiteral("");
+      return;
+    }
   }
 
   if (isGroupSupported) {

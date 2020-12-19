@@ -41,7 +41,9 @@ parent:
   // |binaryType| (from TCPOption.binaryType).
   async Open(nsString host, uint16_t port, bool useSSL, bool useArrayBuffers);
 
-  async Data(SendableData data);
+  // When child's send() is called, this message requrests parent to send
+  // data and update it's trackingNumber.
+  async Data(SendableData data, uint32_t trackingNumber);
 
   // Forward calling to child's upgradeToSecure() method to parent.
   async StartTLS();

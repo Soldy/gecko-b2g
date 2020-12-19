@@ -45,6 +45,7 @@ XPCOM_MANIFESTS += [
 EXTRA_JS_MODULES += [
     "DataCallInterfaceService.jsm",
     "DataCallManager.jsm",
+    "mcc_iso3166_table.jsm",
     "NetworkTimeService.jsm",
     "PhoneNumberUtils.jsm",
     "RadioInterfaceLayer.jsm",

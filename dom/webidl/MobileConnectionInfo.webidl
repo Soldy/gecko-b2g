@@ -54,4 +54,21 @@ interface MobileConnectionInfo
    * Cell location information.
    */
   readonly attribute MobileCellInfo? cell;
+
+  /**
+   * Reason Data Denied.
+   *
+   * if state is 'denied' this is an enumerated reason why
+   * registration was denied. See 3GPP TS 24.008,
+   * Annex G.6 "Additional cause codes for GMM".
+   * 7 == GPRS services not allowed
+   * 8 == GPRS services and non-GPRS services not allowed
+   * 9 == MS identity cannot be derived by the network
+   * 10 == Implicitly detached
+   * 14 == GPRS services not allowed in this PLMN
+   * 16 == MSC temporarily not reachable
+   * 40 == No PDP context activated
+  */
+
+  readonly attribute long reasonDataDenied;
 };

@@ -50,6 +50,7 @@ EXCLUSIVE_COMPONENTS = [
     "condprofile",
     "cppunittest",
     "firefox-ui",
+    "fuzztest",
     "geckoview-junit",
     "gtest",
     "marionette",

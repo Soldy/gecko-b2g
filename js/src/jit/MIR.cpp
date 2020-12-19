@@ -1250,12 +1250,12 @@ void MConstantElements::printOpcode(GenericPrinter& out) const {
 
 void MLoadUnboxedScalar::printOpcode(GenericPrinter& out) const {
   MDefinition::printOpcode(out);
-  out.printf(" %s", ScalarTypeDescr::typeName(storageType()));
+  out.printf(" %s", Scalar::name(storageType()));
 }
 
 void MLoadDataViewElement::printOpcode(GenericPrinter& out) const {
   MDefinition::printOpcode(out);
-  out.printf(" %s", ScalarTypeDescr::typeName(storageType()));
+  out.printf(" %s", Scalar::name(storageType()));
 }
 
 void MAssertRange::printOpcode(GenericPrinter& out) const {
@@ -1379,13 +1379,6 @@ bool MParameter::congruentTo(const MDefinition* ins) const {
   }
 
   return ins->toParameter()->index() == index_;
-}
-
-WrappedFunction::WrappedFunction(JSFunction* fun)
-    : nativeFun_(fun->isNativeWithoutJitEntry() ? fun : nullptr),
-      nargs_(fun->nargs()),
-      flags_(fun->flags()) {
-  MOZ_ASSERT(!JitOptions.warpBuilder);
 }
 
 WrappedFunction::WrappedFunction(JSFunction* nativeFun, uint16_t nargs,
@@ -1960,16 +1953,15 @@ bool MPhi::updateForReplacement(MDefinition* def) {
   return true;
 }
 
-static void MergeTypes(MIRType* ptype, MIRType newType) {
-  // TODO(no-TI): clean up
-  if (newType != *ptype) {
-    if (IsTypeRepresentableAsDouble(newType) &&
-        IsTypeRepresentableAsDouble(*ptype)) {
-      *ptype = MIRType::Double;
-    } else if (*ptype != MIRType::Value) {
-      *ptype = MIRType::Value;
-    }
+static MIRType MergeTypes(MIRType type, MIRType newType) {
+  if (type == newType) {
+    return type;
   }
+  if (IsTypeRepresentableAsDouble(type) &&
+      IsTypeRepresentableAsDouble(newType)) {
+    return MIRType::Double;
+  }
+  return MIRType::Value;
 }
 
 bool MPhi::specializeType(TempAllocator& alloc) {
@@ -1984,7 +1976,7 @@ bool MPhi::specializeType(TempAllocator& alloc) {
 
   for (size_t i = 1; i < inputs_.length(); i++) {
     MDefinition* def = getOperand(i);
-    MergeTypes(&resultType, def->type());
+    resultType = MergeTypes(resultType, def->type());
   }
 
   setResultType(resultType);
@@ -2040,13 +2032,6 @@ bool MPhi::typeIncludes(MDefinition* def) {
   }
 
   return this->mightBeType(def->type());
-}
-
-MBox::MBox(TempAllocator& alloc, MDefinition* ins)
-    : MUnaryInstruction(classOpcode, ins) {
-  // TODO(no-TI): move to MIR.h
-  setResultType(MIRType::Value);
-  setMovable();
 }
 
 void MCall::addArg(size_t argnum, MDefinition* arg) {
@@ -2865,6 +2850,26 @@ bool MSub::fallible() const {
     return false;
   }
   return true;
+}
+
+MDefinition* MSub::foldsTo(TempAllocator& alloc) {
+  MDefinition* out = MBinaryArithInstruction::foldsTo(alloc);
+  if (out != this) {
+    return out;
+  }
+
+  if (type() != MIRType::Int32) {
+    return this;
+  }
+
+  // This optimization is only valid for Int32 values. Subtracting a floating
+  // point value from itself returns NaN when the operand is either Infinity
+  // or NaN.
+  if (lhs() == rhs()) {
+    return MConstant::New(alloc, Int32Value(0));
+  }
+
+  return this;
 }
 
 MDefinition* MMul::foldsTo(TempAllocator& alloc) {
@@ -5061,70 +5066,6 @@ MDefinition::AliasType MGetPropertyPolymorphic::mightAlias(
   return AliasType::NoAlias;
 }
 
-bool MGetPropertyPolymorphic::appendRoots(MRootList& roots) const {
-  if (!roots.append(name_)) {
-    return false;
-  }
-
-  for (const PolymorphicEntry& entry : receivers_) {
-    if (!entry.appendRoots(roots)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool MSetPropertyPolymorphic::appendRoots(MRootList& roots) const {
-  if (!roots.append(name_)) {
-    return false;
-  }
-
-  for (const PolymorphicEntry& entry : receivers_) {
-    if (!entry.appendRoots(roots)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool MGuardReceiverPolymorphic::appendRoots(MRootList& roots) const {
-  for (const ReceiverGuard& guard : receivers_) {
-    if (!roots.append(guard)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool MConstant::appendRoots(MRootList& roots) const {
-  switch (type()) {
-    case MIRType::String:
-      return roots.append(toString());
-    case MIRType::Symbol:
-      return roots.append(toSymbol());
-    case MIRType::BigInt:
-      return roots.append(toBigInt());
-    case MIRType::Object:
-      return roots.append(&toObject());
-    case MIRType::Undefined:
-    case MIRType::Null:
-    case MIRType::Boolean:
-    case MIRType::Int32:
-    case MIRType::Double:
-    case MIRType::Float32:
-    case MIRType::MagicOptimizedArguments:
-    case MIRType::MagicOptimizedOut:
-    case MIRType::MagicHole:
-    case MIRType::MagicIsConstructing:
-    case MIRType::MagicUninitializedLexical:
-      return true;
-    default:
-      MOZ_CRASH("Unexpected type");
-  }
-}
-
 MDefinition* MWasmUnsignedToDouble::foldsTo(TempAllocator& alloc) {
   if (input()->isConstant() && input()->type() == MIRType::Int32) {
     return MConstant::New(
@@ -5816,10 +5757,6 @@ MIonToWasmCall* MIonToWasmCall::New(TempAllocator& alloc,
     return nullptr;
   }
   return ins;
-}
-
-bool MIonToWasmCall::appendRoots(MRootList& roots) const {
-  return roots.append(instanceObj_);
 }
 
 #ifdef DEBUG

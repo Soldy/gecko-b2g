@@ -1595,7 +1595,9 @@
       "size_overflow",
       "out_of_memory",
       "pipe_init_error",
-      "write_buffer_error"
+      "write_buffer_error",
+      "alpha_y_sz_mismatch",
+      "alpha_y_bpc_mismatch"
     ],
     "description": "Decode result of AVIF image",
     "bug_numbers": [1670827]
@@ -6778,10 +6780,10 @@
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com", "bytesized@mozilla.com"],
     "expires_in_version": "never",
     "kind": "categorical",
-    "bug_numbers": [893505, 1521427],
+    "bug_numbers": [893505, 1521427, 1553982],
     "releaseChannelCollection": "opt-out",
     "description": "Update: the application update doorhanger type that was displayed.",
-    "labels": ["restart", "available", "manual", "unsupported"]
+    "labels": ["restart", "available", "manual", "unsupported", "otherinstance"]
   },
   "UPDATE_NOTIFICATION_BADGE_SHOWN": {
     "record_in_processes": ["main"],
@@ -6789,10 +6791,10 @@
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com", "bytesized@mozilla.com"],
     "expires_in_version": "never",
     "kind": "categorical",
-    "bug_numbers": [893505, 1365204, 1521427],
+    "bug_numbers": [893505, 1365204, 1521427, 1553982],
     "releaseChannelCollection": "opt-out",
     "description": "Update: the application update badge type that was displayed.",
-    "labels": ["restart", "available", "manual", "unsupported"]
+    "labels": ["restart", "available", "manual", "unsupported", "otherinstance"]
   },
   "UPDATE_NOTIFICATION_DISMISSED": {
     "record_in_processes": ["main"],
@@ -6800,10 +6802,10 @@
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com", "bytesized@mozilla.com"],
     "expires_in_version": "never",
     "kind": "categorical",
-    "bug_numbers": [893505, 1521427],
+    "bug_numbers": [893505, 1521427, 1553982],
     "releaseChannelCollection": "opt-out",
     "description": "Update: the dismiss action was executed for this application update doorhanger type.",
-    "labels": ["restart", "available", "manual", "unsupported"]
+    "labels": ["restart", "available", "manual", "unsupported", "otherinstance"]
   },
   "UPDATE_NOTIFICATION_MAIN_ACTION_DOORHANGER": {
     "record_in_processes": ["main"],
@@ -6811,10 +6813,10 @@
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com", "bytesized@mozilla.com"],
     "expires_in_version": "never",
     "kind": "categorical",
-    "bug_numbers": [893505, 1521427],
+    "bug_numbers": [893505, 1521427, 1553982],
     "releaseChannelCollection": "opt-out",
     "description": "Update: the main update action was initiated for this application update doorhanger type.",
-    "labels": ["restart", "available", "manual", "unsupported"]
+    "labels": ["restart", "available", "manual", "unsupported", "otherinstance"]
   },
   "UPDATE_NOTIFICATION_MAIN_ACTION_MENU": {
     "record_in_processes": ["main"],
@@ -6822,10 +6824,10 @@
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com", "bytesized@mozilla.com"],
     "expires_in_version": "never",
     "kind": "categorical",
-    "bug_numbers": [893505, 1521427],
+    "bug_numbers": [893505, 1521427, 1553982],
     "releaseChannelCollection": "opt-out",
     "description": "Update: the update action was initiated from the PanelUI application update menu item.",
-    "labels": ["restart", "available", "manual", "unsupported"]
+    "labels": ["restart", "available", "manual", "unsupported", "otherinstance"]
   },
   "UPDATE_CAN_USE_BITS_EXTERNAL": {
     "record_in_processes": ["main"],
@@ -9489,10 +9491,10 @@
   "PDF_VIEWER_DOCUMENT_VERSION_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["other", "v1_0", "v1_1", "v1_2", "v1_3", "v1_4", "v1_5", "v1_6", "v1_7", "v1_8", "v1_9", "v2_0", "v2_1", "v2_2", "v2_3"],
     "description": "The PDF document version (1.1, 1.2, etc.)"
@@ -9500,10 +9502,10 @@
   "PDF_VIEWER_DOCUMENT_GENERATOR_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["acrobat_distiller", "acrobat_pdfwriter", "adobe_livecycle", "adobe_pdf_library", "adobe_photoshop", "ghostscript", "tcpdf", "cairo", "dvipdfm", "dvips", "pdftex", "pdfkit", "itext", "prince", "quarkxpress", "mac_os_x", "microsoft", "openoffice", "oracle", "luradocument", "pdf_xchange", "antenna_house", "aspose_cells", "fpdf", "other"],
     "description": "The PDF document generator"
@@ -9511,10 +9513,10 @@
   "PDF_VIEWER_DOCUMENT_SIZE_KB": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "exponential",
     "low": 2,
     "high": 65536,
@@ -9524,10 +9526,10 @@
   "PDF_VIEWER_FONT_TYPES_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["UNKNOWN", "TYPE1", "TYPE1C", "CIDFONTTYPE0", "CIDFONTTYPE0C", "TRUETYPE", "CIDFONTTYPE2", "TYPE3", "OPENTYPE", "TYPE0", "MMTYPE1"],
     "description": "The PDF document font types used"
@@ -9535,10 +9537,10 @@
   "PDF_VIEWER_EMBED_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["object_embed", "iframe"],
     "description": "A PDF document was embedded using OBJECT/EMBED and or an IFRAME"
@@ -9546,10 +9548,10 @@
   "PDF_VIEWER_FORM_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["acroform", "xfa"],
     "description": "If a form was used, its type."
@@ -9557,10 +9559,10 @@
   "PDF_VIEWER_STREAM_TYPES_2": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1566882],
+    "bug_numbers": [1566882, 1666979],
     "kind": "categorical",
     "labels": ["UNKNOWN", "FLATE", "LZW", "DCT", "JPX", "JBIG", "A85", "AHX", "CCF", "RLX"],
     "description": "The PDF document compression stream types used"
@@ -9580,10 +9582,10 @@
   "PDF_VIEWER_FALLBACK_REASON": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1630844],
+    "bug_numbers": [1630844, 1666979],
     "kind": "categorical",
     "labels": ["unknown", "forms", "javaScript", "smask", "shadingPattern", "font", "errorTilingPattern", "errorExtGState", "errorXObject", "errorFontLoadType3", "errorFontState", "errorFontMissing", "errorFontTranslate", "errorColorSpace", "errorOperatorList", "errorFontToUnicode", "errorFontLoadNative", "errorFontGetPath"],
     "description": "The reason the fallback bar was shown."
@@ -9591,10 +9593,10 @@
   "PDF_VIEWER_FALLBACK_ERROR": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "84",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1643402],
+    "bug_numbers": [1643402, 1666979],
     "kind": "categorical",
     "labels": ["unknown", "forms", "javaScript", "smask", "shadingPattern", "font", "errorTilingPattern", "errorExtGState", "errorXObject", "errorFontLoadType3", "errorFontState", "errorFontMissing", "errorFontTranslate", "errorColorSpace", "errorOperatorList", "errorFontToUnicode", "errorFontLoadNative", "errorFontGetPath"],
     "description": "All errors that could trigger the fallback bar, even after the bar is shown."
@@ -9602,10 +9604,10 @@
   "PDF_VIEWER_TAGGED": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
-    "expires_in_version": "87",
+    "expires_in_version": "88",
     "alert_emails": ["bdahl@mozilla.com"],
     "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1673128],
+    "bug_numbers": [1673128, 1666979],
     "kind": "boolean",
     "description": "If a PDF is tagged."
   },
@@ -9955,10 +9957,10 @@
       "pulse",
       "pulse_rust",
       "sndio",
-      "sun"
+      "sunaudio"
     ],
     "description": "The operating system audio backend",
-    "bug_numbers": [1671714]
+    "bug_numbers": [1671714, 1679745]
   },
   "WEBRTC_DTLS_CIPHER": {
     "record_in_processes": ["content", "socket"],
@@ -15309,20 +15311,6 @@
     "description": "Counts the number of times a user enable or disable the media control feature via UI button, and the total number of times media control feature is enabled and disabled, which allow us to calculate the number of times a user changes setting via modifying the preference directly.",
     "releaseChannelCollection": "opt-out"
   },
-  "MEDIA_CONTROL_PLATFORM_USAGE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": [
-      "alwu@mozilla.com",
-      "cchang@mozilla.com"
-    ],
-    "bug_numbers": [1668139],
-    "expires_in_version": "90",
-    "kind": "categorical",
-    "labels": ["UsedOnWin", "EnabledOnWin", "UsedOnMac", "EnabledOnMac", "UsedOnLinux", "EnabledOnLinux", "UsedOnAndroid", "EnabledOnAndroid"],
-    "description": "Counts the number of times users enable and use media control on different platforms.",
-    "releaseChannelCollection": "opt-out"
-  },
   "MEDIA_CONTROL_HANDLE_PLAY_PAUSE_STOP_ACTIONS": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
@@ -15702,18 +15690,6 @@
     "kind": "boolean",
     "description": "Whether TLS 1.3 client authentication uses PHA (true) or regular in-handshake authentication (false)"
   },
-  "TLS_DELEGATED_CREDENTIALS_TIME_UNTIL_READY_MS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["seceng-telemetry@mozilla.com", "kjacobs@mozilla.com"],
-    "expires_in_version": "86",
-    "releaseChannelCollection": "opt-out",
-    "kind": "exponential",
-    "high": 2000,
-    "n_buckets": 100,
-    "bug_numbers": [1564179, 1645082],
-    "description": "milliseconds to complete a TLS handshake that used delegated credentials"
-  },
   "PRESSHELL_LAYOUT_TOTAL_MS_PER_TICK": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec"],
@@ -16086,9 +16062,9 @@
     "expires_in_version": "87",
     "kind": "categorical",
     "releaseChannelCollection": "opt-out",
-    "description": "Counts how often the external protocol handler dialog is shown. Labelled by protocol scheme. Keyed by whether the navigation came from the top level browser, an iframe or a cross origin iframe, or a null principal.",
+    "description": "Counts how often the external protocol handler dialog is shown. Labelled by protocol scheme. Keyed by the kind of browsing context the navigation was triggered from: TOPLEVEL: Top browser, SUB_SAMEORIGIN: Same origin iframe, SUB_CROSSORIGIN: Cross origin iframe, SUB_SANDBOX_ALLOW: Sandboxed iframe with relevant allow flags, SUB_SANDBOX_NOALLOW: Sandboxed iframe without relevant allow flags",
     "keyed": true,
-    "keys": ["TOPLEVEL", "SUB_SAMEORIGIN", "SUB_CROSSORIGIN", "NULLPRINCIPAL", "UNKNOWN"],
+    "keys": ["TOPLEVEL", "SUB_SAMEORIGIN", "SUB_CROSSORIGIN", "SUB_SANDBOX_ALLOW", "SUB_SANDBOX_NOALLOW", "UNKNOWN"],
     "labels": [
       "APPLE",
       "APPLE_FINDMY",

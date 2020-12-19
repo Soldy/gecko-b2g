@@ -4,10 +4,6 @@
 
 #include "nsISupports.idl"
 
-//interface nsIIccInfo;
-//interface nsIMobileConnectionInfo;
-//interface nsIMobileMessageCallback;
-
 [scriptable, function, uuid(3bc96351-53b0-47a1-a888-c74c64b60f25)]
 interface nsIRilSendWorkerMessageCallback : nsISupports
 {

@@ -125,7 +125,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
           aCallback);
 
   void SessionHistoryCommit(uint64_t aLoadId, const nsID& aChangeID,
-                            uint32_t aLoadType);
+                            uint32_t aLoadType, bool aPersist,
+                            bool aCloneEntryChildren);
 
   // Calls the session history listeners' OnHistoryReload, storing the result in
   // aCanReload. If aCanReload is set to true and we have an active or a loading
@@ -195,6 +196,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
                  const Optional<int32_t>& aCancelContentJSEpoch);
   void Reload(uint32_t aReloadFlags);
   void Stop(uint32_t aStopFlags);
+
+  BrowserParent* GetBrowserParent() const;
 
   // Internal method to change which process a BrowsingContext is being loaded
   // in. The returned promise will resolve when the process switch is completed.

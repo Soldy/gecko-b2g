@@ -85,8 +85,6 @@ function assertSearchModeScalars(entry, engineOrSource, resultIndex = -1) {
 add_task(async function setup() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.urlbar.update2", true],
-      ["browser.urlbar.update2.oneOffsRefresh", true],
       // Disable tab-to-search onboarding results for general tests. They are
       // enabled in tests that specifically address onboarding.
       ["browser.urlbar.tabToSearch.onboard.interactionsLeft", 0],
@@ -396,7 +394,7 @@ add_task(async function test_tabmenu() {
 // NOTE: We don't test handoff on about:home. Running mochitests on about:home
 // is quite difficult. This subtest verifies that `handoff` is a valid scalar
 // suffix and that a call to
-// UrlbarInput.search(value, { searchModeEntry: "handoff" }) records values in
+// UrlbarInput.search(value, { searchEngine, searchModeEntry: "handoff" }) records values in
 // the urlbar.searchmode.handoff scalar. PlacesFeed.test.js verfies that
 // about:home handoff makes that exact call.
 add_task(async function test_handoff_pbm() {
@@ -459,7 +457,6 @@ add_task(async function test_touchbar() {
 add_task(async function test_tabtosearch() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.urlbar.update2.tabToComplete", true],
       // Do not show the onboarding result for this subtest.
       ["browser.urlbar.tabToSearch.onboard.interactionsLeft", 0],
     ],
@@ -519,10 +516,7 @@ add_task(async function test_tabtosearch() {
 // Enters search mode by selecting a tab-to-search onboarding result.
 add_task(async function test_tabtosearch_onboard() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.urlbar.update2.tabToComplete", true],
-      ["browser.urlbar.tabToSearch.onboard.interactionsLeft", 3],
-    ],
+    set: [["browser.urlbar.tabToSearch.onboard.interactionsLeft", 3]],
   });
   await PlacesTestUtils.addVisits([`http://${engineDomain}/`]);
 

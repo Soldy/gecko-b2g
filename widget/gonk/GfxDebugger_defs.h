@@ -1,0 +1,21 @@
+#ifndef GFX_DEBUGGER_DEFS_H
+#define GFX_DEBUGGER_DEFS_H
+
+enum {
+  GD_CMD_GRALLOC,
+  GD_CMD_SCREENCAP,
+  GD_CMD_LAYER,
+  GD_CMD_APZ,
+
+  GD_ERR,
+};
+
+enum {
+  GRALLOC_OP_LIST,
+  GRALLOC_OP_DUMP,
+  SCREENCAP_OP_CAPTURE,
+
+  OP_ERR,
+};
+
+#endif /* GFX_DEBUGGER_DEFS_H */

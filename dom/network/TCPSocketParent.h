@@ -58,7 +58,8 @@ class TCPSocketParent : public mozilla::net::PTCPSocketParent,
   mozilla::ipc::IPCResult RecvSuspend();
   mozilla::ipc::IPCResult RecvResume();
   mozilla::ipc::IPCResult RecvClose();
-  mozilla::ipc::IPCResult RecvData(const SendableData& aData);
+  mozilla::ipc::IPCResult RecvData(const SendableData& aData,
+                                   const uint32_t& aTrackingNumber);
   mozilla::ipc::IPCResult RecvRequestDelete();
 
   void FireErrorEvent(const nsAString& aName, const nsAString& aType,

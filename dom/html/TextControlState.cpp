@@ -2064,7 +2064,8 @@ nsITextControlFrame::SelectionDirection TextControlState::GetSelectionDirection(
 
 void TextControlState::SetSelectionRange(
     uint32_t aStart, uint32_t aEnd,
-    nsITextControlFrame::SelectionDirection aDirection, ErrorResult& aRv) {
+    nsITextControlFrame::SelectionDirection aDirection, ErrorResult& aRv,
+    ScrollAfterSelection aScroll) {
   MOZ_ASSERT(IsSelectionCached() || mBoundFrame,
              "How can we have a non-cached selection but no frame?");
 
@@ -2079,6 +2080,12 @@ void TextControlState::SetSelectionRange(
   nsresult rv = NS_OK;  // For the ScrollSelectionIntoView() return value.
   if (IsSelectionCached()) {
     SelectionProperties& props = GetSelectionProperties();
+    if (!props.HasMaxLength()) {
+      // A clone without a dirty value flag may not have a max length yet
+      nsAutoString value;
+      GetValue(value, false);
+      props.SetMaxLength(value.Length());
+    }
     changed |= props.SetStart(aStart);
     changed |= props.SetEnd(aEnd);
     changed |= props.SetDirection(aDirection);
@@ -2089,7 +2096,7 @@ void TextControlState::SetSelectionRange(
         handlingSetSelectionRange.IsTextControlStateDestroyed()) {
       return;
     }
-    if (mBoundFrame) {
+    if (aScroll == ScrollAfterSelection::Yes) {
       mBoundFrame->ScrollSelectionIntoViewAsync();
     }
     // Press on to firing the event even if that failed, like our old code did.
@@ -2105,10 +2112,19 @@ void TextControlState::SetSelectionRange(
 
   if (changed) {
     // It sure would be nice if we had an existing Element* or so to work with.
-    RefPtr<AsyncEventDispatcher> asyncDispatcher =
-        new AsyncEventDispatcher(mTextCtrlElement, u"select"_ns,
-                                 CanBubble::eYes, ChromeOnlyDispatch::eNo);
+    RefPtr<AsyncEventDispatcher> asyncDispatcher = new AsyncEventDispatcher(
+        mTextCtrlElement, eFormSelect, CanBubble::eYes);
     asyncDispatcher->PostDOMEvent();
+
+    // SelectionChangeEventDispatcher covers this when !IsSelectionCached().
+    // XXX(krosylight): Shouldn't it fire before select event?
+    // Currently Gecko and Blink both fire selectionchange after select.
+    if (IsSelectionCached() &&
+        StaticPrefs::dom_select_events_textcontrols_enabled()) {
+      asyncDispatcher = new AsyncEventDispatcher(
+          mTextCtrlElement, eSelectionChange, CanBubble::eNo);
+      asyncDispatcher->PostDOMEvent();
+    }
   }
 
   if (NS_FAILED(rv)) {
@@ -2231,11 +2247,12 @@ DirectionStringToSelectionDirection(const Optional<nsAString>& aDirection) {
 void TextControlState::SetSelectionRange(uint32_t aSelectionStart,
                                          uint32_t aSelectionEnd,
                                          const Optional<nsAString>& aDirection,
-                                         ErrorResult& aRv) {
+                                         ErrorResult& aRv,
+                                         ScrollAfterSelection aScroll) {
   nsITextControlFrame::SelectionDirection dir =
       DirectionStringToSelectionDirection(aDirection);
 
-  SetSelectionRange(aSelectionStart, aSelectionEnd, dir, aRv);
+  SetSelectionRange(aSelectionStart, aSelectionEnd, dir, aRv, aScroll);
   // The instance may have already been deleted here.
 }
 
@@ -2481,7 +2498,7 @@ void TextControlState::GetValue(nsAString& aValue, bool aIgnoreWrap) const {
   if (mHandlingState &&
       mHandlingState->IsHandling(TextControlAction::CommitComposition)) {
     aValue = mHandlingState->GetSettingValue();
-    MOZ_ASSERT(aValue.FindChar(static_cast<char16_t>('\r')) == -1);
+    MOZ_ASSERT(aValue.FindChar(u'\r') == -1);
     return;
   }
 
@@ -2489,7 +2506,7 @@ void TextControlState::GetValue(nsAString& aValue, bool aIgnoreWrap) const {
       (mEditorInitialized || !IsSingleLineTextControl())) {
     if (aIgnoreWrap && !mBoundFrame->CachedValue().IsVoid()) {
       aValue = mBoundFrame->CachedValue();
-      MOZ_ASSERT(aValue.FindChar(static_cast<char16_t>('\r')) == -1);
+      MOZ_ASSERT(aValue.FindChar(u'\r') == -1);
       return;
     }
 
@@ -2524,7 +2541,7 @@ void TextControlState::GetValue(nsAString& aValue, bool aIgnoreWrap) const {
       AutoNoJSAPI nojsapi;
 
       DebugOnly<nsresult> rv = mTextEditor->ComputeTextValue(flags, aValue);
-      MOZ_ASSERT(aValue.FindChar(static_cast<char16_t>('\r')) == -1);
+      MOZ_ASSERT(aValue.FindChar(u'\r') == -1);
       NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to get value");
     }
     // Only when the result doesn't include line breaks caused by hard-wrap,
@@ -2544,7 +2561,7 @@ void TextControlState::GetValue(nsAString& aValue, bool aIgnoreWrap) const {
       aValue = value;
     } else {
       aValue = *mValue;
-      MOZ_ASSERT(aValue.FindChar(static_cast<char16_t>('\r')) == -1);
+      MOZ_ASSERT(aValue.FindChar(u'\r') == -1);
     }
   }
 }

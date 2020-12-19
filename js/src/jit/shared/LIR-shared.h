@@ -2209,10 +2209,15 @@ class LUrshD : public LBinaryMath<1> {
 // Returns from the function being compiled (not used in inlined frames). The
 // input must be a box.
 class LReturn : public LInstructionHelper<0, BOX_PIECES, 0> {
+  bool isGenerator_;
+
  public:
   LIR_HEADER(Return)
 
-  LReturn() : LInstructionHelper(classOpcode) {}
+  explicit LReturn(bool isGenerator)
+      : LInstructionHelper(classOpcode), isGenerator_(isGenerator) {}
+
+  bool isGenerator() { return isGenerator_; }
 };
 
 class LThrow : public LCallInstructionHelper<0, BOX_PIECES, 0> {
@@ -7844,6 +7849,15 @@ class LThrowRuntimeLexicalError : public LCallInstructionHelper<0, 0, 0> {
   }
 };
 
+class LThrowMsg : public LCallInstructionHelper<0, 0, 0> {
+ public:
+  LIR_HEADER(ThrowMsg)
+
+  LThrowMsg() : LCallInstructionHelper(classOpcode) {}
+
+  MThrowMsg* mir() { return mir_->toThrowMsg(); }
+};
+
 class LGlobalDeclInstantiation : public LInstructionHelper<0, 0, 0> {
  public:
   LIR_HEADER(GlobalDeclInstantiation)
@@ -7995,6 +8009,106 @@ class LCheckThisReinit : public LInstructionHelper<0, BOX_PIECES, 0> {
       : LInstructionHelper(classOpcode) {
     setBoxOperand(ThisValue, value);
   }
+};
+
+class LGenerator
+    : public LCallInstructionHelper</* defs = */ 1, /* operands = */ 3,
+                                    /* temps = */ 0> {
+ public:
+  LIR_HEADER(Generator)
+
+  static const size_t CalleeInput = 0;
+  static const size_t EnvInput = 1;
+  static const size_t ArgsInput = 2;
+
+  LGenerator(const LAllocation& callee, const LAllocation& environmentChain,
+             const LAllocation& argsObject)
+      : LCallInstructionHelper(classOpcode) {
+    setOperand(CalleeInput, callee);
+    setOperand(EnvInput, environmentChain);
+    setOperand(ArgsInput, argsObject);
+  }
+
+  MGenerator* mir() const { return mir_->toGenerator(); }
+  const LAllocation* callee() { return getOperand(CalleeInput); }
+  const LAllocation* environmentChain() { return getOperand(EnvInput); }
+  const LAllocation* argsObject() { return getOperand(ArgsInput); }
+};
+
+class LAsyncResolve : public LCallInstructionHelper<1, 1 + BOX_PIECES, 0> {
+ public:
+  LIR_HEADER(AsyncResolve)
+
+  static const size_t GeneratorInput = 0;
+  static const size_t ValueOrReasonInput = 1;
+
+  LAsyncResolve(const LAllocation& generator,
+                const LBoxAllocation& valueOrReason)
+      : LCallInstructionHelper(classOpcode) {
+    setOperand(GeneratorInput, generator);
+    setBoxOperand(ValueOrReasonInput, valueOrReason);
+  }
+
+  MAsyncResolve* mir() const { return mir_->toAsyncResolve(); }
+  const LAllocation* generator() { return getOperand(GeneratorInput); }
+};
+
+class LAsyncAwait
+    : public LCallInstructionHelper</* defs= */ 1,
+                                    /*operands = */ BOX_PIECES + 1,
+                                    /* temps = */ 0> {
+ public:
+  LIR_HEADER(AsyncAwait)
+
+  static const size_t ValueInput = 0;
+  static const size_t GenInput = BOX_PIECES;
+
+  explicit LAsyncAwait(const LBoxAllocation& value,
+                       const LAllocation& generator)
+      : LCallInstructionHelper(classOpcode) {
+    setBoxOperand(ValueInput, value);
+    setOperand(GenInput, generator);
+  }
+
+  MAsyncAwait* mir() { return mir_->toAsyncAwait(); }
+  const LAllocation* generator() { return getOperand(GenInput); }
+};
+
+class LCanSkipAwait
+    : public LCallInstructionHelper</* defs= */ 1, /* defs= */ BOX_PIECES,
+                                    /* temps = */ 0> {
+ public:
+  LIR_HEADER(CanSkipAwait)
+
+  static const size_t ValueInput = 0;
+
+  explicit LCanSkipAwait(const LBoxAllocation& value)
+      : LCallInstructionHelper(classOpcode) {
+    setBoxOperand(ValueInput, value);
+  }
+
+  MCanSkipAwait* mir() { return mir_->toCanSkipAwait(); }
+};
+
+class LMaybeExtractAwaitValue
+    : public LCallInstructionHelper</* defs= */ BOX_PIECES,
+                                    /* defs= */ BOX_PIECES + 1,
+                                    /* temps = */ 0> {
+ public:
+  LIR_HEADER(MaybeExtractAwaitValue);
+
+  static const size_t ValueInput = 0;
+  static const size_t CanSkipInput = BOX_PIECES;
+
+  explicit LMaybeExtractAwaitValue(const LBoxAllocation& value,
+                                   const LAllocation& canSkip)
+      : LCallInstructionHelper(classOpcode) {
+    setBoxOperand(ValueInput, value);
+    setOperand(CanSkipInput, canSkip);
+  }
+
+  MMaybeExtractAwaitValue* mir() { return mir_->toMaybeExtractAwaitValue(); }
+  const LAllocation* canSkip() { return getOperand(CanSkipInput); }
 };
 
 class LDebugCheckSelfHosted : public LCallInstructionHelper<0, BOX_PIECES, 0> {

@@ -33,7 +33,6 @@ EXPORTS += [
     "ImageLayers.h",
     "ImageTypes.h",
     "IMFYCbCrImage.h",
-    "ipc/ThreadSafeRefcountingWithMainThreadDestruction.h",
     "Layers.h",
     "LayerScope.h",
     "LayerSorter.h",
