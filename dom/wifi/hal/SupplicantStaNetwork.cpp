@@ -80,9 +80,9 @@ SupplicantStaNetwork::SupplicantStaNetwork(
     const std::string& aInterfaceName,
     const android::sp<WifiEventCallback>& aCallback,
     const android::sp<ISupplicantStaNetwork>& aNetwork)
-    : mInterfaceName(aInterfaceName),
+    : mNetwork(aNetwork),
       mCallback(aCallback),
-      mNetwork(aNetwork) {}
+      mInterfaceName(aInterfaceName) {}
 
 SupplicantStaNetwork::~SupplicantStaNetwork() {}
 
@@ -225,8 +225,6 @@ Result_t SupplicantStaNetwork::SetConfiguration(
  */
 Result_t SupplicantStaNetwork::LoadConfiguration(
     NetworkConfiguration& aConfig) {
-  SupplicantStatusCode stateCode = SupplicantStatusCode::FAILURE_UNKNOWN;
-
   if (GetSsid(aConfig.mSsid) != SupplicantStatusCode::SUCCESS) {
     WIFI_LOGW(LOG_TAG, "Failed to get network ssid");
     return nsIWifiResult::ERROR_COMMAND_FAILED;
@@ -817,7 +815,7 @@ SupplicantStatusCode SupplicantStaNetwork::SetEapMethod(
     eapMethod = ISupplicantStaNetwork::EapMethod::SIM;
   } else if (aEapMethod == std::string("AKA")) {
     eapMethod = ISupplicantStaNetwork::EapMethod::AKA;
-  } else if (aEapMethod == std::string("AKA_PRIME")) {
+  } else if (aEapMethod == std::string("AKA'")) {
     eapMethod = ISupplicantStaNetwork::EapMethod::AKA_PRIME;
   } else if (aEapMethod == std::string("WFA_UNAUTH_TLS")) {
     eapMethod = ISupplicantStaNetwork::EapMethod::WFA_UNAUTH_TLS;
@@ -852,7 +850,7 @@ SupplicantStatusCode SupplicantStaNetwork::SetEapPhase2Method(
     eapPhase2 = ISupplicantStaNetwork::EapPhase2Method::SIM;
   } else if (aPhase2 == std::string("AKA")) {
     eapPhase2 = ISupplicantStaNetwork::EapPhase2Method::AKA;
-  } else if (aPhase2 == std::string("AKA_PRIME")) {
+  } else if (aPhase2 == std::string("AKA'")) {
     eapPhase2 = ISupplicantStaNetwork::EapPhase2Method::AKA_PRIME;
   } else {
     return SupplicantStatusCode::FAILURE_ARGS_INVALID;
@@ -1255,8 +1253,6 @@ SupplicantStatusCode SupplicantStaNetwork::GetIdStr(std::string& aIdStr) const {
 
 SupplicantStatusCode SupplicantStaNetwork::GetEapConfiguration(
     NetworkConfiguration& aConfig) const {
-  SupplicantStatusCode stateCode = SupplicantStatusCode::FAILURE_UNKNOWN;
-
   if (GetEapMethod(aConfig.mEap) != SupplicantStatusCode::SUCCESS) {
     WIFI_LOGW(LOG_TAG, "Failed to get network EAP method");
   }

@@ -48,9 +48,7 @@ StatusCode checkPermission(uid_t uid);
 namespace wifi {
 namespace keystore {
 
-struct KeystoreService final : public IKeystore,
-                               public nsIObserver,
-                               public nsISupports {
+struct KeystoreService final : public IKeystore, public nsIObserver {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIOBSERVER

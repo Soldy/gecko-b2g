@@ -376,7 +376,8 @@ static void split(char* str, const char* sep, nsTArray<nsCString>& result) {
   }
 }
 
-static void split(char* str, const char* sep, nsTArray<nsString>& result) {
+[[maybe_unused]] static void split(char* str, const char* sep,
+                                   nsTArray<nsString>& result) {
   char* s = strtok(str, sep);
   while (s != nullptr) {
     result.AppendElement(NS_ConvertUTF8toUTF16(s));
@@ -412,8 +413,9 @@ static void join(nsTArray<nsCString>& array, const char* sep,
 #undef CHECK_LEN
 }
 
-static void convertUTF8toUTF16(nsTArray<nsCString>& narrow,
-                               nsTArray<nsString>& wide, uint32_t length) {
+[[maybe_unused]] static void convertUTF8toUTF16(nsTArray<nsCString>& narrow,
+                                                nsTArray<nsString>& wide,
+                                                uint32_t length) {
   for (uint32_t i = 0; i < length; i++) {
     wide.AppendElement(NS_ConvertUTF8toUTF16(narrow[i].get()));
   }
@@ -2036,7 +2038,7 @@ CommandResult NetworkUtils::getInterfaces(NetworkParams& aOptions) {
   if (status.isOk()) {
     result.mInterfaceList.Construct();
     for (uint32_t i = 0; i < interfaceGetList.size(); i++) {
-      result.mInterfaceList.Value().AppendElement(
+      auto item = result.mInterfaceList.Value().AppendElement(
           NS_ConvertUTF8toUTF16(interfaceGetList[i].c_str()),
           mozilla::fallible_t());
     }

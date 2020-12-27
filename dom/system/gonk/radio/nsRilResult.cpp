@@ -2212,6 +2212,8 @@ RefPtr<nsRilCellInfo> nsRilResult::convertRilCellInfo(
     RefPtr<nsRilCellInfo> cellInfo = new nsRilCellInfo(
         cellInfoType, registered, timeStampType, timeStamp, cellInfoCdma);
     return cellInfo;
+  } else {
+    return nullptr;
   }
 }
 

@@ -1689,7 +1689,7 @@ RadioInterface.prototype = {
       this.debug("handleStkProactiveCommand berTlv: " + JSON.stringify(berTlv));
     } catch (e) {
       if (DEBUG) {
-        this.debug("handleStkProactiveCommand : " + e);
+        this.debug("handleStkProactiveCommand  error: " + e);
       }
       this.sendStkTerminalResponse({
         resultCode: RIL.STK_RESULT_CMD_DATA_NOT_UNDERSTOOD,
@@ -1745,204 +1745,6 @@ RadioInterface.prototype = {
         //this.sendChromeMessage(cmdDetails);
       }
     );
-  },
-
-  /**
-   * Send STK terminal response.
-   *
-   * @param command
-   * @param deviceIdentities
-   * @param resultCode
-   * @param [optional] additionalInformation
-   * @param [optional] itemIdentifier
-   * @param [optional] input
-   * @param [optional] isYesNo
-   * @param [optional] hasConfirmed
-   * @param [optional] localInfo
-   * @param [optional] timer
-   */
-  sendStkTerminalResponse(response) {
-    /*if (response.hasConfirmed !== undefined) {
-      this.stkHandleCallSetup(response);
-      return;
-    }
-
-    if (response.command.typeOfCommand === STK_CMD_OPEN_CHANNEL) {
-      response.hasConfirmed = response.isYesNo;
-      this.stkHandleCallSetup(response);
-      return;
-    }
-
-    let Buf = this.context.Buf;
-    let ComprehensionTlvHelper = this.context.ComprehensionTlvHelper;
-    let GsmPDUHelper = this.context.GsmPDUHelper;
-
-    let command = response.command;
-    Buf.newParcel(REQUEST_STK_SEND_TERMINAL_RESPONSE);
-
-    // 1st mark for Parcel size
-    Buf.startCalOutgoingSize(function(size) {
-      // Parcel size is in string length, which costs 2 uint8 per char.
-      Buf.writeInt32(size / 2);
-    });
-
-    // Command Details
-    GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_COMMAND_DETAILS |
-                               COMPREHENSIONTLV_FLAG_CR);
-    GsmPDUHelper.writeHexOctet(3);
-    if (command) {
-      GsmPDUHelper.writeHexOctet(command.commandNumber);
-      GsmPDUHelper.writeHexOctet(command.typeOfCommand);
-      GsmPDUHelper.writeHexOctet(command.commandQualifier);
-    } else {
-      GsmPDUHelper.writeHexOctet(0x00);
-      GsmPDUHelper.writeHexOctet(0x00);
-      GsmPDUHelper.writeHexOctet(0x00);
-    }
-
-    // Device Identifier
-    // According to TS102.223/TS31.111 section 6.8 Structure of
-    // TERMINAL RESPONSE, "For all SIMPLE-TLV objects with Min=N,
-    // the ME should set the CR(comprehension required) flag to
-    // comprehension not required.(CR=0)"
-    // Since DEVICE_IDENTITIES and DURATION TLVs have Min=N,
-    // the CR flag is not set.
-    GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_DEVICE_ID);
-    GsmPDUHelper.writeHexOctet(2);
-    GsmPDUHelper.writeHexOctet(STK_DEVICE_ID_ME);
-    GsmPDUHelper.writeHexOctet(STK_DEVICE_ID_SIM);
-
-    // Result
-    GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_RESULT |
-                               COMPREHENSIONTLV_FLAG_CR);
-    if ("additionalInformation" in response) {
-      // In |12.12 Result| TS 11.14, the length of additional information is
-      // varied and all possible values are addressed in 12.12.1-11 of TS 11.14
-      // and 8.12.1-13 in TS 31.111.
-      // However,
-      // 1. Only SEND SS requires info with more than 1 octet.
-      // 2. In rild design, SEND SS is expected to be handled by modem and
-      //    UNSOLICITED_STK_EVENT_NOTIFY will be sent to application layer to
-      //    indicate appropriate messages to users. TR is not required in this
-      //    case.
-      // Hence, we simplify the structure of |additionalInformation| to a
-      // numeric value instead of a octet array.
-      GsmPDUHelper.writeHexOctet(2);
-      GsmPDUHelper.writeHexOctet(response.resultCode);
-      GsmPDUHelper.writeHexOctet(response.additionalInformation);
-    } else {
-      GsmPDUHelper.writeHexOctet(1);
-      GsmPDUHelper.writeHexOctet(response.resultCode);
-    }
-
-    // Item Identifier
-    if (response.itemIdentifier != null) {
-      GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_ITEM_ID |
-                                 COMPREHENSIONTLV_FLAG_CR);
-      GsmPDUHelper.writeHexOctet(1);
-      GsmPDUHelper.writeHexOctet(response.itemIdentifier);
-    }
-
-    // No need to process Text data if user requests help information.
-    if (response.resultCode != STK_RESULT_HELP_INFO_REQUIRED && command && command.options) {
-      let text;
-      let coding = command.options.isUCS2 ?
-                       STK_TEXT_CODING_UCS2 :
-                       (command.options.isPacked ?
-                          STK_TEXT_CODING_GSM_7BIT_PACKED :
-                          STK_TEXT_CODING_GSM_8BIT);
-      if (response.isYesNo !== undefined) {
-        // Tag: GET_INKEY
-        // When the ME issues a successful TERMINAL RESPONSE for a GET INKEY
-        // ("Yes/No") command with command qualifier set to "Yes/No", it shall
-        // supply the value '01' when the answer is "positive" and the value
-        // '00' when the answer is "negative" in the Text string data object.
-        GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_TEXT_STRING |
-                                   COMPREHENSIONTLV_FLAG_CR);
-        // Length: 2
-        GsmPDUHelper.writeHexOctet(2);
-        // Value: Coding, Yes/No.
-        GsmPDUHelper.writeHexOctet(coding);
-        GsmPDUHelper.writeHexOctet(response.isYesNo ? 0x01 : 0x00);
-      } else {
-        if (response.input !== undefined) {
-            ComprehensionTlvHelper.writeTextStringTlv(response.input, coding);
-        }
-      }
-    }
-
-    // Duration
-    if (response.resultCode === STK_RESULT_NO_RESPONSE_FROM_USER) {
-      // In TS102 223, 6.4.2 GET INKEY, "if the UICC requests a variable timeout,
-      // the terminal shall wait until either the user enters a single character
-      // or the timeout expires. The timer starts when the text is displayed on
-      // the screen and stops when the TERMINAL RESPONSE is sent. The terminal
-      // shall pass the total display text duration (command execution duration)
-      // to the UICC using the TERMINAL RESPONSE. The time unit of the response
-      // is identical to the time unit of the requested variable timeout."
-      let duration = command && command.options && command.options.duration;
-      if (duration) {
-        GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_DURATION);
-        GsmPDUHelper.writeHexOctet(2);
-        GsmPDUHelper.writeHexOctet(duration.timeUnit);
-        GsmPDUHelper.writeHexOctet(duration.timeInterval);
-      }
-    }
-
-    // Local Information
-    if (response.localInfo) {
-      let localInfo = response.localInfo;
-
-      // Location Infomation
-      if (localInfo.locationInfo) {
-        ComprehensionTlvHelper.writeLocationInfoTlv(localInfo.locationInfo);
-      }
-
-      // IMEI
-      if (localInfo.imei != null) {
-        let imei = localInfo.imei;
-        if (imei.length == 15) {
-          imei = imei + "0";
-        }
-
-        GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_IMEI);
-        GsmPDUHelper.writeHexOctet(8);
-        for (let i = 0; i < imei.length / 2; i++) {
-          GsmPDUHelper.writeHexOctet(parseInt(imei.substr(i * 2, 2), 16));
-        }
-      }
-
-      // Date and Time Zone
-      if (localInfo.date != null) {
-        ComprehensionTlvHelper.writeDateTimeZoneTlv(localInfo.date);
-      }
-
-      // Language
-      if (localInfo.language) {
-        ComprehensionTlvHelper.writeLanguageTlv(localInfo.language);
-      }
-    }
-
-    // Timer
-    if (response.timer) {
-      let timer = response.timer;
-
-      if (timer.timerId) {
-        GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER);
-        GsmPDUHelper.writeHexOctet(1);
-        GsmPDUHelper.writeHexOctet(timer.timerId);
-      }
-
-      if (timer.timerValue) {
-        ComprehensionTlvHelper.writeTimerValueTlv(timer.timerValue, false);
-      }
-    }
-
-    // Calculate and write Parcel size to 1st mark
-    Buf.stopCalOutgoingSize();
-
-    Buf.writeInt32(0);
-    Buf.sendParcel();*/
   },
 
   handleNetworkStateChanged() {
@@ -3542,7 +3344,7 @@ RadioInterface.prototype = {
             this.debug(
               "RILJ: [" +
                 response.rilMessageToken +
-                "] < RIL_REQUEST_ACKNOWLEDGE_GSM_SMS"
+                "] < RIL_REQUEST_SMS_ACKNOWLEDGE"
             );
           }
           result = response;
@@ -4278,6 +4080,44 @@ RadioInterface.prototype = {
             "RILJ: [" +
               response.rilMessageToken +
               "] < RIL_REQUEST_GET_RADIO_CAPABILITY error = " +
+              response.errorMsg
+          );
+        }
+        break;
+      case "stkHandleCallSetup":
+        if (response.errorMsg == 0) {
+          if (DEBUG) {
+            this.debug(
+              "RILJ: [" +
+                response.rilMessageToken +
+                "] < RIL_REQUEST_STK_HANDLE_CALL_SETUP_REQUESTED_FROM_SIM"
+            );
+          }
+          result = response;
+        } else if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              response.rilMessageToken +
+              "] < RIL_REQUEST_STK_HANDLE_CALL_SETUP_REQUESTED_FROM_SIM error = " +
+              response.errorMsg
+          );
+        }
+        break;
+      case "sendStkTerminalResponse":
+        if (response.errorMsg == 0) {
+          if (DEBUG) {
+            this.debug(
+              "RILJ: [" +
+                response.rilMessageToken +
+                "] < RIL_REQUEST_STK_SEND_TERMINAL_RESPONSE"
+            );
+          }
+          result = response;
+        } else if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              response.rilMessageToken +
+              "] < RIL_REQUEST_STK_SEND_TERMINAL_RESPONSE error = " +
               response.errorMsg
           );
         }
@@ -6286,11 +6126,11 @@ RadioInterface.prototype = {
           this.debug(
             "RILJ: [" +
               message.rilMessageToken +
-              "] > RIL_REQUEST_ACKNOWLEDGE_GSM_SMS result = " +
+              "] > RIL_REQUEST_SMS_ACKNOWLEDGE result = " +
               message.result
           );
         }
-        this.rilworker.acknowledgeGsmSms(
+        this.rilworker.acknowledgeLastIncomingGsmSms(
           message.rilMessageToken,
           message.result == RIL.PDU_FCS_OK,
           message.result
@@ -6761,6 +6601,23 @@ RadioInterface.prototype = {
           message.rilMessageToken,
           message.enable
         );
+        break;
+      case "stkHandleCallSetup":
+        if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              message.rilMessageToken +
+              "] > RIL_REQUEST_STK_HANDLE_CALL_SETUP_REQUESTED_FROM_SIM accept = " +
+              message.hasConfirmed
+          );
+        }
+        this.rilworker.handleStkCallSetupRequestFromSim(
+          message.rilMessageToken,
+          message.hasConfirmed
+        );
+        break;
+      case "sendStkTerminalResponse":
+        this.processSendStkTerminalResponse(message);
         break;
       case "setCellBroadcastDisabled":
         // This is not a ril request.
@@ -7405,6 +7262,209 @@ RadioInterface.prototype = {
     let sca;
     sca = '"' + number + '",' + tosca;
     this.rilworker.setSmscAddress(message.rilMessageToken, sca);
+  },
+
+  /**
+   * Send STK terminal response.
+   *
+   * @param command
+   * @param deviceIdentities
+   * @param resultCode
+   * @param [optional] additionalInformation
+   * @param [optional] itemIdentifier
+   * @param [optional] input
+   * @param [optional] isYesNo
+   * @param [optional] hasConfirmed
+   * @param [optional] localInfo
+   * @param [optional] timer
+   */
+  processSendStkTerminalResponse(message) {
+    if (message.hasConfirmed !== undefined) {
+      this.sendRilRequest("stkHandleCallSetup", message);
+      return;
+    }
+
+    if (message.command.typeOfCommand === RIL.STK_CMD_OPEN_CHANNEL) {
+      message.hasConfirmed = message.isYesNo;
+      this.sendRilRequest("stkHandleCallSetup", message);
+      return;
+    }
+
+    let ComprehensionTlvHelper = this.simIOcontext.ComprehensionTlvHelper;
+    let GsmPDUHelper = this.simIOcontext.GsmPDUHelper;
+    GsmPDUHelper.initWith();
+
+    let command = message.command;
+    // Command Details
+    GsmPDUHelper.writeHexOctet(
+      RIL.COMPREHENSIONTLV_TAG_COMMAND_DETAILS | RIL.COMPREHENSIONTLV_FLAG_CR
+    );
+    GsmPDUHelper.writeHexOctet(3);
+    if (command) {
+      GsmPDUHelper.writeHexOctet(command.commandNumber);
+      GsmPDUHelper.writeHexOctet(command.typeOfCommand);
+      GsmPDUHelper.writeHexOctet(command.commandQualifier);
+    } else {
+      GsmPDUHelper.writeHexOctet(0x00);
+      GsmPDUHelper.writeHexOctet(0x00);
+      GsmPDUHelper.writeHexOctet(0x00);
+    }
+
+    // Device Identifier
+    // According to TS102.223/TS31.111 section 6.8 Structure of
+    // TERMINAL RESPONSE, "For all SIMPLE-TLV objects with Min=N,
+    // the ME should set the CR(comprehension required) flag to
+    // comprehension not required.(CR=0)"
+    // Since DEVICE_IDENTITIES and DURATION TLVs have Min=N,
+    // the CR flag is not set.
+    GsmPDUHelper.writeHexOctet(RIL.COMPREHENSIONTLV_TAG_DEVICE_ID);
+    GsmPDUHelper.writeHexOctet(2);
+    GsmPDUHelper.writeHexOctet(RIL.STK_DEVICE_ID_ME);
+    GsmPDUHelper.writeHexOctet(RIL.STK_DEVICE_ID_SIM);
+
+    // Result
+    GsmPDUHelper.writeHexOctet(
+      RIL.COMPREHENSIONTLV_TAG_RESULT | RIL.COMPREHENSIONTLV_FLAG_CR
+    );
+    if ("additionalInformation" in message) {
+      // In |12.12 Result| TS 11.14, the length of additional information is
+      // varied and all possible values are addressed in 12.12.1-11 of TS 11.14
+      // and 8.12.1-13 in TS 31.111.
+      // However,
+      // 1. Only SEND SS requires info with more than 1 octet.
+      // 2. In rild design, SEND SS is expected to be handled by modem and
+      //    UNSOLICITED_STK_EVENT_NOTIFY will be sent to application layer to
+      //    indicate appropriate messages to users. TR is not required in this
+      //    case.
+      // Hence, we simplify the structure of |additionalInformation| to a
+      // numeric value instead of a octet array.
+      GsmPDUHelper.writeHexOctet(2);
+      GsmPDUHelper.writeHexOctet(message.resultCode);
+      GsmPDUHelper.writeHexOctet(message.additionalInformation);
+    } else {
+      GsmPDUHelper.writeHexOctet(1);
+      GsmPDUHelper.writeHexOctet(message.resultCode);
+    }
+
+    // Item Identifier
+    if (message.itemIdentifier != null) {
+      GsmPDUHelper.writeHexOctet(
+        RIL.COMPREHENSIONTLV_TAG_ITEM_ID | RIL.COMPREHENSIONTLV_FLAG_CR
+      );
+      GsmPDUHelper.writeHexOctet(1);
+      GsmPDUHelper.writeHexOctet(message.itemIdentifier);
+    }
+
+    // No need to process Text data if user requests help information.
+    if (
+      message.resultCode != RIL.STK_RESULT_HELP_INFO_REQUIRED &&
+      command &&
+      command.options
+    ) {
+      let coding = command.options.isUCS2
+        ? RIL.STK_TEXT_CODING_UCS2
+        : command.options.isPacked;
+
+      coding = coding
+        ? RIL.STK_TEXT_CODING_GSM_7BIT_PACKED
+        : RIL.STK_TEXT_CODING_GSM_8BIT;
+      if (message.isYesNo !== undefined) {
+        // Tag: GET_INKEY
+        // When the ME issues a successful TERMINAL RESPONSE for a GET INKEY
+        // ("Yes/No") command with command qualifier set to "Yes/No", it shall
+        // supply the value '01' when the answer is "positive" and the value
+        // '00' when the answer is "negative" in the Text string data object.
+        GsmPDUHelper.writeHexOctet(
+          RIL.COMPREHENSIONTLV_TAG_TEXT_STRING | RIL.COMPREHENSIONTLV_FLAG_CR
+        );
+        // Length: 2
+        GsmPDUHelper.writeHexOctet(2);
+        // Value: Coding, Yes/No.
+        GsmPDUHelper.writeHexOctet(coding);
+        GsmPDUHelper.writeHexOctet(message.isYesNo ? 0x01 : 0x00);
+      } else if (message.input !== undefined) {
+        ComprehensionTlvHelper.writeTextStringTlv(message.input, coding);
+      }
+    }
+
+    // Duration
+    if (message.resultCode === RIL.STK_RESULT_NO_RESPONSE_FROM_USER) {
+      // In TS102 223, 6.4.2 GET INKEY, "if the UICC requests a variable timeout,
+      // the terminal shall wait until either the user enters a single character
+      // or the timeout expires. The timer starts when the text is displayed on
+      // the screen and stops when the TERMINAL RESPONSE is sent. The terminal
+      // shall pass the total display text duration (command execution duration)
+      // to the UICC using the TERMINAL RESPONSE. The time unit of the response
+      // is identical to the time unit of the requested variable timeout."
+      let duration = command && command.options && command.options.duration;
+      if (duration) {
+        GsmPDUHelper.writeHexOctet(RIL.COMPREHENSIONTLV_TAG_DURATION);
+        GsmPDUHelper.writeHexOctet(2);
+        GsmPDUHelper.writeHexOctet(duration.timeUnit);
+        GsmPDUHelper.writeHexOctet(duration.timeInterval);
+      }
+    }
+
+    // Local Information
+    if (message.localInfo) {
+      let localInfo = message.localInfo;
+
+      // Location Infomation
+      if (localInfo.locationInfo) {
+        ComprehensionTlvHelper.writeLocationInfoTlv(localInfo.locationInfo);
+      }
+
+      // IMEI
+      if (localInfo.imei != null) {
+        let imei = localInfo.imei;
+        if (imei.length == 15) {
+          imei = imei + "0";
+        }
+
+        GsmPDUHelper.writeHexOctet(RIL.COMPREHENSIONTLV_TAG_IMEI);
+        GsmPDUHelper.writeHexOctet(8);
+        for (let i = 0; i < imei.length / 2; i++) {
+          GsmPDUHelper.writeHexOctet(parseInt(imei.substr(i * 2, 2), 16));
+        }
+      }
+
+      // Date and Time Zone
+      if (localInfo.date != null) {
+        ComprehensionTlvHelper.writeDateTimeZoneTlv(localInfo.date);
+      }
+
+      // Language
+      if (localInfo.language) {
+        ComprehensionTlvHelper.writeLanguageTlv(localInfo.language);
+      }
+    }
+
+    // Timer
+    if (message.timer) {
+      let timer = message.timer;
+
+      if (timer.timerId) {
+        GsmPDUHelper.writeHexOctet(RIL.COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER);
+        GsmPDUHelper.writeHexOctet(1);
+        GsmPDUHelper.writeHexOctet(timer.timerId);
+      }
+
+      if (timer.timerValue) {
+        ComprehensionTlvHelper.writeTimerValueTlv(timer.timerValue, false);
+      }
+    }
+
+    //Send command.
+    let contents = GsmPDUHelper.pdu;
+    if (DEBUG) {
+      this.debug(
+        "RILJ: [" +
+          message.rilMessageToken +
+          "] > RIL_REQUEST_STK_SEND_TERMINAL_RESPONSE contents = " +
+          contents
+      );
+    }
+    this.rilworker.sendTerminalResponseToSim(message.rilMessageToken, contents);
   },
 
   sendWorkerMessage(rilMessageType, message, callback) {

@@ -14,12 +14,16 @@
 #include "cert.h"
 #include "certdb.h"
 #include "CryptoTask.h"
-#include "nsIWifiService.h"
 #include "nsNetUtil.h"
 #include "nsIInputStream.h"
+#include "nsIWifiService.h"
+#include "nsIX509Cert.h"
+#include "nsIX509CertDB.h"
+#include "nsNSSCertificate.h"
 #include "nsServiceManagerUtils.h"
 #include "nsXULAppAPI.h"
 #include "ScopedNSSTypes.h"
+#include "secerr.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -61,6 +65,11 @@ class ImportCertTask final : public CryptoTask {
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
+    if (NicknameExists()) {
+      mResult->mDuplicated = true;
+      return NS_ERROR_FAILURE;
+    }
+
     // Try import as DER format first.
     rv = ImportDERBlob(buf, size);
     if (NS_SUCCEEDED(rv)) {
@@ -72,7 +81,7 @@ class ImportCertTask final : public CryptoTask {
     return ImportPKCS12Blob(buf, size, mPassword);
   }
 
-  virtual void CallCallback(nsresult rv) {
+  virtual void CallCallback(nsresult rv) override {
     if (NS_FAILED(rv)) {
       mResult->mStatus = nsIWifiResult::ERROR_UNKNOWN;
     }
@@ -80,11 +89,86 @@ class ImportCertTask final : public CryptoTask {
     gWifiCertService->DispatchResult(mResult);
   }
 
+  bool NicknameExists() {
+    nsCString certNickname, serverCertName, userCertName;
+    CopyUTF16toUTF8(mResult->mNickname, certNickname);
+    UniqueCERTCertificate cert;
+
+    serverCertName.AssignLiteral("WIFI_SERVERCERT_");
+    serverCertName += certNickname;
+    cert = (UniqueCERTCertificate)CERT_FindCertByNickname(
+        CERT_GetDefaultCertDB(), serverCertName.get());
+    if (!cert) {
+      userCertName.AssignLiteral("WIFI_USERCERT_");
+      userCertName += certNickname;
+      cert = (UniqueCERTCertificate)CERT_FindCertByNickname(
+          CERT_GetDefaultCertDB(), userCertName.get());
+    }
+
+    return cert != nullptr;
+  }
+
+  nsresult CertificateExists(CERTCertificate* aCert, bool* exist) {
+    *exist = false;
+
+    RefPtr<nsNSSCertificate> nsscert = nsNSSCertificate::Create(aCert);
+    if (!nsscert) {
+      return NS_ERROR_FAILURE;
+    }
+
+    nsAutoCString dbKey;
+    // Get dbKey to identify the certificate.
+    nsresult rv = nsscert->GetDbKey(dbKey);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+
+    if (dbKey.IsEmpty()) {
+      return NS_ERROR_FAILURE;
+    }
+
+    nsCOMPtr<nsIX509CertDB> certdb(do_GetService(NS_X509CERTDB_CONTRACTID));
+    if (NS_WARN_IF(!certdb)) {
+      return NS_ERROR_FAILURE;
+    }
+
+    nsTArray<RefPtr<nsIX509Cert>> certificateList;
+    rv = certdb->GetCerts(certificateList);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+
+    // Here traverse all of the certificate in database to see whether the DB
+    // key already exists.
+    for (auto& c : certificateList) {
+      nsAutoCString importedDbKey;
+      c->GetDbKey(importedDbKey);
+      if (importedDbKey.Equals(dbKey)) {
+        *exist = true;
+        break;
+      }
+    }
+
+    return NS_OK;
+  }
+
   nsresult ImportDERBlob(char* buf, uint32_t size) {
     // Create certificate object.
     UniqueCERTCertificate cert(CERT_DecodeCertFromPackage(buf, size));
     if (!cert) {
       return MapSECStatus(SECFailure);
+    }
+
+    bool exist;
+    nsresult rv = CertificateExists(cert.get(), &exist);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+
+    if (exist) {
+      // Certificate already exists in DB.
+      mResult->mDuplicated = true;
+      return NS_ERROR_FAILURE;
     }
 
     // Import certificate.
@@ -210,6 +294,11 @@ class ImportCertTask final : public CryptoTask {
     // Import cert and key.
     srv = SEC_PKCS12DecoderImportBags(p12dcx.get());
     if (srv != SECSuccess) {
+      PRErrorCode errCode = PR_GetError();
+      if (errCode == SEC_ERROR_PKCS12_CERT_COLLISION ||
+          errCode == SEC_ERROR_PKCS12_DUPLICATE_DATA) {
+        mResult->mDuplicated = true;
+      }
       return MapSECStatus(srv);
     }
 
@@ -372,7 +461,7 @@ class DeleteCertTask final : public CryptoTask {
     return NS_OK;
   }
 
-  virtual void CallCallback(nsresult rv) {
+  virtual void CallCallback(nsresult rv) override {
     if (NS_FAILED(rv)) {
       mResult->mStatus = nsIWifiResult::ERROR_UNKNOWN;
     }

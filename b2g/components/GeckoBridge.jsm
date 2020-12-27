@@ -43,6 +43,7 @@ const kWatchedPrefs = [
   "device.volte",
   "device.vowifi",
   "device.wifi",
+  "device.wifi.certified",
   "oem.software.version",
   "ril.support.primarysim.switch",
 ];

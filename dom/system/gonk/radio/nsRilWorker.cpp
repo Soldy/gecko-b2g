@@ -1138,9 +1138,10 @@ NS_IMETHODIMP nsRilWorker::SendSMS(int32_t serial, const nsAString& smsc,
   return NS_OK;
 }
 
-NS_IMETHODIMP nsRilWorker::AcknowledgeGsmSms(int32_t serial, bool success,
-                                             int32_t cause) {
-  DEBUG("nsRilWorker: [%d] > RIL_REQUEST_ACKNOWLEDGE_GSM_SMS ", serial);
+NS_IMETHODIMP nsRilWorker::AcknowledgeLastIncomingGsmSms(int32_t serial,
+                                                         bool success,
+                                                         int32_t cause) {
+  DEBUG("nsRilWorker: [%d] > RIL_REQUEST_SMS_ACKNOWLEDGE ", serial);
   GetRadioProxy();
   if (mRadioProxy == nullptr) {
     ERROR("No Radio HAL exist");
@@ -1162,6 +1163,38 @@ NS_IMETHODIMP nsRilWorker::SetSuppServiceNotifications(int32_t serial,
     ERROR("No Radio HAL exist");
   }
   mRadioProxy->setSuppServiceNotifications(serial, enable);
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsRilWorker::HandleStkCallSetupRequestFromSim(int32_t serial,
+                                                            bool accept) {
+  DEBUG(
+      "nsRilWorker: [%d] > "
+      "RIL_REQUEST_STK_HANDLE_CALL_SETUP_REQUESTED_FROM_SIM on = %d",
+      serial, accept);
+
+  GetRadioProxy();
+  if (mRadioProxy == nullptr) {
+    ERROR("No Radio HAL exist");
+  }
+  mRadioProxy->handleStkCallSetupRequestFromSim(serial, accept);
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsRilWorker::SendTerminalResponseToSim(
+    int32_t serial, const nsAString& contents) {
+  DEBUG(
+      "nsRilWorker: [%d] > RIL_REQUEST_STK_SEND_TERMINAL_RESPONSE contents = "
+      "%s",
+      serial, NS_ConvertUTF16toUTF8(contents).get());
+  GetRadioProxy();
+  if (mRadioProxy == nullptr) {
+    ERROR("No Radio HAL exist");
+  }
+  mRadioProxy->sendTerminalResponseToSim(serial,
+                                         NS_ConvertUTF16toUTF8(contents).get());
+
   return NS_OK;
 }
 

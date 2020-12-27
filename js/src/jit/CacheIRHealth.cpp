@@ -9,6 +9,7 @@
 
 #  include "mozilla/Maybe.h"
 
+#  include "gc/Zone.h"
 #  include "jit/JitScript.h"
 
 using namespace js;
@@ -136,7 +137,69 @@ CacheIRHealth::Happiness CacheIRHealth::spewJSOpAndCacheIRHealth(
   return entryHappiness;
 }
 
-void CacheIRHealth::rateMyCacheIR(JSContext* cx, HandleScript script) {
+void CacheIRHealth::spewScriptFinalWarmUpCount(JSContext* cx,
+                                               const char* filename,
+                                               JSScript* script,
+                                               uint32_t warmUpCount) {
+  AutoStructuredSpewer spew(cx, SpewChannel::RateMyCacheIR, nullptr);
+  if (!spew) {
+    return;
+  }
+
+  spew->property("filename", filename);
+  spew->property("line", script->lineno());
+  spew->property("column", script->column());
+  spew->property("finalWarmUpCount", warmUpCount);
+}
+
+static void addScriptToFinalWarmUpCountMap(JSContext* cx, HandleScript script) {
+  // Create Zone::scriptFilenameMap if necessary.
+  JS::Zone* zone = script->zone();
+  if (!zone->scriptFinalWarmUpCountMap) {
+    auto map = MakeUnique<ScriptFinalWarmUpCountMap>();
+    if (!map) {
+      ReportOutOfMemory(cx);
+      return;
+    }
+
+    zone->scriptFinalWarmUpCountMap = std::move(map);
+  }
+
+  auto* filename = js_pod_malloc<char>(strlen(script->filename()) + 1);
+  if (!filename) {
+    ReportOutOfMemory(cx);
+    return;
+  }
+  strcpy(filename, script->filename());
+
+  if (!zone->scriptFinalWarmUpCountMap->put(
+          script, mozilla::MakeTuple(uint32_t(0), filename))) {
+    ReportOutOfMemory(cx);
+    return;
+  }
+
+  script->setNeedsFinalWarmUpCount();
+}
+
+void CacheIRHealth::rateIC(JSContext* cx, ICEntry* entry, HandleScript script,
+                           SpewContext context) {
+  AutoStructuredSpewer spew(cx, SpewChannel::RateMyCacheIR, script);
+  if (!spew) {
+    return;
+  }
+
+  addScriptToFinalWarmUpCountMap(cx, script);
+  spew->property("spewContext", uint8_t(context));
+
+  jsbytecode* op = entry->pc(script);
+  JSOp jsOp = JSOp(*op);
+  spew->property("op", CodeName(jsOp));
+
+  spewHealthForStubsInCacheIREntry(spew, entry);
+}
+
+void CacheIRHealth::rateScript(JSContext* cx, HandleScript script,
+                               SpewContext context) {
   jit::JitScript* jitScript = script->maybeJitScript();
   if (!jitScript) {
     return;
@@ -146,6 +209,9 @@ void CacheIRHealth::rateMyCacheIR(JSContext* cx, HandleScript script) {
   if (!spew) {
     return;
   }
+
+  addScriptToFinalWarmUpCountMap(cx, script);
+  spew->property("spewContext", uint8_t(context));
 
   jsbytecode* next = script->code();
   jsbytecode* end = script->codeEnd();

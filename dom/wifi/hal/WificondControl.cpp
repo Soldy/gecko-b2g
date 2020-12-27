@@ -353,8 +353,10 @@ Result_t WificondControl::StartSingleScan(ScanSettingsOptions* aScanSettings) {
   if (!aScanSettings->mHiddenNetworks.IsEmpty()) {
     for (auto& net : aScanSettings->mHiddenNetworks) {
       Wificond::HiddenNetwork hidden;
-      std::string ssid_str = NS_ConvertUTF16toUTF8(net).get();
-      std::vector<uint8_t> ssid(ssid_str.begin(), ssid_str.end());
+
+      std::string ssidStr = NS_ConvertUTF16toUTF8(net).get();
+      Dequote(ssidStr);
+      std::vector<uint8_t> ssid(ssidStr.begin(), ssidStr.end());
       hidden.ssid_ = ssid;
       hiddenNetworks.push_back(hidden);
     }
@@ -393,9 +395,9 @@ Result_t WificondControl::StartPnoScan(
       Wificond::PnoNetwork network;
       network.is_hidden_ = pno.mIsHidden;
 
-      std::string ssid_str = NS_ConvertUTF16toUTF8(pno.mSsid).get();
-      Dequote(ssid_str);
-      std::vector<uint8_t> ssid(ssid_str.begin(), ssid_str.end());
+      std::string ssidStr = NS_ConvertUTF16toUTF8(pno.mSsid).get();
+      Dequote(ssidStr);
+      std::vector<uint8_t> ssid(ssidStr.begin(), ssidStr.end());
       network.ssid_ = ssid;
 
       for (int32_t freq : pno.mFrequencies) {
@@ -459,17 +461,23 @@ Result_t WificondControl::GetChannelsForBand(uint32_t aBandMask,
   std::unique_ptr<std::vector<int32_t>> channels;
   if (aBandMask & nsIScanSettings::BAND_2_4_GHZ) {
     mWificond->getAvailable2gChannels(&channels);
-    aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    if (channels != nullptr) {
+      aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    }
   }
 
   if (aBandMask & nsIScanSettings::BAND_5_GHZ) {
     mWificond->getAvailable5gNonDFSChannels(&channels);
-    aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    if (channels != nullptr) {
+      aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    }
   }
 
   if (aBandMask & nsIScanSettings::BAND_5_GHZ_DFS) {
-    mWificond->getAvailable5gNonDFSChannels(&channels);
-    aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    mWificond->getAvailableDFSChannels(&channels);
+    if (channels != nullptr) {
+      aChannels.insert(aChannels.end(), (*channels).begin(), (*channels).end());
+    }
   }
   return nsIWifiResult::SUCCESS;
 }

@@ -1114,7 +1114,8 @@ pub enum CodecType {
     LPCM, // QT
     ALAC,
     H263,
-    AMR,
+    AMRNB,
+    AMRWB,
 }
 
 impl Default for CodecType {
@@ -3595,8 +3596,7 @@ fn read_video_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
                 codec_specific = Some(VideoCodecSpecific::AVCConfig(avcc));
             }
             BoxType::H263SpecificBox => {
-                if (name != BoxType::H263SampleEntry) || codec_specific.is_some()
-                {
+                if (name != BoxType::H263SampleEntry) || codec_specific.is_some() {
                     return Err(Error::InvalidData("malformed video sample entry"));
                 }
                 let h263_dec_spec_struc_size = b
@@ -3811,8 +3811,12 @@ fn read_audio_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
                     .checked_sub(b.head.offset)
                     .expect("offset invalid");
                 let amr_dec_spec_struc = read_buf(&mut b.content, amr_dec_spec_struc_size)?;
-                debug!("{:?} (h263DecSpecStruc)", amr_dec_spec_struc);
-                codec_type = CodecType::AMR;
+                debug!("{:?} (AMRDecSpecStruc)", amr_dec_spec_struc);
+                if name == BoxType::AMRNBSampleEntry {
+                    codec_type = CodecType::AMRNB;
+                } else {
+                    codec_type = CodecType::AMRWB;
+                }
                 codec_specific = Some(AudioCodecSpecific::AMRSpecificBox(amr_dec_spec_struc));
             }
             _ => {

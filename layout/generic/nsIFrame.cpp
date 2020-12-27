@@ -5110,10 +5110,6 @@ NS_IMETHODIMP nsIFrame::HandleRelease(nsPresContext* aPresContext,
 
   nsCOMPtr<nsIContent> captureContent = PresShell::GetCapturingContent();
 
-  // We can unconditionally stop capturing because
-  // we should never be capturing when the mouse button is up
-  PresShell::ReleaseCapturingContent();
-
   bool selectionOff =
       (DetermineDisplaySelection() == nsISelectionController::SELECTION_OFF);
 
@@ -7626,6 +7622,53 @@ void nsIFrame::UnionChildOverflow(OverflowAreas& aOverflowAreas) {
       !(IsXULCollapsed() && (IsXULBoxFrame() || ::IsXULBoxWrapped(this)))) {
     nsLayoutUtils::UnionChildOverflow(this, aOverflowAreas);
   }
+}
+
+// Return true if this form control element's preferred size property (but not
+// percentage max size property) contains a percentage value that should be
+// resolved against zero when calculating its min-content contribution in the
+// corresponding axis.
+//
+// For proper replaced elements, the percentage value in both their max size
+// property or preferred size property should be resolved against zero. This is
+// handled in IsPercentageResolvedAgainstZero().
+inline static bool FormControlShrinksForPercentSize(const nsIFrame* aFrame) {
+  if (!aFrame->IsFrameOfType(nsIFrame::eReplaced)) {
+    // Quick test to reject most frames.
+    return false;
+  }
+
+  LayoutFrameType fType = aFrame->Type();
+  if (fType == LayoutFrameType::Meter || fType == LayoutFrameType::Progress ||
+      fType == LayoutFrameType::Range) {
+    // progress, meter and range do have this shrinking behavior
+    // FIXME: Maybe these should be nsIFormControlFrame?
+    return true;
+  }
+
+  if (!static_cast<nsIFormControlFrame*>(do_QueryFrame(aFrame))) {
+    // Not a form control.  This includes fieldsets, which do not
+    // shrink.
+    return false;
+  }
+
+  if (fType == LayoutFrameType::GfxButtonControl ||
+      fType == LayoutFrameType::HTMLButtonControl) {
+    // Buttons don't have this shrinking behavior.  (Note that color
+    // inputs do, even though they inherit from button, so we can't use
+    // do_QueryFrame here.)
+    return false;
+  }
+
+  return true;
+}
+
+bool nsIFrame::IsPercentageResolvedAgainstZero(
+    const StyleSize& aStyleSize, const StyleMaxSize& aStyleMaxSize) const {
+  const bool sizeHasPercent = aStyleSize.HasPercent();
+  return ((sizeHasPercent || aStyleMaxSize.HasPercent()) &&
+          IsFrameOfType(nsIFrame::eReplacedSizing)) ||
+         (sizeHasPercent && FormControlShrinksForPercentSize(this));
 }
 
 bool nsIFrame::IsBlockWrapper() const {

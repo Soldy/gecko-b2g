@@ -9967,7 +9967,7 @@ already_AddRefed<nsISerialEventTarget> nsContentUtils::GetEventTargetByLoadInfo(
 }
 
 /* static */
-bool nsContentUtils::IsLocalRefURL(const nsString& aString) {
+bool nsContentUtils::IsLocalRefURL(const nsAString& aString) {
   return !aString.IsEmpty() && aString[0] == '#';
 }
 

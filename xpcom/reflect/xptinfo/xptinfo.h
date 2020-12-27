@@ -513,7 +513,7 @@ static_assert(sizeof(nsXPTMethodInfo) == 8, "wrong size");
 #if defined(MOZ_THUNDERBIRD) || defined(MOZ_SUITE)
 #  define PARAM_BUFFER_COUNT 18
 #elif defined(MOZ_B2G_RIL)
-#  define PARAM_BUFFER_COUNT 23 // Needed for nsIGonkSmsService::notifyMessageReceived
+#  define PARAM_BUFFER_COUNT 17 // Needed for nsIMmsMessage::createMmsMessage
 #else
 #  define PARAM_BUFFER_COUNT 16  // Extended for nsINotificationStorage::put
 #endif

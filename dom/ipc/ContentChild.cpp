@@ -86,7 +86,7 @@
 #include "mozilla/dom/WorkerDebugger.h"
 #include "mozilla/dom/WorkerDebuggerManager.h"
 #ifdef MOZ_B2G_BT
-#include "mozilla/dom/bluetooth/PBluetoothChild.h"
+#  include "mozilla/dom/bluetooth/PBluetoothChild.h"
 #endif
 #include "mozilla/dom/ipc/SharedMap.h"
 #include "mozilla/extensions/StreamFilterParent.h"
@@ -2129,6 +2129,7 @@ PSubsidyLockChild* ContentChild::AllocPSubsidyLockChild(
 bool ContentChild::DeallocPSubsidyLockChild(PSubsidyLockChild* aActor) {
   // SubsidyLockChild is refcounted, must not be freed manually.
   static_cast<SubsidyLockChild*>(aActor)->Release();
+  return true;
 }
 
 PVoicemailChild* ContentChild::AllocPVoicemailChild() {

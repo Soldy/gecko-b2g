@@ -23,6 +23,7 @@
 #include "nsFocusManager.h"
 #include "nsLayoutUtils.h"
 #include "VirtualCursorService.h"
+#include "mozilla/dom/EditableUtils.h"
 
 using namespace mozilla::dom;
 
@@ -187,15 +188,8 @@ bool CursorSimulator::IsFocusedOnEditableElement() {
   if (!focusedElement) {
     return false;
   }
-  if (RefPtr<HTMLInputElement> input =
-          HTMLInputElement::FromNodeOrNull(focusedElement)) {
-    return true;
-  }
-  if (RefPtr<HTMLTextAreaElement> textarea =
-          HTMLTextAreaElement::FromNodeOrNull(focusedElement)) {
-    return true;
-  }
-  return false;
+  return EditableUtils::isContentEditable(focusedElement) &&
+         EditableUtils::isFocusableElement(focusedElement);
 }
 
 nsresult CursorSimulator::HandleEvent(Event* aEvent) {
@@ -499,7 +493,7 @@ bool CursorSimulator::IsCursorOnIMEEnabledElement() {
     for (uint32_t i = 0; i < frames.Length(); i++) {
       nsIFrame* frame = frames[i];
       nsIContent* content = frame->GetContent();
-      if (content && content->GetDesiredIMEState().MaybeEditable()) {
+      if (content && content->GetDesiredIMEState().IsEditable()) {
         return true;
       }
     }

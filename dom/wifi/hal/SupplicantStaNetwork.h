@@ -43,7 +43,7 @@ BEGIN_WIFI_NAMESPACE
  */
 class NetworkConfiguration {
  public:
-  NetworkConfiguration() = default;
+  NetworkConfiguration() : mNetworkId(INVALID_NETWORK_ID), mSimIndex(0) {}
 
   NetworkConfiguration(const NetworkConfiguration& aConfig) {
     mNetworkId = aConfig.mNetworkId;

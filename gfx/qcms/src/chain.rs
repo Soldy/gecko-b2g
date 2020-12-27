@@ -181,7 +181,6 @@ fn transform_module_XYZ_to_LAB(
         dest[0] = L / 100.0;
         dest[1] = (a + 128.0) / 255.0;
         dest[2] = (b + 128.0) / 255.0;
-
     }
 }
 fn transform_module_clut_only(
@@ -192,16 +191,13 @@ fn transform_module_clut_only(
     let mut xy_len: i32 = 1;
     let mut x_len: i32 = (*transform).grid_size as i32;
     let mut len: i32 = x_len * x_len;
-    unsafe {
 
-    let mut r_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(0isize);
-    let mut g_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(1isize);
-    let mut b_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(2isize);
+    let mut r_table = &(*transform).clut.as_ref().unwrap()[0..];
+    let mut g_table = &(*transform).clut.as_ref().unwrap()[1..];
+    let mut b_table = &(*transform).clut.as_ref().unwrap()[2..];
 
     let mut i: usize = 0;
-    let CLU = |table: *const f32, x, y, z| {
-        *table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize)
-    };
+    let CLU = |table: &[f32], x, y, z| table[((x * len + y * x_len + z * xy_len) * 3) as usize];
 
     for (dest, src) in dest.chunks_exact_mut(3).zip(src.chunks_exact(3)) {
         debug_assert!((*transform).grid_size as i32 >= 1);
@@ -246,7 +242,6 @@ fn transform_module_clut_only(
         dest[1] = clamp_float(clut_g);
         dest[2] = clamp_float(clut_b);
     }
-    }
 }
 fn transform_module_clut(
     mut transform: &qcms_modular_transform,
@@ -256,13 +251,11 @@ fn transform_module_clut(
     let mut xy_len: i32 = 1;
     let mut x_len: i32 = (*transform).grid_size as i32;
     let mut len: i32 = x_len * x_len;
-    unsafe {
-    let mut r_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(0isize);
-    let mut g_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(1isize);
-    let mut b_table: *const f32 = (*transform).clut.as_ref().unwrap().as_ptr().offset(2isize);
-    let CLU = |table: *const f32, x, y, z| {
-        *table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize)
-    };
+
+    let mut r_table = &(*transform).clut.as_ref().unwrap()[0..];
+    let mut g_table = &(*transform).clut.as_ref().unwrap()[1..];
+    let mut b_table = &(*transform).clut.as_ref().unwrap()[2..];
+    let CLU = |table: &[f32], x, y, z| table[((x * len + y * x_len + z * xy_len) * 3) as usize];
 
     let mut i: usize = 0;
     let input_clut_table_r = (*transform).input_clut_table_r.as_ref().unwrap();
@@ -318,7 +311,6 @@ fn transform_module_clut(
         dest[0] = clamp_float(pcs_r);
         dest[1] = clamp_float(pcs_g);
         dest[2] = clamp_float(pcs_b);
-    }
     }
 }
 /* NOT USED
@@ -561,7 +553,6 @@ fn transform_module_matrix(
     mat.m[2][2] = (*transform).matrix.m[2][2];
     let mut i: usize = 0;
     for (dest, src) in dest.chunks_exact_mut(3).zip(src.chunks_exact(3)) {
-
         let mut in_r: f32 = src[0];
         let mut in_g: f32 = src[1];
         let mut in_b: f32 = src[2];
@@ -735,54 +726,44 @@ fn modular_transform_create_lut(mut lut: &lutType) -> Option<Box<qcms_modular_tr
             // Prepare input curves
             transform = modular_transform_alloc();
             if !transform.is_none() {
-                if true {
-                    transform.as_mut().unwrap().input_clut_table_r = Some(
-                        (*lut).input_table[0..(*lut).num_input_table_entries as usize].to_vec(),
-                    );
-                    transform.as_mut().unwrap().input_clut_table_g = Some(
-                        (*lut).input_table[(*lut).num_input_table_entries as usize
-                            ..(*lut).num_input_table_entries as usize * 2]
-                            .to_vec(),
-                    );
-                    transform.as_mut().unwrap().input_clut_table_b = Some(
-                        (*lut).input_table[(*lut).num_input_table_entries as usize * 2
-                            ..(*lut).num_input_table_entries as usize * 3]
-                            .to_vec(),
-                    );
-                    transform.as_mut().unwrap().input_clut_table_length =
-                        (*lut).num_input_table_entries;
-                    // Prepare table
-                    clut_length = ((*lut).num_clut_grid_points as usize).pow(3) * 3;
-                    if true {
-                        assert_eq!(clut_length, lut.clut_table.len());
-                        transform.as_mut().unwrap().clut = Some((*lut).clut_table.clone());
+                transform.as_mut().unwrap().input_clut_table_r =
+                    Some((*lut).input_table[0..(*lut).num_input_table_entries as usize].to_vec());
+                transform.as_mut().unwrap().input_clut_table_g = Some(
+                    (*lut).input_table[(*lut).num_input_table_entries as usize
+                        ..(*lut).num_input_table_entries as usize * 2]
+                        .to_vec(),
+                );
+                transform.as_mut().unwrap().input_clut_table_b = Some(
+                    (*lut).input_table[(*lut).num_input_table_entries as usize * 2
+                        ..(*lut).num_input_table_entries as usize * 3]
+                        .to_vec(),
+                );
+                transform.as_mut().unwrap().input_clut_table_length =
+                    (*lut).num_input_table_entries;
+                // Prepare table
+                clut_length = ((*lut).num_clut_grid_points as usize).pow(3) * 3;
+                assert_eq!(clut_length, lut.clut_table.len());
+                transform.as_mut().unwrap().clut = Some((*lut).clut_table.clone());
 
-                        transform.as_mut().unwrap().grid_size = (*lut).num_clut_grid_points as u16;
-                        // Prepare output curves
-                        if true {
-                            transform.as_mut().unwrap().output_clut_table_r = Some(
-                                (*lut).output_table[0..(*lut).num_output_table_entries as usize]
-                                    .to_vec(),
-                            );
-                            transform.as_mut().unwrap().output_clut_table_g = Some(
-                                (*lut).output_table[(*lut).num_output_table_entries as usize
-                                    ..(*lut).num_output_table_entries as usize * 2]
-                                    .to_vec(),
-                            );
-                            transform.as_mut().unwrap().output_clut_table_b = Some(
-                                (*lut).output_table[(*lut).num_output_table_entries as usize * 2
-                                    ..(*lut).num_output_table_entries as usize * 3]
-                                    .to_vec(),
-                            );
-                            transform.as_mut().unwrap().output_clut_table_length =
-                                (*lut).num_output_table_entries;
-                            transform.as_mut().unwrap().transform_module_fn =
-                                Some(transform_module_clut);
-                            append_transform(transform, next_transform);
-                            return first_transform;
-                        }
-                    }
-                }
+                transform.as_mut().unwrap().grid_size = (*lut).num_clut_grid_points as u16;
+                // Prepare output curves
+                transform.as_mut().unwrap().output_clut_table_r =
+                    Some((*lut).output_table[0..(*lut).num_output_table_entries as usize].to_vec());
+                transform.as_mut().unwrap().output_clut_table_g = Some(
+                    (*lut).output_table[(*lut).num_output_table_entries as usize
+                        ..(*lut).num_output_table_entries as usize * 2]
+                        .to_vec(),
+                );
+                transform.as_mut().unwrap().output_clut_table_b = Some(
+                    (*lut).output_table[(*lut).num_output_table_entries as usize * 2
+                        ..(*lut).num_output_table_entries as usize * 3]
+                        .to_vec(),
+                );
+                transform.as_mut().unwrap().output_clut_table_length =
+                    (*lut).num_output_table_entries;
+                transform.as_mut().unwrap().transform_module_fn = Some(transform_module_clut);
+                append_transform(transform, next_transform);
+                return first_transform;
             }
         }
     }
@@ -1045,7 +1026,7 @@ fn modular_transform_create(
     //return qcms_modular_transform_reduce(first_transform);
     return first_transform;
 }
-unsafe fn modular_transform_data(
+fn modular_transform_data(
     mut transform: Option<&qcms_modular_transform>,
     mut src: Vec<f32>,
     mut dest: Vec<f32>,
@@ -1058,9 +1039,7 @@ unsafe fn modular_transform_data(
             .unwrap()
             .transform_module_fn
             .expect("non-null function pointer")(
-            transform.as_ref().unwrap(),
-            &src,
-            &mut dest,
+            transform.as_ref().unwrap(), &src, &mut dest
         );
         std::mem::swap(&mut src, &mut dest);
         transform = transform.unwrap().next_transform.as_deref();
@@ -1069,7 +1048,7 @@ unsafe fn modular_transform_data(
     return Some(src);
 }
 
-pub unsafe fn chain_transform(
+pub fn chain_transform(
     mut in_0: &qcms_profile,
     mut out: &qcms_profile,
     mut src: Vec<f32>,

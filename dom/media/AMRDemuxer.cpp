@@ -301,7 +301,7 @@ RefPtr<AMRTrackDemuxer::SamplesPromise> AMRTrackDemuxer::GetSamples(
     }
 
     n = Read(frameWriter->Data(), mOffset, frameSize);
-    if (n != frameSize) {
+    if (n != ssize_t(frameSize)) {
       AMRLOG("GetSamples() Exit read=%u frame->Size()=%zu", n, frame->Size());
       if (n < 0) {
         err = NS_ERROR_DOM_MEDIA_FATAL_ERR;

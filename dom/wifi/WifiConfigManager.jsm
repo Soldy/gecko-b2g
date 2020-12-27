@@ -88,6 +88,7 @@ this.WifiConfigManager = (function() {
   configManager.clearDisableReasonCounter = clearDisableReasonCounter;
   configManager.setEverConnected = setEverConnected;
   configManager.getNetworkConfiguration = getNetworkConfiguration;
+  configManager.getNetworkId = getNetworkId;
   configManager.fetchNetworkConfiguration = fetchNetworkConfiguration;
   configManager.getHiddenNetworks = getHiddenNetworks;
   configManager.addOrUpdateNetwork = addOrUpdateNetwork;
@@ -323,6 +324,17 @@ this.WifiConfigManager = (function() {
     }
   }
 
+  function getNetworkId(config) {
+    if (config == null) {
+      return WifiConstants.INVALID_NETWORK_ID;
+    }
+
+    let networkKey = WifiConfigUtils.getNetworkKey(config);
+    return networkKey in configuredNetworks
+      ? configuredNetworks[networkKey].netId
+      : WifiConstants.INVALID_NETWORK_ID;
+  }
+
   function getNetworkConfiguration(netId) {
     if (netId === WifiConstants.INVALID_NETWORK_ID) {
       return null;
@@ -356,9 +368,9 @@ this.WifiConfigManager = (function() {
 
   function getHiddenNetworks() {
     let networks = [];
-    for (let net in configuredNetworks) {
-      if (net.scanSsid) {
-        networks.push(configuredNetworks[net].ssid);
+    for (let i in configuredNetworks) {
+      if (configuredNetworks[i].scanSsid) {
+        networks.push(configuredNetworks[i].ssid);
       }
     }
     return networks;

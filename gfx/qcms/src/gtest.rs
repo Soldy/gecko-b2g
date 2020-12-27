@@ -153,13 +153,6 @@ mod test {
 
     #[test]
     fn basic() {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        unsafe {
-            use crate::transform::qcms_enable_avx;
-            if is_x86_feature_detected!("avx") {
-                qcms_enable_avx()
-            }
-        };
         let sRGB_profile = crate::c_bindings::qcms_profile_sRGB();
 
         let mut Rec709Primaries = qcms_CIE_xyYTRIPLE {
@@ -251,9 +244,7 @@ mod test {
         use std::io::Read;
 
         let mut d = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        unsafe {
-            qcms_enable_iccv4();
-        }
+        qcms_enable_iccv4();
         d.push("fuzz");
         d.push("samples");
         let samples = [
@@ -283,9 +274,7 @@ mod test {
         use std::io::Read;
 
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        unsafe {
-            qcms_enable_iccv4();
-        }
+        qcms_enable_iccv4();
         p.push("profiles");
         // this profile was made by taking the lookup table profile from
         // http://displaycal.net/icc-color-management-test/ and removing
@@ -538,32 +527,7 @@ mod test {
         }
 
         fn SetUp(&mut self) {
-            unsafe {
-                qcms_enable_iccv4();
-            }
-
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            unsafe {
-                if is_x86_feature_detected!("avx") {
-                    qcms_enable_avx()
-                }
-            };
-
-            #[cfg(target_arch = "arm")]
-            unsafe {
-                use crate::transform::qcms_enable_neon;
-                if is_arm_feature_detected!("neon") {
-                    qcms_enable_neon()
-                }
-            };
-
-            #[cfg(target_arch = "aarch64")]
-            unsafe {
-                use crate::transform::qcms_enable_neon;
-                if is_aarch64_feature_detected!("neon") {
-                    qcms_enable_neon()
-                }
-            };
+            qcms_enable_iccv4();
         }
 
         unsafe fn TearDown(&mut self) {
@@ -703,7 +667,9 @@ mod test {
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
-                assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgb_out_lut_sse2)));
+                if is_x86_feature_detected!("sse2") {
+                    assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgb_out_lut_sse2)));
+                }
                 if is_x86_feature_detected!("avx") {
                     assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgb_out_lut_avx)))
                 }
@@ -730,7 +696,9 @@ mod test {
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
-                assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgba_out_lut_sse2)));
+                if is_x86_feature_detected!("sse2") {
+                    assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgba_out_lut_sse2)));
+                }
                 if is_x86_feature_detected!("avx") {
                     assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_rgba_out_lut_avx)))
                 }
@@ -757,7 +725,9 @@ mod test {
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
-                assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_bgra_out_lut_sse2)));
+                if is_x86_feature_detected!("sse2") {
+                    assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_bgra_out_lut_sse2)));
+                }
                 if is_x86_feature_detected!("avx") {
                     assert!(self.ProduceVerifyOutput(Some(qcms_transform_data_bgra_out_lut_avx)))
                 }
@@ -852,9 +822,7 @@ mod test {
 
     #[test]
     fn v4_output() {
-        unsafe {
-            qcms_enable_iccv4();
-        }
+        qcms_enable_iccv4();
         let input = qcms_profile_sRGB();
         // B2A0-ident.icc was created from the profile in bug 1679621
         // manually edited using iccToXML/iccFromXML

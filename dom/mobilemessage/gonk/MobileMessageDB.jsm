@@ -47,12 +47,12 @@ XPCOMUtils.defineLazyModuleGetter(
   "PhoneNumberUtils"
 );
 
-//FIXME
-//ChromeUtils.defineModuleGetter(
-//  this,
-//  "ContactDB",
-//  "resource://gre/modules/ContactDB.jsm"
-//);
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gContactsManager",
+  "@mozilla.org/sidl-native/contacts;1",
+  "nsIContactsManager"
+);
 
 const RIL_GETMESSAGESCURSOR_CID = Components.ID(
   "{484d1ad8-840e-4782-9dc4-9ebc4d914937}"
@@ -506,7 +506,6 @@ this.MobileMessageDB = function() {};
 MobileMessageDB.prototype = {
   dbName: null,
   dbVersion: null,
-  contactDB: null,
 
   /**
    * Cache the DB instance.
@@ -721,10 +720,6 @@ MobileMessageDB.prototype = {
   init(aDbName, aDbVersion, aCallback) {
     this.dbName = aDbName;
     this.dbVersion = aDbVersion || DB_VERSION;
-
-    //FIXME
-    //this.contactDB = new ContactDB();
-    //this.contactDB.init();
 
     let self = this;
     this.newTxn(READ_ONLY, function(error, txn, messageStore) {
@@ -2458,8 +2453,8 @@ MobileMessageDB.prototype = {
     if (aMessage.type == "mms" && aMessage.headers.cc) {
       aMessage.isGroup = true;
     }
-    /* FIXEME
-    function findBlockContactsSuccess(result) {
+
+    function findBlockContactsSuccess(aResult) {
       // For block contact, there are two situations:
       // 1. Sender is blocked, should callback fail ack to SMSC/MMSC and
       //    not save database.
@@ -2467,7 +2462,10 @@ MobileMessageDB.prototype = {
       if (DEBUG) {
         debug("Find block contact successfully");
       }
-      if (!isJSONEmpty(result)) {
+      if (!isJSONEmpty(aResult)) {
+        if (DEBUG) {
+          debug("Message blocked by block contact!");
+        }
         if (aCallback) {
           let domMessage =
             aMessage && self.createDomMessageFromRecord(aMessage);
@@ -2478,7 +2476,7 @@ MobileMessageDB.prototype = {
       }
     }
 
-    function findBlockContactsFail(error) {
+    function findBlockContactsFail() {
       // Still should receive the message, the find contact interface fail
       // should not effect save message flow.
       if (DEBUG) {
@@ -2494,7 +2492,8 @@ MobileMessageDB.prototype = {
 
       return true;
     }
-
+    //FIXME: parentalControl need tobe implemented
+    /*
     function findResultSuccess(results) {
       if (isJSONEmpty(results)) {
         if (DEBUG) {
@@ -2531,8 +2530,22 @@ MobileMessageDB.prototype = {
     ));
     */
 
-    //FIXME
-    self.saveRecord(aMessage, threadParticipants, aCallback);
+    gContactsManager.findBlockedNumbers(
+      {
+        filterValue: aMessage.sender,
+        filterOption: Ci.nsIFilterOption.FuzzyMatch,
+      },
+      {
+        resolve: result => {
+          findBlockContactsSuccess(result);
+        },
+        reject: () => {
+          findBlockContactsFail();
+        },
+      }
+    );
+
+    //FIXME: parentalControl need tobe implemented
     /*
     if (parentalControlEnabled) {
       if (DEBUG) debug("Parent control feature work well");

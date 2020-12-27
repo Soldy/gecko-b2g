@@ -26,22 +26,21 @@ class PermissionsManagerParent extends JSWindowActorParent {
 
     switch (aMessage.name) {
       case "PermissionsManager:AddPermission":
-        let success = this._internalAddPermission(msg);
-
-        // TODO: check if we can get back this mm permission check.
-        // let mm = aMessage.target;
-        // if (mm.assertPermission("permissions")) {
-        //   success = this._internalAddPermission(msg);
-        //   if (!success) {
-        //     // Just kill the calling process
-        //     mm.assertPermission("permissions-modify-implicit");
-        //     errorMsg =
-        //       " had an implicit permission change. Child process killed.";
-        //   }
-        // }
-        if (!success) {
-          let errorMsg =
-            "PermissionsManagerParent message ${msg.type} from a content process with no 'permissions' privileges.";
+        let callerPrincipal = Services.scriptSecurityManager.createContentPrincipalFromOrigin(
+          msg.callerOrigin
+        );
+        if (
+          !Services.perms.testExactPermissionFromPrincipal(
+            callerPrincipal,
+            "permissions"
+          )
+        ) {
+          let errorMsg = `Add ${msg.origin}'s ${msg.type}=${msg.value} from ${msg.callerOrigin} w/o 'permissions' privileges`;
+          Cu.reportError(errorMsg);
+          return Promise.reject(String(errorMsg));
+        }
+        if (!this._internalAddPermission(msg)) {
+          let errorMsg = `Change an implicit permission ${msg.origin}'s ${msg.type}=${msg.value}`;
           Cu.reportError(errorMsg);
           return Promise.reject(String(errorMsg));
         }
@@ -80,10 +79,11 @@ class PermissionsManagerParent extends JSWindowActorParent {
     let realPerm = permissionsReverseTable[aPermName];
 
     if (realPerm) {
-      return (
+      let isExplicit =
         PermissionsTable[realPerm][appType] ==
-        Ci.nsIPermissionManager.PROMPT_ACTION
-      );
+        Ci.nsIPermissionManager.PROMPT_ACTION;
+      debug(`isExplicit: ${aOrigin} ${aPermName} isExplicit=${isExplicit}`);
+      return isExplicit;
     }
     return false;
   }
@@ -107,7 +107,9 @@ class PermissionsManagerParent extends JSWindowActorParent {
       aPermName
     );
     let isExplicit = this.isExplicitInPermissionsTable(aOrigin, aPermName);
-
+    debug(
+      `_isChangeAllowed: access to ${aPrincipal.origin} ${aPermName} isExplicit=${isExplicit} got ${perm}`
+    );
     return (
       aAction === "unknown" ||
       (aAction !== "unknown" &&

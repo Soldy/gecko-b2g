@@ -68,6 +68,8 @@ const NON_DIALABLE_CHARS_ONCE = new RegExp(NON_DIALABLE_CHARS.source);
 const UNICODE_DIGITS = /[\uFF10-\uFF19\u0660-\u0669\u06F0-\u06F9]/g;
 const VALID_ALPHA_PATTERN = /[a-zA-Z]/g;
 const LEADING_PLUS_CHARS_PATTERN = /^[+\uFF0B]+/g;
+const kPropPersistDeviceCountryCode = "persist.device.countrycode";
+const kPropDefaultCountryCode = "ro.default.countrycode";
 
 // Map letters to numbers according to the ITU E.161 standard
 var E161 = {
@@ -176,32 +178,52 @@ this.PhoneNumberUtils = {
   //  4. If we don't have, use oem default country code setting
 
   // countrycode for oem setting
-  _defaultCountryCode: libcutils.property_get("ro.default.countrycode", ""),
+  _defaultCountryCode: libcutils.property_get(kPropDefaultCountryCode, ""),
 
-  defaultCountryCode() {
-    return this._defaultCountryCode;
+  defaultCountryCode(aClientId) {
+    let countryCodeStrings = this._defaultCountryCode;
+    let countryCodes = countryCodeStrings.split(",");
+    return countryCodes[aClientId];
   },
 
-  _persistCountryCode: libcutils.property_get("persist.device.countrycode", ""),
+  _persistCountryCode: libcutils.property_get(
+    kPropPersistDeviceCountryCode,
+    ""
+  ),
 
-  persistCountryCode() {
-    return this._persistCountryCode;
+  persistCountryCode(aClientId) {
+    let countryCodeStrings = this._persistCountryCode;
+    let countryCodes = countryCodeStrings.split(",");
+    if (DEBUG) {
+      debug(
+        "persistCountryCode[" + aClientId + "]: " + countryCodes[aClientId]
+      );
+    }
+
+    return countryCodes[aClientId] || null;
   },
 
-  getCountryName() {
+  _storePersistCountryCode(aCountryName) {
+    libcutils.property_set(kPropPersistDeviceCountryCode, aCountryName);
+  },
+
+  storePersistCountryCode(aClientId, aCountryName) {
+    let countryCodeStrings = this._persistCountryCode;
+    let countryCodes = countryCodeStrings.split(",");
+    countryCodes[aClientId] = aCountryName;
+    if (DEBUG) {
+      debug("storePersistCountryCode: " + countryCodes.join());
+    }
+
+    this._storePersistCountryCode(countryCodes.join());
+  },
+
+  getCountryName(aClientId) {
     let mcc;
     let countryName;
 
-    // TODO: Bug 926740 - PhoneNumberUtils for multisim
-    // In Multi-sim, there is more than one client in
-    // iccService/mobileConnectionService. Each client represents a
-    // icc/mobileConnection service. To maintain the backward compatibility with
-    // single sim, we always use client 0 for now. Adding support for multiple
-    // sim will be addressed in bug 926740, if needed.
-    let clientId = 0;
-
     // Get network mcc
-    let connection = gMobileConnectionService.getItemByServiceId(clientId);
+    let connection = gMobileConnectionService.getItemByServiceId(aClientId);
     let voice = connection && connection.voice;
     if (voice && voice.network && voice.network.mcc) {
       mcc = voice.network.mcc;
@@ -211,7 +233,7 @@ this.PhoneNumberUtils = {
     }
 
     // Get SIM mcc
-    let icc = gIccService.getIccByServiceId(clientId);
+    let icc = gIccService.getIccByServiceId(aClientId);
     let iccInfo = icc && icc.iccInfo;
     if (!mcc && iccInfo && iccInfo.mcc) {
       mcc = iccInfo.mcc;
@@ -230,18 +252,18 @@ this.PhoneNumberUtils = {
       } catch (e) {}
     }
 
-    countryName =
-      MCC_ISO3166_TABLE[mcc] ||
-      this.persistCountryCode() ||
-      this.defaultCountryCode();
-
-    if (countryName !== this.persistCountryCode()) {
-      libcutils.property_set("persist.device.countrycode", countryName);
-    }
+    countryName = MCC_ISO3166_TABLE[mcc] || this.defaultCountryCode();
 
     if (DEBUG) {
       debug("MCC: " + mcc + " countryName: " + countryName);
     }
     return countryName;
+  },
+
+  updateCountryNameProperty(aClient) {
+    let countryName = this.getCountryName(aClient);
+    if (countryName !== this.persistCountryCode(aClient)) {
+      this.storePersistCountryCode(aClient, countryName);
+    }
   },
 };

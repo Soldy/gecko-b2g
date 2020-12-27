@@ -206,9 +206,9 @@ int16_t WhereTo(const ClientOpenWindowArgsParsed& aArgsValidated) {
       return nsIBrowserDOMWindow::OPEN_ACTIVITYWINDOW;
     case ClientDisposition::Attention:
       return nsIBrowserDOMWindow::OPEN_ATTENTIONWINDOW;
+    default:
+      return nsIBrowserDOMWindow::OPEN_DEFAULTWINDOW;
   }
-
-  return nsIBrowserDOMWindow::OPEN_DEFAULTWINDOW;
 }
 
 void OpenWindow(const ClientOpenWindowArgsParsed& aArgsValidated,

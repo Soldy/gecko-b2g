@@ -17,7 +17,7 @@ interface nsIRilCallback : nsISupports
   void handleRilIndication(in nsIRilIndicationResult response);
 };
 
-[scriptable, uuid(7a76ecb0-2565-48cf-ab88-cb9b8a280283)]
+[scriptable, uuid(4ffd8555-b03f-4822-9363-e02e36828c9e)]
 interface nsIRilWorker : nsISupports
 {
   void sendRilRequest(in jsval message);
@@ -108,8 +108,10 @@ interface nsIRilWorker : nsISupports
   void requestIccSimAuthentication(in long serial, in long authContext, in AString data, in AString aid);
   void getRadioCapability(in long serial);
   void sendSMS(in long serial, in AString smsc, in AString pdu);
-  void acknowledgeGsmSms(in long serial, in boolean success, in long cause);
+  void acknowledgeLastIncomingGsmSms(in long serial, in boolean success, in long cause);
   void setSuppServiceNotifications(in long serial, in boolean enable);
+  void handleStkCallSetupRequestFromSim(in long serial, in boolean accept);
+  void sendTerminalResponseToSim(in long serial, in AString contents);
 };
 
 /**

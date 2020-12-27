@@ -57,12 +57,16 @@ const HTTP_CODE_CREATED = 201;
 const HTTP_CODE_REQUEST_TIMEOUT = 408;
 const XHR_REQUEST_TIMEOUT = 60000;
 
-const DEBUG = false;
-function debug(aMsg) {
-  if (DEBUG) {
-    dump("-*- DeviceUtils.jsm: " + aMsg);
-  }
-}
+XPCOMUtils.defineLazyGetter(this, "console", () => {
+  let { ConsoleAPI } = ChromeUtils.import(
+    "resource://gre/modules/Console.jsm",
+    {}
+  );
+  return new ConsoleAPI({
+    maxLogLevelPref: "toolkit.deviceUtils.loglevel",
+    prefix: "DeviceUtils",
+  });
+});
 
 const device_type_map = {
   default: 1000,
@@ -88,7 +92,7 @@ this.DeviceUtils = {
           ? Services.prefs.getCharPref("device.commercial.ref")
           : undefined;
     } catch (e) {
-      debug("get Commercial Unit Reference error=" + e);
+      console.error("get Commercial Unit Reference error=" + e);
     }
     return cuRefStr;
   },
@@ -363,7 +367,7 @@ this.DeviceUtils = {
       typeof apiKeyName !== "string" ||
       !apiKeyName.length
     ) {
-      debug("Invalid Input");
+      console.error("Invalid Input");
       return Promise.reject(REQUEST_REJECT);
     }
 
@@ -394,7 +398,7 @@ this.DeviceUtils = {
           authorizationKey == "no-kaios-api-key"
         ) {
           deferred.reject(REQUEST_REJECT);
-          debug("without API Key");
+          console.error("without API Key");
           return;
         }
 
@@ -414,7 +418,7 @@ this.DeviceUtils = {
             // When status is 0 we don't have a valid channel
             deferred.reject(REQUEST_REJECT);
           }
-          debug(
+          console.error(
             "An error occurred during the transaction, status: " + xhr.status
           );
         };
@@ -422,11 +426,11 @@ this.DeviceUtils = {
         xhr.timeout = XHR_REQUEST_TIMEOUT;
         xhr.ontimeout = function() {
           deferred.reject(HTTP_CODE_REQUEST_TIMEOUT);
-          debug("Fetch access token request timeout");
+          console.error("Fetch access token request timeout");
         };
 
         xhr.onload = function() {
-          debug("Get access token returned status: " + xhr.status);
+          console.debug("Get access token returned status: " + xhr.status);
           // only accept status code 200 and 201.
           let isStatusInvalid =
             xhr.channel instanceof Ci.nsIHttpChannel &&
@@ -434,19 +438,18 @@ this.DeviceUtils = {
             xhr.status != HTTP_CODE_CREATED;
           if (isStatusInvalid || !xhr.response || !xhr.response.access_token) {
             deferred.reject(xhr.status);
-            debug("Response: " + JSON.stringify(xhr.response));
+            console.debug("Response: " + JSON.stringify(xhr.response));
           } else {
             deferred.resolve(xhr.response);
           }
         };
 
         var requestData = JSON.stringify(device_info);
-        debug("Refresh access token by sending: " + requestData);
         xhr.send(requestData);
       },
       _ => {
         deferred.reject(REQUEST_REJECT);
-        debug("An error occurred during getting device info");
+        console.error("An error occurred during getting device info");
       }
     );
 

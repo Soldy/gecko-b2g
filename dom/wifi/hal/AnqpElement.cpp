@@ -90,7 +90,7 @@ const static std::map<int32_t, nsString> AUTH_TYPE_MAP = {
  */
 void AnqpParser::printBuffer(uint32_t key, const VecByte& data) {
   if (gVerboseDump) {
-    int32_t i = 0;
+    size_t i = 0;
     while (i < data.size()) {
       WIFI_LOGE(LOG_TAG, "[%d]: %02x %02x %02x %02x %02x", key, data[i],
                 data[i + 1], data[i + 2], data[i + 3], data[i + 4]);
@@ -135,7 +135,7 @@ void AnqpParser::ParseRoamingConsortium(const VecByte& aPayload,
   //       1        variable
   nsTArray<int64_t> OIs;
   while (pos < aPayload.cend()) {
-    int32_t length = ByteToInteger(pos, 1, LITTLE_ENDIAN) & 0xFF;
+    size_t length = ByteToInteger(pos, 1, LITTLE_ENDIAN) & 0xFF;
 
     if (length < sizeof(int8_t) || length > sizeof(int32_t)) {
       WIFI_LOGE(LOG_TAG, "Invalid OI length: %d", length);
@@ -210,7 +210,7 @@ void AnqpParser::ParseNaiRealm(const VecByte& aPayload,
     }
 
     // encoding field
-    bool utf8 =
+    [[maybe_unused]] bool utf8 =
         (ByteToInteger(pos, 1, LITTLE_ENDIAN) & NAI_ENCODING_UTF8_MASK) != 0;
     // parse realm string
     int32_t realmLen = ByteToInteger(pos, 1, LITTLE_ENDIAN) & 0xFF;

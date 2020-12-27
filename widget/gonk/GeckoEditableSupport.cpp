@@ -38,6 +38,7 @@
 #include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/nsInputContext.h"
+#include "mozilla/dom/EditableUtils.h"
 #include "nsIEditor.h"  // for nsIEditor, etc.
 #include "nsIEditingSession.h"
 
@@ -47,91 +48,11 @@ namespace mozilla {
 
 namespace widget {
 
-bool isContentEditable(Element* aElement) {
-  if (!aElement) {
-    return false;
-  }
-  bool isContentEditable = false;
-  bool isDesignModeOn = false;
-  nsAutoString designMode;
-  RefPtr<nsGenericHTMLElement> htmlElement =
-      nsGenericHTMLElement::FromNodeOrNull(aElement);
-  if (htmlElement) {
-    isContentEditable = htmlElement->IsContentEditable();
-  }
-  RefPtr<Document> document = aElement->OwnerDoc();
-  if (document) {
-    document->GetDesignMode(designMode);
-    isDesignModeOn = designMode.EqualsLiteral("on");
-  }
-  if (isContentEditable || isDesignModeOn) {
-    return true;
-  }
-
-  document = document->OwnerDoc();
-  if (!document) {
-    return false;
-  }
-  document->GetDesignMode(designMode);
-  isDesignModeOn = designMode.EqualsLiteral("on");
-  return isDesignModeOn;
-}
-
-bool isIgnoredInputTypes(nsAString& inputType) {
-  return inputType.EqualsIgnoreCase("button") ||
-         inputType.EqualsIgnoreCase("file") ||
-         inputType.EqualsIgnoreCase("checkbox") ||
-         inputType.EqualsIgnoreCase("radio") ||
-         inputType.EqualsIgnoreCase("reset") ||
-         inputType.EqualsIgnoreCase("submit") ||
-         inputType.EqualsIgnoreCase("image") ||
-         inputType.EqualsIgnoreCase("range");
-}
-
 bool isDateTimeTypes(nsAString& inputType) {
   return inputType.EqualsIgnoreCase("datetime") ||
          inputType.EqualsIgnoreCase("datetime-local") ||
          inputType.EqualsIgnoreCase("time") ||
          inputType.EqualsIgnoreCase("date");
-}
-
-bool isFocusableElement(Element* aElement) {
-  if (!aElement) {
-    return false;
-  }
-  RefPtr<HTMLSelectElement> selectElement =
-      HTMLSelectElement::FromNodeOrNull(aElement);
-  if (selectElement) {
-    return true;
-  }
-  RefPtr<HTMLTextAreaElement> textAreaElement =
-      HTMLTextAreaElement::FromNodeOrNull(aElement);
-  if (textAreaElement) {
-    return true;
-  }
-  RefPtr<HTMLOptionElement> optionElement =
-      HTMLOptionElement::FromNodeOrNull(aElement);
-  if (optionElement) {
-    RefPtr<HTMLSelectElement> optionParent =
-        HTMLSelectElement::FromNodeOrNull(optionElement->GetParentNode());
-    if (optionParent) {
-      return true;
-    }
-  }
-  nsAutoString inputType;
-  RefPtr<HTMLInputElement> inputElement =
-      HTMLInputElement::FromNodeOrNull(aElement);
-  if (inputElement) {
-    if (inputElement->ReadOnly()) {
-      return false;
-    }
-    inputElement->GetType(inputType);
-    if (isIgnoredInputTypes(inputType)) {
-      return false;
-    }
-    return true;
-  }
-  return false;
 }
 
 bool isPlainTextField(Element* aElement) {
@@ -165,7 +86,7 @@ already_AddRefed<nsIDocumentEncoder> getDocumentEncoder(Element* aElement) {
 }
 
 nsresult getContentEditableText(Element* aElement, nsAString& aText) {
-  if (!aElement || !isContentEditable(aElement)) {
+  if (!aElement || !EditableUtils::isContentEditable(aElement)) {
     return NS_ERROR_FAILURE;
   }
   nsCOMPtr<Document> document = aElement->OwnerDoc();
@@ -204,7 +125,7 @@ uint32_t getSelectionStart(Element* aElement) {
     if (!_start.IsNull()) {
       start = _start.Value();
     }
-  } else if (isContentEditable(aElement)) {
+  } else if (EditableUtils::isContentEditable(aElement)) {
     nsCOMPtr<Document> document = aElement->OwnerDoc();
     nsCOMPtr<nsPIDOMWindowOuter> window = document->GetWindow();
     RefPtr<Selection> selection = window->GetSelection();
@@ -247,7 +168,7 @@ uint32_t getSelectionEnd(Element* aElement) {
     if (!_end.IsNull()) {
       end = _end.Value();
     }
-  } else if (isContentEditable(aElement)) {
+  } else if (EditableUtils::isContentEditable(aElement)) {
     nsCOMPtr<Document> document = aElement->OwnerDoc();
     nsCOMPtr<nsPIDOMWindowOuter> window = document->GetWindow();
     RefPtr<Selection> selection = window->GetSelection();
@@ -277,7 +198,7 @@ nsIEditor* getEditor(Element* aElement) {
       return nullptr;
     }
     editor = textControlElement->GetTextEditor();
-  } else if (isContentEditable(aElement)) {
+  } else if (EditableUtils::isContentEditable(aElement)) {
     nsCOMPtr<Document> document = aElement->OwnerDoc();
     nsCOMPtr<nsPIDOMWindowOuter> window = document->GetWindow();
     nsCOMPtr<nsIDocShell> docShell = window->GetDocShell();
@@ -491,7 +412,8 @@ GeckoEditableSupport::HandleEvent(Event* aEvent) {
     return NS_OK;
   }
 
-  bool isTargetEditable = isContentEditable(ele) || isFocusableElement(ele);
+  bool isTargetEditable = EditableUtils::isContentEditable(ele) ||
+                          EditableUtils::isFocusableElement(ele);
 
   nsAutoString eventType;
   aEvent->GetType(eventType);
@@ -1028,7 +950,7 @@ GeckoEditableSupport::GetText(uint32_t aId,
       } else {
         IME_LOGD("GeckoEditableSupport: GetText: Fail, unknow plain text");
       }
-    } else if (isContentEditable(focusedElement)) {
+    } else if (EditableUtils::isContentEditable(focusedElement)) {
       rv = getContentEditableText(focusedElement, text);
     } else {
       IME_LOGD(
@@ -1284,7 +1206,7 @@ nsresult GeckoEditableSupport::GetInputContextBag(
   IME_LOGD("InputContext: selectionEnd:[%lu]", end);
 
   // Treat contenteditable element as a special text area field
-  if (isContentEditable(focusedElement)) {
+  if (EditableUtils::isContentEditable(focusedElement)) {
     aInputContext->SetType(u"contenteditable"_ns);
     aInputContext->SetInputType(u"textarea"_ns);
     nsresult rv = getContentEditableText(focusedElement, attributeValue);

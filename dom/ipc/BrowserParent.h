@@ -387,13 +387,6 @@ class BrowserParent final : public PBrowserParent,
 
   mozilla::ipc::IPCResult RecvSetPluginFocused(const bool& aFocused);
 
-  mozilla::ipc::IPCResult RecvSetCandidateWindowForPlugin(
-      const widget::CandidateWindowPosition& aPosition);
-  mozilla::ipc::IPCResult RecvEnableIMEForPlugin(const bool& aEnable);
-
-  mozilla::ipc::IPCResult RecvDefaultProcOfPluginEvent(
-      const WidgetPluginEvent& aEvent);
-
   mozilla::ipc::IPCResult RecvGetInputContext(widget::IMEState* aIMEState);
 
   mozilla::ipc::IPCResult RecvSetInputContext(

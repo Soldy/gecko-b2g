@@ -125,7 +125,7 @@ NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(WebActivityRequestHandler, Release)
 WebActivityRequestHandler::WebActivityRequestHandler(const JS::Value& aMessage,
                                                      const nsAString& aId,
                                                      bool aReturnValue)
-    : mMessage(aMessage), mActivityId(aId), mReturnValue(aReturnValue) {
+    : mActivityId(aId), mReturnValue(aReturnValue), mMessage(aMessage) {
   MOZ_COUNT_CTOR(WebActivityRequestHandler);
 }
 

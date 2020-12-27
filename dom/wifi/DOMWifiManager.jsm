@@ -505,7 +505,9 @@ DOMWifiManager.prototype = {
         break;
 
       case "WifiManager:scanresult":
-        this._scanResult = this._convertWifiNetworks(msg.scanResult);
+        this._scanResult = this._convertWifiNetworks(
+          JSON.parse(msg.scanResult)
+        );
         this._fireScanResult(this._scanResult);
         break;
 

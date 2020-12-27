@@ -10,6 +10,7 @@ DIRS += [
 ]
 
 EXPORTS.mozilla.dom += [
+    "EditableUtils.h",
     "IMELog.h",
     "InputMethod.h",
     "InputMethodHandler.h",
@@ -18,6 +19,7 @@ EXPORTS.mozilla.dom += [
 ]
 
 UNIFIED_SOURCES += [
+    "EditableUtils.cpp",
     "InputMethod.cpp",
     "InputMethodHandler.cpp",
     "InputMethodService.cpp",

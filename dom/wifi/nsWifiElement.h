@@ -101,14 +101,14 @@ class nsStateChanged final : public nsIStateChanged {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSISTATECHANGED
-  nsStateChanged(uint32_t aState, uint32_t aId, const nsAString& aBssid,
+  nsStateChanged(uint32_t aState, int32_t aId, const nsAString& aBssid,
                  const nsAString& aSsid);
 
  private:
   ~nsStateChanged() {}
 
   uint32_t mState;
-  uint32_t mId;
+  int32_t mId;
   nsString mBssid;
   nsString mSsid;
 };

@@ -47,7 +47,7 @@ dictionary NetworkProperties {
   DOMString psk;
   DOMString wep;
   long keyIndex;
-  long scanSsid;
+  boolean scanSsid;
   DOMString identity;
   DOMString password;
   DOMString authAlg;
@@ -89,7 +89,7 @@ interface WifiNetwork {
   attribute DOMString? psk;
   attribute DOMString? wep;
   attribute long? keyIndex;
-  attribute long? scanSsid;
+  attribute boolean? scanSsid;
   attribute DOMString? identity;
   attribute DOMString? password;
   attribute DOMString? authAlg;

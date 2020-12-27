@@ -97,6 +97,7 @@ mod device;
 mod ellipse;
 mod filterdata;
 mod frame_builder;
+mod frame_graph;
 mod freelist;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod gamma_lut;
@@ -131,6 +132,8 @@ mod guillotine_allocator;
 mod slab_allocator;
 mod texture_cache;
 mod tile_cache;
+#[cfg(test)]
+mod tests;
 mod util;
 mod visibility;
 mod api_resources;
@@ -229,6 +232,7 @@ pub use crate::hit_test::SharedHitTester;
 pub use crate::internal_types::FastHashMap;
 pub use crate::screen_capture::{AsyncScreenshotHandle, RecordedFrameHandle};
 pub use crate::shade::{Shaders, WrShaders};
+pub use crate::texture_cache::TextureCacheConfig;
 pub use api as webrender_api;
 pub use webrender_build::shader::ProgramSourceDigest;
 pub use crate::picture::{TileDescriptor, TileId, InvalidationReason};

@@ -220,8 +220,7 @@ class MOZ_STACK_CLASS KeyEventDispatcher {
 
   void DispatchKeyDownEvent();
   void DispatchKeyUpEvent();
-  nsEventStatus DispatchKeyEventInternal(EventMessage aEventMessage,
-                                         bool* aHandledByIME = nullptr);
+  nsEventStatus DispatchKeyEventInternal(EventMessage aEventMessage);
 };
 
 KeyEventDispatcher::KeyEventDispatcher(const UserInputData& aData,
@@ -271,18 +270,15 @@ char16_t KeyEventDispatcher::PrintableKeyValue() const {
 }
 
 nsEventStatus KeyEventDispatcher::DispatchKeyEventInternal(
-    EventMessage aEventMessage, bool* aHandledByIME) {
+    EventMessage aEventMessage) {
   WidgetKeyboardEvent event(true, aEventMessage, nullptr);
-  if (aEventMessage == eKeyPress) {
-    // XXX If the charCode is not a printable character, the charCode
-    //     should be computed without Ctrl/Alt/Meta modifiers.
-    event.mCharCode = static_cast<uint32_t>(mChar);
-  }
+
+  uint32_t charcode = static_cast<uint32_t>(mChar);
+  event.SetCharCode(charcode ? charcode : mDOMKeyCode);
   if (!event.mCharCode) {
     event.mKeyCode = mDOMKeyCode;
   }
-  // TODO: FIXME ... removed ...
-  // event.isChar = !!event.mCharCode;
+
   event.mIsRepeat = IsRepeat();
   event.mKeyNameIndex = mDOMKeyNameIndex;
   if (mDOMPrintableKeyValue) {
@@ -295,12 +291,6 @@ nsEventStatus KeyEventDispatcher::DispatchKeyEventInternal(
 
   nsEventStatus status = nsWindow::DispatchKeyInput(event);
 
-  // TODO: FIXME
-#if 0
-    if (aHandledByIME) {
-      *aHandledByIME = event.mFlags.mHandledByIME;
-    }
-#endif
   return status;
 }
 
@@ -329,9 +319,8 @@ void KeyEventDispatcher::Dispatch() {
 }
 
 void KeyEventDispatcher::DispatchKeyDownEvent() {
-  bool handledByIME;
-  nsEventStatus status = DispatchKeyEventInternal(eKeyDown, &handledByIME);
-  if (status != nsEventStatus_eConsumeNoDefault || handledByIME) {
+  nsEventStatus status = DispatchKeyEventInternal(eKeyDown);
+  if (status != nsEventStatus_eConsumeNoDefault) {
     DispatchKeyEventInternal(eKeyPress);
   }
 }

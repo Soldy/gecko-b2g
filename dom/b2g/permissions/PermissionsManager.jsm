@@ -92,9 +92,13 @@ PermissionsManager.prototype = {
       throw new Components.Exception(errorMsg);
     }
     let actor = this.window.windowGlobalChild.getActor("PermissionsManager");
+    let callerPrincipal = this.window.document.nodePrincipal;
+    let callerOrigin = callerPrincipal.origin;
+    debug(`set ${aPermName} of ${aOrigin} by ${callerOrigin}`);
 
     actor
       .addPermission({
+        callerOrigin,
         type: aPermName,
         origin: aOrigin,
         value: aPermValue,

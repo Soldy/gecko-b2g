@@ -248,7 +248,7 @@ PasspointNetworkSelector.prototype = {
       let methods = new Map([
         [EAPConstants.EAP_SIM, "SIM"],
         [EAPConstants.EAP_AKA, "AKA"],
-        [EAPConstants.EAP_AKA_PRIME, "AKA_PRIME"],
+        [EAPConstants.EAP_AKA_PRIME, "AKA'"],
       ]);
 
       if (methods.has(passpointConfig.credential.eapType)) {

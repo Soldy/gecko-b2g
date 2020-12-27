@@ -175,7 +175,7 @@ interface nsIStateChanged : nsISupports
   /**
    * The network id in supplicant that holding the new state.
    */
-  readonly attribute uint32_t id;
+  readonly attribute int32_t id;
 
   /**
    * Bssid of the changed network.

@@ -91,7 +91,7 @@ MobileManagerDelegateService::ValidateCardId(int cardId) {
     return false;
   }
 
-  if (cardId >= numRadioInterfaces) {
+  if (uint32_t(cardId) >= numRadioInterfaces) {
     MOBILEDEBUG("Invalid cardId")
     return false;
   }

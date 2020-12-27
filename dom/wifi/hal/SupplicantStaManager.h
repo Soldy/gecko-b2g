@@ -131,10 +131,7 @@ class SupplicantStaManager
                               nsAString& aGeneratedPin);
   Result_t CancelWps();
 
-  android::sp<SupplicantStaNetwork> CreateStaNetwork();
-  android::sp<SupplicantStaNetwork> GetStaNetwork(uint32_t aNetId);
-  android::sp<SupplicantStaNetwork> GetCurrentNetwork();
-  NetworkConfiguration GetCurrentConfiguration();
+  int32_t GetCurrentNetworkId() const;
 
   bool IsCurrentEapNetwork();
   bool IsCurrentPskNetwork();
@@ -223,6 +220,10 @@ class SupplicantStaManager
   android::sp<ISupplicantP2pIface> GetSupplicantP2pIface();
   Result_t FindIfaceOfType(SupplicantNameSpaceV1_0::IfaceType aDesired,
                            ISupplicant::IfaceInfo* aInfo);
+  android::sp<SupplicantStaNetwork> CreateStaNetwork();
+  android::sp<SupplicantStaNetwork> GetStaNetwork(uint32_t aNetId) const;
+  android::sp<SupplicantStaNetwork> GetCurrentNetwork() const;
+  NetworkConfiguration GetCurrentConfiguration() const;
 
   bool CompareConfiguration(const NetworkConfiguration& aOld,
                             const NetworkConfiguration& aNew);

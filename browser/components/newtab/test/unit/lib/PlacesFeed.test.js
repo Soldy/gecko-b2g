@@ -39,6 +39,9 @@ describe("PlacesFeed", () => {
         archivePocketEntry: sandbox.spy(() => Promise.resolve()),
       },
     });
+    globals.set("PartnerLinkAttribution", {
+      makeRequest: sandbox.spy(),
+    });
     sandbox
       .stub(global.PlacesUtils.bookmarks, "TYPE_BOOKMARK")
       .value(TYPE_BOOKMARK);
@@ -565,6 +568,22 @@ describe("PlacesFeed", () => {
       feed.onAction(action);
       assert.calledWith(feed.handoffSearchToAwesomebar, action);
     });
+    it("should call makeAttributionRequest on PARTNER_LINK_ATTRIBUTION", () => {
+      sinon.stub(feed, "makeAttributionRequest");
+      let data = { targetURL: "https://partnersite.com", source: "topsites" };
+      feed.onAction({
+        type: at.PARTNER_LINK_ATTRIBUTION,
+        data,
+      });
+
+      assert.calledOnce(feed.makeAttributionRequest);
+      assert.calledWithExactly(feed.makeAttributionRequest, data);
+    });
+    it("should call PartnerLinkAttribution.makeRequest when calling makeAttributionRequest", () => {
+      let data = { targetURL: "https://partnersite.com", source: "topsites" };
+      feed.makeAttributionRequest(data);
+      assert.calledOnce(global.PartnerLinkAttribution.makeRequest);
+    });
   });
 
   describe("handoffSearchToAwesomebar", () => {
@@ -753,7 +772,6 @@ describe("PlacesFeed", () => {
       it("should have a various empty functions for xpconnect happiness", () => {
         observer.onBeginUpdateBatch();
         observer.onEndUpdateBatch();
-        observer.onTitleChanged();
         observer.onFrecencyChanged();
         observer.onManyFrecenciesChanged();
         observer.onDeleteVisits();

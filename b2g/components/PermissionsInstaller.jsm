@@ -161,7 +161,10 @@ this.PermissionsInstaller = {
       });
 
       if (isCore) {
-        PermissionsHelper.addCoreApp(uri.host);
+        let appPrincipal = Services.scriptSecurityManager.createContentPrincipalFromOrigin(
+          aManifestURL
+        );
+        PermissionsHelper.addCoreApp(appPrincipal.origin);
       }
 
       for (let permName in aFeatures.permissions) {

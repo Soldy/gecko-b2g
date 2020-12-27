@@ -49,7 +49,7 @@ class FMRadioRequest final : public FMRadioReplyRunnable {
   }
 
   NS_IMETHODIMP
-  Run() {
+  Run() override {
     MOZ_ASSERT(NS_IsMainThread(), "Wrong thread!");
 
     nsCOMPtr<EventTarget> target = do_QueryReferent(mFMRadio);

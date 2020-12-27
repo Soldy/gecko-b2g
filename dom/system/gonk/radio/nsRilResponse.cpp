@@ -947,6 +947,7 @@ Return<void> nsRilResponse::sendTerminalResponseToSimResponse(
   rspInfo = info;
   mRIL->processResponse(rspInfo.type);
 
+  defaultResponse(rspInfo, u"sendStkTerminalResponse"_ns);
   return Void();
 }
 
@@ -955,6 +956,7 @@ Return<void> nsRilResponse::handleStkCallSetupRequestFromSimResponse(
   rspInfo = info;
   mRIL->processResponse(rspInfo.type);
 
+  defaultResponse(rspInfo, u"stkHandleCallSetup"_ns);
   return Void();
 }
 

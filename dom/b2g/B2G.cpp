@@ -171,8 +171,8 @@ class CheckPermissionRunnable final : public WorkerMainThreadRunnable {
   explicit CheckPermissionRunnable(const nsCString& aType)
       : WorkerMainThreadRunnable(GetCurrentThreadWorkerPrivate(),
                                  "B2G::CheckPermissionRunnable"_ns),
-        mType(aType),
-        mIsAllowed(false) {}
+        mIsAllowed(false),
+        mType(aType) {}
 
   bool MainThreadRun() override {
     nsCOMPtr<nsIPrincipal> principal = mWorkerPrivate->GetPrincipal();

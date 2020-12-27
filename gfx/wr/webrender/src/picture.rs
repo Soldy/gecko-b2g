@@ -122,7 +122,8 @@ use crate::print_tree::{PrintTree, PrintTreePrinter};
 use crate::render_backend::{DataStores, FrameId};
 use crate::render_task_graph::RenderTaskId;
 use crate::render_target::RenderTargetKind;
-use crate::render_task::{BlurTask, RenderTask, RenderTaskLocation, BlurTaskCache, RenderTaskKind};
+use crate::render_task::{BlurTask, RenderTask, RenderTaskLocation, BlurTaskCache};
+use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind};
 use crate::resource_cache::{ResourceCache, ImageGeneration};
 use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::scene::SceneProperties;
@@ -636,7 +637,7 @@ pub enum SurfaceTextureDescriptor {
 /// This is the same as a `SurfaceTextureDescriptor` but has been resolved
 /// into a texture cache handle (if appropriate) that can be used by the
 /// batching and compositing code in the renderer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ResolvedSurfaceTexture {
@@ -4544,10 +4545,6 @@ pub struct PicturePrimitive {
 
     /// Set to true if we know for sure the picture is fully opaque.
     pub is_opaque: bool,
-
-    /// Keep track of the number of render tasks dependencies to pre-allocate
-    /// the dependency array next frame.
-    num_render_tasks: usize,
 }
 
 impl PicturePrimitive {
@@ -4658,7 +4655,6 @@ impl PicturePrimitive {
             options,
             segments_are_valid: false,
             is_opaque: false,
-            num_render_tasks: 0,
         }
     }
 
@@ -4706,11 +4702,6 @@ impl PicturePrimitive {
         }
 
         profile_scope!("take_context");
-        // In rare circumstances (if the entire picture cache slice is drawn by background color
-        // tiles without surfaces) the render_tasks field below will be None.
-        if let Some(task_id) = frame_state.surfaces[parent_surface_index.0].render_tasks.map(|s| s.port) {
-            frame_state.render_tasks[task_id].children.reserve(self.num_render_tasks);
-        }
 
         // Extract the raster and surface spatial nodes from the raster
         // config, if this picture establishes a surface. Otherwise just
@@ -4941,7 +4932,7 @@ impl PicturePrimitive {
 
                         let task_size = device_rect.size.to_i32();
 
-                        let picture_task_id = frame_state.render_tasks.add().init(
+                        let picture_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -4962,7 +4953,7 @@ impl PicturePrimitive {
                         let blur_render_task_id = RenderTask::new_blur(
                             blur_std_deviation,
                             picture_task_id,
-                            frame_state.render_tasks,
+                            frame_state.rg_builder,
                             RenderTargetKind::Color,
                             None,
                             original_size.to_i32(),
@@ -5012,8 +5003,8 @@ impl PicturePrimitive {
 
                         let task_size = device_rect.size.to_i32();
 
-                        let picture_task_id = frame_state.render_tasks.add().init({
-                            let mut picture_task = RenderTask::new_dynamic(
+                        let picture_task_id = frame_state.rg_builder.add().init(
+                            RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
                                     task_size,
@@ -5027,11 +5018,15 @@ impl PicturePrimitive {
                                     None,
                                     None,
                                 ),
-                            );
-                            picture_task.mark_for_saving();
+                            )
+                        );
 
-                            picture_task
-                        });
+                        // Add this content picture as a dependency of the parent surface, to
+                        // ensure it isn't free'd after the shadow uses it as an input.
+                        frame_state.rg_builder.add_dependency(
+                            frame_state.surfaces[parent_surface_index.0].render_tasks.unwrap().port,
+                            picture_task_id,
+                        );
 
                         self.secondary_render_task_id = Some(picture_task_id);
 
@@ -5048,7 +5043,7 @@ impl PicturePrimitive {
                                     blur_radius * scale_factors.1,
                                 ),
                                 picture_task_id,
-                                frame_state.render_tasks,
+                                frame_state.rg_builder,
                                 RenderTargetKind::Color,
                                 Some(&mut blur_tasks),
                                 device_rect.size.to_i32(),
@@ -5075,14 +5070,14 @@ impl PicturePrimitive {
                             device_pixel_scale,
                         );
 
-                        let readback_task_id = frame_state.render_tasks.add().init(
+                        let readback_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 clipped.size.to_i32(),
                                 RenderTaskKind::new_readback(),
                             )
                         );
 
-                        frame_state.render_tasks.add_dependency(
+                        frame_state.rg_builder.add_dependency(
                             frame_state.surfaces[parent_surface_index.0].render_tasks.unwrap().port,
                             readback_task_id,
                         );
@@ -5091,7 +5086,7 @@ impl PicturePrimitive {
 
                         let task_size = clipped.size.to_i32();
 
-                        let render_task_id = frame_state.render_tasks.add().init(
+                        let render_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -5131,7 +5126,7 @@ impl PicturePrimitive {
 
                         let task_size = clipped.size.to_i32();
 
-                        let render_task_id = frame_state.render_tasks.add().init(
+                        let render_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -5170,7 +5165,7 @@ impl PicturePrimitive {
 
                         let task_size = clipped.size.to_i32();
 
-                        let render_task_id = frame_state.render_tasks.add().init(
+                        let render_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -5445,11 +5440,13 @@ impl PicturePrimitive {
 
                                 let task_size = tile_cache.current_tile_size;
 
-                                let render_task_id = frame_state.render_tasks.add().init(
+                                let render_task_id = frame_state.rg_builder.add().init(
                                     RenderTask::new(
-                                        RenderTaskLocation::PictureCache {
-                                            size: task_size,
-                                            surface,
+                                        RenderTaskLocation::Static {
+                                            surface: StaticRenderTaskSurface::PictureCache {
+                                                surface,
+                                            },
+                                            rect: task_size.into(),
                                         },
                                         RenderTaskKind::new_picture(
                                             task_size,
@@ -5465,8 +5462,6 @@ impl PicturePrimitive {
                                         )
                                     ),
                                 );
-
-                                frame_state.render_task_roots.push(render_task_id);
 
                                 if first {
                                     // TODO(gw): Maybe we can restructure this code to avoid the
@@ -5541,7 +5536,7 @@ impl PicturePrimitive {
 
                         let task_size = clipped.size.to_i32();
 
-                        let render_task_id = frame_state.render_tasks.add().init(
+                        let render_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -5581,7 +5576,7 @@ impl PicturePrimitive {
 
                         let task_size = clipped.size.to_i32();
 
-                        let picture_task_id = frame_state.render_tasks.add().init(
+                        let picture_task_id = frame_state.rg_builder.add().init(
                             RenderTask::new_dynamic(
                                 task_size,
                                 RenderTaskKind::new_picture(
@@ -5602,7 +5597,7 @@ impl PicturePrimitive {
                         let filter_task_id = RenderTask::new_svg_filter(
                             primitives,
                             filter_datas,
-                            &mut frame_state.render_tasks,
+                            frame_state.rg_builder,
                             clipped.size.to_i32(),
                             uv_rect_kind,
                             picture_task_id,
@@ -5619,7 +5614,7 @@ impl PicturePrimitive {
                         port,
                     });
 
-                    frame_state.render_tasks.add_dependency(
+                    frame_state.rg_builder.add_dependency(
                         frame_state.surfaces[parent_surface_index.0].render_tasks.unwrap().port,
                         root,
                     );
@@ -5765,7 +5760,6 @@ impl PicturePrimitive {
 
     pub fn restore_context(
         &mut self,
-        parent_surface_index: SurfaceIndex,
         prim_list: PrimitiveList,
         context: PictureContext,
         state: PictureState,
@@ -5774,12 +5768,6 @@ impl PicturePrimitive {
         // Pop any dirty regions this picture set
         for _ in 0 .. context.dirty_region_count {
             frame_state.pop_dirty_region();
-        }
-
-        // In rare circumstances (if the entire picture cache slice is drawn by background color
-        // tiles without surfaces) the render_tasks field below will be None.
-        if let Some(task_id) = frame_state.surfaces[parent_surface_index.0].render_tasks.map(|s| s.port) {
-            self.num_render_tasks = frame_state.render_tasks[task_id].children.len();
         }
 
         self.prim_list = prim_list;

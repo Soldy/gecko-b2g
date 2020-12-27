@@ -970,8 +970,16 @@ pref("dom.inputport.enabled", true);
 // the system app in dev mode.
 pref("dom.activities.developer_mode_only", "import-app");
 
-// Enable W3C Push API
+// ServiceWorker API
 pref("dom.serviceWorkers.enabled", true);
+// Allow service workers to open windows for a longer period after a notification
+// click on mobile.  This is to account for some devices being quite slow.
+pref("dom.serviceWorkers.disable_open_click_delay", 5000);
+// The amount of time (milliseconds) service workers can be kept running using waitUntil promises
+// or executing "long-running" JS after the "idle_timeout" period has expired.
+pref("dom.serviceWorkers.idle_extended_timeout", 300000);
+
+// Enable W3C Push API
 pref("dom.webnotifications.serviceworker.enabled", true);
 pref("dom.webnotifications.serviceworker.maxActions", 2);
 pref("dom.push.enabled", true);
@@ -1222,10 +1230,6 @@ pref("captivedetect.canonicalContent", "success");
 
 pref("externalAPI.websocket.protocols", "kaios-services");
 pref("externalAPI.websocket.url", "ws://localhost/");
-
-// Allow service workers to open windows for a longer period after a notification
-// click on mobile.  This is to account for some devices being quite slow.
-pref("dom.serviceWorkers.disable_open_click_delay", 5000);
 
 // B2G IMS feature
 #ifdef B2G_IMS

@@ -324,7 +324,7 @@ NS_IMPL_ISUPPORTS(nsScanResult, nsIScanResult)
 /**
  * nsStateChanged
  */
-nsStateChanged::nsStateChanged(uint32_t aState, uint32_t aId,
+nsStateChanged::nsStateChanged(uint32_t aState, int32_t aId,
                                const nsAString& aBssid,
                                const nsAString& aSsid) {
   mState = aState;
@@ -340,7 +340,7 @@ nsStateChanged::GetState(uint32_t* aState) {
 }
 
 NS_IMETHODIMP
-nsStateChanged::GetId(uint32_t* aId) {
+nsStateChanged::GetId(int32_t* aId) {
   *aId = mId;
   return NS_OK;
 }

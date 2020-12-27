@@ -111,8 +111,6 @@ void AudioChannelClient::RequestChannel(ErrorResult& aRv) {
     return;
   }
 
-  float volume = 0.0;
-  bool muted = true;
   aRv = mAgent->NotifyStartedPlaying(
       AudioChannelService::AudibleState::eNotAudible);
   if (NS_WARN_IF(aRv.Failed())) {

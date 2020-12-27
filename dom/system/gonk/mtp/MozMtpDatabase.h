@@ -248,12 +248,14 @@ class MozMtpDatabase final : public IMtpDatabase {
 
   void AddEntry(DbEntry* aEntry);
   void AddEntryAndNotify(DbEntry* aEntr, RefCountedMtpServer* aMtpServer);
+  void AddEntryAndNotify(DbEntry* aEntr);
   void DumpEntries(const char* aLabel);
   MtpObjectHandle FindEntryByPath(const nsACString& aPath);
   already_AddRefed<DbEntry> GetEntry(MtpObjectHandle aHandle);
   void RemoveEntry(MtpObjectHandle aHandle);
   void RemoveEntryAndNotify(MtpObjectHandle aHandle,
                             RefCountedMtpServer* aMtpServer);
+  void RemoveEntryAndNotify(MtpObjectHandle aHandle);
   void UpdateEntry(MtpObjectHandle aHandle, DeviceStorageFile* aFile);
   void UpdateEntryAndNotify(MtpObjectHandle aHandle, DeviceStorageFile* aFile,
                             RefCountedMtpServer* aMtpServer);
@@ -275,6 +277,11 @@ class MozMtpDatabase final : public IMtpDatabase {
   MtpStorageID FindStorageIDFor(const nsACString& aPath,
                                 nsACString& aRemainder);
   void MtpWatcherNotify(DbEntry* aEntry, const char* aEventType);
+  MtpObjectHandle CopyObject(MtpObjectHandle aHandle, MtpObjectHandle newParent,
+                             MtpStorageID newStorage);
+  bool GetNewPathwhenCopyorMove(MtpObjectHandle handle,
+                                MtpObjectHandle newParent,
+                                MtpStorageID newStorage, nsCString& outPath);
 
   // We need a mutex to protext mDb and mStorage. The MTP server runs on a
   // dedicated thread, and it updates/accesses mDb. When files are updated

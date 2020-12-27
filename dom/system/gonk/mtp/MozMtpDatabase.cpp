@@ -143,6 +143,12 @@ void MozMtpDatabase::AddEntryAndNotify(DbEntry* entry,
   aMtpServer->sendObjectAdded(entry->mHandle);
 }
 
+void MozMtpDatabase::AddEntryAndNotify(DbEntry* entry) {
+  AddEntry(entry);
+  RefPtr<RefCountedMtpServer> server = sMozMtpServer->GetMtpServer();
+  server->sendObjectAdded(entry->mHandle);
+}
+
 void MozMtpDatabase::DumpEntries(const char* aLabel) {
   MutexAutoLock lock(mMutex);
 
@@ -211,8 +217,11 @@ void MozMtpDatabase::RemoveEntry(MtpObjectHandle aHandle) {
   for (entryIndex = aHandle + 1; entryIndex < numEntries; entryIndex++) {
     RefPtr<DbEntry> entry = mDb[entryIndex];
     if (entry && IsValidHandle(entry->mParent) && !mDb[entry->mParent]) {
+      MTP_DBG(
+          "Parent 0x%08x removed, child removing,  path: %s, child handle: "
+          "0x%08x",
+          aHandle, entry->mPath.get(), entry->mHandle);
       mDb[entryIndex] = nullptr;
-      MTP_DBG("0x%08x removed", aHandle);
     }
   }
 }
@@ -221,6 +230,12 @@ void MozMtpDatabase::RemoveEntryAndNotify(MtpObjectHandle aHandle,
                                           RefCountedMtpServer* aMtpServer) {
   RemoveEntry(aHandle);
   aMtpServer->sendObjectRemoved(aHandle);
+}
+
+void MozMtpDatabase::RemoveEntryAndNotify(MtpObjectHandle aHandle) {
+  RemoveEntry(aHandle);
+  RefPtr<RefCountedMtpServer> server = sMozMtpServer->GetMtpServer();
+  server->sendObjectRemoved(aHandle);
 }
 
 void MozMtpDatabase::UpdateEntryAndNotify(MtpObjectHandle aHandle,
@@ -790,6 +805,30 @@ void MozMtpDatabase::rescanFile(const char* path, MtpObjectHandle aHandle,
 
   RefPtr<DbEntry> entry = GetEntry(aHandle);
   if (entry) {
+    // The android MTP server only copies the data in, it doesn't set the
+    // modified timestamp, so we do that here.
+
+    struct utimbuf new_times;
+    struct stat sb;
+
+    char dateStr[20];
+    MTP_LOG("Path: '%s' setting modified time to (%ld) %s", entry->mPath.get(),
+            entry->mDateModified,
+            FormatDate(entry->mDateModified, dateStr, sizeof(dateStr)));
+
+    stat(entry->mPath.get(), &sb);
+    new_times.actime = sb.st_atime;  // Preserve atime
+    new_times.modtime = entry->mDateModified;
+    utime(entry->mPath.get(), &new_times);
+    // Android Q doesn't pass the size of the file in api
+    // MozMtpDatabase::beginSendObject. Update the size of the file when the
+    // transfer is finished.
+    if (MTP_FORMAT_ASSOCIATION != entry->mObjectFormat) {
+      entry->mObjectSize = sb.st_size;
+      MTP_DBG("Path: %s, file size: %d bytes", entry->mPath.get(),
+              entry->mObjectSize);
+    }
+
     MtpWatcherNotify(entry, "modified");
   }
 }
@@ -1028,8 +1067,8 @@ MtpResponseCode MozMtpDatabase::updateSubObjectPath(MtpObjectHandle aHandle,
   RefPtr<DbEntry> tmpEntry;
 
   // search entries to find the sub entry
-  for (entryIdx = 0; entryIdx < numEntries; entryIdx++) {
-    if ((aHandle == entryIdx) || !mDb[entryIdx]) {
+  for (entryIdx = aHandle + 1; entryIdx < numEntries; entryIdx++) {
+    if (!mDb[entryIdx]) {
       continue;
     }
 
@@ -1463,10 +1502,10 @@ MtpResponseCode MozMtpDatabase::beginDeleteObject(MtpObjectHandle aHandle) {
 void MozMtpDatabase::endDeleteObject(MtpObjectHandle aHandle, bool succeeded) {
   if (succeeded) {
     RefPtr<DbEntry> entry = GetEntry(aHandle);
-    MTP_LOG("Handle: 0x%08x '%s, succeeded: %d'", aHandle, entry->mPath.get(),
-            succeeded);
     if (entry) {
       // Tell Device Storage that the file is gone.
+      MTP_LOG("Handle: 0x%08x '%s, succeeded: %d'", aHandle, entry->mPath.get(),
+              succeeded);
       MtpWatcherNotify(entry, "deleted");
       RemoveEntry(aHandle);
     }
@@ -1540,10 +1579,61 @@ MtpProperty* MozMtpDatabase::getDevicePropertyDesc(
   return new MtpProperty(MTP_DEVICE_PROPERTY_UNDEFINED, MTP_TYPE_UNDEFINED);
 }
 
+bool MozMtpDatabase::GetNewPathwhenCopyorMove(MtpObjectHandle handle,
+                                              MtpObjectHandle newParent,
+                                              MtpStorageID newStorage,
+                                              nsCString& outPath) {
+  if (newParent == 0) {
+    newParent = MTP_PARENT_ROOT;
+  }
+  RefPtr<DbEntry> entry = GetEntry(handle);
+  if (!entry) {
+    MTP_ERR("Invalid entry!");
+    return false;
+  }
+
+  if (MTP_PARENT_ROOT == newParent) {
+    RefPtr<StorageEntry> storageEntry;
+    {
+      MutexAutoLock lock(mMutex);
+
+      // FindStorage and the mStorage[] access both need to have the mutex held.
+      StorageArray::index_type storageIndex = FindStorage(newStorage);
+      if (storageIndex == StorageArray::NoIndex) {
+        return false;
+      } else if (!mStorage[storageIndex]) {
+        return false;
+      }
+      storageEntry = mStorage[storageIndex];
+    }
+    nsAutoCString tmpPath(storageEntry->mStoragePath);
+    if (storageEntry->mStoragePath[storageEntry->mStoragePath.Length()] !=
+        '/') {
+      tmpPath.Append('/');
+    }
+    outPath = tmpPath + entry->mObjectName;
+  } else {
+    RefPtr<DbEntry> dstParentEntry = GetEntry(newParent);
+    if (!dstParentEntry) {
+      MTP_ERR("Invalid parent entry!");
+      return false;
+    }
+    nsAutoCString tmpPath(dstParentEntry->mPath);
+    if (dstParentEntry->mPath[dstParentEntry->mPath.Length()] != '/') {
+      tmpPath.Append('/');
+    }
+    outPath = tmpPath + entry->mObjectName;
+  }
+  return true;
+}
+
 // virtual
 MtpResponseCode MozMtpDatabase::beginMoveObject(MtpObjectHandle handle,
                                                 MtpObjectHandle newParent,
                                                 MtpStorageID newStorage) {
+  if (newParent == 0) {
+    newParent = MTP_PARENT_ROOT;
+  }
   RefPtr<DbEntry> entry = GetEntry(handle);
   if (!entry) {
     MTP_ERR("Invalid Handle: 0x%08x", handle);
@@ -1551,6 +1641,35 @@ MtpResponseCode MozMtpDatabase::beginMoveObject(MtpObjectHandle handle,
   }
   MTP_LOG("Handle: 0x%08x '%s'", handle, entry->mPath.get());
 
+  if (entry->mStorageID == newStorage) {
+    if (handle > newParent || MTP_PARENT_ROOT == newParent) {
+      // In the current design, the index for a directory will always be less
+      // than the index of any of its children. No need to create new handles
+      // for the operation. MTP_PARENT_ROOT is an exception.
+      nsCString newFileFullPath;
+      if (false == GetNewPathwhenCopyorMove(handle, newParent, newStorage,
+                                            newFileFullPath)) {
+        MTP_ERR("GetNewPathwhenCopyorMove error!");
+        return MTP_RESPONSE_INVALID_OBJECT_HANDLE;
+      }
+      if (entry->mObjectFormat == MTP_FORMAT_ASSOCIATION) {
+        // Update all sub elements
+        updateSubObjectPath(handle, newFileFullPath);
+      }
+      MtpWatcherNotify(entry, "deleted");
+      entry->mPath = newFileFullPath;
+      entry->mParent = newParent;
+      MtpWatcherNotify(entry, "modified");
+    } else {
+      // Create new handles instead of renaming the objects
+      if (kInvalidObjectHandle == CopyObject(handle, newParent, newStorage)) {
+        return MTP_RESPONSE_INVALID_OBJECT_HANDLE;
+      }
+    }
+  } else if (kInvalidObjectHandle ==
+             CopyObject(handle, newParent, newStorage)) {
+    return MTP_RESPONSE_INVALID_OBJECT_HANDLE;
+  }
   return MTP_RESPONSE_OK;
 }
 
@@ -1560,42 +1679,184 @@ void MozMtpDatabase::endMoveObject(MtpObjectHandle oldParent,
                                    MtpStorageID oldStorage,
                                    MtpStorageID newStorage,
                                    MtpObjectHandle aHandle, bool succeeded) {
-  if (succeeded) {
-    RefPtr<DbEntry> entry = GetEntry(aHandle);
-    MTP_LOG("Handle: 0x%08x '%s, succeeded: %d'", aHandle, entry->mPath.get(),
-            succeeded);
+  if (newParent == 0) {
+    newParent = MTP_PARENT_ROOT;
+  }
+  if (oldParent == 0) {
+    oldParent = MTP_PARENT_ROOT;
+  }
 
-    if (entry) {
-      // Tell Device Storage that the file is gone.
-      MtpWatcherNotify(entry, "modified");
+  RefPtr<DbEntry> entry = GetEntry(aHandle);
+  if (!entry) {
+    MTP_ERR("Invalid entry!");
+    return;
+  }
+  MTP_DBG("Handle: 0x%08x '%s, succeeded: %d'", aHandle, entry->mPath.get(),
+          succeeded);
+  if (succeeded) {
+    // Remove old objects when in the same storage
+    if (oldStorage == newStorage) {
+      if (aHandle < newParent && MTP_PARENT_ROOT != newParent) {
+        // Remove old entry when the mv operation is finished.
+        MtpWatcherNotify(entry, "deleted");
+        RemoveEntryAndNotify(aHandle);
+      }
+    } else {
+      // Remove old entry when the mv operation is finished
+      MtpWatcherNotify(entry, "deleted");
+      RemoveEntryAndNotify(aHandle);
+    }
+  } else {
+    // Restore DB modification when mv operation fails in different storages
+    nsCString newFileFullPath;
+    nsCString oldFileFullPath;
+    if (false == GetNewPathwhenCopyorMove(aHandle, newParent, newStorage,
+                                          newFileFullPath)) {
+      MTP_ERR("GetNewPathwhenCopyorMove error!");
+      return;
+    }
+    if (false == GetNewPathwhenCopyorMove(aHandle, oldParent, oldStorage,
+                                          oldFileFullPath)) {
+      MTP_ERR("GetNewPathwhenCopyorMove error!");
+      return;
+    }
+
+    if (oldStorage == newStorage) {
+      if (aHandle > newParent || MTP_PARENT_ROOT == newParent) {
+        // Restore sub mPath to old one
+        updateSubObjectPath(aHandle, oldFileFullPath);
+        MtpWatcherNotify(entry, "deleted");
+        entry->mPath = oldFileFullPath;
+        entry->mParent = oldParent;
+        MtpWatcherNotify(entry, "modified");
+      } else {
+        // Remove created entry when fail to do the move operation in the same
+        // storage
+        MtpObjectHandle newhandle = FindEntryByPath(newFileFullPath);
+        if (newhandle) {
+          RefPtr<DbEntry> newEntry = GetEntry(newhandle);
+          if (!newEntry) {
+            MtpWatcherNotify(newEntry, "deleted");
+            RemoveEntryAndNotify(newhandle);
+          }
+        }
+      }
+    } else {
+      // Remove created entry when fail to do the move operation in different
+      // storages
+      MtpObjectHandle newhandle = FindEntryByPath(newFileFullPath);
+      if (newhandle) {
+        RefPtr<DbEntry> newEntry = GetEntry(newhandle);
+        if (!newEntry) {
+          MtpWatcherNotify(newEntry, "deleted");
+          RemoveEntryAndNotify(newhandle);
+        }
+      }
     }
   }
+}
+
+MtpObjectHandle MozMtpDatabase::CopyObject(MtpObjectHandle aHandle,
+                                           MtpObjectHandle newParent,
+                                           MtpStorageID newStorage) {
+  RefPtr<DbEntry> srcEntry = GetEntry(aHandle);
+  MtpObjectHandle handle = kInvalidObjectHandle;
+  if (!srcEntry) {
+    MTP_ERR("Invalid entry!aHandle: %d", aHandle);
+    return kInvalidObjectHandle;
+  } else {
+    // Create new entry for the object. If the target object is a folder, create
+    // new entries for all the sub elements of the target.
+    RefPtr<DbEntry> dstEntry = new DbEntry;
+    dstEntry->mStorageID = newStorage;
+    dstEntry->mParent = newParent;
+    dstEntry->mObjectName = srcEntry->mObjectName;
+    dstEntry->mDisplayName = srcEntry->mDisplayName;
+    nsCString newFileFullPath;
+    if (false == GetNewPathwhenCopyorMove(aHandle, newParent, newStorage,
+                                          newFileFullPath)) {
+      MTP_ERR("GetNewPathwhenCopyorMove error!");
+      return kInvalidObjectHandle;
+    }
+    dstEntry->mPath = newFileFullPath;
+    // PR_GetFileInfo64 returns timestamps in usecs
+    dstEntry->mDateModified = srcEntry->mDateModified;
+    dstEntry->mDateCreated = srcEntry->mDateModified;
+    time(&dstEntry->mDateAdded);
+    dstEntry->mObjectFormat = srcEntry->mObjectFormat;
+    dstEntry->mObjectSize = srcEntry->mObjectSize;
+    AddEntryAndNotify(dstEntry);
+    handle = dstEntry->mHandle;
+    MTP_DBG("Copied one file %s from path %s to path %s",
+            dstEntry->mObjectName.get(), srcEntry->mPath.get(),
+            dstEntry->mPath.get());
+    MtpWatcherNotify(dstEntry, "modified");
+
+    if (srcEntry->mObjectFormat == MTP_FORMAT_ASSOCIATION) {
+      ProtectedDbArray::size_type numEntries = mDb.Length();
+      ProtectedDbArray::index_type entryIdx;
+      // search entries to find the sub entry
+      for (entryIdx = aHandle + 1; entryIdx < numEntries; entryIdx++) {
+        if (mDb[entryIdx] && aHandle == mDb[entryIdx]->mParent) {
+          if (kInvalidObjectHandle == CopyObject(mDb[entryIdx]->mHandle,
+                                                 dstEntry->mHandle,
+                                                 newStorage)) {
+            MTP_ERR(
+                "Copy sub file/folder fail, source path: %s, target path: %s",
+                mDb[entryIdx]->mPath.get(), dstEntry->mPath.get());
+            return kInvalidObjectHandle;
+          }
+        }
+      }
+    }
+  }
+
+  return handle;
 }
 
 // virtual
 MtpResponseCode MozMtpDatabase::beginCopyObject(MtpObjectHandle aHandle,
                                                 MtpObjectHandle newParent,
                                                 MtpStorageID newStorage) {
-  RefPtr<DbEntry> entry = GetEntry(aHandle);
-  if (!entry) {
-    MTP_ERR("Invalid Handle: 0x%08x", aHandle);
-    return MTP_RESPONSE_INVALID_OBJECT_HANDLE;
+  if (newParent == 0) {
+    newParent = MTP_PARENT_ROOT;
   }
-  MTP_LOG("Handle: 0x%08x '%s'", aHandle, entry->mPath.get());
 
-  return MTP_RESPONSE_OK;
+  MtpObjectHandle handle = kInvalidObjectHandle;
+  handle = CopyObject(aHandle, newParent, newStorage);
+  if (handle > 0xFFFF) {
+    MTP_ERR(
+        "Unexpected overflow error occured!MozMtpDatabase::endCopyObject may "
+        "not work.");
+  }
+
+  return handle;
 }
 
 // virtual
 void MozMtpDatabase::endCopyObject(MtpObjectHandle aHandle, bool succeeded) {
-  if (succeeded) {
-    RefPtr<DbEntry> entry = GetEntry(aHandle);
-    MTP_LOG("Handle: 0x%08x '%s, succeeded: %d'", aHandle, entry->mPath.get(),
-            succeeded);
-
-    if (entry) {
-      // Tell Device Storage that the file is gone.
-      MtpWatcherNotify(entry, "modified");
+  MTP_DBG("Is successed: %d, Handle: 0x%08x'", succeeded, aHandle);
+  // Nothing can be done here. The original Android code passed a wrong
+  // parameter aHandle here. It's the return value of the api
+  // MozMtpDatabase::beginCopyObject. The return value of the api is a type of
+  // uint16_t which is defined in the file MtpTypes.h. While the type of
+  // MtpObjectHandle is a uint32_t. Code logic in MtpServer.cpp: MtpObjectHandle
+  // handle = mDatabase->beginCopyObject(objectHandle, parent, storageID);
+  // mDatabase->endCopyObject(handle, result);
+  // If the return value is less than 0xFFFF in the api
+  // MozMtpDatabase::beginCopyObject, this function can still work.
+  if (!succeeded) {
+    // Copy error happened. We need to remove the copied object.
+    // Check whether the value of the max handle is larger than 0xFFFF. If yes,
+    // the parameter aHandle can't be trusted.
+    if (mDb.Length() >= 0xFFFF) {
+      MTP_ERR("The parameter can't be trusted and do nothing here.");
+    } else {
+      RefPtr<DbEntry> entry = GetEntry(aHandle);
+      if (entry) {
+        MtpWatcherNotify(entry, "deleted");
+        RemoveEntryAndNotify(aHandle);
+      }
     }
   }
 }

@@ -1591,19 +1591,17 @@ var BookmarkingUI = {
 
     this._initMobileBookmarks(document.getElementById("BMB_mobileBookmarks"));
 
-    this.selectLabel(
+    this.updateLabel(
       "BMB_viewBookmarksSidebar",
       SidebarUI.currentID == "viewBookmarksSidebar"
     );
-    this.selectLabel("BMB_viewBookmarksToolbar", !this.toolbar.collapsed);
+    this.updateLabel("BMB_viewBookmarksToolbar", !this.toolbar.collapsed);
   },
 
-  selectLabel(elementId, visible) {
+  updateLabel(elementId, visible) {
     let element = PanelMultiView.getViewNode(document, elementId);
-    element.setAttribute(
-      "label",
-      element.getAttribute(visible ? "label-hide" : "label-show")
-    );
+    let l10nID = element.getAttribute("data-l10n-id");
+    document.l10n.setAttributes(element, l10nID, { isVisible: !!visible });
   },
 
   toggleBookmarksToolbar(reason) {
@@ -2045,12 +2043,15 @@ var BookmarkingUI = {
       document.l10n.setAttributes(menuItem, menuItemL10nId);
     }
 
+    let panelMenuItemL10nId = isStarred
+      ? "library-bookmarks-bookmark-edit"
+      : "library-bookmarks-bookmark-this-page";
     let panelMenuToolbarButton = PanelMultiView.getViewNode(
       document,
       "panelMenuBookmarkThisPage"
     );
     if (panelMenuToolbarButton) {
-      document.l10n.setAttributes(panelMenuToolbarButton, menuItemL10nId);
+      document.l10n.setAttributes(panelMenuToolbarButton, panelMenuItemL10nId);
     }
 
     // Localize the context menu item element.
@@ -2231,15 +2232,15 @@ var BookmarkingUI = {
     let placement = CustomizableUI.getPlacementOfWidget(
       this.BOOKMARK_BUTTON_ID
     );
-    this.selectLabel(
+    this.updateLabel(
       "panelMenu_toggleBookmarksMenu",
       placement && placement.area == CustomizableUI.AREA_NAVBAR
     );
-    this.selectLabel(
+    this.updateLabel(
       "panelMenu_viewBookmarksSidebar",
       SidebarUI.currentID == "viewBookmarksSidebar"
     );
-    this.selectLabel("panelMenu_viewBookmarksToolbar", !this.toolbar.collapsed);
+    this.updateLabel("panelMenu_viewBookmarksToolbar", !this.toolbar.collapsed);
     PanelUI.showSubView("PanelUI-bookmarkingTools", triggerNode);
   },
 
@@ -2312,12 +2313,6 @@ var BookmarkingUI = {
                 this._updateStar();
               }
             }
-          }
-          if (ev.parentGuid == PlacesUtils.bookmarks.toolbarGuid) {
-            Services.telemetry.scalarAdd(
-              "browser.engagement.bookmarks_toolbar_bookmark_added",
-              1
-            );
           }
           break;
         case "bookmark-removed":
@@ -2395,12 +2390,6 @@ var BookmarkingUI = {
       oldParentGuid === PlacesUtils.bookmarks.toolbarGuid;
     if (hasMovedToToolbar || hasMovedOutOfToolbar) {
       this.updateEmptyToolbarMessage();
-    }
-    if (hasMovedToToolbar) {
-      Services.telemetry.scalarAdd(
-        "browser.engagement.bookmarks_toolbar_bookmark_added",
-        1
-      );
     }
   },
 

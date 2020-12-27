@@ -265,11 +265,16 @@ Return<void> SupplicantStaIfaceCallback::onExtRadioWorkTimeout(uint32_t id) {
 void SupplicantStaIfaceCallback::NotifyStateChanged(uint32_t aState,
                                                     const std::string& aSsid,
                                                     const std::string& aBssid) {
+  int32_t networkId = INVALID_NETWORK_ID;
+  if (mSupplicantManager) {
+    networkId = mSupplicantManager->GetCurrentNetworkId();
+  }
+
   nsCString iface(mInterfaceName);
   RefPtr<nsWifiEvent> event = new nsWifiEvent(EVENT_SUPPLICANT_STATE_CHANGED);
-  RefPtr<nsStateChanged> stateChanged =
-      new nsStateChanged(aState, 0, NS_ConvertUTF8toUTF16(aBssid.c_str()),
-                         NS_ConvertUTF8toUTF16(aSsid.c_str()));
+  RefPtr<nsStateChanged> stateChanged = new nsStateChanged(
+      aState, networkId, NS_ConvertUTF8toUTF16(aBssid.c_str()),
+      NS_ConvertUTF8toUTF16(aSsid.c_str()));
   event->updateStateChanged(stateChanged);
 
   INVOKE_CALLBACK(mCallback, event, iface);

@@ -321,7 +321,8 @@ public:
     Error getColorModes(Display display, std::vector<ColorMode>* outModes) override;
     Error getDisplayAttribute(Display display, Config config, IComposerClient::Attribute attribute,
                               int32_t* outValue) override;
-    Error getDisplayConfigs(Display display, std::vector<Config>* outConfigs);
+    Error getDisplayConfigs(Display display,
+                            std::vector<Config>* outConfigs) override;
     Error getDisplayName(Display display, std::string* outName) override;
 
     Error getDisplayRequests(Display display, uint32_t* outDisplayRequestMask,

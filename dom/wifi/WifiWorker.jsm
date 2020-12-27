@@ -260,11 +260,12 @@ XPCOMUtils.defineLazyServiceGetter(
   "nsIImsRegService"
 );
 
-// ChromeUtils.defineLazyModuleGetter(
-//   this,
-//   "PhoneNumberUtils",
-//   "resource://gre/modules/PhoneNumberUtils.jsm"
-// );
+XPCOMUtils.defineLazyModuleGetter(
+  this,
+  "gPhoneNumberUtils",
+  "resource://gre/modules/PhoneNumberUtils.jsm",
+  "PhoneNumberUtils"
+);
 
 var wifiInfo = new WifiInfo();
 var lastNetwork = null;
@@ -440,7 +441,7 @@ var WifiManager = (function() {
       enableBackgroundScan(false);
       if (!manager.isHandShakeState(manager.state)) {
         // Scan after 500ms
-        setTimeout(handleScanRequest, 500, function() {});
+        setTimeout(handleScanRequest, 500, true, function() {});
       }
     } else {
       setSuspendOptimizationsMode(POWER_MODE_SCREEN_STATE, true, function() {});
@@ -474,24 +475,7 @@ var WifiManager = (function() {
         let config = configuredNetworks[networkKey];
         network.ssid = config.ssid;
         network.isHidden = config.scanSsid;
-
-        // TODO: temporarily add all 2G channels in list,
-        //       should confirm where to update the frequencies
-        // network.frequencies = [config.frequency];
-        network.frequencies = [
-          2412,
-          2417,
-          2422,
-          2427,
-          2432,
-          2437,
-          2442,
-          2447,
-          2452,
-          2457,
-          2462,
-        ];
-
+        network.frequencies = manager.configurationChannels.get(config.netId);
         WifiPnoSettings.pnoNetworks.push(network);
       }
       pnoSettings.pnoNetworks = WifiPnoSettings.pnoNetworks;
@@ -519,25 +503,53 @@ var WifiManager = (function() {
   }
 
   function updateChannels(callback) {
+    WifiScanSettings.bandMask = WifiScanSettings.BAND_2_4_GHZ;
+    if (manager.isFeatureSupported(FEATURE_STA_5G)) {
+      WifiScanSettings.bandMask |=
+        WifiScanSettings.BAND_5_GHZ | WifiScanSettings.BAND_5_GHZ_DFS;
+    }
+
     wifiCommand.getChannelsForBand(WifiScanSettings.bandMask, function(result) {
       let channels = result.getChannels();
       if (channels.length > 0) {
         WifiScanSettings.channels = channels;
-        callback(true);
-        return;
       }
-      callback(false);
+      callback(result.status == SUCCESS);
     });
   }
 
-  function handleScanRequest(callback) {
+  function handleScanRequest(fullScan, callback) {
+    if (!manager.enabled) {
+      debug("WiFi is off, skip scan request");
+      callback(false);
+      return;
+    }
+
     updateChannels(function(ok) {
+      if (!ok) {
+        debug("Failed to get supported channels");
+      }
+
+      if (OpenNetworkNotifier && OpenNetworkNotifier.isEnabled()) {
+        fullScan = true;
+      }
+
+      // Concat all channels into an array.
+      let configChannels = [];
+      function concatChannels(value, key, map) {
+        configChannels = configChannels.concat(value);
+      }
+      manager.configurationChannels.forEach(concatChannels);
+      configChannels = configChannels.filter(
+        (value, index) => configChannels.indexOf(value) === index
+      );
+
       let scanSettings = WifiScanSettings.singleScanSettings;
       scanSettings.scanType = WifiScanSettings.SCAN_TYPE_HIGH_ACCURACY;
       scanSettings.channels =
-        manager.currentConfigChannels.length > 0
-          ? manager.currentConfigChannels
-          : WifiScanSettings.channels;
+        fullScan || configChannels.length === 0
+          ? WifiScanSettings.channels
+          : configChannels;
       scanSettings.hiddenNetworks = WifiConfigManager.getHiddenNetworks();
 
       if (scanSettings.channels.length == 0) {
@@ -558,7 +570,7 @@ var WifiManager = (function() {
     WifiConstants.WIFI_ASSOCIATED_SCAN_INTERVAL;
   var maxFullBandConnectedTimeIntervalMilli = 5 * 60 * 1000;
   var lastFullBandConnectedTimeMilli = -1;
-  manager.currentConfigChannels = [];
+  manager.configurationChannels = new Map();
   manager.startDelayScan = function() {
     debug(
       "startDelayScan: manager.state=" + manager.state + " screenOn=" + screenOn
@@ -591,9 +603,8 @@ var WifiManager = (function() {
         }
         // TODO: 1. too much traffic, hence no full band scan.
         //       2. Don't scan if lots of packets are being sent.
-
-        if (!tryFullBandScan && manager.currentConfigChannels) {
-          handleScanRequest(function() {});
+        if (!tryFullBandScan && manager.configurationChannels.size > 0) {
+          handleScanRequest(false, function() {});
         } else {
           lastFullBandConnectedTimeMilli = now_ms;
           if (
@@ -604,11 +615,11 @@ var WifiManager = (function() {
             fullBandConnectedTimeIntervalMilli =
               (fullBandConnectedTimeIntervalMilli * 12) / 8;
           }
-          handleScanRequest(function() {});
+          handleScanRequest(false, function() {});
         }
       } else if (!manager.isConnectState(manager.state)) {
         delayScanInterval = WifiConstants.WIFI_SCHEDULED_SCAN_INTERVAL;
-        handleScanRequest(function() {});
+        handleScanRequest(true, function() {});
       }
     }
 
@@ -1025,6 +1036,10 @@ var WifiManager = (function() {
         wifiInfo.setBSSID(fields.bssid);
       }
 
+      if (manager.targetNetworkId == WifiConstants.INVALID_NETWORK_ID) {
+        manager.targetNetworkId = fields.id;
+      }
+
       let network = WifiConfigManager.getNetworkConfiguration(
         manager.targetNetworkId
       );
@@ -1085,22 +1100,23 @@ var WifiManager = (function() {
       manager.setFirmwareRoamingConfiguration();
     }
     if (manager.wpsStarted) {
-      // Save WPS network configurations into config store.
-      manager.getSupplicantNetwork(result => {
-        if (result.status == SUCCESS) {
-          let config = Object.create(null);
-
-          for (let field in result.wifiConfig) {
-            config[field] = result.wifiConfig[field];
-          }
-          config.bssid = WifiConstants.SUPPLICANT_BSSID_ANY;
-
-          manager.saveNetwork(config, function() {});
-        } else {
-          debug("Failed to get supplicant configurations");
+      // The connected event is from WPS, but the network may not be saved in
+      // config store yet. So first, we get the network configuration from
+      // supplicant, then update as latest and save to config store. Finally
+      // trigger disconnect to let network selection pick it automatically.
+      manager.updateWpsConfiguration(config => {
+        manager.wpsStarted = false;
+        if (config == null) {
+          debug("Failed to save WPS configuration");
+          return;
         }
+        let networkId = WifiConfigManager.getNetworkId(config);
+        WifiConfigManager.updateLastSelectedNetwork(networkId, ok => {
+          manager.disconnect(function() {
+            handleScanRequest(true, function() {});
+          });
+        });
       });
-      manager.wpsStarted = false;
     }
   }
 
@@ -1126,7 +1142,7 @@ var WifiManager = (function() {
       if (typeof configuredNetworks[networkKey] !== "undefined") {
         let networkEnabled = !configuredNetworks[networkKey]
           .networkSelectionStatus;
-        handleScanRequest(function() {});
+        handleScanRequest(true, function() {});
         debug(
           "Receive DISCONNECTED:" +
             " BSSID=" +
@@ -1144,7 +1160,7 @@ var WifiManager = (function() {
         debug(networkKey + " is not defined in conifgured networks");
       }
     }
-    manager.currentConfigChannels = [];
+
     wifiInfo.reset();
     // Restore power save and suspend optimizations when dhcp failed.
     postDhcpSetup(function(ok) {});
@@ -1895,6 +1911,7 @@ var WifiManager = (function() {
   };
 
   manager.removeNetwork = function(netId, callback) {
+    manager.configurationChannels.delete(netId);
     WifiConfigManager.removeNetwork(netId, callback);
   };
 
@@ -1928,6 +1945,30 @@ var WifiManager = (function() {
       return;
     }
     wifiCommand.closeSupplicantConnection(aCallback);
+  };
+
+  manager.updateWpsConfiguration = function(callback) {
+    // Get configuration from supplicant.
+    manager.getSupplicantNetwork(result => {
+      if (result.status != SUCCESS) {
+        debug("Failed to get supplicant configurations");
+        callback(null);
+        return;
+      }
+
+      let config = Object.create(null);
+      for (let field in result.wifiConfig) {
+        config[field] = result.wifiConfig[field];
+      }
+      config.bssid = WifiConstants.SUPPLICANT_BSSID_ANY;
+      // Ignore the network ID from supplicant.
+      delete config.netId;
+
+      // Save WPS network configurations into config store.
+      manager.saveNetwork(config, ok => {
+        callback(ok ? config : null);
+      });
+    });
   };
 
   manager.isHandShakeState = function(state) {
@@ -2365,7 +2406,7 @@ function WifiWorker() {
         }
       }
     }
-    pub.hidden = net.scanSsid === 1;
+    pub.hidden = net.scanSsid;
 
     if (
       "caCert" in net &&
@@ -2826,7 +2867,6 @@ function WifiWorker() {
       // Now that we have scan results, there's no more need to continue
       // scanning. Ignore any errors from this command.
       self.networksArray = [];
-      var channelSet = new Set();
       let numOpenNetworks = 0;
       for (let i = 0; i < scanResults.length; i++) {
         let result = scanResults[i];
@@ -2904,7 +2944,6 @@ function WifiWorker() {
             result.associated
           ) {
             network.connected = true;
-            channelSet.add(result.frequency);
             if (lastNetwork.everValidated) {
               network.hasInternet = true;
               network.captivePortalDetected = false;
@@ -2930,6 +2969,15 @@ function WifiWorker() {
           ) {
             network.password = "*";
           }
+
+          if (!WifiManager.configurationChannels.has(network.netId)) {
+            WifiManager.configurationChannels.set(network.netId, []);
+          }
+
+          let channels = WifiManager.configurationChannels.get(network.netId);
+          if (!channels.includes(result.frequency)) {
+            channels.push(result.frequency);
+          }
         }
 
         let signal = WifiConfigUtils.calculateSignal(Number(signalLevel));
@@ -2951,21 +2999,18 @@ function WifiWorker() {
         }
       }
 
-      WifiManager.currentConfigChannels = [];
-      channelSet.forEach(function(channel) {
-        WifiManager.currentConfigChannels.push(channel);
-      });
-
       if (!WifiManager.wpsStarted) {
         self.handleScanResults(self.networksArray);
       }
       if (self.wantScanResults.length !== 0) {
-        self.wantScanResults.forEach(function(callback) {
+        self.wantScanResults.forEach(callback => {
           callback(self.networksArray);
         });
         self.wantScanResults = [];
       }
-      self._fireEvent("scanresult", { scanResult: self.networksArray });
+      self._fireEvent("scanresult", {
+        scanResult: JSON.stringify(self.networksArray),
+      });
     });
   };
 
@@ -3131,8 +3176,8 @@ WifiWorker.prototype = {
   notifyClirModeChanged(aMode) {},
 
   notifyLastKnownNetworkChanged() {
-    let countryCode = "US";
-    // FIXME: PhoneNumberUtils.getCountryName().toUpperCase();
+    // TODO: Should use the actual sim index if dual sim supported
+    let countryCode = gPhoneNumberUtils.getCountryName(0).toUpperCase();
     if (countryCode != "" && countryCode !== this.lastKnownCountryCode) {
       debug("Set country code = " + countryCode);
       this.lastKnownCountryCode = countryCode;
@@ -3156,8 +3201,8 @@ WifiWorker.prototype = {
     if (this.lastKnownCountryCode) {
       return this.lastKnownCountryCode;
     }
-    // FIXME: NS_ERROR_FILE_NOT_FOUND
-    return "US"; // PhoneNumberUtils.getCountryName().toUpperCase();
+    // TODO: Should use the actual sim index if dual sim supported
+    return gPhoneNumberUtils.getCountryName(0).toUpperCase();
   },
 
   // nsIIccListener
@@ -3536,9 +3581,8 @@ WifiWorker.prototype = {
     }.bind(this);
     this.waitForScan(callback);
 
-    // TODO: set 2.4G only, should check if device support 5G
-    WifiScanSettings.bandMask = WifiScanSettings.BAND_2_4_GHZ;
     WifiManager.handleScanRequest(
+      true,
       function(ok) {
         // If the scan command succeeded, we're done.
         if (ok) {
@@ -3588,7 +3632,7 @@ WifiWorker.prototype = {
     self.waitForScan(waitForScanCallback);
     doScan();
     function doScan() {
-      WifiManager.handleScanRequest(function(ok) {
+      WifiManager.handleScanRequest(true, function(ok) {
         if (!ok) {
           if (!timer) {
             count = 0;
@@ -3833,10 +3877,6 @@ WifiWorker.prototype = {
     this.nextRequest();
   },
 
-  getWifiTetheringParameters(enable) {
-    return this.getWifiTetheringConfiguration(enable);
-  },
-
   fillWifiTetheringConfiguration(aConfig) {
     let config = {};
     let check = function(field, _default) {
@@ -3942,7 +3982,7 @@ WifiWorker.prototype = {
   },
 
   handleHotspotEnabled(enabled, callback) {
-    let configuration = this.getWifiTetheringParameters(enabled);
+    let configuration = this.getWifiTetheringConfiguration(enabled);
 
     if (!configuration) {
       debug("Invalid Wifi Tethering configuration.");
@@ -4058,18 +4098,44 @@ WifiWorker.prototype = {
     }
     let self = this;
     function networkReady() {
-      function makeConnection() {
+      let isHidden = network => {
+        return "scanSsid" in network && network.scanSsid;
+      };
+
+      let makeConnection = function(network) {
         WifiManager.loopDetectionCount = 0;
-        WifiConfigManager.updateLastSelectedNetwork(privnet.netId, function() {
-          WifiManager.connect(privnet, function(ok) {
+        WifiConfigManager.updateLastSelectedNetwork(network.netId, function() {
+          WifiManager.connect(network, function(ok) {
             self._sendMessage(message, ok, ok, msg);
           });
         });
+      };
+
+      function prepareForConnection() {
+        let callback = networks => {
+          for (let net of networks) {
+            if (networkKey == net.networkKey) {
+              makeConnection(privnet);
+              return;
+            }
+          }
+          self._sendMessage(message, false, "network not found", msg);
+        };
+
+        // Try to start a single scan if it is a hidden network.
+        // Otherwise, we could just make connection directly.
+        if (isHidden(privnet)) {
+          self.waitForScan(callback);
+          WifiManager.handleScanRequest(true, function() {});
+        } else {
+          makeConnection(privnet);
+        }
       }
+
       if (dontConnect) {
         self._sendMessage(message, true, "Wifi has been recorded", msg);
       } else {
-        makeConnection();
+        prepareForConnection();
       }
     }
 
@@ -4372,16 +4438,6 @@ WifiWorker.prototype = {
     const message = "WifiManager:getImportedCerts:Return";
     let self = this;
 
-    if (!WifiManager.enabled) {
-      this._sendMessage(message, false, "Wifi is disabled", msg);
-      return;
-    }
-
-    if (this._certNicknames.length == 0) {
-      this._sendMessage(message, true, "No wifi certificate imported", msg);
-      return;
-    }
-
     let importedCerts = {
       ServerCert: [],
       UserCert: [],
@@ -4392,19 +4448,29 @@ WifiWorker.prototype = {
       USERCERT: "UserCert",
     };
 
-    let filteredCerts = WifiManager.filterCert(this._certNicknames);
-    if (filteredCerts.length == 0) {
-      this._sendMessage(message, false, "Failed to get certificates", msg);
+    if (!WifiManager.enabled) {
+      this._sendMessage(message, false, "Wifi is disabled", msg);
       return;
     }
 
+    if (this._certNicknames.length == 0) {
+      this._sendMessage(message, true, importedCerts, msg);
+      return;
+    }
+
+    let nicknameList = [];
+    let filteredCerts = WifiManager.filterCert(this._certNicknames);
     for (let nickname of filteredCerts) {
       let certNickname = /WIFI\_([A-Z]*)\_(.*)/.exec(nickname);
       if (!certNickname) {
         continue;
       }
+      nicknameList.push(certNickname[2]);
       importedCerts[UsageMapping[certNickname[1]]].push(certNickname[2]);
     }
+
+    self._certNicknames = nicknameList.slice();
+    self.setSettings(SETTINGS_WIFI_CERT_NICKNAME, self._certNicknames);
 
     self._sendMessage(message, true, importedCerts, msg);
   },

@@ -2917,9 +2917,6 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
     // Double compared to Double
     Compare_Double,
 
-    Compare_DoubleMaybeCoerceLHS,
-    Compare_DoubleMaybeCoerceRHS,
-
     // Float compared to Float
     Compare_Float32,
 
@@ -2943,9 +2940,6 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
 
     // Wasm Ref/AnyRef/NullRef compared to Ref/AnyRef/NullRef
     Compare_RefOrNull,
-
-    // Compare 2 values bitwise
-    Compare_Bitwise,
 
     // All other possible compares
     Compare_Unknown
@@ -3004,11 +2998,7 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
            compareType() == Compare_Int32MaybeCoerceLHS ||
            compareType() == Compare_Int32MaybeCoerceRHS;
   }
-  bool isDoubleComparison() const {
-    return compareType() == Compare_Double ||
-           compareType() == Compare_DoubleMaybeCoerceLHS ||
-           compareType() == Compare_DoubleMaybeCoerceRHS;
-  }
+  bool isDoubleComparison() const { return compareType() == Compare_Double; }
   bool isFloat32Comparison() const { return compareType() == Compare_Float32; }
   bool isNumericComparison() const {
     return isInt32Comparison() || isDoubleComparison() || isFloat32Comparison();
@@ -3032,7 +3022,7 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
     if (compareType_ == Compare_Unknown) {
       return AliasSet::Store(AliasSet::Any);
     }
-    MOZ_ASSERT(compareType_ <= Compare_Bitwise);
+    MOZ_ASSERT(compareType_ <= Compare_RefOrNull);
     return AliasSet::None();
   }
 
@@ -3046,9 +3036,6 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
   bool needTruncation(TruncateKind kind) override;
   void truncate() override;
   TruncateKind operandTruncateKind(size_t index) const override;
-
-  static CompareType determineCompareType(JSOp op, MDefinition* left,
-                                          MDefinition* right);
 
 #ifdef DEBUG
   bool isConsistentFloat32Use(MUse* use) const override {
@@ -11673,6 +11660,22 @@ class MMaybeExtractAwaitValue : public MBinaryInstruction,
   INSTRUCTION_HEADER(MaybeExtractAwaitValue)
   TRIVIAL_NEW_WRAPPERS
   NAMED_OPERANDS((0, value), (1, canSkip))
+};
+
+class MIncrementWarmUpCounter : public MNullaryInstruction {
+ private:
+  JSScript* script_;
+
+  explicit MIncrementWarmUpCounter(JSScript* script)
+      : MNullaryInstruction(classOpcode), script_(script) {}
+
+ public:
+  INSTRUCTION_HEADER(IncrementWarmUpCounter)
+  TRIVIAL_NEW_WRAPPERS
+
+  JSScript* script() const { return script_; }
+
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
 };
 
 // Increase the warm-up counter of the provided script upon execution and test

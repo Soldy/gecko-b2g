@@ -323,6 +323,7 @@ var AlertsHelper = {
   showAppNotification(aMessage) {
     let data = aMessage.data;
     let details = data.details;
+    let dataObj = this.deserializeStructuredClone(details.data);
     let listener = {
       mm: aMessage.target,
       title: data.title,
@@ -353,7 +354,7 @@ var AlertsHelper = {
       data.uid,
       details.dir,
       details.lang,
-      details.data,
+      dataObj,
       details.origin,
       details.timestamp,
       details.requireInteraction,

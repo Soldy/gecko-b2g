@@ -19,7 +19,7 @@ mozilla::ipc::IPCResult VoicemailParent::Init() {
   if (mService && NS_SUCCEEDED(mService->RegisterListener(this))) {
     return IPC_OK();
   } else {
-    IPC_FAIL_NO_REASON(this);
+    return IPC_FAIL_NO_REASON(this);
   }
 }
 

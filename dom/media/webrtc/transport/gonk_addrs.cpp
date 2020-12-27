@@ -122,7 +122,6 @@ nsresult GetInterfaces(std::vector<NetworkInterface>* aInterfaces) {
 
 int nr_stun_get_addrs(nr_local_addr aAddrs[], int aMaxAddrs, int* aCount) {
   nsresult rv;
-  int r;
 
   // Get network interface list.
   std::vector<NetworkInterface> interfaces;

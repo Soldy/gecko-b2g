@@ -162,7 +162,7 @@ def runs_on_central(task):
     return match_run_on_projects("mozilla-central", task["run-on-projects"])
 
 
-def gv_e10s_multi_filter(task):
+def gv_e10s_filter(task):
     return get_mobile_project(task) == "geckoview" and task["e10s"]
 
 
@@ -175,24 +175,24 @@ def fission_filter(task):
 
 
 TEST_VARIANTS = {
-    "geckoview-e10s-multi": {
-        "description": "{description} with e10s-multi enabled",
-        "filterfn": gv_e10s_multi_filter,
+    "geckoview-e10s-single": {
+        "description": "{description} with single-process e10s",
+        "filterfn": gv_e10s_filter,
         "replace": {
             "run-on-projects": ["trunk"],
         },
-        "suffix": "e10s-multi",
+        "suffix": "e10s-single",
         "merge": {
             "mozharness": {
                 "extra-options": [
-                    "--setpref=dom.ipc.processCount=3",
+                    "--setpref=dom.ipc.processCount=1",
                 ],
             },
         },
     },
     "geckoview-fission": {
         "description": "{description} with fission enabled",
-        "filterfn": gv_e10s_multi_filter,
+        "filterfn": gv_e10s_filter,
         "suffix": "fis",
         "merge": {
             # Ensures the default state is to not run anywhere.
@@ -1764,6 +1764,11 @@ def set_worker_type(config, tasks):
                 task["worker-type"] = "t-bitbar-gw-unit-p2"
             else:
                 task["worker-type"] = "t-bitbar-gw-perf-p2"
+        elif test_platform.startswith("android-hw-s7"):
+            if task["suite"] != "raptor":
+                task["worker-type"] = "t-bitbar-gw-unit-s7"
+            else:
+                task["worker-type"] = "t-bitbar-gw-perf-s7"
         elif test_platform.startswith("android-em-7.0-x86") or test_platform.startswith(
             "gonk-b2g-em-x86_64"
         ):

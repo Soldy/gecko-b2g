@@ -94,7 +94,8 @@ class MtpWatcherUpdate final : public nsIObserver {
   }
 
   NS_IMETHOD
-  Observe(nsISupports* aSubject, const char* aTopic, const char16_t* aData) {
+  Observe(nsISupports* aSubject, const char* aTopic,
+          const char16_t* aData) override {
     MOZ_ASSERT(NS_IsMainThread());
 
     if (strcmp(aTopic, kMtpWatcherUpdate)) {

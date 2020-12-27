@@ -292,8 +292,11 @@ interface nsIApplicationUpdateService : nsISupports
   /**
    * Checks for available updates in the background using the listener provided
    * by the application update service for background checks.
+   * @returns true if the update check was started, false if not. Note that the
+   *          check starting does not necessarily mean that the check will
+   *          succeed or that an update will be downloaded.
    */
-  void checkForBackgroundUpdates();
+  bool checkForBackgroundUpdates();
 
   /**
    * The Update Checker used for background update checking.
@@ -332,12 +335,6 @@ interface nsIApplicationUpdateService : nsISupports
    *
    */
   bool downloadUpdate(in nsIUpdate update, in boolean background);
-
-  /**
-   * Get the Active Updates directory
-   * @returns An nsIFile for the active updates directory.
-   */
-  nsIFile getUpdatesDirectory();
 
   /**
    * Stop the active update download process. This is the equivalent of
@@ -481,10 +478,11 @@ interface nsIUpdateManager : nsISupports
 
   /**
    * The update that is currently downloading, or null if there isn't one.
-   * An update is considered to be downloading until after onStopRequest is
-   * called. This means that download listeners' onStopRequest handlers should
-   * use downloadingUpdate, but observers of the "update-downloaded" topic
-   * should use readyUpdate.
+   * An update is no longer considered to be downloading once onStopRequest is
+   * called. This means that both onStopRequest handlers for download listeners
+   * and observers of the "update-downloaded" topic should expect the update
+   * that was just downloaded to be stored in readyUpdate, not
+   * downloadingUpdate.
    */
   attribute nsIUpdate downloadingUpdate;
 

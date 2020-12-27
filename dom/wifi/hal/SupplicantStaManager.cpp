@@ -543,7 +543,7 @@ android::sp<SupplicantStaNetwork> SupplicantStaManager::CreateStaNetwork() {
 }
 
 android::sp<SupplicantStaNetwork> SupplicantStaManager::GetStaNetwork(
-    uint32_t aNetId) {
+    uint32_t aNetId) const {
   if (mSupplicantStaIface == nullptr) {
     return nullptr;
   }
@@ -567,7 +567,8 @@ android::sp<SupplicantStaNetwork> SupplicantStaManager::GetStaNetwork(
   return new SupplicantStaNetwork(mInterfaceName, mCallback, staNetwork);
 }
 
-android::sp<SupplicantStaNetwork> SupplicantStaManager::GetCurrentNetwork() {
+android::sp<SupplicantStaNetwork> SupplicantStaManager::GetCurrentNetwork()
+    const {
   std::unordered_map<std::string,
                      android::sp<SupplicantStaNetwork>>::const_iterator found =
       mCurrentNetwork.find(mInterfaceName);
@@ -577,13 +578,17 @@ android::sp<SupplicantStaNetwork> SupplicantStaManager::GetCurrentNetwork() {
   return mCurrentNetwork.at(mInterfaceName);
 }
 
-NetworkConfiguration SupplicantStaManager::GetCurrentConfiguration() {
+NetworkConfiguration SupplicantStaManager::GetCurrentConfiguration() const {
   std::unordered_map<std::string, NetworkConfiguration>::const_iterator config =
       mCurrentConfiguration.find(mInterfaceName);
   if (config == mCurrentConfiguration.end()) {
     return NetworkConfiguration();
   }
   return mCurrentConfiguration.at(mInterfaceName);
+}
+
+int32_t SupplicantStaManager::GetCurrentNetworkId() const {
+  return GetCurrentConfiguration().mNetworkId;
 }
 
 bool SupplicantStaManager::IsCurrentEapNetwork() {

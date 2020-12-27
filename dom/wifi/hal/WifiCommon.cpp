@@ -36,10 +36,9 @@ std::string ConvertMacToString(const T& mac) {
 template <typename T>
 std::string ConvertByteArrayToHexString(const T& in) {
   std::string out;
-  uint32_t index;
   const char hexChar[] = "0123456789ABCDEF";
 
-  for (int32_t i = 0; i < in.size(); i++) {
+  for (size_t i = 0; i < in.size(); i++) {
     uint8_t byte = in[i];
     out.push_back(hexChar[(byte >> 4) & 0x0F]);
     out.push_back(hexChar[byte & 0x0F]);

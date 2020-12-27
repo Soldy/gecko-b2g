@@ -776,7 +776,7 @@ fn public_audio_amrnb() {
             mp4::SampleEntry::Audio(ref v) => v,
             _ => panic!("expected a AudioSampleEntry"),
         };
-        assert_eq!(a.codec_type, mp4::CodecType::AMR);
+        assert!((a.codec_type == mp4::CodecType::AMRNB) || (a.codec_type == mp4::CodecType::AMRWB));
         let _codec_specific = match a.codec_specific {
             mp4::AudioCodecSpecific::AMRSpecificBox(_) => true,
             _ => {

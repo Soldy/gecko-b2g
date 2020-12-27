@@ -790,6 +790,9 @@ void BluetoothOppManager::RetrieveSentFileName() {
   RefPtr<File> file = blob.get() ? blob.get()->ToFile() : nullptr;
   if (file) {
     file->GetName(mFileName);
+  } else if (mBlob) {
+    // If the Blob can't be converted to File, use blob name as filename
+    mBlob->GetName(mFileName);
   }
 
   /**

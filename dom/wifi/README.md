@@ -24,7 +24,7 @@ WifiNetwork {
   attribute DOMString? psk;
   attribute DOMString? wep;
   attribute long? keyIndex;
-  attribute long? scanSsid;
+  attribute boolean? scanSsid;
   attribute DOMString? identity;
   attribute DOMString? password;
   attribute DOMString? authAlg;
@@ -118,7 +118,7 @@ navigator.b2g.wifiManager.associate(new window.WifiNetwork(net));
 var net = {
     ssid: "KaiOS",
     security: "WPA-EAP",
-    eap: "SIM" // "AKA", "AKA_PRIME"
+    eap: "SIM" // "AKA", "AKA'"
 };
 navigator.b2g.wifiManager.associate(new window.WifiNetwork(net));
 ```

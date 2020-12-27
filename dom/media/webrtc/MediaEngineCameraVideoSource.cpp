@@ -66,9 +66,9 @@ Maybe<VideoFacingModeEnum> MediaEngineCameraVideoSource::GetFacingMode(
 
 MediaEngineCameraVideoSource::MediaEngineCameraVideoSource(
     camera::CaptureEngine aCapEngine)
-    : mCapEngine(aCapEngine),
-      mSettingsUpdatedByFrame(MakeAndAddRef<media::Refcountable<AtomicBool>>()),
+    : mSettingsUpdatedByFrame(MakeAndAddRef<media::Refcountable<AtomicBool>>()),
       mSettings(MakeAndAddRef<media::Refcountable<MediaTrackSettings>>()),
+      mCapEngine(aCapEngine),
       mFirstFramePromise(mFirstFramePromiseHolder.Ensure(__func__)) {}
 
 MediaEngineCameraVideoSource::~MediaEngineCameraVideoSource() {

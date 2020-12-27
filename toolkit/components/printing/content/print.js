@@ -1693,6 +1693,7 @@ class CopiesInput extends PrintUIControlMixin(HTMLInputElement) {
 
     if (e.type === "paste") {
       this.handlePaste(e);
+      return;
     }
 
     if (this.checkValidity()) {
@@ -1901,6 +1902,7 @@ class ScaleInput extends PrintUIControlMixin(HTMLElement) {
 
     if (e.type === "paste") {
       this.handlePaste(e);
+      return;
     }
 
     if (e.target == this._shrinkToFitChoice || e.target == this._scaleChoice) {
@@ -2155,6 +2157,7 @@ class PageRangeInput extends PrintUIControlMixin(HTMLElement) {
 
     if (e.type === "paste" && e.target == this._rangeInput) {
       this.handlePaste(e);
+      return;
     }
 
     if (e.type == "page-count") {
@@ -2325,6 +2328,7 @@ class MarginsPicker extends PrintUIControlMixin(HTMLElement) {
 
     if (e.type === "paste") {
       this.handlePaste(e);
+      return;
     }
 
     if (e.target == this._marginPicker) {

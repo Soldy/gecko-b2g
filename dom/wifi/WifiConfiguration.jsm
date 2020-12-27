@@ -319,7 +319,6 @@ this.WifiConfigUtils = (function() {
     // | AKM Suite Count | AKM Suite List |
     //          2               4 * n
     let pos = 0;
-    byte2Int(buf, pos, 4, LITTLE_ENDIAN);
     let version = byte2Int(buf, pos, 2, LITTLE_ENDIAN);
     if (version != WPA_VENDOR_OUI_VERSION) {
       return;

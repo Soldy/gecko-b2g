@@ -16,10 +16,11 @@ this.OpenNetworkNotifier = (function() {
   // For at Least scans before showing notification.
   const MIN_NUMBER_SCANS_BEFORE_SHOW_NOTIFICATION = 3;
   const NOTIFICATION_REPEAT_DELAY_MS = 900 * 1000;
-  var settingsEnabled = true;
+  var settingsEnabled = false;
   var notificationRepeatTime = 0;
   var numScansSinceNetworkStateChange = 0;
 
+  openNetworkNotifier.isEnabled = isEnabled;
   openNetworkNotifier.setOpenNetworkNotifyEnabled = setOpenNetworkNotifyEnabled;
   openNetworkNotifier.handleOpenNetworkFound = handleOpenNetworkFound;
   openNetworkNotifier.clearPendingNotification = clearPendingNotification;
@@ -33,6 +34,10 @@ this.OpenNetworkNotifier = (function() {
     if (gDebug) {
       dump("-*- OpenNetworkNotifier: " + aMsg);
     }
+  }
+
+  function isEnabled() {
+    return settingsEnabled;
   }
 
   function setOpenNetworkNotifyEnabled(enable) {
