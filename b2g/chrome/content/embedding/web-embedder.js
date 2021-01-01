@@ -363,6 +363,7 @@ XPCOMUtils.defineLazyServiceGetter(
             voiceInputSupported: subject.voiceInputSupported,
             name: subject.name,
             choices: subject.choices,
+            maxLength: subject.maxLength,
             activeEditable: new EditableSupport(subject.editableSupport),
           };
         }

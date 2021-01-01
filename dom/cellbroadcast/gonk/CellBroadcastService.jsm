@@ -100,8 +100,7 @@ function CellBroadcastService() {
       Services.prefs.getBoolPref(kPrefAppCBConfigurationEnabled) || false;
   } catch (e) {}
 
-  // TODO renable it when nsISetting get ready.
-  if (CB_SEARCH_LIST_GECKO_CONFIG && false) {
+  if (CB_SEARCH_LIST_GECKO_CONFIG) {
     /**
      * Read the settings of the toggle of Cellbroadcast Service:
      *
@@ -613,14 +612,18 @@ CellBroadcastService.prototype = {
     }
 
     if (gSettingsManager) {
-      this.debug("get " + aKey + " setting.");
+      if (DEBUG) {
+        debug("get " + aKey + " setting.");
+      }
       let self = this;
       gSettingsManager.get(aKey, {
         resolve: info => {
           self.observeSetting(info);
         },
         reject: () => {
-          self.debug("get " + aKey + " failed.");
+          if (DEBUG) {
+            debug("get " + aKey + " failed.");
+          }
         },
       });
     }
@@ -632,16 +635,21 @@ CellBroadcastService.prototype = {
     }
 
     if (gSettingsManager) {
-      this.debug(
-        "set " + aKey + " setting with value = " + JSON.stringify(aValue)
-      );
-      let self = this;
+      if (DEBUG) {
+        debug(
+          "set " + aKey + " setting with value = " + JSON.stringify(aValue)
+        );
+      }
       gSettingsManager.set([{ name: aKey, value: JSON.stringify(aValue) }], {
         resolve: () => {
-          self.debug(" Set " + aKey + " succedded. ");
+          if (DEBUG) {
+            debug(" Set " + aKey + " succedded. ");
+          }
         },
         reject: () => {
-          self.debug("Set " + aKey + " failed.");
+          if (DEBUG) {
+            debug("Set " + aKey + " failed.");
+          }
         },
       });
     }
@@ -654,14 +662,19 @@ CellBroadcastService.prototype = {
     }
 
     if (gSettingsManager) {
-      this.debug("add " + aKey + " setting observer.");
-      let self = this;
+      if (DEBUG) {
+        debug("add " + aKey + " setting observer.");
+      }
       gSettingsManager.addObserver(aKey, this, {
         resolve: () => {
-          self.debug("observed " + aKey + " successed.");
+          if (DEBUG) {
+            debug("observed " + aKey + " successed.");
+          }
         },
         reject: () => {
-          self.debug("observed " + aKey + " failed.");
+          if (DEBUG) {
+            debug("observed " + aKey + " failed.");
+          }
         },
       });
     }
@@ -673,14 +686,19 @@ CellBroadcastService.prototype = {
     }
 
     if (gSettingsManager) {
-      this.debug("remove " + aKey + " setting observer.");
-      let self = this;
+      if (DEBUG) {
+        debug("remove " + aKey + " setting observer.");
+      }
       gSettingsManager.removeObserver(aKey, this, {
         resolve: () => {
-          self.debug("remove observer " + aKey + " successed.");
+          if (DEBUG) {
+            debug("remove observer " + aKey + " successed.");
+          }
         },
         reject: () => {
-          self.debug("remove observer " + aKey + " failed.");
+          if (DEBUG) {
+            debug("remove observer " + aKey + " failed.");
+          }
         },
       });
     }

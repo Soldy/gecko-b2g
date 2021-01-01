@@ -9,6 +9,7 @@
 
 #include "mozilla/dom/PKeyboardEventForwarderParent.h"
 #include "nsIKeyboardAppProxy.h"
+#include "nsWeakReference.h"
 
 namespace mozilla {
 namespace dom {
@@ -16,7 +17,8 @@ namespace dom {
 using mozilla::ipc::IPCResult;
 
 class KeyboardEventForwarderParent final : public PKeyboardEventForwarderParent,
-                                           public nsIKeyboardEventForwarder {
+                                           public nsIKeyboardEventForwarder,
+                                           public nsSupportsWeakReference {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIKEYBOARDEVENTFORWARDER

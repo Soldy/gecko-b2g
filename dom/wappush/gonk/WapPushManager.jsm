@@ -4,49 +4,67 @@
 
 "use strict";
 
-var {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
+);
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
-//Cu.import("resource://gre/modules/PhoneNumberUtils.jsm");
-Cu.import("resource://gre/modules/WspPduHelper.jsm", this);
+var WAP_CONSTS = ChromeUtils.import("resource://gre/modules/wap_consts.js");
 
-const DEBUG = true; // set to true to see debug messages
+const DEBUG = false; // set to true to see debug messages
 const kWapSuplInitObserverTopic = "wap-supl-init";
 
 /**
  * WAP Push decoders
  */
-XPCOMUtils.defineLazyGetter(this, "SI", function () {
+XPCOMUtils.defineLazyGetter(this, "SI", function() {
   let SI = {};
-  Cu.import("resource://gre/modules/SiPduHelper.jsm", SI);
+  ChromeUtils.import("resource://gre/modules/SiPduHelper.jsm", SI);
   return SI;
 });
 
-XPCOMUtils.defineLazyGetter(this, "SL", function () {
+XPCOMUtils.defineLazyGetter(this, "SL", function() {
   let SL = {};
-  Cu.import("resource://gre/modules/SlPduHelper.jsm", SL);
+  ChromeUtils.import("resource://gre/modules/SlPduHelper.jsm", SL);
   return SL;
 });
 
-XPCOMUtils.defineLazyGetter(this, "CP", function () {
+XPCOMUtils.defineLazyGetter(this, "CP", function() {
   let CP = {};
-  Cu.import("resource://gre/modules/CpPduHelper.jsm", CP);
+  ChromeUtils.import("resource://gre/modules/CpPduHelper.jsm", CP);
   return CP;
 });
 
-XPCOMUtils.defineLazyServiceGetter(this, "gSystemMessenger",
-                                   "@mozilla.org/system-message-internal;1",
-                                   "nsISystemMessagesInternal");
-XPCOMUtils.defineLazyServiceGetter(this, "gIccService",
-                                   "@mozilla.org/icc/iccservice;1",
-                                   "nsIIccService");
+XPCOMUtils.defineLazyGetter(this, "WSP", function() {
+  let WSP = {};
+  ChromeUtils.import("resource://gre/modules/WspPduHelper.jsm", WSP);
+  return WSP;
+});
+
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gSystemMessenger",
+  "@mozilla.org/system-message-internal;1",
+  "nsISystemMessagesInternal"
+);
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gIccService",
+  "@mozilla.org/icc/iccservice;1",
+  "nsIIccService"
+);
+
+XPCOMUtils.defineLazyModuleGetter(
+  this,
+  "gPhoneNumberUtils",
+  "resource://gre/modules/PhoneNumberUtils.jsm",
+  "PhoneNumberUtils"
+);
 
 /**
  * Helpers for WAP PDU processing.
  */
 this.WapPushManager = {
-
   /**
    * Parse raw PDU data and deliver to a proper target.
    *
@@ -57,7 +75,7 @@ this.WapPushManager = {
    */
   processMessage: function processMessage(data, options) {
     try {
-      PduHelper.parse(data, true, options);
+      WSP.PduHelper.parse(data, true, options);
       debug("options: " + JSON.stringify(options));
     } catch (ex) {
       debug("Failed to parse sessionless WSP PDU: " + ex.message);
@@ -69,82 +87,92 @@ this.WapPushManager = {
     // http://technical.openmobilealliance.org/tech/affiliates/wap/wap-235-pushota-20010425-a.pdf
 
     /**
-    *
-    * WAP Type            content-type                              x-wap-application-id
-    * MMS                 "application/vnd.wap.mms-message"         "x-wap-application:mms.ua"
-    * SI                  "text/vnd.wap.si"                         "x-wap-application:wml.ua"
-    * SI(WBXML)           "application/vnd.wap.sic"                 "x-wap-application:wml.ua"
-    * SL                  "text/vnd.wap.sl"                         "x-wap-application:wml.ua"
-    * SL(WBXML)           "application/vnd.wap.slc"                 "x-wap-application:wml.ua"
-    * Provisioning        "text/vnd.wap.connectivity-xml"           "x-wap-application:wml.ua"
-    * Provisioning(WBXML) "application/vnd.wap.connectivity-wbxml"  "x-wap-application:wml.ua"
-    * SUPL INIT           "application/vnd.omaloc-supl-init"        "x-oma-application:ulp.ua"
-    *
-    * @see http://technical.openmobilealliance.org/tech/omna/omna-wsp-content-type.aspx
-    */
+     *
+     * WAP Type            content-type                              x-wap-application-id
+     * MMS                 "application/vnd.wap.mms-message"         "x-wap-application:mms.ua"
+     * SI                  "text/vnd.wap.si"                         "x-wap-application:wml.ua"
+     * SI(WBXML)           "application/vnd.wap.sic"                 "x-wap-application:wml.ua"
+     * SL                  "text/vnd.wap.sl"                         "x-wap-application:wml.ua"
+     * SL(WBXML)           "application/vnd.wap.slc"                 "x-wap-application:wml.ua"
+     * Provisioning        "text/vnd.wap.connectivity-xml"           "x-wap-application:wml.ua"
+     * Provisioning(WBXML) "application/vnd.wap.connectivity-wbxml"  "x-wap-application:wml.ua"
+     * SUPL INIT           "application/vnd.omaloc-supl-init"        "x-oma-application:ulp.ua"
+     *
+     * @see http://technical.openmobilealliance.org/tech/omna/omna-wsp-content-type.aspx
+     */
     let contentType = options.headers["content-type"].media;
     let msg;
     let authInfo = null;
     if (contentType === "application/vnd.wap.mms-message") {
-      let mmsService = Cc["@mozilla.org/mms/gonkmmsservice;1"]
-                       .getService(Ci.nsIMmsService);
-      mmsService.QueryInterface(Ci.nsIWapPushApplication)
-                .receiveWapPush(data.array, data.array.length, data.offset, options);
+      let mmsService = Cc["@mozilla.org/mms/gonkmmsservice;1"].getService(
+        Ci.nsIMmsService
+      );
+      mmsService
+        .QueryInterface(Ci.nsIWapPushApplication)
+        .receiveWapPush(data.array, data.array.length, data.offset, options);
       return;
-    } else if (contentType === "text/vnd.wap.si" ||
-        contentType === "application/vnd.wap.sic") {
+    } else if (
+      contentType === "text/vnd.wap.si" ||
+      contentType === "application/vnd.wap.sic"
+    ) {
       msg = SI.PduHelper.parse(data, contentType);
-    } else if (contentType === "text/vnd.wap.sl" ||
-               contentType === "application/vnd.wap.slc") {
+    } else if (
+      contentType === "text/vnd.wap.sl" ||
+      contentType === "application/vnd.wap.slc"
+    ) {
       msg = SL.PduHelper.parse(data, contentType);
-    } else if (contentType === "text/vnd.wap.connectivity-xml" ||
-               contentType === "application/vnd.wap.connectivity-wbxml") {
+    } else if (
+      contentType === "text/vnd.wap.connectivity-xml" ||
+      contentType === "application/vnd.wap.connectivity-wbxml"
+    ) {
       // Apply HMAC authentication on WBXML encoded CP message.
       if (contentType === "application/vnd.wap.connectivity-wbxml") {
         let params = options.headers["content-type"].params;
         let sec = params && params.sec;
         let mac = params && params.mac;
         let octets = new Uint8Array(data.array);
-        authInfo = CP.Authenticator.check(octets.subarray(data.offset),
-                                          sec, mac, function getNetworkPin() {
-          let icc = gIccService.getIccByServiceId(options.serviceId);
-          let imsi = icc ? icc.imsi : null;
-          return CP.Authenticator.formatImsi(imsi);
-        });
+        authInfo = CP.Authenticator.check(
+          octets.subarray(data.offset),
+          sec,
+          mac,
+          function getNetworkPin() {
+            let icc = gIccService.getIccByServiceId(options.serviceId);
+            let imsi = icc ? icc.imsi : null;
+            return CP.Authenticator.formatImsi(imsi);
+          }
+        );
       }
 
       msg = CP.PduHelper.parse(data, contentType);
     } else if (contentType === "application/vnd.omaloc-supl-init") {
       let content = data.array.slice(data.offset);
       msg = {
-        contentType: contentType,
-        content: content
+        contentType,
+        content,
       };
       Services.obs.notifyObservers(msg, kWapSuplInitObserverTopic, content);
       return;
     } else {
       // Unsupported type, provide raw data.
       msg = {
-        contentType: contentType,
-        content: data.array
+        contentType,
+        content: data.array,
       };
       msg.content.length = data.array.length;
     }
 
-    //FIXME
-    //let sender = PhoneNumberUtils.normalize(options.sourceAddress, false);
+    let sender = gPhoneNumberUtils.normalize(options.sourceAddress, false);
     //let parsedSender = PhoneNumberUtils.parse(sender);
     //if (parsedSender && parsedSender.internationalNumber) {
     //  sender = parsedSender.internationalNumber;
     //}
-    let sender = options.sourceAddress;
 
     gSystemMessenger.broadcastMessage("wappush-received", {
-      sender:         sender,
-      contentType:    msg.contentType,
-      content:        msg.content,
-      authInfo:       authInfo,
-      serviceId:      options.serviceId
+      sender,
+      contentType: msg.contentType,
+      content: msg.content,
+      authInfo,
+      serviceId: options.serviceId,
     });
   },
 
@@ -159,31 +187,29 @@ this.WapPushManager = {
    *        WDP bearer information.
    */
   receiveWdpPDU: function receiveWdpPDU(array, length, offset, options) {
-    if ((options.bearer == null) || !options.sourceAddress
-        || (options.sourcePort == null) || !array) {
+    if (
+      options.bearer == null ||
+      !options.sourceAddress ||
+      options.sourcePort == null ||
+      !array
+    ) {
       debug("Incomplete WDP PDU");
       return;
     }
 
-    if (options.destinationPort != WDP_PORT_PUSH) {
+    if (options.destinationPort != WAP_CONSTS.WDP_PORT_PUSH) {
       debug("Not WAP Push port: " + options.destinationPort);
       return;
     }
 
-    this.processMessage({array: array, offset: offset}, options);
+    this.processMessage({ array, offset }, options);
   },
 };
 
-var debug;
-if (DEBUG) {
-  debug = function (s) {
+function debug(s) {
+  if (DEBUG) {
     dump("-*- WapPushManager: " + s + "\n");
-  };
-} else {
-  debug = function (s) {};
+  }
 }
 
-this.EXPORTED_SYMBOLS = ALL_CONST_SYMBOLS.concat([
-  "WapPushManager",
-]);
-
+this.EXPORTED_SYMBOLS = ["WapPushManager"];

@@ -67,7 +67,7 @@ var RILQUIRKS_SMSC_ADDRESS_FORMAT;
 /* true : controlled by customization which is controlled by mcc-mnc.json.
  * false: controlled by setting "ril.cellbroadcast.searchlist" which is loaded from apn.json
  */
-var RILQUIRKS_APP_CB_LIST;
+const kPrefAppCBConfigurationEnabled = "dom.app_cb_configuration";
 
 if (!this.debug) {
   // Debugging stub that goes nowhere.
@@ -4910,20 +4910,29 @@ SimRecordHelperObject.prototype = {
         this.context.debug("CFIS: CFIS is not available");
       }
 
-      if (RILQUIRKS_APP_CB_LIST) {
+      if (Services.prefs.getBoolPref(kPrefAppCBConfigurationEnabled)) {
         if (ICCUtilsHelper.isICCServiceAvailable("CBMI")) {
           this.readCBMI();
         } else {
+          if (DEBUG) {
+            this.context.debug("CBMI: CBMI is not available");
+          }
           RIL.cellBroadcastConfigs.CBMI = null;
         }
         if (ICCUtilsHelper.isICCServiceAvailable("DATA_DOWNLOAD_SMS_CB")) {
           this.readCBMID();
         } else {
+          if (DEBUG) {
+            this.context.debug("CBMID: CBMID is not available");
+          }
           RIL.cellBroadcastConfigs.CBMID = null;
         }
         if (ICCUtilsHelper.isICCServiceAvailable("CBMIR")) {
           this.readCBMIR();
         } else {
+          if (DEBUG) {
+            this.context.debug("CBMIR: CBMIR is not available");
+          }
           RIL.cellBroadcastConfigs.CBMIR = null;
         }
       }

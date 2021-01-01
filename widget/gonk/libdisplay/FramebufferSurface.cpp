@@ -193,6 +193,8 @@ void FramebufferSurface::presentLocked(const int slot,
   // layer->setBuffer(slot, buffer, acquireFence);
   // this line is used to avoid unused variable layer warning.
   (void)layer;
+  struct timeval tv1, tv2, delta;
+  gettimeofday(&tv1, nullptr);
   if (mExtFBDevice) {
     if (acquireFence.get() && acquireFence->isValid()) {
       android::sp<Fence> fenceObj = new Fence(acquireFence->dup());
@@ -229,6 +231,13 @@ void FramebufferSurface::presentLocked(const int slot,
   }
 
 FrameCommitted:
+  gettimeofday(&tv2, nullptr);
+  timersub(&tv2, &tv1, &delta);
+  long usec = delta.tv_sec * 1000000 + delta.tv_usec;
+  if (usec > 1000000) {  // show warning if delta is more than 1s.
+    ALOGW("Frame delay is %ld us on %s", usec,
+      mExtFBDevice? "Ext Screen" : "Primary Screen");
+  }
   onFrameCommitted();
 }
 

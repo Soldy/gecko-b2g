@@ -25,6 +25,7 @@ void CarryIntoInputContext(nsIEditableSupport* aEditableSupport,
   aInputContext->SetName(aRequest.name());
   aInputContext->SetSelectionStart(aRequest.selectionStart());
   aInputContext->SetSelectionEnd(aRequest.selectionEnd());
+  aInputContext->SetMaxLength(aRequest.maxLength());
 
   IME_LOGD("HandleFocusRequest: type:[%s]",
            NS_ConvertUTF16toUTF8(aRequest.type()).get());
@@ -47,6 +48,8 @@ void CarryIntoInputContext(nsIEditableSupport* aEditableSupport,
   IME_LOGD("HandleFocusRequest: selectionStart:[%lu]",
            aRequest.selectionStart());
   IME_LOGD("HandleFocusRequest: selectionEnd:[%lu]", aRequest.selectionEnd());
+  IME_LOGD("HandleFocusRequest: maxLength:[%s]",
+           NS_ConvertUTF16toUTF8(aRequest.maxLength()).get());
 
   RefPtr<nsInputContextChoices> inputContextChoices =
       new nsInputContextChoices();

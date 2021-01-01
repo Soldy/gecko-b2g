@@ -131,7 +131,7 @@ static uint32_t encodeToPng(FILE *dstFp, uint32_t w, uint32_t h,
             png_write_row(png_ptr, row_pointer);
         }
 
-        if (!row_pointer) {
+        if (row_pointer) {
             free(row_pointer);
         }
     // RGBA8888: encode to png directly.

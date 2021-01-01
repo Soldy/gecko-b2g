@@ -76,7 +76,7 @@ bool WifiNative::ExecuteCommand(CommandOptions& aOptions, nsWifiResult* aResult,
   } else if (aOptions.mCmd == nsIWifiCommand::SET_BT_COEXIST_SCAN_MODE) {
     aResult->mStatus = SetBtCoexistenceScanMode(aOptions.mEnabled);
   } else if (aOptions.mCmd == nsIWifiCommand::GET_LINK_LAYER_STATS) {
-    wifiNameSpaceV1_0::StaLinkLayerStats stats;
+    wifiNameSpaceV1_3::StaLinkLayerStats stats;
     aResult->mStatus = GetLinkLayerStats(stats);
 
     RefPtr<nsLinkLayerStats> linkLayerStats = new nsLinkLayerStats(
@@ -102,15 +102,15 @@ bool WifiNative::ExecuteCommand(CommandOptions& aOptions, nsWifiResult* aResult,
     nsTArray<RefPtr<nsLinkLayerRadioStats>> radios(numRadio);
 
     for (auto& radio : stats.radios) {
-      size_t numTxTime = radio.txTimeInMsPerLevel.size();
+      size_t numTxTime = radio.V1_0.txTimeInMsPerLevel.size();
       nsTArray<uint32_t> txTimeInMsPerLevel(numTxTime);
 
-      for (auto& txTime : radio.txTimeInMsPerLevel) {
+      for (auto& txTime : radio.V1_0.txTimeInMsPerLevel) {
         txTimeInMsPerLevel.AppendElement(txTime);
       }
       RefPtr<nsLinkLayerRadioStats> radioStats = new nsLinkLayerRadioStats(
-          radio.onTimeInMs, radio.txTimeInMs, radio.rxTimeInMs,
-          radio.onTimeInMsForScan, txTimeInMsPerLevel);
+          radio.V1_0.onTimeInMs, radio.V1_0.txTimeInMs, radio.V1_0.rxTimeInMs,
+          radio.V1_0.onTimeInMsForScan, txTimeInMsPerLevel);
       radios.AppendElement(radioStats);
     }
 
@@ -539,7 +539,7 @@ Result_t WifiNative::SignalPoll(std::vector<int32_t>& aPollResult) {
 }
 
 Result_t WifiNative::GetLinkLayerStats(
-    wifiNameSpaceV1_0::StaLinkLayerStats& aStats) {
+    wifiNameSpaceV1_3::StaLinkLayerStats& aStats) {
   return sWifiHal->GetLinkLayerStats(aStats);
 }
 

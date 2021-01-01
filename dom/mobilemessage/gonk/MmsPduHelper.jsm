@@ -740,12 +740,8 @@ this.EncodedStringValue = {
       if (!raw) {
         str = "";
       } else {
-        let conv = Cc[
-          "@mozilla.org/intl/scriptableunicodeconverter"
-        ].createInstance(Ci.nsIScriptableUnicodeConverter);
-        conv.charset = entry.converter;
         try {
-          str = conv.convertFromByteArray(raw, raw.length);
+          str = new TextDecoder(entry.name).decode(raw);
         } catch (e) {
           throw new WSP.CodeError("Charset-encoded-string: " + e.message);
         }
@@ -786,17 +782,10 @@ this.EncodedStringValue = {
    *        A string.
    */
   encodeCharsetEncodedString(data, str) {
-    let conv = Cc[
-      "@mozilla.org/intl/scriptableunicodeconverter"
-    ].createInstance(Ci.nsIScriptableUnicodeConverter);
-    // `When the text string cannot be represented as us-ascii, the character
-    // set SHALL be encoded as utf-8(IANA MIBenum 106) which has unique byte
-    // ordering.` ~ OMA-TS-MMS_CONF-V1_3-20110913-A clause 10.2.1
-    conv.charset = "UTF-8";
 
     let raw;
     try {
-      raw = conv.convertToByteArray(str);
+      raw = new TextEncoder("utf-8").encode(str)
     } catch (e) {
       throw new WSP.CodeError("Charset-encoded-string: " + e.message);
     }

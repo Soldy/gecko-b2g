@@ -301,19 +301,19 @@ struct RoamingConfigurationOptions {
 
   explicit RoamingConfigurationOptions(
       const mozilla::dom::RoamingConfiguration& aOther) {
-    COPY_SEQUENCE_FIELD(mBssidBlacklist, nsString)
-    COPY_SEQUENCE_FIELD(mSsidWhitelist, nsString) {}
+    COPY_SEQUENCE_FIELD(mBssidDenylist, nsString)
+    COPY_SEQUENCE_FIELD(mSsidAllowlist, nsString) {}
   }
 
   RoamingConfigurationOptions Clone() const {
     auto other = RoamingConfigurationOptions();
-    other.mBssidBlacklist = mBssidBlacklist.Clone();
-    other.mSsidWhitelist = mSsidWhitelist.Clone();
+    other.mBssidDenylist = mBssidDenylist.Clone();
+    other.mSsidAllowlist = mSsidAllowlist.Clone();
     return other;
   }
 
-  nsTArray<nsString> mBssidBlacklist;
-  nsTArray<nsString> mSsidWhitelist;
+  nsTArray<nsString> mBssidDenylist;
+  nsTArray<nsString> mSsidAllowlist;
 };
 
 struct SimIdentityRespDataOptions {

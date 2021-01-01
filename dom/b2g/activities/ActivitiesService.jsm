@@ -241,6 +241,7 @@ var Activities = {
     }, this);
 
     Services.obs.addObserver(this, "xpcom-shutdown");
+    Services.obs.addObserver(this, "service-worker-shutdown");
 
     this.db = new ActivitiesDb();
     this.db.init();
@@ -249,16 +250,41 @@ var Activities = {
   },
 
   observe: function activities_observe(aSubject, aTopic, aData) {
-    this.messages.forEach(function(msgName) {
-      Services.ppmm.removeMessageListener(msgName, this);
-    }, this);
+    switch (aTopic) {
+      case "xpcom-shutdown":
+        this.messages.forEach(function(msgName) {
+          Services.ppmm.removeMessageListener(msgName, this);
+        }, this);
 
-    if (this.db) {
-      this.db.close();
-      this.db = null;
+        if (this.db) {
+          this.db.close();
+          this.db = null;
+        }
+
+        Services.obs.removeObserver(this, "xpcom-shutdown");
+        Services.obs.removeObserver(this, "service-worker-shutdown");
+        break;
+      case "service-worker-shutdown":
+        let origin = Services.io.newURI(aData).prePath;
+        debug("ServiceWorker service-worker-shutdown origin=" + origin);
+        let messages = [];
+        for (const [key, value] of Object.entries(this.callers)) {
+          if (value.handlerOrigin == origin) {
+            debug(
+              "ServiceWorker found " + key + " handler=" + value.handlerOrigin
+            );
+            messages.push(key);
+          }
+        }
+        let self = this;
+        messages.forEach(function(id) {
+          self.trySendAndCleanup(id, "Activity:FireError", {
+            id,
+            error: "service worker shutdown error",
+          });
+        });
+        break;
     }
-
-    Services.obs.removeObserver(this, "xpcom-shutdown");
   },
 
   /**
@@ -319,6 +345,8 @@ var Activities = {
         };
         let origin = Services.io.newURI(result.manifest).prePath;
         debug("Sending system message to " + origin);
+        self.callers[aMsg.id].handlerOrigin = origin;
+
         try {
           sysmm.sendMessage(
             "activity",
@@ -490,6 +518,12 @@ var Activities = {
       case "child-process-shutdown":
         for (let id in this.callers) {
           if (this.callers[id].childMM == mm) {
+            debug(
+              "child-process-shutdown caller=" +
+                this.callers[id].pageURL +
+                " handler=" +
+                this.callers[id].handlerOrigin
+            );
             this.trySendAndCleanup(id, "Activity:FireError", {
               id,
               error: "PROCESS_SHUTDOWN",
@@ -538,6 +572,7 @@ var Activities = {
       "activity-closed",
       this.callers[id].childID
     );
+    debug("removeCaller " + id + " handler=" + this.callers[id].handlerOrigin);
     delete this.callers[id];
   },
 };

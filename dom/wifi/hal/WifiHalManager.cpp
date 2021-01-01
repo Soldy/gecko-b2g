@@ -347,20 +347,46 @@ Result_t WifiHal::ConfigChipAndCreateIface(
 Result_t WifiHal::EnableLinkLayerStats() {
   WifiStatus response;
   bool debugEnabled = false;
-  HIDL_SET(mStaIface, enableLinkLayerStatsCollection, WifiStatus, response,
+
+  if ((mCapabilities & nsIWifiResult::FEATURE_LINK_LAYER_STATS) == 0) {
+    WIFI_LOGE(LOG_TAG, "FEATURE_LINK_LAYER_STATS is not supported");
+    return nsIWifiResult::ERROR_NOT_SUPPORTED;
+  }
+
+  android::sp<wifiNameSpaceV1_3::IWifiStaIface> ifaceV1_3 =
+      GetWifiStaIfaceV1_3();
+  if (ifaceV1_3 == nullptr) {
+    WIFI_LOGE(LOG_TAG, "wifiNameSpaceV1_3::IWifiStaIface got null");
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
+
+  HIDL_SET(ifaceV1_3, enableLinkLayerStatsCollection, WifiStatus, response,
            debugEnabled);
   return CHECK_SUCCESS(response.code == WifiStatusCode::SUCCESS);
 }
 
 Result_t WifiHal::GetLinkLayerStats(
-    wifiNameSpaceV1_0::StaLinkLayerStats& aStats) {
+    wifiNameSpaceV1_3::StaLinkLayerStats& aStats) {
   if (!mStaIface.get()) {
     return nsIWifiResult::ERROR_INVALID_INTERFACE;
   }
+
+  if ((mCapabilities & nsIWifiResult::FEATURE_LINK_LAYER_STATS) == 0) {
+    WIFI_LOGE(LOG_TAG, "FEATURE_LINK_LAYER_STATS is not supported");
+    return nsIWifiResult::ERROR_NOT_SUPPORTED;
+  }
+
+  android::sp<wifiNameSpaceV1_3::IWifiStaIface> ifaceV1_3 =
+      GetWifiStaIfaceV1_3();
+  if (ifaceV1_3 == nullptr) {
+    WIFI_LOGE(LOG_TAG, "wifiNameSpaceV1_3::IWifiStaIface got null");
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
+
   WifiStatus response;
-  mStaIface->getLinkLayerStats(
-      [&](const WifiStatus& status,
-          const wifiNameSpaceV1_0::StaLinkLayerStats& stats) {
+  ifaceV1_3->getLinkLayerStats_1_3(
+      [&](const wifiNameSpaceV1_0::WifiStatus& status,
+          const wifiNameSpaceV1_3::StaLinkLayerStats& stats) {
         response = status;
         aStats = stats;
       });
@@ -424,27 +450,27 @@ Result_t WifiHal::ConfigureFirmwareRoaming(
     return nsIWifiResult::ERROR_COMMAND_FAILED;
   }
 
-  // set the black and white list to firmware
+  // set the deny and allow list to firmware
   StaRoamingConfig roamingConfig;
-  size_t blackListSize = 0;
-  size_t whiteListSize = 0;
-  std::vector<hidl_array<uint8_t, 6>> bssidBlackList;
-  std::vector<hidl_array<uint8_t, 32>> ssidWhiteList;
-  if (!mRoamingConfig->mBssidBlacklist.IsEmpty()) {
-    for (auto& item : mRoamingConfig->mBssidBlacklist) {
-      if (blackListSize++ > roamingCaps.maxBlacklistSize) {
+  size_t denyListSize = 0;
+  size_t allowListSize = 0;
+  std::vector<hidl_array<uint8_t, 6>> bssidDenyList;
+  std::vector<hidl_array<uint8_t, 32>> ssidAllowList;
+  if (!mRoamingConfig->mBssidDenylist.IsEmpty()) {
+    for (auto& item : mRoamingConfig->mBssidDenylist) {
+      if (denyListSize++ > roamingCaps.maxBlacklistSize) {
         break;
       }
       std::string bssid_str = NS_ConvertUTF16toUTF8(item).get();
       hidl_array<uint8_t, 6> bssid;
       ConvertMacToByteArray(bssid_str, bssid);
-      bssidBlackList.push_back(bssid);
+      bssidDenyList.push_back(bssid);
     }
   }
 
-  if (!mRoamingConfig->mSsidWhitelist.IsEmpty()) {
-    for (auto& item : mRoamingConfig->mSsidWhitelist) {
-      if (whiteListSize++ > roamingCaps.maxWhitelistSize) {
+  if (!mRoamingConfig->mSsidAllowlist.IsEmpty()) {
+    for (auto& item : mRoamingConfig->mSsidAllowlist) {
+      if (allowListSize++ > roamingCaps.maxWhitelistSize) {
         break;
       }
       std::string ssid_str = NS_ConvertUTF16toUTF8(item).get();
@@ -453,12 +479,12 @@ Result_t WifiHal::ConfigureFirmwareRoaming(
       for (size_t i = 0; i < ssid.size(); i++) {
         ssid[i] = ssid_str.at(i);
       }
-      ssidWhiteList.push_back(ssid);
+      ssidAllowList.push_back(ssid);
     }
   }
 
-  roamingConfig.bssidBlacklist = bssidBlackList;
-  roamingConfig.ssidWhitelist = ssidWhiteList;
+  roamingConfig.bssidBlacklist = bssidDenyList;
+  roamingConfig.ssidWhitelist = ssidAllowList;
 
   HIDL_SET(mStaIface, configureRoaming, WifiStatus, response, roamingConfig);
   return CHECK_SUCCESS(response.code == WifiStatusCode::SUCCESS);
@@ -467,6 +493,10 @@ Result_t WifiHal::ConfigureFirmwareRoaming(
 std::string WifiHal::GetInterfaceName(
     const wifiNameSpaceV1_0::IfaceType& aType) {
   return mIfaceNameMap.at(aType);
+}
+
+android::sp<wifiNameSpaceV1_3::IWifiStaIface> WifiHal::GetWifiStaIfaceV1_3() {
+  return wifiNameSpaceV1_3::IWifiStaIface::castFrom(mStaIface);
 }
 
 Result_t WifiHal::ConfigChipByType(const android::sp<IWifiChip>& aChip,

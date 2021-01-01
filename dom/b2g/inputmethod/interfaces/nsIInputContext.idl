@@ -42,5 +42,6 @@ interface nsIInputContext : nsISupports
   readonly attribute uint32_t selectionStart;
   readonly attribute uint32_t selectionEnd;
   readonly attribute nsIInputContextChoices choices;
+  readonly attribute AString maxLength;
   readonly attribute nsIEditableSupport editableSupport;
 };

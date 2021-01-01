@@ -2946,6 +2946,11 @@
   value: true
   mirror: never
 
+- name: dom.serviceWorkers.shutdown_observer.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 - name: dom.serviceWorkers.testing.enabled
   type: RelaxedAtomicBool
   value: false

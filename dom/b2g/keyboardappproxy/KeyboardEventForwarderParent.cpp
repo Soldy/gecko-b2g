@@ -21,7 +21,6 @@ KeyboardEventForwarderParent::KeyboardEventForwarderParent(
     BrowserParent* aParent) {
   MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
           ("KeyboardEventForwarderParent::Constructor[%p]", this));
-  Unused << aParent->SendPKeyboardEventForwarderConstructor(this);
 }
 
 KeyboardEventForwarderParent::~KeyboardEventForwarderParent() {

@@ -58,7 +58,7 @@ class WifiNative {
   Result_t SetBtCoexistenceMode(uint8_t aMode);
   Result_t SetBtCoexistenceScanMode(bool aEnable);
   Result_t SignalPoll(std::vector<int32_t>& aPollResult);
-  Result_t GetLinkLayerStats(wifiNameSpaceV1_0::StaLinkLayerStats& aStats);
+  Result_t GetLinkLayerStats(wifiNameSpaceV1_3::StaLinkLayerStats& aStats);
   Result_t SetFirmwareRoaming(bool aEnable);
   Result_t ConfigureFirmwareRoaming(
       RoamingConfigurationOptions* aRoamingConfig);

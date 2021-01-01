@@ -19,6 +19,7 @@
 #include <android/hardware/wifi/1.0/IWifi.h>
 #include <android/hardware/wifi/1.0/IWifiChip.h>
 #include <android/hardware/wifi/1.0/IWifiStaIface.h>
+#include <android/hardware/wifi/1.3/IWifiStaIface.h>
 #include <android/hardware/wifi/1.0/IWifiEventCallback.h>
 #include <android/hardware/wifi/1.2/IWifiChipEventCallback.h>
 #include <android/hardware/wifi/1.3/types.h>
@@ -52,6 +53,7 @@ using ::android::hardware::wifi::V1_2::IWifiChipEventCallback;
 using ::android::hidl::base::V1_0::IBase;
 
 namespace wifiNameSpaceV1_0 = ::android::hardware::wifi::V1_0;
+namespace wifiNameSpaceV1_3 = ::android::hardware::wifi::V1_3;
 
 BEGIN_WIFI_NAMESPACE
 
@@ -76,7 +78,7 @@ class WifiHal
   Result_t ConfigChipAndCreateIface(const wifiNameSpaceV1_0::IfaceType& aType,
                                     std::string& aIfaceName);
   Result_t EnableLinkLayerStats();
-  Result_t GetLinkLayerStats(wifiNameSpaceV1_0::StaLinkLayerStats& aStats);
+  Result_t GetLinkLayerStats(wifiNameSpaceV1_3::StaLinkLayerStats& aStats);
   Result_t SetSoftapCountryCode(std::string aCountryCode);
   Result_t SetFirmwareRoaming(bool aEnable);
   Result_t ConfigureFirmwareRoaming(
@@ -274,6 +276,7 @@ class WifiHal
                             const wifiNameSpaceV1_0::IfaceType& aType);
   Result_t RemoveInterfaceInternal(const wifiNameSpaceV1_0::IfaceType& aType);
   std::string QueryInterfaceName(const android::sp<IWifiIface>& aIface);
+  android::sp<wifiNameSpaceV1_3::IWifiStaIface> GetWifiStaIfaceV1_3();
 
   static mozilla::Mutex sLock;
 

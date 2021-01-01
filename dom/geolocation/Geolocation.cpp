@@ -283,7 +283,6 @@ nsGeolocationRequest::Allow(JS::HandleValue aChoices) {
     }
   }
 
-  gs->UpdateAccuracy(WantsHighAccuracy());
   if (canUseCache) {
     // okay, we can return a cached position
     // getCurrentPosition requests serviced by the cache
@@ -313,6 +312,8 @@ nsGeolocationRequest::Allow(JS::HandleValue aChoices) {
     NotifyError(GeolocationPositionError_Binding::POSITION_UNAVAILABLE);
     return NS_OK;
   }
+
+  gs->UpdateAccuracy(WantsHighAccuracy());
 
   if (mIsWatchPositionRequest || !canUseCache) {
     // let the locator know we're pending

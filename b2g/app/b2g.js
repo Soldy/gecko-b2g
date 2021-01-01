@@ -978,6 +978,7 @@ pref("dom.serviceWorkers.disable_open_click_delay", 5000);
 // The amount of time (milliseconds) service workers can be kept running using waitUntil promises
 // or executing "long-running" JS after the "idle_timeout" period has expired.
 pref("dom.serviceWorkers.idle_extended_timeout", 300000);
+pref("dom.serviceWorkers.shutdown_observer.enabled", true);
 
 // Enable W3C Push API
 pref("dom.webnotifications.serviceworker.enabled", true);
@@ -1004,6 +1005,9 @@ pref("layers.compositor-lru-size", 10);
 // Disable webxr and vr.
 pref("dom.vr.webxr.enabled", false);
 pref("dom.vr.enabled", false);
+
+// Disable webdriver which will trigger insecure browser error.
+pref("dom.webdriver.enabled", false);
 
 // In B2G by deafult any AudioChannelAgent is muted when created.
 pref("dom.audiochannel.mutedByDefault", true);
@@ -1115,6 +1119,11 @@ pref("hangmonitor.log.level", 1);
 // Disable Gecko wifi
 pref("device.capability.wifi", false);
 #endif
+
+pref("device.dfc", false);
+
+pref("device.dual-lte", false);
+
 // Support wifi passpoint
 pref("dom.passpoint.supported", false);
 
@@ -1125,7 +1134,7 @@ pref("dom.b2g_ipv6_router_mode", true);
 pref("ril.support.primarysim.switch", false);
 
 // Enable app cell broadcast list configuration (apn.json)
-pref("dom.app_cb_configuration", false);
+pref("dom.app_cb_configuration", true);
 
 // reboot reason
 pref("device.rebootReason", "normal");
@@ -1149,7 +1158,7 @@ pref("extensions.systemAddon.update.enabled", false);
 
 pref("browser.privatebrowsing.autostart", false);
 
-pref("security.sandbox.content.level", 0);
+pref("security.sandbox.content.level", 4);
 
 pref("gfx.e10s.font-list.shared", true);
 

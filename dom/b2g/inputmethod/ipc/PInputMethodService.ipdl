@@ -107,6 +107,7 @@ struct HandleFocusRequest {
   uint32_t selectionStart;
   uint32_t selectionEnd;
   SelectionChoices choices;
+  nsString maxLength;
 };
 
 struct HandleBlurRequest {

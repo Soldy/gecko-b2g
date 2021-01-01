@@ -16,7 +16,4 @@ this.WDP_PORT_PUSH = 2948;
 // @see WAP-259-WDP-20010614-a Appendix C. Network Bearer Table.
 this.WDP_BEARER_GSM_SMS_GSM_MSISDN = 0x03;
 
-this.ALL_CONST_SYMBOLS = undefined; // We want ALL_CONST_SYMBOLS to be exported.
-this.ALL_CONST_SYMBOLS = Object.keys(this);
-
-this.EXPORTED_SYMBOLS = ALL_CONST_SYMBOLS;
+this.EXPORTED_SYMBOLS = Object.keys(this);

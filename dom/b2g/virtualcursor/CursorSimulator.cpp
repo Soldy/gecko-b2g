@@ -91,6 +91,8 @@ void CursorSimulator::UpdatePos() {
   double width, height;
   mOuterWindow->GetInnerWidth(&width);
   mOuterWindow->GetInnerHeight(&height);
+  CenterizeCursorIfNecessary();
+
   LayoutDeviceIntPoint windowDevSize;
   CSSPoint cssSize(width, height);
   CSSToDevPixel(cssSize, windowDevSize);

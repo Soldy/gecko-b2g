@@ -129,21 +129,6 @@ already_AddRefed<Promise> InputMethod::DeleteBackward() {
   return promise.forget();
 }
 
-void InputMethod::SetSelectedOption(int32_t aOptionIndex) {
-  IME_LOGD("-- InputMethod::SetSelectedOption [%ld]", aOptionIndex);
-
-  RefPtr<InputMethodHandler> handler = InputMethodHandler::Create();
-  handler->SetSelectedOption(aOptionIndex);
-}
-
-void InputMethod::SetSelectedOptions(const nsTArray<int32_t>& aOptionIndexes) {
-  IME_LOGD("-- InputMethod::SetSelectedOptions length:[%d]",
-           aOptionIndexes.Length());
-
-  RefPtr<InputMethodHandler> handler = InputMethodHandler::Create();
-  handler->SetSelectedOptions(aOptionIndexes);
-}
-
 void InputMethod::RemoveFocus() {
   IME_LOGD("-- InputMethod::RemoveFocus");
 

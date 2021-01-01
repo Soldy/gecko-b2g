@@ -35,10 +35,6 @@ class SensorData;
 
 typedef Observer<SensorData> ISensorObserver;
 
-class SensorAccuracy;
-
-typedef Observer<SensorAccuracy> ISensorAccuracyObserver;
-
 }  // namespace hal
 }  // namespace mozilla
 

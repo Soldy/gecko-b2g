@@ -79,7 +79,8 @@ class nsInputContext final : public nsIInputContext {
             const nsAString& name, const nsAString& max, const nsAString& min,
             const nsAString& value, bool voiceInputSupported,
             uint32_t selectionStart, uint32_t selectionEnd,
-            nsInputContextChoices* choices, nsIEditableSupport* editable);
+            nsInputContextChoices* choices, const nsAString& aMaxLength,
+            nsIEditableSupport* editable);
 
   void SetType(const nsAString& aType);
   void SetInputType(const nsAString& aInputType);
@@ -93,6 +94,7 @@ class nsInputContext final : public nsIInputContext {
   void SetSelectionStart(uint32_t aSelectionStart);
   void SetSelectionEnd(uint32_t aSelectionEnd);
   void SetInputContextChoices(nsInputContextChoices* aChoices);
+  void SetMaxLength(const nsAString& aMaxLength);
   void SetEditableSupport(nsIEditableSupport* aEditableSupport);
 
  private:
@@ -110,6 +112,7 @@ class nsInputContext final : public nsIInputContext {
   uint32_t mSelectionStart;
   uint32_t mSelectionEnd;
   RefPtr<nsInputContextChoices> mChoices;
+  nsString mMaxLength;
   RefPtr<nsIEditableSupport> mEditableSupport;
 };
 

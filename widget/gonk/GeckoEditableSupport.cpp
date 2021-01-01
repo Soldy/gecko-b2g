@@ -244,7 +244,7 @@ TextEventDispatcher* getTextEventDispatcherFromFocus() {
 HandleFocusRequest CreateFocusRequestFromInputContext(
     nsIInputContext* aInputContext) {
   nsAutoString typeValue, inputTypeValue, valueValue, maxValue, minValue,
-      langValue, inputModeValue, nameValue;
+      langValue, inputModeValue, nameValue, maxLength;
   uint32_t selectionStartValue, selectionEndValue;
   bool voiceInputSupportedValue;
 
@@ -261,6 +261,7 @@ HandleFocusRequest CreateFocusRequestFromInputContext(
   aInputContext->GetSelectionEnd(&selectionEndValue);
   nsCOMPtr<nsIInputContextChoices> choices;
   aInputContext->GetChoices(getter_AddRefs(choices));
+  aInputContext->GetMaxLength(maxLength);
   SelectionChoices selectionChoices;
   nsTArray<OptionDetailCollection> optionDetailArray;
   if (choices) {
@@ -323,7 +324,8 @@ HandleFocusRequest CreateFocusRequestFromInputContext(
       nsString(typeValue), nsString(inputTypeValue), nsString(valueValue),
       nsString(maxValue), nsString(minValue), nsString(langValue),
       nsString(inputModeValue), voiceInputSupportedValue, nsString(nameValue),
-      selectionStartValue, selectionEndValue, selectionChoices);
+      selectionStartValue, selectionEndValue, selectionChoices,
+      nsString(maxLength));
   return request;
 }
 
@@ -1159,13 +1161,13 @@ nsresult GeckoEditableSupport::GetInputContextBag(
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // max Using string since if inputType is date then max could be string.
-  focusedElement->GetAttribute(u"max"_ns, attributeValue);
+  activeElement->GetAttribute(u"max"_ns, attributeValue);
   aInputContext->SetMax(attributeValue);
   IME_LOGD("InputContext: max:[%s]",
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // min Same as max
-  focusedElement->GetAttribute(u"min"_ns, attributeValue);
+  activeElement->GetAttribute(u"min"_ns, attributeValue);
   aInputContext->SetMin(attributeValue);
   IME_LOGD("InputContext: min:[%s]",
            NS_ConvertUTF16toUTF8(attributeValue).get());
@@ -1204,6 +1206,12 @@ nsresult GeckoEditableSupport::GetInputContextBag(
   uint32_t end = getSelectionEnd(focusedElement);
   aInputContext->SetSelectionEnd(end);
   IME_LOGD("InputContext: selectionEnd:[%lu]", end);
+
+  // maxLength
+  focusedElement->GetAttribute(u"maxlength"_ns, attributeValue);
+  aInputContext->SetMaxLength(attributeValue);
+  IME_LOGD("InputContext: maxlength:[%s]",
+           NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // Treat contenteditable element as a special text area field
   if (EditableUtils::isContentEditable(focusedElement)) {

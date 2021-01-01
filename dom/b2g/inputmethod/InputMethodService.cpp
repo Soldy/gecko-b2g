@@ -118,25 +118,12 @@ NS_IMETHODIMP InputMethodService::DeleteBackward(
 
 NS_IMETHODIMP InputMethodService::SetSelectedOption(
     uint32_t aId, nsIEditableSupportListener* aListener, int32_t aOptionIndex) {
-  IME_LOGD("InputMethodService::SetSelectedOption:[%ld]", aOptionIndex);
-  if (mEditableSupport) {
-    mEditableSupport->SetSelectedOption(aId, aListener, aOptionIndex);
-  } else if (aListener) {
-    aListener->OnSetSelectedOption(aId, NS_ERROR_ABORT);
-  }
   return NS_OK;
 }
 
 NS_IMETHODIMP InputMethodService::SetSelectedOptions(
     uint32_t aId, nsIEditableSupportListener* aListener,
     const nsTArray<int32_t>& aOptionIndexes) {
-  IME_LOGD("InputMethodService::SetSelectedOptions, length:[%d]",
-           aOptionIndexes.Length());
-  if (mEditableSupport) {
-    mEditableSupport->SetSelectedOptions(aId, aListener, aOptionIndexes);
-  } else if (aListener) {
-    aListener->OnSetSelectedOptions(aId, NS_ERROR_ABORT);
-  }
   return NS_OK;
 }
 

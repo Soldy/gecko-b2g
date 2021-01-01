@@ -63,7 +63,7 @@ const FEATURE_BACKGROUND_SCAN = Ci.nsIWifiResult.FEATURE_BACKGROUND_SCAN;
 const FEATURE_LINK_LAYER_STATS = Ci.nsIWifiResult.FEATURE_LINK_LAYER_STATS;
 const FEATURE_RSSI_MONITOR = Ci.nsIWifiResult.FEATURE_RSSI_MONITOR;
 const FEATURE_CONTROL_ROAMING = Ci.nsIWifiResult.FEATURE_CONTROL_ROAMING;
-const FEATURE_PROBE_IE_WHITELIST = Ci.nsIWifiResult.FEATURE_PROBE_IE_WHITELIST;
+const FEATURE_PROBE_IE_ALLOWLIST = Ci.nsIWifiResult.FEATURE_PROBE_IE_ALLOWLIST;
 const FEATURE_SCAN_RAND = Ci.nsIWifiResult.FEATURE_SCAN_RAND;
 const FEATURE_STA_5G = Ci.nsIWifiResult.FEATURE_STA_5G;
 const FEATURE_HOTSPOT = Ci.nsIWifiResult.FEATURE_HOTSPOT;
@@ -1213,7 +1213,7 @@ var WifiManager = (function() {
     }
     var bssid = event.bssid;
     if (bssid && bssid !== "00:00:00:00:00:00") {
-      // If we have a BSSID, tell configStore to black list it
+      // If we have a BSSID, tell configStore to add it into deny list.
       if (WifiNetworkSelector.trackBssid(bssid, false, event.statusCode)) {
         manager.setFirmwareRoamingConfiguration();
       }
@@ -1897,11 +1897,11 @@ var WifiManager = (function() {
   };
 
   manager.setFirmwareRoamingConfiguration = function() {
-    let blackList = Array.from(WifiNetworkSelector.bssidBlacklist.keys());
+    let denyList = Array.from(WifiNetworkSelector.bssidDenylist.keys());
 
     let roamingConfig = {
-      bssidBlacklist: blackList,
-      ssidWhitelist: [],
+      bssidDenylist: denyList,
+      ssidAllowlist: [],
     };
     wifiCommand.configureFirmwareRoaming(roamingConfig, function() {});
   };
@@ -2585,9 +2585,10 @@ function WifiWorker() {
       self.mobileConnectionRegistered = true;
     }
     // Set current country code
-    self.lastKnownCountryCode = self.pickWifiCountryCode();
-    if (self.lastKnownCountryCode !== "") {
-      WifiManager.setCountryCode(self.lastKnownCountryCode, function() {});
+    let countryCode = self.pickWifiCountryCode();
+    if (countryCode !== null) {
+      self.lastKnownCountryCode = countryCode;
+      WifiManager.setCountryCode(countryCode, function() {});
     }
     // wifi enabled and reset open network notification.
     OpenNetworkNotifier.clearPendingNotification();
@@ -3176,9 +3177,8 @@ WifiWorker.prototype = {
   notifyClirModeChanged(aMode) {},
 
   notifyLastKnownNetworkChanged() {
-    // TODO: Should use the actual sim index if dual sim supported
-    let countryCode = gPhoneNumberUtils.getCountryName(0).toUpperCase();
-    if (countryCode != "" && countryCode !== this.lastKnownCountryCode) {
+    let countryCode = this.getCountryName();
+    if (countryCode !== null && countryCode !== this.lastKnownCountryCode) {
       debug("Set country code = " + countryCode);
       this.lastKnownCountryCode = countryCode;
       if (WifiManager.enabled) {
@@ -3197,14 +3197,6 @@ WifiWorker.prototype = {
 
   notifyModemRestart(aReason) {},
 
-  pickWifiCountryCode() {
-    if (this.lastKnownCountryCode) {
-      return this.lastKnownCountryCode;
-    }
-    // TODO: Should use the actual sim index if dual sim supported
-    return gPhoneNumberUtils.getCountryName(0).toUpperCase();
-  },
-
   // nsIIccListener
   notifyIccInfoChanged() {},
 
@@ -3215,6 +3207,23 @@ WifiWorker.prototype = {
   notifyCardStateChanged() {},
 
   notifyIsimInfoChanged() {},
+
+  getCountryName() {
+    for (let simId = 0; simId < WifiManager.numRil; simId++) {
+      let countryName = gPhoneNumberUtils.getCountryName(simId);
+      if (typeof countryName == "string") {
+        return countryName.toUpperCase();
+      }
+    }
+    return null;
+  },
+
+  pickWifiCountryCode() {
+    if (this.lastKnownCountryCode) {
+      return this.lastKnownCountryCode;
+    }
+    return this.getCountryName();
+  },
 
   isAirplaneMode() {
     let airplaneMode = false;
@@ -3230,7 +3239,7 @@ WifiWorker.prototype = {
   },
 
   handleScanResults(scanResults) {
-    WifiNetworkSelector.updateBssidBlacklist(function(updated) {
+    WifiNetworkSelector.updateBssidDenylist(function(updated) {
       if (updated) {
         WifiManager.setFirmwareRoamingConfiguration();
       }
@@ -3950,7 +3959,7 @@ WifiWorker.prototype = {
       }
 
       config.countryCode = this.pickWifiCountryCode();
-      if (config.countryCode === "" && config.band == AP_BAND_5GHZ) {
+      if (config.countryCode === null && config.band == AP_BAND_5GHZ) {
         debug("Failed to set 5G hotspot without country code.");
         return null;
       }

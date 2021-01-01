@@ -40,9 +40,6 @@ class InputMethod final : public nsISupports, public nsWrapperCache {
   already_AddRefed<Promise> Keyup(const nsAString& aKey);
   already_AddRefed<Promise> DeleteBackward();
 
-  void SetSelectedOption(int32_t optionIndex);
-  void SetSelectedOptions(const nsTArray<int32_t>& optionIndexes);
-
   void RemoveFocus();
   already_AddRefed<Promise> GetSelectionRange();
   already_AddRefed<Promise> GetText(const Optional<int32_t>& aOffset,

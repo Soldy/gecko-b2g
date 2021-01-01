@@ -91,6 +91,8 @@ private:
 
     int DoQueueBuffer(ANativeWindowBuffer* buf, DisplayType aDisplayType);
 
+    HWC2::Error SetHwcPowerMode(bool enabled);
+
     std::unique_ptr<HWC2::Device> mHwc;
     framebuffer_device_t*         mFBDevice;
     NativeFramebufferDevice*      mExtFBDevice;
