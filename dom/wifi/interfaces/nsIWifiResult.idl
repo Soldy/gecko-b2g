@@ -45,9 +45,9 @@ interface nsIWifiResult : nsISupports
    */
   const uint32_t FEATURE_CONTROL_ROAMING = (1 << 4);
   /**
-   * If set indicates support for Probe IE white listing.
+   * If set indicates support for Probe IE allow listing.
    */
-  const uint32_t FEATURE_PROBE_IE_WHITELIST = (1 << 5);
+  const uint32_t FEATURE_PROBE_IE_ALLOWLIST = (1 << 5);
   /**
    * If set indicates support for MAC & Probe Sequence Number randomization.
    */

@@ -181,13 +181,6 @@ this.ContentControl.prototype = {
         // new position.
         this.sendToChild(vc, aMessage, { action: childAction }, true);
       }
-    } else if (
-      !this._childMessageSenders.has(aMessage.target) &&
-      origin !== "top"
-    ) {
-      // We failed to move, and the message is not from a parent, so forward
-      // to it.
-      this.sendToParent(aMessage);
     } else {
       this._contentScope
         .get()

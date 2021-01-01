@@ -41,8 +41,9 @@ const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
 
 const NS_PREFBRANCH_PREFCHANGE_TOPIC_ID = "nsPref:changed";
 
-const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
 const kPrefDefaultServiceId = "dom.telephony.defaultServiceId";
+const kPrefTwoDigitShortCodes = "ussd.exceptioncode";
+const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
 
 const nsITelephonyAudioService = Ci.nsITelephonyAudioService;
 const nsITelephonyService = Ci.nsITelephonyService;
@@ -601,6 +602,7 @@ function TelephonyService() {
 
   Services.prefs.addObserver(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED, this);
   Services.prefs.addObserver(kPrefDefaultServiceId, this);
+  Services.prefs.addObserver(kPrefTwoDigitShortCodes, this);
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
 
@@ -610,6 +612,8 @@ function TelephonyService() {
     this._currentCalls[i] = {};
     this._enumerateCallsForClient(i);
   }
+
+  this._twoDigitShortCodes = [];
 }
 TelephonyService.prototype = {
   classID: GONK_TELEPHONYSERVICE_CID,
@@ -636,6 +640,8 @@ TelephonyService.prototype = {
    */
   _ussdSessions: null,
   _imsPhones: null,
+
+  _twoDigitShortCodes: null,
 
   _acquireCallRingWakeLock() {
     if (!this._callRingWakeLock) {
@@ -1095,7 +1101,10 @@ TelephonyService.prototype = {
       // short string
       if (this._hasCalls(aClientId)) {
         this._dialInCallMMI(aClientId, aNumber, aCallback);
-      } else if (aNumber.length === 2 && aNumber[0] === "1") {
+      } else if (
+        (aNumber.length === 2 && aNumber[0] === "1") ||
+        this._isTwoDigitShortCode(aNumber)
+      ) {
         this._dialCall(aClientId, aNumber, aRttMode, undefined, aCallback);
       } else {
         this._dialMMI(aClientId, { fullMMI: aNumber }, aCallback);
@@ -3493,6 +3502,8 @@ TelephonyService.prototype = {
           this._updateDebugFlag();
         } else if (aData === kPrefDefaultServiceId) {
           this.defaultServiceId = this._getDefaultServiceId();
+        } else if (aData === kPrefTwoDigitShortCodes) {
+          this._updateTwoDigitShortCodes();
         }
         break;
 
@@ -3501,6 +3512,9 @@ TelephonyService.prototype = {
         this._releaseCallRingWakeLock();
         gAudioService.unregisterListener(this);
         Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
+        Services.prefs.removeObserver(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED, this);
+        Services.prefs.removeObserver(kPrefDefaultServiceId, this);
+        Services.prefs.removeObserver(kPrefTwoDigitShortCodes, this);
         break;
     }
   },
@@ -3708,6 +3722,25 @@ TelephonyService.prototype = {
   _hanUpImsForeground(aClientId, aCallback) {
     let imsPhone = gImsPhoneService.getPhoneByServiceId(aClientId);
     imsPhone.hangupForeground(this._createSimpleImsCallback(aCallback));
+  },
+
+  _updateTwoDigitShortCodes() {
+    try {
+      let twoDigitShortCode = Services.prefs.getCharPref(
+        kPrefTwoDigitShortCodes
+      );
+      if (twoDigitShortCode) {
+        this._twoDigitShortCodes = twoDigitShortCode.split(",");
+      }
+    } catch (e) {
+      if (DEBUG) {
+        debug("Get kPrefTwoDigitShortCodes failed" + e);
+      }
+    }
+  },
+
+  _isTwoDigitShortCode(aNumber) {
+    return this._twoDigitShortCodes.includes(aNumber);
   },
 };
 

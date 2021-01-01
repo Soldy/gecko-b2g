@@ -1293,6 +1293,7 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
         'android/hardware/wifi/1.0/IWifiRttController.h',
         'android/hardware/wifi/1.0/IWifiRttControllerEventCallback.h',
         'android/hardware/wifi/1.0/IWifiStaIface.h',
+        'android/hardware/wifi/1.3/IWifiStaIface.h',
         'android/hardware/wifi/1.0/IWifiStaIfaceEventCallback.h',
         'android/hardware/wifi/1.2/IWifiChipEventCallback.h',
         'android/hardware/wifi/hostapd/1.0/IHostapd.h',

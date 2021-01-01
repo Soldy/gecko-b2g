@@ -69,6 +69,8 @@ const NS_PREFBRANCH_PREFCHANGE_TOPIC_ID = "nsPref:changed";
 const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
 const kPrefAppCBConfigurationEnabled = "dom.app_cb_configuration";
 
+const PROP_MULTISIM_CONFIG = "persist.radio.multisim.config";
+
 // Timeout value for emergency callback mode.
 const EMERGENCY_CB_MODE_TIMEOUT_MS = 5 * 60 * 1000;
 const RADIO_POWER_OFF_TIMEOUT = 30000;
@@ -434,14 +436,17 @@ try {
   Services.prefs.setIntPref(
     kPrefRilNumRadioInterfaces,
     (function() {
-      // When Gonk property "ro.moz.ril.numclients" is not set, return 1; if
-      // explicitly set to any number larger-equal than 0, return num; else, return
-      // 1 for compatibility.
       try {
-        let numString = libcutils.property_get("ro.moz.ril.numclients", "1");
-        let num = parseInt(numString, 10);
-        if (num >= 0) {
-          return num;
+        let configuration = libcutils.property_get(PROP_MULTISIM_CONFIG, "");
+        switch (configuration) {
+          case "dsds":
+          // falls through
+          case "dsda":
+            return 2;
+          case "tsts":
+            return 3;
+          default:
+            return 1;
         }
       } catch (e) {}
 

@@ -4,11 +4,11 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
+);
 
-Cu.importGlobalProperties(['Blob']);
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/wap_consts.js", this);
+var WAP_CONSTS = ChromeUtils.import("resource://gre/modules/wap_consts.js");
 
 var DEBUG = false; // set to true to see debug messages
 
@@ -43,7 +43,7 @@ XPCOMUtils.defineConstant(this, "ASCIIS", ASCIIS);
 this.CodeError = function CodeError(message) {
   this.name = "CodeError";
   this.message = message || "Invalid format";
-}
+};
 CodeError.prototype = new Error();
 CodeError.prototype.constructor = CodeError;
 
@@ -73,7 +73,7 @@ NullCharError.prototype.constructor = NullCharError;
 this.FatalCodeError = function FatalCodeError(message) {
   this.name = "FatalCodeError";
   this.message = message || "Decoding fails";
-}
+};
 FatalCodeError.prototype = new Error();
 FatalCodeError.prototype.constructor = FatalCodeError;
 
@@ -93,7 +93,7 @@ FatalCodeError.prototype.constructor = FatalCodeError;
 this.NotWellKnownEncodingError = function NotWellKnownEncodingError(message) {
   this.name = "NotWellKnownEncodingError";
   this.message = message || "Not well known encoding";
-}
+};
 NotWellKnownEncodingError.prototype = new FatalCodeError();
 NotWellKnownEncodingError.prototype.constructor = NotWellKnownEncodingError;
 
@@ -117,7 +117,7 @@ this.ensureHeader = function ensureHeader(headers, name) {
     throw new FatalCodeError("ensureHeader: header " + name + " not defined");
   }
   return value;
-}
+};
 
 /**
  * Skip field value.
@@ -163,11 +163,11 @@ this.skipValue = function skipValue(data) {
     data.offset = begin;
     value = NullTerminatedTexts.decode(data);
   } else {
-    value &= 0x7F;
+    value &= 0x7f;
   }
 
   return value;
-}
+};
 
 /**
  * Helper function for decoding multiple alternative forms.
@@ -186,14 +186,15 @@ this.decodeAlternatives = function decodeAlternatives(data, options) {
       return arguments[i].decode(data, options);
     } catch (e) {
       // Throw the last exception we get
-      if (i == (arguments.length - 1)) {
+      if (i == arguments.length - 1) {
         throw e;
       }
 
       data.offset = begin;
     }
   }
-}
+  return null;
+};
 
 /**
  * Helper function for encoding multiple alternative forms.
@@ -213,14 +214,14 @@ this.encodeAlternatives = function encodeAlternatives(data, value, options) {
       return;
     } catch (e) {
       // Throw the last exception we get
-      if (i == (arguments.length - 1)) {
+      if (i == arguments.length - 1) {
         throw e;
       }
 
       data.offset = begin;
     }
   }
-}
+};
 
 this.Octet = {
   /**
@@ -229,7 +230,7 @@ this.Octet = {
    *
    * @throws RangeError if no more data is available.
    */
-  decode: function(data) {
+  decode(data) {
     if (data.offset >= data.array.length) {
       throw new RangeError();
     }
@@ -248,8 +249,8 @@ this.Octet = {
    * @throws RangeError if no enough data to read.
    * @throws TypeError if `data` has neither subarray() nor slice() method.
    */
-  decodeMultiple: function(data, end) {
-    if ((end < data.offset) || (end > data.array.length)) {
+  decodeMultiple(data, end) {
+    if (end < data.offset || end > data.array.length) {
       throw new RangeError();
     }
     if (end == data.offset) {
@@ -281,7 +282,7 @@ this.Octet = {
    *
    * @throws CodeError if read octet is not equal to expected one.
    */
-  decodeEqualTo: function(data, expected) {
+  decodeEqualTo(data, expected) {
     if (this.decode(data) != expected) {
       throw new CodeError("Octet - decodeEqualTo: doesn't match " + expected);
     }
@@ -295,7 +296,7 @@ this.Octet = {
    * @param octet
    *        Octet value to be encoded.
    */
-  encode: function(data, octet) {
+  encode(data, octet) {
     if (data.offset >= data.array.length) {
       data.array.push(octet);
       data.offset++;
@@ -310,7 +311,7 @@ this.Octet = {
    * @param octet
    *        An octet array object.
    */
-  encodeMultiple: function(data, array) {
+  encodeMultiple(data, array) {
     for (let i = 0; i < array.length; i++) {
       this.encode(data, array[i]);
     }
@@ -339,9 +340,9 @@ this.Text = {
    * @throws NullCharError if a NUL character read.
    * @throws CodeError if a control character read.
    */
-  decode: function(data) {
+  decode(data) {
     let code = Octet.decode(data);
-    if ((code >= CTLS) && (code != DEL)) {
+    if (code >= CTLS && code != DEL) {
       return String.fromCharCode(code);
     }
 
@@ -368,7 +369,7 @@ this.Text = {
       }
 
       extra = Octet.decode(data);
-      if ((extra != SP) && (extra != HT)) {
+      if (extra != SP && extra != HT) {
         throw new CodeError("Text: doesn't match LWS sequence");
       }
     } catch (e) {
@@ -387,7 +388,7 @@ this.Text = {
       do {
         begin = data.offset;
         extra = Octet.decode(data);
-      } while ((extra == SP) || (extra == HT));
+      } while (extra == SP || extra == HT);
     } catch (e) {}
 
     data.offset = begin;
@@ -404,14 +405,18 @@ this.Text = {
    *
    * @throws CodeError if a control character got.
    */
-  encode: function(data, text, asciiOnly) {
+  encode(data, text, asciiOnly) {
     if (!text) {
       throw new CodeError("Text: empty string");
     }
 
     let code = text.charCodeAt(0);
-    if ((code < CTLS) || (code == DEL) || (code > 255) ||
-        (code >= 128 && asciiOnly)) {
+    if (
+      code < CTLS ||
+      code == DEL ||
+      code > 255 ||
+      (code >= 128 && asciiOnly)
+    ) {
       throw new CodeError("Text: invalid char code " + code);
     }
     Octet.encode(data, code);
@@ -427,7 +432,7 @@ this.NullTerminatedTexts = {
    *
    * @return Decoded string.
    */
-  decode: function(data) {
+  decode(data) {
     let str = "";
     try {
       // A End-of-string is also a CTL, which should cause a error.
@@ -435,10 +440,11 @@ this.NullTerminatedTexts = {
         str += Text.decode(data);
       }
     } catch (e) {
-      if(e instanceof NullCharError) {
+      if (e instanceof NullCharError) {
         return str;
       }
     }
+    return str;
   },
 
   /**
@@ -449,7 +455,7 @@ this.NullTerminatedTexts = {
    * @param asciiOnly
    *        A boolean to decide if it's only allowed to encode ASCII (0 ~ 127).
    */
-  encode: function(data, str, asciiOnly) {
+  encode(data, str, asciiOnly) {
     if (str) {
       for (let i = 0; i < str.length; i++) {
         Text.encode(data, str.charAt(i), asciiOnly);
@@ -476,15 +482,23 @@ this.Token = {
    * @throws NullCharError if a NUL character read.
    * @throws CodeError if an invalid character read.
    */
-  decode: function(data) {
+  decode(data) {
     let code = Octet.decode(data);
-    if ((code < ASCIIS) && (code >= CTLS)) {
-      if ((code == HT) || (code == SP)
-          || (code == 34) || (code == 40) || (code == 41) // ASCII "()
-          || (code == 44) || (code == 47)                 // ASCII ,/
-          || ((code >= 58) && (code <= 64))               // ASCII :;<=>?@
-          || ((code >= 91) && (code <= 93))               // ASCII [\]
-          || (code == 123) || (code == 125)) {            // ASCII {}
+    if (code < ASCIIS && code >= CTLS) {
+      if (
+        code == HT ||
+        code == SP ||
+        code == 34 ||
+        code == 40 ||
+        code == 41 || // ASCII "()
+        code == 44 ||
+        code == 47 || // ASCII ,/
+        (code >= 58 && code <= 64) || // ASCII :;<=>?@
+        (code >= 91 && code <= 93) || // ASCII [\]
+        code == 123 ||
+        code == 125
+      ) {
+        // ASCII {}
         throw new CodeError("Token: invalid char code " + code);
       }
 
@@ -506,19 +520,27 @@ this.Token = {
    *
    * @throws CodeError if an invalid character got.
    */
-  encode: function(data, token) {
+  encode(data, token) {
     if (!token) {
       throw new CodeError("Token: empty string");
     }
 
     let code = token.charCodeAt(0);
-    if ((code < ASCIIS) && (code >= CTLS)) {
-      if ((code == HT) || (code == SP)
-          || (code == 34) || (code == 40) || (code == 41) // ASCII "()
-          || (code == 44) || (code == 47)                 // ASCII ,/
-          || ((code >= 58) && (code <= 64))               // ASCII :;<=>?@
-          || ((code >= 91) && (code <= 93))               // ASCII [\]
-          || (code == 123) || (code == 125)) {            // ASCII {}
+    if (code < ASCIIS && code >= CTLS) {
+      if (
+        code == HT ||
+        code == SP ||
+        code == 34 ||
+        code == 40 ||
+        code == 41 || // ASCII "()
+        code == 44 ||
+        code == 47 || // ASCII ,/
+        (code >= 58 && code <= 64) || // ASCII :;<=>?@
+        (code >= 91 && code <= 93) || // ASCII [\]
+        code == 123 ||
+        code == 125
+      ) {
+        // ASCII {}
         // Fallback to throw CodeError
       } else {
         Octet.encode(data, token.charCodeAt(0));
@@ -552,15 +574,23 @@ this.URIC = {
    * @throws NullCharError if a NUL character read.
    * @throws CodeError if an invalid character read.
    */
-  decode: function(data) {
+  decode(data) {
     let code = Octet.decode(data);
     if (code == NUL) {
       throw new NullCharError();
     }
 
-    if ((code <= CTLS) || (code >= ASCIIS) || (code == 34) || (code == 60)
-        || (code == 62) || ((code >= 91) && (code <= 94)) || (code == 96)
-        || ((code >= 123) && (code <= 125)) || (code == 127)) {
+    if (
+      code <= CTLS ||
+      code >= ASCIIS ||
+      code == 34 ||
+      code == 60 ||
+      code == 62 ||
+      (code >= 91 && code <= 94) ||
+      code == 96 ||
+      (code >= 123 && code <= 125) ||
+      code == 127
+    ) {
       throw new CodeError("URIC: invalid char code " + code);
     }
 
@@ -585,7 +615,7 @@ this.TextString = {
    *
    * @return Decoded string.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     let firstCode = Octet.decode(data);
     if (firstCode == QUOTE) {
@@ -600,7 +630,7 @@ this.TextString = {
           throw new CodeError("Text-string: illegal quote found.");
         }
       } catch (e) {
-        if(e instanceof CodeError) {
+        if (e instanceof CodeError) {
           throw e;
         } else {
           throw new CodeError("Text-string: unexpected error.");
@@ -622,7 +652,7 @@ this.TextString = {
    * @param asciiOnly
    *        A boolean to decide if it's only allowed to encode ASCII (0 ~ 127).
    */
-  encode: function(data, str, asciiOnly) {
+  encode(data, str, asciiOnly) {
     if (!str) {
       Octet.encode(data, 0);
       return;
@@ -631,7 +661,7 @@ this.TextString = {
     let firstCharCode = str.charCodeAt(0);
     if (firstCharCode >= 128) {
       if (asciiOnly) {
-        throw new CodeError("Text: invalid char code " + code);
+        throw new CodeError("Text: invalid char code " + firstCharCode);
       }
 
       Octet.encode(data, 127);
@@ -653,7 +683,7 @@ this.TokenText = {
    *
    * @return Decoded string.
    */
-  decode: function(data) {
+  decode(data) {
     let str = "";
     try {
       // A End-of-string is also a CTL, which should cause a error.
@@ -661,10 +691,11 @@ this.TokenText = {
         str += Token.decode(data);
       }
     } catch (e) {
-      if(e instanceof NullCharError) {
+      if (e instanceof NullCharError) {
         return str;
       }
     }
+    return str;
   },
 
   /**
@@ -673,7 +704,7 @@ this.TokenText = {
    * @param str
    *        A String to be encoded.
    */
-  encode: function(data, str) {
+  encode(data, str) {
     if (str) {
       for (let i = 0; i < str.length; i++) {
         Token.encode(data, str.charAt(i));
@@ -700,7 +731,7 @@ this.QuotedString = {
    *
    * @throws CodeError if first octet read is not 0x34.
    */
-  decode: function(data) {
+  decode(data) {
     let value = Octet.decode(data);
     if (value != 34) {
       throw new CodeError("Quoted-string: not quote " + value);
@@ -715,7 +746,7 @@ this.QuotedString = {
    * @param str
    *        A String to be encoded.
    */
-  encode: function(data, str) {
+  encode(data, str) {
     Octet.encode(data, 34);
     NullTerminatedTexts.encode(data, str);
   },
@@ -739,13 +770,13 @@ this.ShortInteger = {
    *
    * @throws CodeError if the octet read is less than 0x80.
    */
-  decode: function(data) {
+  decode(data) {
     let value = Octet.decode(data);
     if (!(value & 0x80)) {
       throw new CodeError("Short-integer: invalid value " + value);
     }
 
-    return (value & 0x7F);
+    return value & 0x7f;
   },
 
   /**
@@ -756,7 +787,7 @@ this.ShortInteger = {
    *
    * @throws CodeError if the octet read is larger-equal than 0x80.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (value >= 0x80) {
       throw new CodeError("Short-integer: invalid value " + value);
     }
@@ -785,7 +816,7 @@ this.LongInteger = {
    *
    * @return A decoded integer value or an octets array of max 30 elements.
    */
-  decodeMultiOctetInteger: function(data, length) {
+  decodeMultiOctetInteger(data, length) {
     if (length < 7) {
       // Return a integer instead of an array as possible. For a multi-octet
       // integer, there are only maximum 53 bits for integer in javascript. We
@@ -809,9 +840,9 @@ this.LongInteger = {
    *
    * @throws CodeError if the length read is not in 1..30.
    */
-  decode: function(data) {
+  decode(data) {
     let length = Octet.decode(data);
-    if ((length < 1) || (length > 30)) {
+    if (length < 1 || length > 30) {
       throw new CodeError("Long-integer: invalid length " + length);
     }
 
@@ -825,7 +856,7 @@ this.LongInteger = {
    *        An octet array of less-equal than 30 elements or an integer
    *        greater-equal than 128.
    */
-  encode: function(data, numOrArray) {
+  encode(data, numOrArray) {
     if (typeof numOrArray === "number") {
       let num = numOrArray;
       if (num >= 0x1000000000000) {
@@ -846,7 +877,7 @@ this.LongInteger = {
     }
 
     let array = numOrArray;
-    if ((array.length < 1) || (array.length > 30)) {
+    if (array.length < 1 || array.length > 30) {
       throw new CodeError("Long-integer: invalid length " + array.length);
     }
 
@@ -865,12 +896,12 @@ this.UintVar = {
    *
    * @return Decoded integer value.
    */
-  decode: function(data) {
+  decode(data) {
     let value = Octet.decode(data);
-    let result = value & 0x7F;
+    let result = value & 0x7f;
     while (value & 0x80) {
       value = Octet.decode(data);
-      result = result * 128 + (value & 0x7F);
+      result = result * 128 + (value & 0x7f);
     }
 
     return result;
@@ -882,7 +913,7 @@ this.UintVar = {
    * @param value
    *        An integer value.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (value < 0) {
       throw new CodeError("UintVar: invalid value " + value);
     }
@@ -920,7 +951,7 @@ this.ConstrainedEncoding = {
    *
    * @return Decode integer value or string.
    */
-  decode: function(data) {
+  decode(data) {
     return decodeAlternatives(data, null, TextString, ShortInteger);
   },
 
@@ -930,7 +961,7 @@ this.ConstrainedEncoding = {
    * @param value
    *        An integer or a string value.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (typeof value == "number") {
       ShortInteger.encode(data, value);
     } else {
@@ -956,7 +987,7 @@ this.ValueLength = {
    *
    * @throws CodeError if the first octet read is larger than 31.
    */
-  decode: function(data) {
+  decode(data) {
     let value = Octet.decode(data);
     if (value <= 30) {
       return value;
@@ -974,7 +1005,7 @@ this.ValueLength = {
    *        A wrapped object to store encoded raw data.
    * @param value
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (value <= 30) {
       Octet.encode(data, value);
     } else {
@@ -996,7 +1027,7 @@ this.NoValue = {
    *
    * @return Always returns null.
    */
-  decode: function(data) {
+  decode(data) {
     Octet.decodeEqualTo(data, 0);
     return null;
   },
@@ -1007,7 +1038,7 @@ this.NoValue = {
    * @param value
    *        A null or undefined value.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (value != null) {
       throw new CodeError("No-value: invalid value " + value);
     }
@@ -1027,7 +1058,7 @@ this.TextValue = {
    *
    * @return Decoded string or null for No-value.
    */
-  decode: function(data) {
+  decode(data) {
     return decodeAlternatives(data, null, NoValue, TokenText, QuotedString);
   },
 
@@ -1037,7 +1068,7 @@ this.TextValue = {
    * @param text
    *        A null or undefined or text string.
    */
-  encode: function(data, text) {
+  encode(data, text) {
     // @see WAP-230-WSP-20010705-a clause 8.4.2.3
     //
     // Text-string = [Quote] *TEXT End-of-string
@@ -1067,7 +1098,7 @@ this.IntegerValue = {
    *
    * @return Decoded integer value or array of octets.
    */
-  decode: function(data) {
+  decode(data) {
     return decodeAlternatives(data, null, ShortInteger, LongInteger);
   },
 
@@ -1077,10 +1108,10 @@ this.IntegerValue = {
    * @param value
    *        An integer value or an octet array of less-equal than 31 elements.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     if (typeof value === "number") {
       encodeAlternatives(data, value, null, ShortInteger, LongInteger);
-    } else if (Array.isArray(value) || (value instanceof Uint8Array)) {
+    } else if (Array.isArray(value) || value instanceof Uint8Array) {
       LongInteger.encode(data, value);
     } else {
       throw new CodeError("Integer-Value: invalid value type");
@@ -1103,7 +1134,7 @@ this.DateValue = {
    *
    * @return A Date object.
    */
-  decode: function(data) {
+  decode(data) {
     let numOrArray = LongInteger.decode(data);
     let seconds;
     if (typeof numOrArray == "number") {
@@ -1124,7 +1155,7 @@ this.DateValue = {
    * @param date
    *        A Date object.
    */
-  encode: function(data, date) {
+  encode(data, date) {
     let seconds = date.getTime() / 1000;
     if (seconds < 0) {
       throw new CodeError("Date-value: negative seconds " + seconds);
@@ -1158,7 +1189,7 @@ this.QValue = {
    *
    * @throws CodeError if decoded UintVar is not in range 1..1099.
    */
-  decode: function(data) {
+  decode(data) {
     let value = UintVar.decode(data);
     if (value > 0) {
       if (value <= 100) {
@@ -1178,13 +1209,13 @@ this.QValue = {
    * @param value
    *        An integer within the range 1..1099.
    */
-  encode: function(data, value) {
-    if ((value < 0) || (value >= 1)) {
+  encode(data, value) {
+    if (value < 0 || value >= 1) {
       throw new CodeError("Q-value: invalid value " + value);
     }
 
     value *= 1000;
-    if ((value % 10) == 0) {
+    if (value % 10 == 0) {
       // Two digits only.
       UintVar.encode(data, Math.floor(value / 10 + 1));
     } else {
@@ -1212,12 +1243,12 @@ this.VersionValue = {
    *
    * @return Binary encoded version number.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     let value;
     try {
       value = ShortInteger.decode(data);
-      if ((value >= 0x10) && (value < 0x80)) {
+      if (value >= 0x10 && value < 0x80) {
         return value;
       }
 
@@ -1232,7 +1263,7 @@ this.VersionValue = {
     }
 
     let major = str.charCodeAt(0) - 0x30;
-    let minor = 0x0F;
+    let minor = 0x0f;
     if (str.length > 1) {
       minor = str.charCodeAt(2) - 0x30;
       if (str.length > 3) {
@@ -1243,7 +1274,7 @@ this.VersionValue = {
       }
     }
 
-    return major << 4 | minor;
+    return (major << 4) | minor;
   },
 
   /**
@@ -1252,8 +1283,8 @@ this.VersionValue = {
    * @param version
    *        A binary encoded version number.
    */
-  encode: function(data, version) {
-    if ((version < 0x10) || (version >= 0x80)) {
+  encode(data, version) {
+    if (version < 0x10 || version >= 0x80) {
       throw new CodeError("Version-value: invalid version " + version);
     }
 
@@ -1277,7 +1308,7 @@ this.UriValue = {
    *
    * @return Decoded uri string.
    */
-  decode: function(data) {
+  decode(data) {
     let str = "";
     try {
       // A End-of-string is also a CTL, which should cause a error.
@@ -1285,10 +1316,11 @@ this.UriValue = {
         str += URIC.decode(data);
       }
     } catch (e) {
-      if(e instanceof NullCharError) {
+      if (e instanceof NullCharError) {
         return str;
       }
     }
+    return str;
   },
 };
 
@@ -1306,7 +1338,7 @@ this.TypeValue = {
    *
    * @return Decoded content type string.
    */
-  decode: function(data) {
+  decode(data) {
     let numOrStr = ConstrainedEncoding.decode(data);
     if (typeof numOrStr == "string") {
       return numOrStr.toLowerCase();
@@ -1316,7 +1348,8 @@ this.TypeValue = {
     let entry = WSP_WELL_KNOWN_CONTENT_TYPES[number];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Constrained-media: not well known media " + number);
+        "Constrained-media: not well known media " + number
+      );
     }
 
     return entry.type;
@@ -1328,7 +1361,7 @@ this.TypeValue = {
    * @param type
    *        A content type string.
    */
-  encode: function(data, type) {
+  encode(data, type) {
     let entry = WSP_WELL_KNOWN_CONTENT_TYPES[type.toLowerCase()];
     if (entry) {
       ConstrainedEncoding.encode(data, entry.number);
@@ -1373,7 +1406,7 @@ this.Parameter = {
    * @throws NotWellKnownEncodingError if decoded well-known parameter number
    *         is not registered or supported.
    */
-  decodeTypedParameter: function(data) {
+  decodeTypedParameter(data) {
     let numOrArray = IntegerValue.decode(data);
     // `decodeIntegerValue` can return a array, which doesn't apply here.
     if (typeof numOrArray != "number") {
@@ -1384,32 +1417,41 @@ this.Parameter = {
     let param = WSP_WELL_KNOWN_PARAMS[number];
     if (!param) {
       throw new NotWellKnownEncodingError(
-        "Typed-parameter: not well known parameter " + number);
+        "Typed-parameter: not well known parameter " + number
+      );
     }
 
-    let begin = data.offset, value;
+    let begin = data.offset,
+      value;
     try {
       // Althought Text-string is not included in BNF of Compact-value, but
       // some service provider might still pass a less-strict text form and
       // cause a unexpected CodeError raised. For example, the `start`
       // parameter expects its value of Text-value, but service provider might
       // gives "<smil>", which contains illegal characters "<" and ">".
-      value = decodeAlternatives(data, null,
-                                 param.coder, TextValue, TextString);
+      value = decodeAlternatives(
+        data,
+        null,
+        param.coder,
+        TextValue,
+        TextString
+      );
     } catch (e) {
       data.offset = begin;
 
       // Skip current parameter.
       value = skipValue(data);
-      debug("Skip malformed typed parameter: "
-            + JSON.stringify({name: param.name, value: value}));
+      debug(
+        "Skip malformed typed parameter: " +
+          JSON.stringify({ name: param.name, value })
+      );
 
       return null;
     }
 
     return {
       name: param.name,
-      value: value,
+      value,
     };
   },
 
@@ -1421,10 +1463,11 @@ this.Parameter = {
    *         if something wrong. The `name` property must be a string, but the
    *         `value` property can be many different types depending on `name`.
    */
-  decodeUntypedParameter: function(data) {
+  decodeUntypedParameter(data) {
     let name = TokenText.decode(data);
 
-    let begin = data.offset, value;
+    let begin = data.offset,
+      value;
     try {
       value = decodeAlternatives(data, null, IntegerValue, TextValue);
     } catch (e) {
@@ -1432,15 +1475,16 @@ this.Parameter = {
 
       // Skip current parameter.
       value = skipValue(data);
-      debug("Skip malformed untyped parameter: "
-            + JSON.stringify({name: name, value: value}));
+      debug(
+        "Skip malformed untyped parameter: " + JSON.stringify({ name, value })
+      );
 
       return null;
     }
 
     return {
       name: name.toLowerCase(),
-      value: value,
+      value,
     };
   },
 
@@ -1452,7 +1496,7 @@ this.Parameter = {
    *         if something wrong. The `name` property must be a string, but the
    *         `value` property can be many different types depending on `name`.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     try {
       return this.decodeTypedParameter(data);
@@ -1470,8 +1514,9 @@ this.Parameter = {
    *
    * @return An array of decoded objects.
    */
-  decodeMultiple: function(data, end) {
-    let params = null, param;
+  decodeMultiple(data, end) {
+    let params = null,
+      param;
 
     while (data.offset < end) {
       try {
@@ -1496,16 +1541,23 @@ this.Parameter = {
    * @param param
    *        An object containing `name` and `value` properties.
    */
-  encodeTypedParameter: function(data, param) {
+  encodeTypedParameter(data, param) {
     let entry = WSP_WELL_KNOWN_PARAMS[param.name.toLowerCase()];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Typed-parameter: not well known parameter " + param.name);
+        "Typed-parameter: not well known parameter " + param.name
+      );
     }
 
     IntegerValue.encode(data, entry.number);
-    encodeAlternatives(data, param.value, null,
-                       entry.coder, TextValue, TextString);
+    encodeAlternatives(
+      data,
+      param.value,
+      null,
+      entry.coder,
+      TextValue,
+      TextString
+    );
   },
 
   /**
@@ -1514,7 +1566,7 @@ this.Parameter = {
    * @param param
    *        An object containing `name` and `value` properties.
    */
-  encodeUntypedParameter: function(data, param) {
+  encodeUntypedParameter(data, param) {
     TokenText.encode(data, param.name);
     encodeAlternatives(data, param.value, null, IntegerValue, TextValue);
   },
@@ -1525,9 +1577,9 @@ this.Parameter = {
    * @param param
    *        An array of parameter objects.
    */
-  encodeMultiple: function(data, params) {
+  encodeMultiple(data, params) {
     for (let name in params) {
-      this.encode(data, {name: name, value: params[name]});
+      this.encode(data, { name, value: params[name] });
     }
   },
 
@@ -1537,7 +1589,7 @@ this.Parameter = {
    * @param param
    *        An object containing `name` and `value` properties.
    */
-  encode: function(data, param) {
+  encode(data, param) {
     let begin = data.offset;
     try {
       this.encodeTypedParameter(data, param);
@@ -1564,7 +1616,7 @@ this.Header = {
    *         but the `value` property can be many different types depending on
    *         `name`.
    */
-  decodeMessageHeader: function(data) {
+  decodeMessageHeader(data) {
     return decodeAlternatives(data, null, WellKnownHeader, ApplicationHeader);
   },
 
@@ -1577,12 +1629,12 @@ this.Header = {
    *         but the `value` property can be many different types depending on
    *         `name`.
    */
-  decode: function(data) {
+  decode(data) {
     // TODO: support header code page shift-sequence
     return this.decodeMessageHeader(data);
   },
 
-  encodeMessageHeader: function(data, header) {
+  encodeMessageHeader(data, header) {
     encodeAlternatives(data, header, null, WellKnownHeader, ApplicationHeader);
   },
 
@@ -1593,7 +1645,7 @@ this.Header = {
    *        An object containing two attributes: a string-typed `name` and a
    *        `value` of arbitrary type.
    */
-  encode: function(data, header) {
+  encode(data, header) {
     // TODO: support header code page shift-sequence
     this.encodeMessageHeader(data, header);
   },
@@ -1618,31 +1670,37 @@ this.WellKnownHeader = {
    * @throws NotWellKnownEncodingError if decoded well-known header field
    *         number is not registered or supported.
    */
-  decode: function(data) {
+  decode(data) {
     let index = ShortInteger.decode(data);
 
     let entry = WSP_HEADER_FIELDS[index];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Well-known-header: not well known header " + index);
+        "Well-known-header: not well known header " + index
+      );
     }
 
-    let begin = data.offset, value;
+    let begin = data.offset,
+      value;
     try {
       value = decodeAlternatives(data, null, entry.coder, TextValue);
     } catch (e) {
       data.offset = begin;
 
       value = skipValue(data);
-      debug("Skip malformed well known header(" + index + "): "
-            + JSON.stringify({name: entry.name, value: value}));
+      debug(
+        "Skip malformed well known header(" +
+          index +
+          "): " +
+          JSON.stringify({ name: entry.name, value })
+      );
 
       return null;
     }
 
     return {
       name: entry.name,
-      value: value,
+      value,
     };
   },
 
@@ -1653,11 +1711,12 @@ this.WellKnownHeader = {
    *        An object containing two attributes: a string-typed `name` and a
    *        `value` of arbitrary type.
    */
-  encode: function(data, header) {
+  encode(data, header) {
     let entry = WSP_HEADER_FIELDS[header.name.toLowerCase()];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Well-known-header: not well known header " + header.name);
+        "Well-known-header: not well known header " + header.name
+      );
     }
 
     ShortInteger.encode(data, entry.number);
@@ -1681,25 +1740,27 @@ this.ApplicationHeader = {
    *         but the `value` property can be many different types depending on
    *         `name`.
    */
-  decode: function(data) {
+  decode(data) {
     let name = TokenText.decode(data);
 
-    let begin = data.offset, value;
+    let begin = data.offset,
+      value;
     try {
       value = TextString.decode(data);
     } catch (e) {
       data.offset = begin;
 
       value = skipValue(data);
-      debug("Skip malformed application header: "
-            + JSON.stringify({name: name, value: value}));
+      debug(
+        "Skip malformed application header: " + JSON.stringify({ name, value })
+      );
 
       return null;
     }
 
     return {
       name: name.toLowerCase(),
-      value: value,
+      value,
     };
   },
 
@@ -1712,7 +1773,7 @@ this.ApplicationHeader = {
    *
    * @throws CodeError if got an empty header name.
    */
-  encode: function(data, header) {
+  encode(data, header) {
     if (!header.name) {
       throw new CodeError("Application-header: empty header name");
     }
@@ -1738,7 +1799,7 @@ this.FieldName = {
    * @throws NotWellKnownEncodingError if decoded well-known header field
    *         number is not registered or supported.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     try {
       return TokenText.decode(data).toLowerCase();
@@ -1750,7 +1811,8 @@ this.FieldName = {
     let entry = WSP_HEADER_FIELDS[number];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Field-name: not well known encoding " + number);
+        "Field-name: not well known encoding " + number
+      );
     }
 
     return entry.name;
@@ -1762,7 +1824,7 @@ this.FieldName = {
    * @param name
    *        A field name string.
    */
-  encode: function(data, name) {
+  encode(data, name) {
     let entry = WSP_HEADER_FIELDS[name.toLowerCase()];
     if (entry) {
       ShortInteger.encode(data, entry.number);
@@ -1787,9 +1849,9 @@ this.AcceptCharsetValue = {
    *
    * @return A object with a property `charset` of string "*".
    */
-  decodeAnyCharset: function(data) {
+  decodeAnyCharset(data) {
     Octet.decodeEqualTo(data, 128);
-    return {charset: "*"};
+    return { charset: "*" };
   },
 
   /**
@@ -1802,7 +1864,7 @@ this.AcceptCharsetValue = {
    * @throws NotWellKnownEncodingError if decoded well-known charset number is
    *         not registered or supported.
    */
-  decodeConstrainedCharset: function(data) {
+  decodeConstrainedCharset(data) {
     let begin = data.offset;
     try {
       return this.decodeAnyCharset(data);
@@ -1812,17 +1874,18 @@ this.AcceptCharsetValue = {
 
     let numOrStr = ConstrainedEncoding.decode(data);
     if (typeof numOrStr == "string") {
-      return {charset: numOrStr};
+      return { charset: numOrStr };
     }
 
     let charset = numOrStr;
     let entry = WSP_WELL_KNOWN_CHARSETS[charset];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Constrained-charset: not well known charset: " + charset);
+        "Constrained-charset: not well known charset: " + charset
+      );
     }
 
-    return {charset: entry.name};
+    return { charset: entry.name };
   },
 
   /**
@@ -1832,7 +1895,7 @@ this.AcceptCharsetValue = {
    * @return A object with a string property `charset` and a optional integer
    *         property `q`.
    */
-  decodeAcceptCharsetGeneralForm: function(data) {
+  decodeAcceptCharsetGeneralForm(data) {
     let length = ValueLength.decode(data);
 
     let begin = data.offset;
@@ -1844,7 +1907,7 @@ this.AcceptCharsetValue = {
     } catch (e) {
       data.offset = begin;
 
-      result = {charset: TokenText.decode(data)};
+      result = { charset: TokenText.decode(data) };
       if (data.offset < end) {
         result.q = QValue.decode(data);
       }
@@ -1864,7 +1927,7 @@ this.AcceptCharsetValue = {
    * @return A object with a string property `charset` and a optional integer
    *         property `q`.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     try {
       return this.decodeConstrainedCharset(data);
@@ -1880,8 +1943,8 @@ this.AcceptCharsetValue = {
    * @param value
    *        An object with a string property `charset`.
    */
-  encodeAnyCharset: function(data, value) {
-    if (!value || !value.charset || (value.charset === "*")) {
+  encodeAnyCharset(data, value) {
+    if (!value || !value.charset || value.charset === "*") {
       Octet.encode(data, 128);
       return;
     }
@@ -1906,7 +1969,7 @@ this.WellKnownCharset = {
    * @throws NotWellKnownEncodingError if decoded well-known charset number
    *         is not registered or supported.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
 
     try {
@@ -1925,10 +1988,11 @@ this.WellKnownCharset = {
     let entry = WSP_WELL_KNOWN_CHARSETS[charset];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Well-known-charset: not well known charset " + charset);
+        "Well-known-charset: not well known charset " + charset
+      );
     }
 
-    return {charset: entry.name};
+    return { charset: entry.name };
   },
 
   /**
@@ -1936,7 +2000,7 @@ this.WellKnownCharset = {
    *        A wrapped object to store encoded raw data.
    * @param value
    */
-  encode: function(data, value) {
+  encode(data, value) {
     let begin = data.offset;
     try {
       AcceptCharsetValue.encodeAnyCharset(data, value);
@@ -1947,7 +2011,8 @@ this.WellKnownCharset = {
     let entry = WSP_WELL_KNOWN_CHARSETS[value.charset.toLowerCase()];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Well-known-charset: not well known charset " + value.charset);
+        "Well-known-charset: not well known charset " + value.charset
+      );
     }
 
     IntegerValue.encode(data, entry.number);
@@ -1981,7 +2046,7 @@ this.ContentTypeValue = {
    * @throws NotWellKnownEncodingError if decoded well-known content type number
    *         is not registered or supported.
    */
-  decodeConstrainedMedia: function(data) {
+  decodeConstrainedMedia(data) {
     return {
       media: TypeValue.decode(data),
       params: null,
@@ -1998,8 +2063,9 @@ this.ContentTypeValue = {
    * @throws NotWellKnownEncodingError if decoded well-known content type
    *         number is not registered or supported.
    */
-  decodeMedia: function(data) {
-    let begin = data.offset, number;
+  decodeMedia(data) {
+    let begin = data.offset,
+      number;
     try {
       number = IntegerValue.decode(data);
     } catch (e) {
@@ -2014,7 +2080,9 @@ this.ContentTypeValue = {
 
     let entry = WSP_WELL_KNOWN_CONTENT_TYPES[number];
     if (!entry) {
-      throw new NotWellKnownEncodingError("Media: not well known media " + number);
+      throw new NotWellKnownEncodingError(
+        "Media: not well known media " + number
+      );
     }
 
     return entry.type;
@@ -2031,13 +2099,13 @@ this.ContentTypeValue = {
    *         string, and the `params` property is a hash map from a string to
    *         an value of unspecified type.
    */
-  decodeMediaType: function(data, end) {
+  decodeMediaType(data, end) {
     let media = this.decodeMedia(data);
     let params = Parameter.decodeMultiple(data, end);
 
     return {
-      media: media,
-      params: params,
+      media,
+      params,
     };
   },
 
@@ -2050,7 +2118,7 @@ this.ContentTypeValue = {
    *         string, and the `params` property is null or a hash map from a
    *         string to an value of unspecified type.
    */
-  decodeContentGeneralForm: function(data) {
+  decodeContentGeneralForm(data) {
     let length = ValueLength.decode(data);
     let end = data.offset + length;
 
@@ -2072,7 +2140,7 @@ this.ContentTypeValue = {
    *         string, and the `params` property is null or a hash map from a
    *         string to an value of unspecified type.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
 
     try {
@@ -2089,7 +2157,7 @@ this.ContentTypeValue = {
    * @param value
    *        An object containing `media` and `params` properties.
    */
-  encodeConstrainedMedia: function(data, value) {
+  encodeConstrainedMedia(data, value) {
     if (value.params) {
       throw new CodeError("Constrained-media: should use general form instead");
     }
@@ -2103,7 +2171,7 @@ this.ContentTypeValue = {
    * @param value
    *        An object containing `media` and `params` properties.
    */
-  encodeMediaType: function(data, value) {
+  encodeMediaType(data, value) {
     let entry = WSP_WELL_KNOWN_CONTENT_TYPES[value.media.toLowerCase()];
     if (entry) {
       IntegerValue.encode(data, entry.number);
@@ -2120,7 +2188,7 @@ this.ContentTypeValue = {
    * @param value
    *        An object containing `media` and `params` properties.
    */
-  encodeContentGeneralForm: function(data, value) {
+  encodeContentGeneralForm(data, value) {
     let begin = data.offset;
     this.encodeMediaType(data, value);
 
@@ -2139,7 +2207,7 @@ this.ContentTypeValue = {
    * @param value
    *        An object containing `media` and `params` properties.
    */
-  encode: function(data, value) {
+  encode(data, value) {
     let begin = data.offset;
 
     try {
@@ -2168,7 +2236,7 @@ this.ApplicationIdValue = {
    * @throws NotWellKnownEncodingError if decoded well-known application id
    *         number is not registered or supported.
    */
-  decode: function(data) {
+  decode(data) {
     let begin = data.offset;
     try {
       return UriValue.decode(data);
@@ -2186,7 +2254,8 @@ this.ApplicationIdValue = {
     let entry = OMNA_PUSH_APPLICATION_IDS[id];
     if (!entry) {
       throw new NotWellKnownEncodingError(
-        "Application-id-value: not well known id: " + id);
+        "Application-id-value: not well known id: " + id
+      );
     }
 
     return entry.urn;
@@ -2202,47 +2271,39 @@ this.PduHelper = {
    *
    * @return Decoded string.
    */
-  decodeStringContent: function(data, charset) {
-      let conv = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
-                 .createInstance(Ci.nsIScriptableUnicodeConverter);
-
-      let entry;
-      if (charset) {
-        entry = WSP_WELL_KNOWN_CHARSETS[charset];
-      }
-      // Set converter to default one if (entry && entry.converter) is null.
-      // @see OMA-TS-MMS-CONF-V1_3-20050526-D 7.1.9
-      conv.charset = (entry && entry.converter) || "UTF-8";
-      try {
-        return conv.convertFromByteArray(data, data.length);
-      } catch (e) {
-      }
-      return null;
-  },
-
-  /**
-  * @param strContent
-  *        Decoded string content.
-  * @param charset
-  *        Charset for encode.
-  *
-  * @return An encoded UInt8Array of string content.
-  */
-  encodeStringContent: function(strContent, charset) {
-    let conv = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
-               .createInstance(Ci.nsIScriptableUnicodeConverter);
-
+  decodeStringContent(data, charset) {
     let entry;
     if (charset) {
       entry = WSP_WELL_KNOWN_CHARSETS[charset];
     }
-    // Set converter to default one if (entry && entry.converter) is null.
+    // Set converter to default one if (entry && entry.name) is null.
     // @see OMA-TS-MMS-CONF-V1_3-20050526-D 7.1.9
-    conv.charset = (entry && entry.converter) || "UTF-8";
+    let utfLabel = (entry && entry.name) || "utf-8";
     try {
-      return conv.convertToByteArray(strContent);
-    } catch (e) {
+      return new TextDecoder(utfLabel).decode(data);
+    } catch (e) {}
+    return null;
+  },
+
+  /**
+   * @param strContent
+   *        Decoded string content.
+   * @param charset
+   *        Charset for encode.
+   *
+   * @return An encoded UInt8Array of string content.
+   */
+  encodeStringContent(strContent, charset) {
+    let entry;
+    if (charset) {
+      entry = WSP_WELL_KNOWN_CHARSETS[charset];
     }
+    // Set converter to default one if (entry && entry.name) is null.
+    // @see OMA-TS-MMS-CONF-V1_3-20050526-D 7.1.9
+    let utfLabel = (entry && entry.name) || "utf-8";
+    try {
+      return new TextEncoder(utfLabel).encode(strContent);
+    } catch (e) {}
     return null;
   },
 
@@ -2259,7 +2320,7 @@ this.PduHelper = {
    *
    * @return A object containing decoded header fields as its attributes.
    */
-  parseHeaders: function(data, end, headers) {
+  parseHeaders(data, end, headers) {
     if (!headers) {
       headers = {};
     }
@@ -2293,7 +2354,7 @@ this.PduHelper = {
    *
    * @see WAP-230-WSP-20010705-a clause 8.2.4
    */
-  parsePushHeaders: function(data, msg) {
+  parsePushHeaders(data, msg) {
     if (!msg.headers) {
       msg.headers = {};
     }
@@ -2316,7 +2377,7 @@ this.PduHelper = {
    *
    * @see WAP-230-WSP-20010705-a section 8.5
    */
-  parseMultiPart: function(data) {
+  parseMultiPart(data) {
     let nEntries = UintVar.decode(data);
     if (!nEntries) {
       return null;
@@ -2343,10 +2404,11 @@ this.PduHelper = {
 
         let octetArray = Octet.decodeMultiple(data, contentEnd);
         let content = null;
-        let charset = headers["content-type"].params &&
-                      headers["content-type"].params.charset
-                    ? headers["content-type"].params.charset.charset
-                    : null;
+        let charset =
+          headers["content-type"].params &&
+          headers["content-type"].params.charset
+            ? headers["content-type"].params.charset.charset
+            : null;
 
         let mimeType = headers["content-type"].media;
 
@@ -2360,7 +2422,7 @@ this.PduHelper = {
             // the encoding of the blob content should always be "utf-8".
             let tmpStr = this.decodeStringContent(octetArray, charset);
             let encoder = new TextEncoder("UTF-8");
-            content = new Blob([encoder.encode(tmpStr)], {type : mimeType});
+            content = new Blob([encoder.encode(tmpStr)], { type: mimeType });
 
             // Make up the missing encoding info.
             if (!headers["content-type"].params) {
@@ -2374,13 +2436,13 @@ this.PduHelper = {
         }
 
         if (!content) {
-          content = new Blob([octetArray], {type : mimeType});
+          content = new Blob([octetArray], { type: mimeType });
         }
 
         parts[i] = {
           index: i,
-          headers: headers,
-          content: content,
+          headers,
+          content,
         };
       } catch (e) {
         debug("Failed to parse multipart entry, message: " + e.message);
@@ -2407,7 +2469,7 @@ this.PduHelper = {
    *
    * @return Parsed WSP PDU object or null in case of errors found.
    */
-  parse: function(data, isSessionless, msg) {
+  parse(data, isSessionless, msg) {
     if (!msg) {
       msg = {
         type: null,
@@ -2423,7 +2485,7 @@ this.PduHelper = {
 
       msg.type = Octet.decode(data);
       switch (msg.type) {
-        case WSP_PDU_TYPE_PUSH:
+        case WAP_CONSTS.WSP_PDU_TYPE_PUSH:
           this.parsePushHeaders(data, msg);
           break;
       }
@@ -2443,13 +2505,15 @@ this.PduHelper = {
    * @param length
    *        Max number of octets to be coverted into an input stream.
    */
-  appendArrayToMultiStream: function(multiStream, array, length) {
-    let storageStream = Cc["@mozilla.org/storagestream;1"]
-                        .createInstance(Ci.nsIStorageStream);
+  appendArrayToMultiStream(multiStream, array, length) {
+    let storageStream = Cc["@mozilla.org/storagestream;1"].createInstance(
+      Ci.nsIStorageStream
+    );
     storageStream.init(4096, length, null);
 
-    let boStream = Cc["@mozilla.org/binaryoutputstream;1"]
-                   .createInstance(Ci.nsIBinaryOutputStream);
+    let boStream = Cc["@mozilla.org/binaryoutputstream;1"].createInstance(
+      Ci.nsIBinaryOutputStream
+    );
     boStream.setOutputStream(storageStream.getOutputStream(0));
     boStream.writeByteArray(array, length);
     boStream.close();
@@ -2465,10 +2529,10 @@ this.PduHelper = {
    *
    * @see WAP-230-WSP-20010705-a section 8.5
    */
-  composeMultiPart: function(multiStream, parts) {
+  composeMultiPart(multiStream, parts) {
     // Encode multipart header
     {
-      let data = {array: [], offset: 0};
+      let data = { array: [], offset: 0 };
       UintVar.encode(data, parts.length);
       debug("Encoded multipart header: " + JSON.stringify(data.array));
       this.appendArrayToMultiStream(multiStream, data.array, data.offset);
@@ -2477,7 +2541,7 @@ this.PduHelper = {
     // Encode each part
     for (let i = 0; i < parts.length; i++) {
       let part = parts[i];
-      let data = {array: [], offset: 0};
+      let data = { array: [], offset: 0 };
 
       // Encode Content-Type
       let contentType = part.headers["content-type"];
@@ -2489,7 +2553,7 @@ this.PduHelper = {
         delete part.headers["content-type"];
 
         for (let name in part.headers) {
-          Header.encode(data, {name: name, value: part.headers[name]});
+          Header.encode(data, { name, value: part.headers[name] });
         }
 
         // Restore Content-Type back
@@ -2502,8 +2566,12 @@ this.PduHelper = {
       UintVar.encode(data, headersLen);
       if (typeof content === "string") {
         let charset;
-        if (contentType && contentType.params && contentType.params.charset &&
-          contentType.params.charset.charset) {
+        if (
+          contentType &&
+          contentType.params &&
+          contentType.params.charset &&
+          contentType.params.charset.charset
+        ) {
           charset = contentType.params.charset.charset;
         }
         content = this.encodeStringContent(content, charset);
@@ -2537,9 +2605,9 @@ this.WSP_HEADER_FIELDS = (function() {
   let names = {};
   function add(name, number, coder) {
     let entry = {
-      name: name,
-      number: number,
-      coder: coder,
+      name,
+      number,
+      coder,
     };
     names[name] = names[number] = entry;
   }
@@ -2550,7 +2618,7 @@ this.WSP_HEADER_FIELDS = (function() {
   //add("accept-encoding",      0x02); Deprecated
   //add("accept-language",      0x03);
   //add("accept-ranges",        0x04);
-  add("age",                    0x05, DeltaSecondsValue);
+  add("age", 0x05, DeltaSecondsValue);
   //add("allow",                0x06);
   //add("authorization",        0x07);
   //add("cache-control",        0x08); Deprecated
@@ -2558,49 +2626,49 @@ this.WSP_HEADER_FIELDS = (function() {
   //add("content-base",         0x0A); Deprecated
   //add("content-encoding",     0x0B);
   //add("content-language",     0x0C);
-  add("content-length",         0x0D, IntegerValue);
-  add("content-location",       0x0E, UriValue);
+  add("content-length", 0x0d, IntegerValue);
+  add("content-location", 0x0e, UriValue);
   //add("content-md5",          0x0F);
   //add("content-range",        0x10); Deprecated
-  add("content-type",           0x11, ContentTypeValue);
-  add("date",                   0x12, DateValue);
-  add("etag",                   0x13, TextString);
-  add("expires",                0x14, DateValue);
-  add("from",                   0x15, TextString);
-  add("host",                   0x16, TextString);
-  add("if-modified-since",      0x17, DateValue);
-  add("if-match",               0x18, TextString);
-  add("if-none-match",          0x19, TextString);
+  add("content-type", 0x11, ContentTypeValue);
+  add("date", 0x12, DateValue);
+  add("etag", 0x13, TextString);
+  add("expires", 0x14, DateValue);
+  add("from", 0x15, TextString);
+  add("host", 0x16, TextString);
+  add("if-modified-since", 0x17, DateValue);
+  add("if-match", 0x18, TextString);
+  add("if-none-match", 0x19, TextString);
   //add("if-range",             0x1A);
-  add("if-unmodified-since",    0x1B, DateValue);
-  add("location",               0x1C, UriValue);
-  add("last-modified",          0x1D, DateValue);
-  add("max-forwards",           0x1E, IntegerValue);
+  add("if-unmodified-since", 0x1b, DateValue);
+  add("location", 0x1c, UriValue);
+  add("last-modified", 0x1d, DateValue);
+  add("max-forwards", 0x1e, IntegerValue);
   //add("pragma",               0x1F);
   //add("proxy-authenticate",   0x20);
   //add("proxy-authentication", 0x21);
   //add("public",               0x22);
   //add("range",                0x23);
-  add("referer",                0x24, UriValue);
+  add("referer", 0x24, UriValue);
   //add("retry-after",          0x25);
-  add("server",                 0x26, TextString);
+  add("server", 0x26, TextString);
   //add("transfer-encoding",    0x27);
-  add("upgrade",                0x28, TextString);
-  add("user-agent",             0x29, TextString);
+  add("upgrade", 0x28, TextString);
+  add("user-agent", 0x29, TextString);
   //add("vary",                 0x2A);
-  add("via",                    0x2B, TextString);
+  add("via", 0x2b, TextString);
   //add("warning",              0x2C);
   //add("www-authenticate",     0x2D);
   //add("content-disposition",  0x2E); Deprecated
 
   // Encoding Version: 1.2
-  add("x-wap-application-id",   0x2F, ApplicationIdValue);
-  add("x-wap-content-uri",      0x30, UriValue);
-  add("x-wap-initiator-uri",    0x31, UriValue);
+  add("x-wap-application-id", 0x2f, ApplicationIdValue);
+  add("x-wap-content-uri", 0x30, UriValue);
+  add("x-wap-initiator-uri", 0x31, UriValue);
   //add("accept-application",   0x32);
-  add("bearer-indication",      0x33, IntegerValue);
-  add("push-flag",              0x34, ShortInteger);
-  add("profile",                0x35, UriValue);
+  add("bearer-indication", 0x33, IntegerValue);
+  add("push-flag", 0x34, ShortInteger);
+  add("profile", 0x35, UriValue);
   //add("profile-diff",         0x36);
   //add("profile-warning",      0x37); Deprecated
 
@@ -2608,12 +2676,12 @@ this.WSP_HEADER_FIELDS = (function() {
   //add("expect",               0x38);
   //add("te",                   0x39);
   //add("trailer",              0x3A);
-  add("accept-charset",         0x3B, AcceptCharsetValue);
+  add("accept-charset", 0x3b, AcceptCharsetValue);
   //add("accept-encoding",      0x3C);
   //add("cache-control",        0x3D); Deprecated
   //add("content-range",        0x3E);
-  add("x-wap-tod",              0x3F, DateValue);
-  add("content-id",             0x40, QuotedString);
+  add("x-wap-tod", 0x3f, DateValue);
+  add("content-id", 0x40, QuotedString);
   //add("set-cookie",           0x41);
   //add("cookie",               0x42);
   //add("encoding-version",     0x43);
@@ -2634,8 +2702,8 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
 
   function add(type, number) {
     let entry = {
-      type: type,
-      number: number,
+      type,
+      number,
     };
     // For case like "text/x-vCalendar", we need toLoweCase() for generating
     // the same index.
@@ -2654,12 +2722,12 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("text/x-vCard", 0x07);
   add("text/vnd.wap.wml", 0x08);
   add("text/vnd.wap.wmlscript", 0x09);
-  add("text/vnd.wap.wta-event", 0x0A);
-  add("multipart/*", 0x0B);
-  add("multipart/mixed", 0x0C);
-  add("multipart/form-data", 0x0D);
-  add("multipart/byterantes", 0x0E);
-  add("multipart/alternative", 0x0F);
+  add("text/vnd.wap.wta-event", 0x0a);
+  add("multipart/*", 0x0b);
+  add("multipart/mixed", 0x0c);
+  add("multipart/form-data", 0x0d);
+  add("multipart/byterantes", 0x0e);
+  add("multipart/alternative", 0x0f);
   add("application/*", 0x10);
   add("application/java-vm", 0x11);
   add("application/x-www-form-urlencoded", 0x12);
@@ -2670,12 +2738,12 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("application/vnd.wap.uaprof", 0x17);
   add("application/vnd.wap.wtls-ca-certificate", 0x18);
   add("application/vnd.wap.wtls-user-certificate", 0x19);
-  add("application/x-x509-ca-cert", 0x1A);
-  add("application/x-x509-user-cert", 0x1B);
-  add("image/*", 0x1C);
-  add("image/gif", 0x1D);
-  add("image/jpeg", 0x1E);
-  add("image/tiff", 0x1F);
+  add("application/x-x509-ca-cert", 0x1a);
+  add("application/x-x509-user-cert", 0x1b);
+  add("image/*", 0x1c);
+  add("image/gif", 0x1d);
+  add("image/jpeg", 0x1e);
+  add("image/tiff", 0x1f);
   add("image/png", 0x20);
   add("image/vnd.wap.wbmp", 0x21);
   add("application/vnd.wap.multipart.*", 0x22);
@@ -2686,14 +2754,14 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("application/xml", 0x27);
   add("text/xml", 0x28);
   add("application/vnd.wap.wbxml", 0x29);
-  add("application/x-x968-cross-cert", 0x2A);
-  add("application/x-x968-ca-cert", 0x2B);
-  add("application/x-x968-user-cert", 0x2C);
-  add("text/vnd.wap.si", 0x2D);
+  add("application/x-x968-cross-cert", 0x2a);
+  add("application/x-x968-ca-cert", 0x2b);
+  add("application/x-x968-user-cert", 0x2c);
+  add("text/vnd.wap.si", 0x2d);
 
   // Encoding Version: 1.2
-  add("application/vnd.wap.sic", 0x2E);
-  add("text/vnd.wap.sl", 0x2F);
+  add("application/vnd.wap.sic", 0x2e);
+  add("text/vnd.wap.sl", 0x2f);
   add("application/vnd.wap.slc", 0x30);
   add("text/vnd.wap.co", 0x31);
   add("application/vnd.wap.coc", 0x32);
@@ -2708,12 +2776,12 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("application/pkcs7-mime", 0x37);
   add("application/vnd.wap.hashed-certificate", 0x38);
   add("application/vnd.wap.signed-certificate", 0x39);
-  add("application/vnd.wap.cert-response", 0x3A);
-  add("application/xhtml+xml", 0x3B);
-  add("application/wml+xml", 0x3C);
-  add("text/css", 0x3D);
-  add("application/vnd.wap.mms-message", 0x3E);
-  add("application/vnd.wap.rollover-certificate", 0x3F);
+  add("application/vnd.wap.cert-response", 0x3a);
+  add("application/xhtml+xml", 0x3b);
+  add("application/wml+xml", 0x3c);
+  add("text/css", 0x3d);
+  add("application/vnd.wap.mms-message", 0x3e);
+  add("application/vnd.wap.rollover-certificate", 0x3f);
 
   // Encoding Version: 1.5
   add("application/vnd.wap.locc+wbxml", 0x40);
@@ -2726,14 +2794,14 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("application/vnd.oma.dd+xml", 0x47);
   add("application/vnd.oma.drm.message", 0x48);
   add("application/vnd.oma.drm.content", 0x49);
-  add("application/vnd.oma.drm.rights+xml", 0x4A);
-  add("application/vnd.oma.drm.rights+wbxml", 0x4B);
-  add("application/vnd.wv.csp+xml", 0x4C);
-  add("application/vnd.wv.csp+wbxml", 0x4D);
-  add("application/vnd.syncml.ds.notification", 0x4E);
+  add("application/vnd.oma.drm.rights+xml", 0x4a);
+  add("application/vnd.oma.drm.rights+wbxml", 0x4b);
+  add("application/vnd.wv.csp+xml", 0x4c);
+  add("application/vnd.wv.csp+wbxml", 0x4d);
+  add("application/vnd.syncml.ds.notification", 0x4e);
 
   // Encoding Version: 1.6
-  add("audio/*", 0x4F);
+  add("audio/*", 0x4f);
   add("video/*", 0x50);
 
   // Encoding Version: TBD
@@ -2745,7 +2813,7 @@ this.WSP_WELL_KNOWN_CONTENT_TYPES = (function() {
   add("application/vnd.omads-email+wbxml", 0x56);
   add("text/x-vBookmark", 0x57);
   add("application/vnd.syncml.dm.notification", 0x58);
-  add("application/octet-stream", 0x5A);
+  add("application/octet-stream", 0x5a);
 
   add("application/vnd.omaloc-supl-init", 0x312);
 
@@ -2761,49 +2829,49 @@ this.WSP_WELL_KNOWN_PARAMS = (function() {
 
   function add(name, number, coder) {
     let entry = {
-      name: name,
-      number: number,
-      coder: coder,
+      name,
+      number,
+      coder,
     };
     params[name] = params[number] = entry;
   }
 
   // Encoding Version: 1.1
-  add("q",                 0x00, QValue);
-  add("charset",           0x01, WellKnownCharset);
-  add("level",             0x02, VersionValue);
-  add("type",              0x03, IntegerValue);
-  add("name",              0x05, TextValue); // Deprecated, but used in some carriers, eg. Hinet.
+  add("q", 0x00, QValue);
+  add("charset", 0x01, WellKnownCharset);
+  add("level", 0x02, VersionValue);
+  add("type", 0x03, IntegerValue);
+  add("name", 0x05, TextValue); // Deprecated, but used in some carriers, eg. Hinet.
   //add("filename",        0x06); Deprecated
-  add("differences",       0x07, FieldName);
-  add("padding",           0x08, ShortInteger);
+  add("differences", 0x07, FieldName);
+  add("padding", 0x08, ShortInteger);
 
   // Encoding Version: 1.2
-  add("type",              0x09, TypeValue);
-  add("start",             0x0A, TextValue); // Deprecated, but used in some carriers, eg. T-Mobile.
+  add("type", 0x09, TypeValue);
+  add("start", 0x0a, TextValue); // Deprecated, but used in some carriers, eg. T-Mobile.
   //add("start-info",      0x0B); Deprecated
 
   // Encoding Version: 1.3
   //add("comment",         0x0C); Deprecated
   //add("domain",          0x0D); Deprecated
-  add("max-age",           0x0E, DeltaSecondsValue);
+  add("max-age", 0x0e, DeltaSecondsValue);
   //add("path",            0x0F); Deprecated
-  add("secure",            0x10, NoValue);
+  add("secure", 0x10, NoValue);
 
   // Encoding Version: 1.4
-  add("sec",               0x11, ShortInteger);
-  add("mac",               0x12, TextValue);
-  add("creation-date",     0x13, DateValue);
+  add("sec", 0x11, ShortInteger);
+  add("mac", 0x12, TextValue);
+  add("creation-date", 0x13, DateValue);
   add("modification-date", 0x14, DateValue);
-  add("read-date",         0x15, DateValue);
-  add("size",              0x16, IntegerValue);
+  add("read-date", 0x15, DateValue);
+  add("size", 0x16, IntegerValue);
   //add("name",            0x17, TextValue); // Not supported in some carriers, eg. Hinet.
-  add("filename",          0x18, TextValue);
+  add("filename", 0x18, TextValue);
   //add("start",           0x19, TextValue); // Not supported in some carriers, eg. Hinet.
-  add("start-info",        0x1A, TextValue);
-  add("comment",           0x1B, TextValue);
-  add("domain",            0x1C, TextValue);
-  add("path",              0x1D, TextValue);
+  add("start-info", 0x1a, TextValue);
+  add("comment", 0x1b, TextValue);
+  add("domain", 0x1c, TextValue);
+  add("path", 0x1d, TextValue);
 
   return params;
 })();
@@ -2816,42 +2884,42 @@ this.WSP_WELL_KNOWN_CHARSETS = (function() {
 
   function add(name, number, converter) {
     let entry = {
-      name: name,
-      number: number,
-      converter: converter,
+      name,
+      number,
+      converter,
     };
 
     charsets[name] = charsets[number] = entry;
   }
 
-  add("us-ascii",           3, null);
-  add("iso-8859-1",         4, "ISO-8859-1");
-  add("iso-8859-2",         5, "ISO-8859-2");
-  add("iso-8859-3",         6, "ISO-8859-3");
-  add("iso-8859-4",         7, "ISO-8859-4");
-  add("iso-8859-5",         8, "ISO-8859-5");
-  add("iso-8859-6",         9, "ISO-8859-6");
-  add("iso-8859-7",        10, "ISO-8859-7");
-  add("iso-8859-8",        11, "ISO-8859-8");
-  add("iso-8859-9",        12, "ISO-8859-9");
-  add("iso-8859-10",       13, "ISO-8859-10");
-  add("shift_jis",         17, "Shift_JIS");
-  add("euc-jp",            18, "EUC-JP");
-  add("iso-2022-kr",       37, "ISO-2022-KR");
-  add("euc-kr",            38, "EUC-KR");
-  add("iso-2022-jp",       39, "ISO-2022-JP");
-  add("iso-2022-jp-2",     40, "iso-2022-jp-2");
-  add("iso-8859-6-e",      81, "ISO-8859-6-E");
-  add("iso-8859-6-i",      82, "ISO-8859-6-I");
-  add("iso-8859-8-e",      84, "ISO-8859-8-E");
-  add("iso-8859-8-i",      85, "ISO-8859-8-I");
-  add("utf-8",            106, "UTF-8");
+  add("us-ascii", 3, null);
+  add("iso-8859-1", 4, "ISO-8859-1");
+  add("iso-8859-2", 5, "ISO-8859-2");
+  add("iso-8859-3", 6, "ISO-8859-3");
+  add("iso-8859-4", 7, "ISO-8859-4");
+  add("iso-8859-5", 8, "ISO-8859-5");
+  add("iso-8859-6", 9, "ISO-8859-6");
+  add("iso-8859-7", 10, "ISO-8859-7");
+  add("iso-8859-8", 11, "ISO-8859-8");
+  add("iso-8859-9", 12, "ISO-8859-9");
+  add("iso-8859-10", 13, "ISO-8859-10");
+  add("shift_jis", 17, "Shift_JIS");
+  add("euc-jp", 18, "EUC-JP");
+  add("iso-2022-kr", 37, "ISO-2022-KR");
+  add("euc-kr", 38, "EUC-KR");
+  add("iso-2022-jp", 39, "ISO-2022-JP");
+  add("iso-2022-jp-2", 40, "iso-2022-jp-2");
+  add("iso-8859-6-e", 81, "ISO-8859-6-E");
+  add("iso-8859-6-i", 82, "ISO-8859-6-I");
+  add("iso-8859-8-e", 84, "ISO-8859-8-E");
+  add("iso-8859-8-i", 85, "ISO-8859-8-I");
+  add("utf-8", 106, "UTF-8");
   add("iso-10646-ucs-2", 1000, "iso-10646-ucs-2");
-  add("utf-16",          1015, "UTF-16");
-  add("gb2312",          2025, "GB2312");
-  add("big5",            2026, "Big5");
-  add("koi8-r",          2084, "KOI8-R");
-  add("windows-1252",    2252, "windows-1252");
+  add("utf-16", 1015, "UTF-16");
+  add("gb2312", 2025, "GB2312");
+  add("big5", 2026, "Big5");
+  add("koi8-r", 2084, "KOI8-R");
+  add("windows-1252", 2252, "windows-1252");
 
   return charsets;
 })();
@@ -2863,8 +2931,8 @@ this.OMNA_PUSH_APPLICATION_IDS = (function() {
 
   function add(urn, number) {
     let entry = {
-      urn: urn,
-      number: number,
+      urn,
+      number,
     };
 
     ids[urn] = ids[number] = entry;
@@ -2877,16 +2945,13 @@ this.OMNA_PUSH_APPLICATION_IDS = (function() {
   return ids;
 })();
 
-var debug;
-if (DEBUG) {
-  debug = function(s) {
+function debug(s) {
+  if (DEBUG) {
     dump("-@- WspPduHelper: " + s + "\n");
-  };
-} else {
-  debug = function(s) {};
+  }
 }
 
-this.EXPORTED_SYMBOLS = ALL_CONST_SYMBOLS.concat([
+var EXPORTED_SYMBOLS = [
   // Constant values
   "WSP_HEADER_FIELDS",
   "WSP_WELL_KNOWN_CONTENT_TYPES",
@@ -2940,4 +3005,4 @@ this.EXPORTED_SYMBOLS = ALL_CONST_SYMBOLS.concat([
 
   // Parser
   "PduHelper",
-]);
+];

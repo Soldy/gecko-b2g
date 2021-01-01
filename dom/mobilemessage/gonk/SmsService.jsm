@@ -10,6 +10,8 @@ const { XPCOMUtils } = ChromeUtils.import(
 
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
+var WAP_CONSTS = ChromeUtils.import("resource://gre/modules/wap_consts.js");
+
 XPCOMUtils.defineLazyGetter(this, "RIL", function() {
   let obj = ChromeUtils.import("resource://gre/modules/ril_consts.js");
   return obj;
@@ -177,8 +179,10 @@ function SmsService() {
 
   this._portAddressedSmsApps = {};
 
-  this._portAddressedSmsApps[gWAP.WDP_PORT_PUSH] = (aMessage, aServiceId) =>
-    this._handleSmsWdpPortPush(aMessage, aServiceId);
+  this._portAddressedSmsApps[WAP_CONSTS.WDP_PORT_PUSH] = (
+    aMessage,
+    aServiceId
+  ) => this._handleSmsWdpPortPush(aMessage, aServiceId);
   this._portAddressedSmsApps[SMS_SUPL_INIT_PORT] = (aMessage, aServiceId) =>
     this._handleSmsSuplInitMessage(aMessage, aServiceId);
 
@@ -483,7 +487,7 @@ SmsService.prototype = {
         aResponse.status != Ci.nsIImsMMTelFeature.SEND_STATUS_OK
       ) {
         if (DEBUG) {
-          debug("_sendToTheAir: SendIMSSMS failed " + aResponse.status);
+          debug("_sendToTheAir: SendImsSms failed " + aResponse.status);
         }
         if (
           aResponse.status === Ci.nsIImsMMTelFeature.SEND_STATUS_ERROR_FALLBACK
@@ -880,7 +884,7 @@ SmsService.prototype = {
     }
 
     let options = {
-      bearer: gWAP.WDP_BEARER_GSM_SMS_GSM_MSISDN,
+      bearer: WAP_CONSTS.WDP_BEARER_GSM_SMS_GSM_MSISDN,
       sourceAddress: aMessage.sender,
       sourcePort: aMessage.originatorPort,
       destinationAddress: this._getPhoneNumber(aServiceId),
@@ -1132,7 +1136,7 @@ SmsService.prototype = {
     }
 
     if (DEBUG) {
-      debug("_sendAckSms imsMessage: " + JSON.stringify(aMessage));
+      debug("_sendAckSms Message: " + JSON.stringify(aMessage));
     }
     if (aMessage.imsMessage) {
       this._imsSmsProviders[aServiceId].acknowledgeSms(result);

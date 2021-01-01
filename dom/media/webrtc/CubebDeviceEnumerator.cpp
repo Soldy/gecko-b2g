@@ -259,11 +259,18 @@ void CubebDeviceEnumerator::EnumerateAudioDevices(
     // simply state that there is a single sink, that it is the default, and has
     // a single channel. All the other values are made up and are not to be
     // used.
+#  ifdef MOZ_WIDGET_GONK
+    RefPtr<AudioDeviceInfo> info = new AudioDeviceInfo(
+        nullptr, u"default"_ns, u""_ns, u""_ns, type,
+        CUBEB_DEVICE_STATE_ENABLED, CUBEB_DEVICE_PREF_ALL, CUBEB_DEVICE_FMT_ALL,
+        CUBEB_DEVICE_FMT_S16NE, channels, 44100, 44100, 44100, 441, 128);
+#  else
     RefPtr<AudioDeviceInfo> info = new AudioDeviceInfo(
         nullptr, NS_ConvertUTF8toUTF16(""), NS_ConvertUTF8toUTF16(""),
         NS_ConvertUTF8toUTF16(""), type, CUBEB_DEVICE_STATE_ENABLED,
         CUBEB_DEVICE_PREF_ALL, CUBEB_DEVICE_FMT_ALL, CUBEB_DEVICE_FMT_S16NE,
         channels, 44100, 44100, 44100, 441, 128);
+#  endif
     devices.AppendElement(info);
   }
 #else

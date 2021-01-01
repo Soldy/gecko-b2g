@@ -263,8 +263,9 @@ const RECOMMENDED_PREFS = new Map([
   // Tests do not wait for the notification button security delay
   ["security.notification_enable_delay", 0],
 
+  // To avoid any unexpected interference for B2G preference change, mark this pref
   // Ensure blocklist updates do not hit the network
-  ["services.settings.server", "http://%(server)s/dummy/blocklist/"],
+  // ["services.settings.server", "http://%(server)s/dummy/blocklist/"],
 
   // Do not automatically fill sign-in forms with known usernames and
   // passwords

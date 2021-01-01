@@ -892,7 +892,7 @@ DataCallHandler.prototype = {
           null,
           dataCallsList
         );
-        console.log("gNetworkManager  registerNetworkInterface.");
+
         gNetworkManager.registerNetworkInterface(networkInterface);
         this.dataNetworkInterfaces.set(networkType, networkInterface);
         //Set the default networkInterface to enable.
@@ -1069,7 +1069,7 @@ DataCallHandler.prototype = {
       modemCognitive: initalAttachApn.modemCognitive || false,
     };
 
-    console.log(
+    this.debug(
       "setInitialAttachApn.  apnProfile= " + JSON.stringify(apnProfile)
     );
     this.dataCallInterface.setInitialAttachApn(apnProfile, dataInfo.roaming);
@@ -1701,8 +1701,6 @@ DataCallHandler.prototype = {
           }.bind(this)
         );
       }
-      this.debug("This is a workaround trigger updateAll when radio turn on.");
-      this.updateAllRILNetworkInterface();
 
       // Reset this value.
       this.needRecoverAfterReset = false;

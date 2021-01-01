@@ -4255,8 +4255,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvReleasePointerCapture(
 
 PKeyboardEventForwarderParent*
 BrowserParent::AllocPKeyboardEventForwarderParent() {
-  MOZ_CRASH();
-  return nullptr;
+  RefPtr<KeyboardEventForwarderParent> actor =
+      new KeyboardEventForwarderParent(this);
+  return actor.forget().take();
 }
 
 bool BrowserParent::DeallocPKeyboardEventForwarderParent(

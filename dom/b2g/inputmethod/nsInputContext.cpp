@@ -157,6 +157,7 @@ void nsInputContext::Init(const nsAString& aType, const nsAString& aInputType,
                           bool aVoiceInputSupported, uint32_t aSelectionStart,
                           uint32_t aSelectionEnd,
                           nsInputContextChoices* aChoices,
+                          const nsAString& aMaxLength,
                           nsIEditableSupport* aEditableSupport) {
   mType.Assign(aType);
   mInputType.Assign(aInputType);
@@ -171,6 +172,7 @@ void nsInputContext::Init(const nsAString& aType, const nsAString& aInputType,
   mSelectionEnd = aSelectionEnd;
   mChoices = aChoices;
   mEditableSupport = aEditableSupport;
+  mMaxLength.Assign(aMaxLength);
 }
 
 void nsInputContext::SetType(const nsAString& aType) { mType = aType; }
@@ -196,6 +198,10 @@ void nsInputContext::SetSelectionEnd(uint32_t aSelectionEnd) {
 }
 void nsInputContext::SetInputContextChoices(nsInputContextChoices* aChoices) {
   mChoices = aChoices;
+}
+
+void nsInputContext::SetMaxLength(const nsAString& aMaxLength) {
+  mMaxLength = aMaxLength;
 }
 
 void nsInputContext::SetEditableSupport(nsIEditableSupport* aEditableSupport) {
@@ -273,6 +279,12 @@ nsInputContext::GetSelectionEnd(uint32_t* aResult) {
 NS_IMETHODIMP
 nsInputContext::GetChoices(nsIInputContextChoices** aResult) {
   *aResult = do_AddRef(mChoices).take();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsInputContext::GetMaxLength(nsAString& aResult) {
+  aResult.Assign(mMaxLength);
   return NS_OK;
 }
 

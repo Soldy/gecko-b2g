@@ -308,37 +308,6 @@ nsresult InputMethodHandler::DeleteBackward() {
   return NS_OK;
 }
 
-void InputMethodHandler::SetSelectedOption(int32_t aOptionIndex) {
-  ContentChild* contentChild = ContentChild::GetSingleton();
-  if (contentChild) {
-    IME_LOGD("--InputMethodHandler::SetSelectedOption content process");
-    // Call from content process.
-    SendRequest(contentChild, SetSelectedOptionRequest(0, aOptionIndex));
-  } else {
-    IME_LOGD("--InputMethodHandler::SetSelectedOption in-process");
-    // Call from parent process (or in-proces app).
-    RefPtr<InputMethodService> service = InputMethodService::GetInstance();
-    MOZ_ASSERT(service);
-    service->SetSelectedOption(0, this, aOptionIndex);
-  }
-}
-
-void InputMethodHandler::SetSelectedOptions(
-    const nsTArray<int32_t>& aOptionIndexes) {
-  ContentChild* contentChild = ContentChild::GetSingleton();
-  if (contentChild) {
-    IME_LOGD("--InputMethodHandler::SetSelectedOptions content process");
-    // Call from content process.
-    SendRequest(contentChild, SetSelectedOptionsRequest(0, aOptionIndexes));
-  } else {
-    IME_LOGD("--InputMethodHandler::SetSelectedOptions in-process");
-    // Call from parent process (or in-proces app).
-    RefPtr<InputMethodService> service = InputMethodService::GetInstance();
-    MOZ_ASSERT(service);
-    service->SetSelectedOptions(0, this, aOptionIndexes);
-  }
-}
-
 void InputMethodHandler::RemoveFocus() {
   ContentChild* contentChild = ContentChild::GetSingleton();
   if (contentChild) {

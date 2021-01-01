@@ -9,6 +9,8 @@
 #include "nsCOMPtr.h"
 #include "nsDeque.h"
 #include "nsIKeyboardAppProxy.h"
+#include "nsIWeakReferenceUtils.h"
+#include "mozilla/WeakPtr.h"
 
 namespace mozilla {
 namespace dom {
@@ -33,7 +35,7 @@ class KeyboardAppProxy final : public nsIKeyboardAppProxy {
   nsDeque<WidgetKeyboardEvent> mKeydownQueue;
   // Will be counted whenever keyboard app goes from active to inaction state.
   unsigned long long mGeneration;
-  nsCOMPtr<nsIKeyboardEventForwarder> mKeyboardEventForwarder;
+  nsWeakPtr mKeyboardEventForwarder;
 
   // This object should be created or got from main thread only.
   static StaticRefPtr<KeyboardAppProxy> sSingleton;

@@ -319,40 +319,40 @@ void GonkDisplayP::CreateVirtualDisplaySurface(
 }
 
 void GonkDisplayP::SetEnabled(bool enabled) {
+  android::Mutex::Autolock lock(mPrimaryScreenLock);
   if (enabled) {
-    autosuspend_disable();
-    mPower->setInteractive(true);
-  }
+    if (!mExtFBEnabled) {
+      autosuspend_disable();
+      mPower->setInteractive(true);
 
-  if (!enabled && mEnabledCallback) {
-    mEnabledCallback(enabled);
-  }
-
-  if (mHwc && mEnableHWCPower) {
-    HWC2::PowerMode mode =
-        (enabled ? HWC2::PowerMode::On : HWC2::PowerMode::Off);
-    HWC2::Display* hwcDisplay = mHwc->getDisplayById(HWC_DISPLAY_PRIMARY);
-
-    auto error = hwcDisplay->setPowerMode(mode);
-    if (error != HWC2::Error::None) {
-      ALOGE(
-          "setPowerMode: Unable to set power mode %s for "
-          "display %d: %s (%d)",
-          to_string(mode).c_str(), HWC_DISPLAY_PRIMARY,
-          to_string(error).c_str(), static_cast<int32_t>(error));
+      if (mHwc && mEnableHWCPower) {
+        SetHwcPowerMode(enabled);
+      } else if (mFBDevice && mFBDevice->enableScreen) {
+        mFBDevice->enableScreen(mFBDevice, enabled);
+      }
     }
-  } else if (mFBDevice && mFBDevice->enableScreen) {
-    mFBDevice->enableScreen(mFBDevice, enabled);
-  }
-  mFBEnabled = enabled;
+    mFBEnabled = enabled;
 
-  if (enabled && mEnabledCallback) {
-    mEnabledCallback(enabled);
-  }
+    // enable vsync
+    if (mEnabledCallback && !mExtFBEnabled) {
+      mEnabledCallback(enabled);
+    }
+  } else {
+    if (mEnabledCallback && !mExtFBEnabled) {
+      mEnabledCallback(enabled);
+    }
 
-  if (!enabled && !mExtFBEnabled) {
-    autosuspend_enable();
-    mPower->setInteractive(false);
+    if (!mExtFBEnabled) {
+      if (mHwc && mEnableHWCPower) {
+        SetHwcPowerMode(enabled);
+      } else if (mFBDevice && mFBDevice->enableScreen) {
+        mFBDevice->enableScreen(mFBDevice, enabled);
+      }
+
+      autosuspend_enable();
+      mPower->setInteractive(false);
+    }
+    mFBEnabled = enabled;
   }
 }
 
@@ -364,24 +364,55 @@ int GonkDisplayP::TryLockScreen() {
 void GonkDisplayP::UnlockScreen() { mPrimaryScreenLock.unlock(); }
 
 void GonkDisplayP::SetExtEnabled(bool enabled) {
+  android::Mutex::Autolock lock(mPrimaryScreenLock);
   if (!mExtFBDevice) {
     return;
   }
 
   if (enabled) {
-    autosuspend_disable();
-    mPower->setInteractive(true);
-  }
+    if (!mFBEnabled) {
+      autosuspend_disable();
+      mPower->setInteractive(true);
 
-  if (mExtFBDevice) {
+      SetHwcPowerMode(enabled);
+    }
     mExtFBDevice->EnableScreen(enabled);
-  }
-  mExtFBEnabled = enabled;
+    mExtFBEnabled = enabled;
 
-  if (!enabled && !mFBEnabled) {
-    autosuspend_enable();
-    mPower->setInteractive(false);
+    if (mEnabledCallback && !mFBEnabled) {
+      mEnabledCallback(enabled);
+    }
+  } else {
+    if (mEnabledCallback && !mFBEnabled) {
+      mEnabledCallback(enabled);
+    }
+
+    mExtFBDevice->EnableScreen(enabled);
+    mExtFBEnabled = enabled;
+    if (!mFBEnabled) {
+      SetHwcPowerMode(enabled);
+
+      autosuspend_enable();
+      mPower->setInteractive(false);
+    }
   }
+}
+
+HWC2::Error GonkDisplayP::SetHwcPowerMode(bool enabled) {
+    HWC2::PowerMode mode =
+        (enabled ? HWC2::PowerMode::On : HWC2::PowerMode::Off);
+    HWC2::Display* hwcDisplay = mHwc->getDisplayById(HWC_DISPLAY_PRIMARY);
+
+    auto error = hwcDisplay->setPowerMode(mode);
+    if (error != HWC2::Error::None) {
+      ALOGE(
+          "SetHwcPowerMode: Unable to set power mode %s for "
+          "display %d: %s (%d)",
+          to_string(mode).c_str(), HWC_DISPLAY_PRIMARY,
+          to_string(error).c_str(), static_cast<int32_t>(error));
+    }
+
+    return error;
 }
 
 void GonkDisplayP::OnEnabled(OnEnabledCallbackType callback) {

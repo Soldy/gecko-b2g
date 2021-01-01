@@ -23,14 +23,14 @@ this.EXPORTED_SYMBOLS = ["WifiNetworkSelector"];
 
 var gDebug = false;
 
-function BssidBlacklistStatus() {}
+function BssidDenylistStatus() {}
 
-BssidBlacklistStatus.prototype = {
-  // How many times it is requested to be blacklisted
+BssidDenylistStatus.prototype = {
+  // How many times it is requested to be in deny list.
   // (association rejection trigger this)
   counter: 0,
-  isBlacklisted: false,
-  blacklistedTimeStamp: WifiConstants.INVALID_TIME_STAMP,
+  isDenylisted: false,
+  denylistedTimeStamp: WifiConstants.INVALID_TIME_STAMP,
 };
 
 this.WifiNetworkSelector = (function() {
@@ -41,14 +41,14 @@ this.WifiNetworkSelector = (function() {
   const MINIMUM_NETWORK_SELECTION_INTERVAL = 10 * 1000;
   const MINIMUM_LAST_USER_SELECTION_INTERVAL = 30 * 1000;
 
-  const BSSID_BLACKLIST_THRESHOLD = 3;
-  const BSSID_BLACKLIST_EXPIRE_TIME = 30 * 60 * 1000;
+  const BSSID_DENYLIST_THRESHOLD = 3;
+  const BSSID_DENYLIST_EXPIRE_TIME = 30 * 60 * 1000;
 
   const REASON_AP_UNABLE_TO_HANDLE_NEW_STA = 17;
 
   var lastNetworkSelectionTimeStamp = WifiConstants.INVALID_TIME_STAMP;
   var enableAutoJoinWhenAssociated = true;
-  var bssidBlacklist = new Map();
+  var bssidDenylist = new Map();
 
   var savedNetworkSelector = new SavedNetworkSelector();
   var passpointNetworkSelector = new PasspointNetworkSelector();
@@ -58,8 +58,8 @@ this.WifiNetworkSelector = (function() {
   var networkSelectors = [savedNetworkSelector, passpointNetworkSelector];
 
   // WifiNetworkSelector functions
-  wifiNetworkSelector.bssidBlacklist = bssidBlacklist;
-  wifiNetworkSelector.updateBssidBlacklist = updateBssidBlacklist;
+  wifiNetworkSelector.bssidDenylist = bssidDenylist;
+  wifiNetworkSelector.updateBssidDenylist = updateBssidDenylist;
   wifiNetworkSelector.selectNetwork = selectNetwork;
   wifiNetworkSelector.trackBssid = trackBssid;
   wifiNetworkSelector.setDebug = setDebug;
@@ -253,9 +253,9 @@ this.WifiNetworkSelector = (function() {
       debug("scanId = " + scanId);
 
       // check whether this BSSID is blocked or not
-      let status = bssidBlacklist.get(scanResult.bssid);
-      if (typeof status !== "undefined" && status.isBlacklisted) {
-        debug(scanId + " is in blacklist.");
+      let status = bssidDenylist.get(scanResult.bssid);
+      if (typeof status !== "undefined" && status.isDenylisted) {
+        debug(scanId + " is in deny list.");
         continue;
       }
 
@@ -299,44 +299,44 @@ this.WifiNetworkSelector = (function() {
     }
 
     if (enable) {
-      return bssidBlacklist.delete(bssid);
+      return bssidDenylist.delete(bssid);
     }
 
-    let status = bssidBlacklist.get(bssid);
+    let status = bssidDenylist.get(bssid);
     if (typeof status == "undefined") {
       // first time
-      status = new BssidBlacklistStatus();
-      bssidBlacklist.set(bssid, status);
+      status = new BssidDenylistStatus();
+      bssidDenylist.set(bssid, status);
     }
     status.counter++;
-    status.blacklistedTimeStamp = Date.now();
-    if (!status.isBlacklisted) {
+    status.denylistedTimeStamp = Date.now();
+    if (!status.isDenylisted) {
       if (
-        status.counter >= BSSID_BLACKLIST_THRESHOLD ||
+        status.counter >= BSSID_DENYLIST_THRESHOLD ||
         reason == REASON_AP_UNABLE_TO_HANDLE_NEW_STA
       ) {
-        status.isBlacklisted = true;
+        status.isDenylisted = true;
         return true;
       }
     }
     return false;
   }
 
-  function updateBssidBlacklist(callback) {
-    let iter = bssidBlacklist[Symbol.iterator]();
+  function updateBssidDenylist(callback) {
+    let iter = bssidDenylist[Symbol.iterator]();
     let updated = false;
     for (let [bssid, status] of iter) {
       debug(
-        "BSSID black list: BSSID=" +
+        "BSSID deny list: BSSID=" +
           bssid +
-          " isBlacklisted=" +
-          status.isBlacklisted
+          " isDenylisted=" +
+          status.isDenylisted
       );
       if (
-        status.isBlacklisted &&
-        Date.now() - status.blacklistedTimeStamp >= BSSID_BLACKLIST_EXPIRE_TIME
+        status.isDenylisted &&
+        Date.now() - status.denylistedTimeStamp >= BSSID_DENYLIST_EXPIRE_TIME
       ) {
-        bssidBlacklist.delete(bssid);
+        bssidDenylist.delete(bssid);
         updated = true;
       }
     }

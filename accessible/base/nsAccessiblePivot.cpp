@@ -495,7 +495,7 @@ uint16_t RuleCache::Match(const AccessibleOrProxy& aAccOrProxy) {
         (nsIAccessibleTraversalRule::PREFILTER_TRANSPARENT & mPreFilter) &&
         !(state & states::OPAQUE1)) {
       nsIFrame* frame = aAccOrProxy.AsAccessible()->GetFrame();
-      if (frame->StyleEffects()->mOpacity == 0.0f) {
+      if (frame && frame->StyleEffects()->mOpacity == 0.0f) {
         return result | nsIAccessibleTraversalRule::FILTER_IGNORE_SUBTREE;
       }
     }

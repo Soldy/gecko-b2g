@@ -2944,6 +2944,10 @@ MobileConnectionService.prototype = {
     let icc = gIccService.getIccByServiceId(aClientId);
     let iccInfo = icc ? icc.iccInfo : null;
 
+    if (!iccInfo) {
+      return false;
+    }
+
     let equalsMcc = iccInfo.mcc == provider._operatorInfo.mcc;
     if (!equalsMcc) {
       return false;

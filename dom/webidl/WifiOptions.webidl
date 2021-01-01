@@ -162,13 +162,13 @@ dictionary PnoNetwork
 dictionary RoamingConfiguration
 {
   /**
-   * List of BSSID's that are blacklisted for roaming.
+   * List of BSSID's that are denied for roaming.
    */
-  sequence<DOMString> bssidBlacklist;
+  sequence<DOMString> bssidDenylist;
   /**
-   * List of SSID's that are whitelisted for roaming.
+   * List of SSID's that are allowed for roaming.
    */
-  sequence<DOMString> ssidWhitelist;
+  sequence<DOMString> ssidAllowlist;
 };
 
 /**

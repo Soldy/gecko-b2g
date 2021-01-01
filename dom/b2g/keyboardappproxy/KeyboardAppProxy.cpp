@@ -75,7 +75,12 @@ KeyboardAppProxy::MaybeForwardKey(WidgetKeyboardEvent* aEvent,
   MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
           ("SendKey => keyType: [%s], DOMKeyName: [%s]", keyType.get(),
            NS_ConvertUTF16toUTF8(key).get()));
-  mKeyboardEventForwarder->OnKeyboardEventReceived(
+  nsCOMPtr<nsIKeyboardEventForwarder> forwarder =
+      do_QueryReferent(mKeyboardEventForwarder);
+  if (!forwarder) {
+    return NS_OK;
+  }
+  forwarder->OnKeyboardEventReceived(
       keyType, aEvent->mKeyCode, aEvent->mCharCode, NS_ConvertUTF16toUTF8(key),
       aEvent->mTime, mGeneration);
   mEventQueue.Push(new WidgetKeyboardEvent(*aEvent));
@@ -91,14 +96,24 @@ KeyboardAppProxy::Activate(nsFrameLoader* aFrameLoader) {
     return NS_ERROR_FAILURE;
   }
 
-  if ((mFrameLoader == aFrameLoader) && mIsActive) {
-    return NS_OK;
+  if (mIsActive) {
+    if (mKeyboardEventForwarder) {
+      // Double active, just ignore.
+      return NS_OK;
+    } else {
+      // State does not match weakPtr we hold.
+      MOZ_ASSERT_UNREACHABLE(
+          "Active state without valid mKeyboardEventForwarder.");
+      return NS_ERROR_UNEXPECTED;
+    }
   }
 
-  mKeyboardEventForwarder = nullptr;
   if (BrowserParent* browser = aFrameLoader->GetBrowserParent()) {
     mFrameLoader = aFrameLoader;
-    mKeyboardEventForwarder = new KeyboardEventForwarderParent(browser);
+    RefPtr<KeyboardEventForwarderParent> actor =
+        static_cast<KeyboardEventForwarderParent*>(
+            browser->SendPKeyboardEventForwarderConstructor());
+    mKeyboardEventForwarder = do_GetWeakReference(actor);
   }
 
   MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug, ("Activate"));
@@ -121,6 +136,16 @@ KeyboardAppProxy::Deactivate() {
   }
   MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug, ("Deactivate"));
   mIsActive = false;
+  nsCOMPtr<nsIKeyboardEventForwarder> forwarder =
+      do_QueryReferent(mKeyboardEventForwarder);
+  if (!forwarder) {
+    return NS_OK;
+  }
+  RefPtr<KeyboardEventForwarderParent> actor =
+      static_cast<KeyboardEventForwarderParent*>(
+          static_cast<nsIKeyboardEventForwarder*>(forwarder));
+  Unused << actor->Send__delete__(actor);
+  mKeyboardEventForwarder = nullptr;
   return NS_OK;
 }
 
