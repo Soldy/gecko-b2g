@@ -17,7 +17,7 @@ class nsNativeBasicThemeWin : public nsNativeBasicTheme {
   virtual ~nsNativeBasicThemeWin() = default;
 
   std::pair<sRGBColor, sRGBColor> ComputeCheckboxColors(
-      const EventStates& aState) override;
+      const EventStates& aState, StyleAppearance aAppearance) override;
   sRGBColor ComputeCheckmarkColor(const EventStates& aState) override;
   std::pair<sRGBColor, sRGBColor> ComputeRadioCheckmarkColors(
       const EventStates& aState) override;
@@ -35,7 +35,7 @@ class nsNativeBasicThemeWin : public nsNativeBasicTheme {
   std::pair<sRGBColor, sRGBColor> ComputeProgressColors() override;
   std::pair<sRGBColor, sRGBColor> ComputeProgressTrackColors() override;
   std::pair<sRGBColor, sRGBColor> ComputeMeterchunkColors(
-      const double aValue, const double aOptimum, const double aLow) override;
+      const EventStates& aMeterState) override;
   std::pair<sRGBColor, sRGBColor> ComputeMeterTrackColors() override;
   sRGBColor ComputeMenulistArrowButtonColor(const EventStates& aState) override;
   std::array<sRGBColor, 3> ComputeFocusRectColors() override;

@@ -268,6 +268,13 @@ typedef enum {
   CUBEB_STREAM_PREF_JACK_NO_AUTO_CONNECT = 0x20  /**< Don't automatically try to connect
                                                       ports.  Only affects the jack
                                                       backend. */
+
+#ifdef B2G_VOICE_PROCESSING
+  ,
+  CUBEB_STREAM_PREF_AEC = 0x1000,
+  CUBEB_STREAM_PREF_AGC = 0x2000,
+  CUBEB_STREAM_PREF_NS = 0x4000
+#endif
 } cubeb_stream_prefs;
 
 /** Stream format initialization parameters. */

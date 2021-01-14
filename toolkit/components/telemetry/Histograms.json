@@ -3123,6 +3123,16 @@
     "releaseChannelCollection": "opt-out",
     "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com"]
   },
+  "HTTP_CHANNEL_ONSTART_SUCCESS_HTTPS_RR" : {
+    "record_in_processes": ["main"],
+    "products": ["firefox", "fennec"],
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "keyed": true,
+    "description": "Successfully started HTTP channels when HTTPS RR is used; Keyed by echConfig is used or not",
+    "bug_numbers": [1682552],
+    "alert_emails": ["necko@mozilla.com", "kershaw@mozilla.com"]
+  },
   "HTTP_CONNECTION_ENTRY_CACHE_HIT_1" : {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec"],
@@ -7773,9 +7783,9 @@
   "FX_PICTURE_IN_PICTURE_WINDOW_OPEN_DURATION": {
     "record_in_processes": ["main"],
     "products": ["firefox"],
-    "alert_emails": ["mconley@mozilla.com", "astevenson@mozilla.com"],
-    "bug_numbers": [1560590],
-    "expires_in_version": "87",
+    "alert_emails": ["mconley@mozilla.com", "rtestard@mozilla.com"],
+    "bug_numbers": [1560590, 1683100],
+    "expires_in_version": "93",
     "kind": "exponential",
     "high": 10000,
     "n_buckets": 100,
@@ -10044,19 +10054,19 @@
     "record_in_processes": ["content"],
     "products": ["firefox"],
     "alert_emails": ["jolin@mozilla.com", "bvandyk@mozilla.com"],
-    "expires_in_version": "85",
+    "expires_in_version": "92",
     "kind": "boolean",
     "description": "Reports a true value when a page requests canPlayType for a HLS media type.",
-    "bug_numbers": [1628048]
+    "bug_numbers": [1628048, 1672573]
   },
   "MEDIA_HLS_CANPLAY_SUPPORTED": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
     "alert_emails": ["jolin@mozilla.com", "bvandyk@mozilla.com"],
-    "expires_in_version": "85",
+    "expires_in_version": "92",
     "kind": "boolean",
     "description": "Reports a true value when a canPlayType request supports HLS.",
-    "bug_numbers": [1628048]
+    "bug_numbers": [1628048, 1672573]
   },
   "MEDIA_MP4_PARSE_SAMPLE_DESCRIPTION_ENTRIES_HAVE_MULTIPLE_CODECS": {
     "record_in_processes": ["main", "content"],
@@ -15499,18 +15509,31 @@
     "description": "The number of times `play/pause/stop` actions are being handled on either default handler or media session action handler.",
     "releaseChannelCollection": "opt-out"
   },
+  "TABS_AUDIO_COMPETITION": {
+    "record_in_processes": ["main"],
+    "products": ["firefox"],
+    "alert_emails": [
+      "alwu@mozilla.com"
+    ],
+    "bug_numbers": [1683788],
+    "expires_in_version": "91",
+    "kind": "categorical",
+    "labels": ["None", "Ignored", "ManagedFocusByUser", "ManagedFocusByGecko"],
+    "description": "This probe would be reported whenever (1) media starts without encountering audio competition (2) encountering audio competition but users ignore it (keep all media continually playing) (3) encountering audio competition and users manually handle it (4) encountering audio competition and Gecko handled it. The value of each state would be the total happening count for specific situation during the whole session.",
+    "releaseChannelCollection": "opt-out"
+  },
   "QM_QUOTA_INFO_LOAD_TIME_V0": {
     "record_in_processes": ["main"],
     "products": ["firefox", "fennec"],
-    "expires_in_version": "87",
-    "bug_numbers": [1609625],
+    "expires_in_version": "never",
+    "bug_numbers": [1609625, 1683102],
     "kind": "exponential",
     "keyed": true,
     "high": 180000,
     "n_buckets": 60,
     "releaseChannelCollection": "opt-out",
     "alert_emails": ["ttung@mozilla.com", "storage-telemetry@mozilla.com"],
-    "description": "Time (ms) for the QuotaManager to load quota information."
+    "description": "Time (ms) for the QuotaManager to load quota information. Keyed by conditions during quota info loading, see RecordQuotaInfoLoadTimeHelper::Run in https://searchfox.org/mozilla-central/source/dom/quota/ActorsParent.cpp"
   },
   "QM_FIRST_INITIALIZATION_ATTEMPT": {
     "record_in_processes": ["main"],

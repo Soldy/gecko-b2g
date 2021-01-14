@@ -281,6 +281,17 @@ InputMethodServiceParent::ClearAll(uint32_t aId,
   return NS_OK;
 }
 
+NS_IMETHODIMP
+InputMethodServiceParent::ReplaceSurroundingText(
+    uint32_t aId, nsIEditableSupportListener* aListener, const nsAString& aText,
+    int32_t aOffset, int32_t aLength) {
+  IME_LOGD("InputMethodServiceParent::ReplaceSurroundingText");
+  mRequestMap.Put(++sRequestId, aListener);
+  Unused << SendRequest(ReplaceSurroundingTextRequest(
+      sRequestId, nsString(aText), aOffset, aLength));
+  return NS_OK;
+}
+
 void InputMethodServiceParent::ActorDestroy(ActorDestroyReason why) {
   IME_LOGD("InputMethodServiceParent::ActorDestroy %p", this);
   RefPtr<InputMethodService> service = InputMethodService::GetInstance();

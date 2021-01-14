@@ -1208,21 +1208,6 @@ DataCallHandler.prototype = {
       }
     }
 
-    let isRegistered =
-      dataInfo &&
-      dataInfo.state == RIL.GECKO_MOBILE_CONNECTION_STATE_REGISTERED;
-    let haveDataConnection =
-      dataInfo && dataInfo.type != RIL.GECKO_MOBILE_CONNECTION_STATE_UNKNOWN;
-    if (!isRegistered || !haveDataConnection) {
-      if (DEBUG) {
-        this.debug(
-          "RIL is not ready for data connection: Phone's not " +
-            "registered or doesn't have data connection."
-        );
-      }
-      return;
-    }
-
     let wifi_active = false;
     if (
       gNetworkManager.activeNetworkInfo &&
@@ -1234,6 +1219,7 @@ DataCallHandler.prototype = {
     let isDefault = aNetworkInterface.info.type == NETWORK_TYPE_MOBILE;
     let dataCallConnected = aNetworkInterface.connected;
 
+    // Need disconnect the connection first if needed. No matter device is in service or not.
     if (
       !this.isDataAllow(aNetworkInterface) ||
       (dataInfo.roaming && !this.dataCallSettings.roamingEnabled)
@@ -1258,6 +1244,22 @@ DataCallHandler.prototype = {
         this.debug("Disconnect default data call when Wifi is connected.");
       }
       aNetworkInterface.disconnect(Ci.nsINetworkInfo.REASON_WIFI_CONNECTED);
+      return;
+    }
+
+    // Need disconnect the connection first if needed. No matter device is in service or not.
+    let isRegistered =
+      dataInfo &&
+      dataInfo.state == RIL.GECKO_MOBILE_CONNECTION_STATE_REGISTERED;
+    let haveDataConnection =
+      dataInfo && dataInfo.type != RIL.GECKO_MOBILE_CONNECTION_STATE_UNKNOWN;
+    if (!isRegistered || !haveDataConnection) {
+      if (DEBUG) {
+        this.debug(
+          "RIL is not ready for data connection: Phone's not " +
+            "registered or doesn't have data connection."
+        );
+      }
       return;
     }
 
@@ -2277,7 +2279,7 @@ DataCall.prototype = {
     // Check ril.h for 'no retry' data call fail causes.
     if (
       aErrorMsg === RIL.GECKO_ERROR_RADIO_NOT_AVAILABLE ||
-      aErrorMsg === RIL.GECKO_ERROR_INVALID_PARAMETER ||
+      aErrorMsg === RIL.GECKO_ERROR_INVALID_ARGUMENTS ||
       aDataFailCause ===
         Ci.nsIDataCallInterface.DATACALL_FAIL_OPERATOR_BARRED ||
       aDataFailCause ===

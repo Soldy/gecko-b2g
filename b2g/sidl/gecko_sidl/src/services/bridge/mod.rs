@@ -7,5 +7,6 @@ pub mod messages;
 pub mod mobile_manager_delegate;
 pub mod network_manager_delegate;
 pub mod power_manager_delegate;
+pub mod preference_delegate;
 pub mod service;
 pub mod sim_contact_info;

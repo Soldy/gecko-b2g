@@ -1,0 +1,30 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+[scriptable, uuid(473ffcd6-f5b4-4f4c-b72c-efb5e21fd09b)]
+interface nsIRndisControllerResult : nsISupports {
+  void onResult(in boolean success);
+};
+
+[scriptable, uuid(bd4d2edd-7d9a-4a31-8198-0759cf77ce35)]
+interface nsIRndisController : nsISupports {
+  /**
+   * Enable or disable usb rndis.
+   *
+   * @param enable
+   *        Boolean to indicate we want enable or disable usb rndis.
+   * @param callback
+   *        Callback function to report the result.
+   */
+  void setupRndis(in boolean enable, in nsIRndisControllerResult result);
+};
+
+%{C++
+#define NS_RNDISCONTROLLER_CID \
+{ 0xbd4d2edd, 0x7d9a, 0x4a31, \
+  { 0x81, 0x98, 0x07, 0x59, 0xcf, 0x77, 0xce, 0x35 } }
+#define NS_RNDISCONTROLLER_CONTRACTID "@mozilla.org/network/rndiscontroller;1"
+%}

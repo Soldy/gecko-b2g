@@ -71,6 +71,7 @@ class nsAttrValue;
 class nsAutoScriptBlockerSuppressNodeRemoved;
 class nsContentList;
 class nsCycleCollectionTraversalCallback;
+class nsDocShell;
 class nsGlobalWindowInner;
 class nsHtml5StringParser;
 class nsIArray;
@@ -1367,18 +1368,6 @@ class nsContentUtils {
    */
   static inline nsContentPolicyType
   InternalContentPolicyTypeToExternalOrPreload(nsContentPolicyType aType);
-
-  /**
-   * Map internal content policy types to external ones, worker, or preload
-   * types:
-   *   * TYPE_INTERNAL_WORKER
-   *   * TYPE_INTERNAL_SHARED_WORKER
-   *   * TYPE_INTERNAL_SERVICE_WORKER
-   *
-   * Note: DO NOT call this function unless you know what you're doing!
-   */
-  static nsContentPolicyType InternalContentPolicyTypeToExternalOrWorker(
-      nsContentPolicyType aType);
 
   /**
    * Returns true if the content policy type is any of:
@@ -2727,6 +2716,7 @@ class nsContentUtils {
    * is not in designMode, this returns nullptr.
    */
   static mozilla::HTMLEditor* GetHTMLEditor(nsPresContext* aPresContext);
+  static mozilla::HTMLEditor* GetHTMLEditor(nsDocShell* aDocShell);
 
   /**
    * Returns pointer to a text editor if <input> or <textarea> element is
@@ -2737,6 +2727,7 @@ class nsContentUtils {
    * Note that this does not return editor in descendant documents.
    */
   static mozilla::TextEditor* GetActiveEditor(nsPresContext* aPresContext);
+  static mozilla::TextEditor* GetActiveEditor(nsPIDOMWindowOuter* aWindow);
 
   /**
    * Returns `TextEditor` which manages `aAnonymousContent` if there is.
@@ -3501,20 +3492,6 @@ nsContentUtils::InternalContentPolicyTypeToExternal(nsContentPolicyType aType) {
 
     default:
       return aType;
-  }
-}
-
-/* static */ inline nsContentPolicyType
-nsContentUtils::InternalContentPolicyTypeToExternalOrWorker(
-    nsContentPolicyType aType) {
-  switch (aType) {
-    case nsIContentPolicy::TYPE_INTERNAL_WORKER:
-    case nsIContentPolicy::TYPE_INTERNAL_SHARED_WORKER:
-    case nsIContentPolicy::TYPE_INTERNAL_SERVICE_WORKER:
-      return aType;
-
-    default:
-      return InternalContentPolicyTypeToExternal(aType);
   }
 }
 

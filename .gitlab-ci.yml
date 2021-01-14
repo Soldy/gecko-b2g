@@ -7,13 +7,22 @@
 
 variables:
   GIT_DEPTH: 1
-  DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/desktop:latest"
+  # specify '1.48.0_1' in favor of the ambiguous 'latest' since pull_policy of runners are 'if-not-present'
+  # in this way unnecessary `docker pull` can be prevented.
+  DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0"
   # GIT_CLONE_PATH would be overidden with "koost" if pipeline gets triggered from within koost
   GIT_CLONE_PATH: ${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko
 
 .global_setup: &global_setup
+  - export CI_USE_MIRROR=${CI_USE_MIRROR:-false} # in case not set in config.toml
   - echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
   - git config --global url."${CI_SERVER_URL}/".insteadOf "git@${CI_SERVER_HOST}:"
+  - |
+    if ${CI_USE_MIRROR}; then
+      git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow
+      echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
+      git config --global url."${LOCAL_GIT_MIRROR}".insteadOf "${CI_SERVER_URL}"
+    fi
 
 .koost_setup: &koost_setup
   - |
@@ -46,21 +55,24 @@ stages:
   - lint
   - build
 
-lint:all:
+.lint_base:
   stage: lint
-  tags:
-    - gecko-lint
+  script:
+    - 'check_format_opt="--against HEAD~${mr_commits} -v"'
+    - *koost_setup
+    - ./check-format.sh ${check_format_opt}
+
+lint(count commits contained by the MR in advance):
+  extends: .lint_base
   variables:
-    DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/daily:latest"
     # force the runner not to initialize the repository
     GIT_STRATEGY: none
   before_script:
     - *global_setup
-  script:
     - apt-get install jq -yy
     - |
       cd ${CI_BUILDS_DIR}
-      depth=$(curl -s \
+      export mr_commits=$(curl -s \
         -H "Private-Token: ${GITLAB_API_KEY}" \
         "${CI_API_V4_URL}/projects/${CI_MERGE_REQUEST_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/commits" \
         | jq length)
@@ -68,11 +80,26 @@ lint:all:
       rm -rf ${GIT_CLONE_PATH}
       git clone ${CI_MERGE_REQUEST_SOURCE_PROJECT_URL}.git \
         -b ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} \
-        --depth $((depth+1)) \
+        --depth $((mr_commits+1)) \
       ${GIT_CLONE_PATH}
-    - 'check_format_opt="--against HEAD~${depth} -v"'
-    - *koost_setup
-    - ./check-format.sh ${check_format_opt}
+  only:
+    refs:
+      - merge_requests
+    variables:
+      - $GITLAB_API_KEY # set from your fork by going to "Settings -> CI / CD -> (Expand) Variables -> Add variables"
+  except:
+    refs:
+      - pipelines
+    variables:
+      - $CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/
+
+lint:
+  extends: .lint_base
+  before_script:
+    - *global_setup
+    - git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow || true
+    - 'git log --decorate --oneline --graph --since="1 weeks" HEAD kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}'
+    - 'export mr_commits=$(git rev-list kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}.. --count)'
   only:
     - merge_requests
   except:
@@ -80,15 +107,45 @@ lint:all:
       - pipelines
     variables:
       - $CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/
+      - $GITLAB_API_KEY
+
+.get_mozbuild: &get_mozbuild
+  - |
+    case "${PREFERRED_MOZBUILD_VER}" in
+    "3"|"4"|"5")
+      if [ "$(cat ${HOME}/.mozbuild/ver)" != "${PREFERRED_MOZBUILD_VER}" ]; then
+        echo -e "\033[1;33mNeed mozbuild at ver ${PREFERRED_MOZBUILD_VER}.\033[0m"
+        remote_mozbuild="https://packages.preprod.kaiostech.com/ndk/v${PREFERRED_MOZBUILD_VER}/mozbuild.tar.bz2"
+        if ${CI_USE_MIRROR}; then
+          local_mozbuild="${LOCAL_GIT_MIRROR}/ndk/v${PREFERRED_MOZBUILD_VER}/mozbuild.tar.bz2"
+          if [[ -f ${local_mozbuild} ]]; then
+            echo "Directly decompress ${local_mozbuild}..."
+            tar xjf ${local_mozbuild} -C ${HOME}/
+          else
+            echo "${local_mozbuild} not found, try curl"
+            curl ${remote_mozbuild} | tar -C ${HOME}/ -xj
+          fi
+        else
+          curl ${remote_mozbuild} | tar -C ${HOME}/ -xj
+        fi
+      fi
+      ;;
+    *)
+      echo "Unsupported mozbuild version."
+      exit 1
+      ;;
+    esac
 
 build:desktop:
   variables:
+    DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0"
     MOZ_OBJDIR: 'objdir-desktop-gecko'
     MOZCONFIG: 'mozconfig-b2g-desktop'
+    PREFERRED_MOZBUILD_VER: '5'
   stage: build
   before_script:
-    - '[ "$(cat ${HOME}/.mozbuild/ver)" = "3" ] || curl https://packages.preprod.kaiostech.com/ndk/v3/mozbuild.tar.bz2 | tar -C ${HOME}/ -xj'
     - *global_setup
+    - *get_mozbuild
     - *koost_setup
   script:
     - ./mach build
@@ -107,7 +164,6 @@ build:emulator:
     - *global_setup
     - git clone --depth 1 git@git.kaiostech.com:KaiOS/dummy/emulator-10.git > /dev/null 2>&1
   variables:
-    DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/daily:latest"
     GONK_PATH: "${CI_PROJECT_DIR}/emulator-10"
     GECKO_OBJDIR: "${CI_PROJECT_DIR}/objdir-emulator-gecko"
     GONK_PRODUCT_NAME: generic_x86_64
@@ -130,11 +186,9 @@ build:emulator:
 
 build:arm:
   before_script:
-    - '[ "$(cat ${HOME}/.mozbuild/ver)" = "4" ] || curl https://packages.preprod.kaiostech.com/ndk/v4/mozbuild.tar.bz2 | tar -C ${HOME}/ -xj'
     - *global_setup
     - *koost_setup
   variables:
-    DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/daily:latest"
     GONK_PATH: "${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko/gonk-q"
     GECKO_OBJDIR: "${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko/objdir-arm-gecko"
     GONK_PRODUCT_NAME: msm8937_32go
@@ -149,6 +203,8 @@ build:arm:
   script:
     - ./build-b2g.sh
     - ./build-b2g.sh package
+  after_script:
+    - ls -al ~/.cache/sccache || true
   only:
     - merge_requests
     - pipelines

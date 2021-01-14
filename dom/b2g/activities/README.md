@@ -52,6 +52,10 @@ activity.cancel();
 
 Once the user has picked an activity handler (or picked by System App secretly), `SystemMessageEvent` with name *activity* will be dispatched to the event handler on its **service worker**, unlike other system messages, `SystemMessageData` has a property `WebActivityRequestHandler`, which provides methods to resolve or reject the pending promise of `activity.start()`.
 
+Please note that per spec of ServiceWorkerGlobalScope[1], the activity handler is not persisted across the termination/restart cycle of worker. See [ServiceWorkerGlobalScope](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerGlobalScope) for more details.
+
+>[1] Developers should keep in mind that the ServiceWorker state is not persisted across the termination/restart cycle, so each event handler should assume it's being invoked with a bare, default global state.
+
 When handling `systemmessage` event of name *activity*, handler can decide whether to launch the application window to perform user interaction, by using ServiceWorker API, `Clients.openWindow()` (TODO: enable openWindow on gonk platform). Or can pass back results with `WebActivityRequestHandler.postResult()` directly. Suggest using `postMessage()` method to communicate between main scripts and service worker script.
 
 Use `WebActivityRequestHandler.postError()` to send back an error message if something goes wrong.
@@ -81,11 +85,14 @@ self.onsystemmessage = e => {
     <dd>Send back error message and reject the promise of app that starts the activity.</dd>
 </dl>
 
+### Open its window with Clients.openWindow
+TBD
+
 ## Register an App as an activity handler
 
-App can register itself as an activity handler to handle one or more activities. Besides declaring activity related information in the app manifest, app has to set up the service worker script in its manifest as well.
+App can register itself as an activity handler to handle one or more activities. Besides declaring activity related information in the app manifest, app has to set up the service worker script in its manifest first.
 
-Format of setting up registration info of service worker in manifest is as follows:
+### Set up service worker registration
 
 ```javascript
 "serviceworker": {
@@ -106,4 +113,25 @@ The `options` object is optional, as defined in [ServiceWorkerContainer.register
 
 In the most case the above example is good enough.
 
-For how to declare activity handler information, please reference  [Registering an App as an activity handler](https://developer.mozilla.org/en-US/docs/Archive/B2G_OS/API/Web_Activities#Registering_an_App_as_an_activity_handler)
+### Set up activity handler registration
+
+In general, please reference  [Registering an App as an activity handler](https://developer.mozilla.org/en-US/docs/Archive/B2G_OS/API/Web_Activities#Registering_an_App_as_an_activity_handler)
+
+
+
+#### New attributes and updates for activity handler description
+
+~~<code>**href**</code>~~
+<br>No need to specify the href anymore.
+
+~~<code>**disposition**</code>~~
+<br>No need to specify the disposition anymore.
+
+<code>**filter**</code> |Optional
+<br>Same as before.
+
+<code>**returnValue**</code> |Optional
+<br>Same as before.
+
+<code>**allowedOrigins**</code> |Optional
+<br>An array of origins. This is for handler to limit its usage to specific users, will filter out callers who's origin is not in the list. For example, setting `"allowedOrigins": ["http://testapp1.localhost", "http://testapp2.localhost"]`, only allows requests made from "http://testapp1.localhost" or "http://testapp2.localhost".

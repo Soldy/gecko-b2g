@@ -37,8 +37,8 @@ use webrender::{
     api::units::*, api::*, render_api::*, set_profiler_hooks, AsyncPropertySampler, AsyncScreenshotHandle, Compositor,
     CompositorCapabilities, CompositorConfig, CompositorSurfaceTransform, DebugFlags, Device, NativeSurfaceId,
     NativeSurfaceInfo, NativeTileId, PartialPresentCompositor, PipelineInfo, ProfilerHooks, RecordedFrameHandle,
-    Renderer, RendererOptions, RendererStats, SceneBuilderHooks, ShaderPrecacheFlags, Shaders, TextureCacheConfig,
-    ThreadListener, UploadMethod, WrShaders, ONE_TIME_USAGE_HINT,
+    Renderer, RendererOptions, RendererStats, SceneBuilderHooks, ShaderPrecacheFlags, Shaders, SharedShaders,
+    TextureCacheConfig, ThreadListener, UploadMethod, ONE_TIME_USAGE_HINT,
 };
 use wr_malloc_size_of::MallocSizeOfOps;
 
@@ -1255,6 +1255,11 @@ extern "C" {
         clip_rect: DeviceIntRect,
         image_rendering: ImageRendering,
     );
+    fn wr_compositor_start_compositing(
+        compositor: *mut c_void,
+        dirty_rects: *const DeviceIntRect,
+        num_dirty_rects: usize,
+    );
     fn wr_compositor_end_frame(compositor: *mut c_void);
     fn wr_compositor_enable_native_compositor(compositor: *mut c_void, enable: bool);
     fn wr_compositor_deinit(compositor: *mut c_void);
@@ -1365,6 +1370,12 @@ impl Compositor for WrCompositor {
         }
     }
 
+    fn start_compositing(&mut self, dirty_rects: &[DeviceIntRect]) {
+        unsafe {
+            wr_compositor_start_compositing(self.0, dirty_rects.as_ptr(), dirty_rects.len());
+        }
+    }
+
     fn end_frame(&mut self) {
         unsafe {
             wr_compositor_end_frame(self.0);
@@ -1450,6 +1461,9 @@ impl WrCompositor {
     }
 }
 
+/// A wrapper around a strong reference to a Shaders object.
+pub struct WrShaders(SharedShaders);
+
 // Call MakeCurrent before this.
 #[no_mangle]
 pub extern "C" fn wr_window_new(
@@ -1473,8 +1487,9 @@ pub extern "C" fn wr_window_new(
     enclosing_size_of_op: VoidPtrToSizeFn,
     document_id: u32,
     compositor: *mut c_void,
+    use_native_compositor: bool,
     max_update_rects: usize,
-    partial_present_compositor: *mut c_void,
+    use_partial_present: bool,
     max_partial_present_rects: usize,
     draw_previous_partial_present_regions: bool,
     out_handle: &mut *mut DocumentHandle,
@@ -1549,16 +1564,16 @@ pub extern "C" fn wr_window_new(
     };
 
     let compositor_config = if software {
-        let wr_compositor = if compositor != ptr::null_mut() {
-            Some(WrCompositor(compositor))
-        } else {
-            None
-        };
         CompositorConfig::Native {
             max_update_rects: 1,
-            compositor: Box::new(SwCompositor::new(sw_gl.unwrap(), native_gl, wr_compositor)),
+            compositor: Box::new(SwCompositor::new(
+                sw_gl.unwrap(),
+                native_gl,
+                WrCompositor(compositor),
+                use_native_compositor,
+            )),
         }
-    } else if compositor != ptr::null_mut() {
+    } else if use_native_compositor {
         CompositorConfig::Native {
             max_update_rects,
             compositor: Box::new(WrCompositor(compositor)),
@@ -1567,8 +1582,8 @@ pub extern "C" fn wr_window_new(
         CompositorConfig::Draw {
             max_partial_present_rects,
             draw_previous_partial_present_regions,
-            partial_present: if partial_present_compositor != ptr::null_mut() {
-                Some(Box::new(WrPartialPresentCompositor(partial_present_compositor)))
+            partial_present: if use_partial_present {
+                Some(Box::new(WrPartialPresentCompositor(compositor)))
             } else {
                 None
             },
@@ -1647,7 +1662,7 @@ pub extern "C" fn wr_window_new(
 
     let window_size = DeviceIntSize::new(window_width, window_height);
     let notifier = Box::new(CppNotifier { window_id });
-    let (renderer, sender) = match Renderer::new(gl, notifier, opts, shaders) {
+    let (renderer, sender) = match Renderer::new(gl, notifier, opts, shaders.map(|sh| &sh.0)) {
         Ok((renderer, sender)) => (renderer, sender),
         Err(e) => {
             warn!(" Failed to create a Renderer: {:?}", e);
@@ -3958,7 +3973,7 @@ pub extern "C" fn wr_shaders_new(
         }
     }));
 
-    let shaders = WrShaders { shaders };
+    let shaders = WrShaders(shaders);
 
     device.end_frame();
     Box::into_raw(Box::new(shaders))
@@ -3968,7 +3983,7 @@ pub extern "C" fn wr_shaders_new(
 pub unsafe extern "C" fn wr_shaders_delete(shaders: *mut WrShaders, gl_context: *mut c_void) {
     let mut device = wr_device_new(gl_context, None);
     let shaders = Box::from_raw(shaders);
-    if let Ok(shaders) = Rc::try_unwrap(shaders.shaders) {
+    if let Ok(shaders) = Rc::try_unwrap(shaders.0) {
         shaders.into_inner().deinit(&mut device);
     }
     // let shaders go out of scope and get dropped

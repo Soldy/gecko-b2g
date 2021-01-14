@@ -1357,12 +1357,14 @@ function GsmPDUHelperObject(aContext) {
   this.pdu = "";
   this.pduWriteIndex = 0;
   this.pduReadIndex = 0;
+  this.lengthIndex = 0;
 }
 GsmPDUHelperObject.prototype = {
   context: null,
   pdu: null,
   pduWriteIndex: null,
   pduReadIndex: null,
+  lengthIndex: null,
 
   initWith(data = "") {
     this.pduReadIndex = 0;
@@ -1388,6 +1390,25 @@ GsmPDUHelperObject.prototype = {
     } else {
       throw "Seek PDU out of bounds";
     }
+  },
+
+  startCalOutgoingSize() {
+    this.lengthIndex = this.pduWriteIndex;
+  },
+
+  insert(baseString, insertString, pos) {
+    return baseString.slice(0, pos) + insertString + baseString.slice(pos);
+  },
+
+  stopCalOutgoingSize() {
+    let length = (this.pduWriteIndex - this.lengthIndex) / 2;
+    let nibble = length >> 4;
+    this.pdu = this.insert(this.pdu, nibble.toString(16), this.lengthIndex);
+    this.pduWriteIndex++;
+    nibble = length & 0x0f;
+    this.pdu = this.insert(this.pdu, nibble.toString(16), this.lengthIndex+1);
+    this.pduWriteIndex++;
+    this.lengthIndex = 0;
   },
 
   /**
@@ -3838,7 +3859,7 @@ ICCRecordHelperObject.prototype = {
 
     if (!contact || !contact.recordId) {
       if (onerror) {
-        onerror(GECKO_ERROR_INVALID_PARAMETER);
+        onerror(GECKO_ERROR_INVALID_ARGUMENTS);
       }
       return;
     }
@@ -7884,7 +7905,7 @@ BerTlvHelperObject.prototype = {
     }
 
     // Remove the tag and size value.
-    value = value.slice(hlen * 2);
+    value = value.slice(hlen * PDU_HEX_OCTET_SIZE);
 
     let decodeValue = method.call(this, value, length);
     return {
@@ -7900,8 +7921,8 @@ BerTlvHelperObject.prototype = {
    * @param length
    *        The length of data in bytes.
    */
-  processFcpTemplate(length) {
-    let tlvs = this.decodeChunks(length);
+  processFcpTemplate(value, length) {
+    let tlvs = this.decodeChunks(value, length);
     return tlvs;
   },
 
@@ -7919,23 +7940,26 @@ BerTlvHelperObject.prototype = {
   /**
    * Decode raw data to a Ber-TLV.
    */
-  decodeInnerTlv() {
+  decodeInnerTlv(value) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
-    let tag = GsmPDUHelper.readHexOctet();
-    let length = GsmPDUHelper.readHexOctet();
-    let value = this.retrieve(tag, length);
+    let tag = GsmPDUHelper.processHexToInt(value.slice(0, 2), 16);
+    let length = GsmPDUHelper.processHexToInt(value.slice(2, 4), 16);
+
+    // Remove the tag and size value.
+    value = value.slice(2 * PDU_HEX_OCTET_SIZE);
+    let decodeValue = this.retrieve(tag, value, length);
     return {
       tag,
       length,
-      value,
+      value: decodeValue,
     };
   },
 
-  decodeChunks(length) {
+  decodeChunks(value, length) {
     let chunks = [];
     let index = 0;
     while (index < length) {
-      let tlv = this.decodeInnerTlv();
+      let tlv = this.decodeInnerTlv(value);
       if (tlv.value) {
         chunks.push(tlv);
       }
@@ -7946,17 +7970,18 @@ BerTlvHelperObject.prototype = {
     return chunks;
   },
 
-  retrieve(tag, length) {
+  //FIXME: value slice should be a problem that could not modify input value
+  retrieve(tag, value, length) {
     let method = this[tag];
     if (typeof method != "function") {
       if (DEBUG) {
         this.context.debug("Unknown Ber tag : 0x" + tag.toString(16));
       }
-      let GsmPDUHelper = this.context.GsmPDUHelper;
-      GsmPDUHelper.seekIncoming(length * PDU_HEX_OCTET_SIZE);
+
+      value = value.slice(length * PDU_HEX_OCTET_SIZE);
       return null;
     }
-    return method.call(this, length);
+    return method.call(this, value, length);
   },
 
   /**
@@ -7968,8 +7993,9 @@ BerTlvHelperObject.prototype = {
    * |  3 to X+24  | Number of allocated data bytes in the file |   X    |
    * |             | , excluding structural information         |        |
    */
-  retrieveFileSizeData(length) {
+  retrieveFileSizeData(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let fileSizeData = 0;
     for (let i = 0; i < length; i++) {
       fileSizeData = fileSizeData << 8;
@@ -7990,8 +8016,9 @@ BerTlvHelperObject.prototype = {
    * |  5 ~ 6  | Record length         |   2    |
    * |  7      | Number of records     |   1    |
    */
-  retrieveFileDescriptor(length) {
+  retrieveFileDescriptor(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let fileDescriptorByte = GsmPDUHelper.readHexOctet();
     let dataCodingByte = GsmPDUHelper.readHexOctet();
     // See TS 102 221 Table 11.5, we only care the least 3 bits for the
@@ -8023,8 +8050,9 @@ BerTlvHelperObject.prototype = {
    * |  2      | Length           |   1    |
    * |  3 ~ 4  | File identifier  |   2    |
    */
-  retrieveFileIdentifier(length) {
+  retrieveFileIdentifier(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     return {
       fileId: (GsmPDUHelper.readHexOctet() << 8) + GsmPDUHelper.readHexOctet(),
     };
@@ -8076,7 +8104,6 @@ ComprehensionTlvHelperObject.prototype = {
    */
   decode(value) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
-
     let hlen = 0; // For header(tag field + length field) length.
     let temp = GsmPDUHelper.processHexToInt(value.slice(0, 2), 16);
     hlen++;
@@ -8281,7 +8308,7 @@ ComprehensionTlvHelperObject.prototype = {
       return;
     }
 
-    cause = cause == -1 ? ERROR_SUCCESS : cause;
+    cause = cause == -1 ? Ci.nsIRilResponseResult.RADIO_ERROR_NONE : cause;
 
     GsmPDUHelper.writeHexOctet(
       COMPREHENSIONTLV_TAG_CAUSE | COMPREHENSIONTLV_FLAG_CR
@@ -8553,6 +8580,7 @@ StkProactiveCmdHelperObject.prototype = {
     }
 
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let text = {
       codingScheme: GsmPDUHelper.readHexOctet(),
     };
@@ -8568,7 +8596,7 @@ StkProactiveCmdHelperObject.prototype = {
         );
         break;
       case STK_TEXT_CODING_GSM_8BIT:
-        text.textString = this.context.ICCPDUHelper.read8BitUnpackedToString(
+        text.textString = this.context.ICCPDUHelper.read8BitUnpackedToString(value,
           length
         );
         break;
@@ -8588,6 +8616,7 @@ StkProactiveCmdHelperObject.prototype = {
    * |  3   | Tone            |   1    |
    */
   retrieveTone(value, length) {
+    this.context.GsmPDUHelper.initWith(value);
     let tone = {
       tone: this.context.GsmPDUHelper.readHexOctet(),
     };
@@ -8634,6 +8663,7 @@ StkProactiveCmdHelperObject.prototype = {
    * |  3   | Identifier of Item chosen |   1    |
    */
   retrieveItemId(value, length) {
+    this.context.GsmPDUHelper.initWith(value);
     let itemId = {
       identifier: this.context.GsmPDUHelper.readHexOctet(),
     };
@@ -8651,6 +8681,7 @@ StkProactiveCmdHelperObject.prototype = {
    */
   retrieveResponseLength(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let rspLength = {
       minLength: GsmPDUHelper.readHexOctet(),
       maxLength: GsmPDUHelper.readHexOctet(),
@@ -8669,6 +8700,7 @@ StkProactiveCmdHelperObject.prototype = {
    * | (Y-1)+X+2    |                        |        |
    */
   retrieveFileList(value, length) {
+    this.context.GsmPDUHelper.initWith(value);
     let num = this.context.GsmPDUHelper.readHexOctet();
     let fileList = "";
     length--; // -1 for the num octet.
@@ -8689,7 +8721,7 @@ StkProactiveCmdHelperObject.prototype = {
    * Same as Text String.
    */
   retrieveDefaultText(value, length) {
-    let text = this.retrieveTextString(length);
+    let text = this.retrieveTextString(value, length);
 
     return text;
   },
@@ -8705,6 +8737,7 @@ StkProactiveCmdHelperObject.prototype = {
     }
 
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let eventList = [];
     for (let i = 0; i < length; i++) {
       eventList.push(GsmPDUHelper.readHexOctet());
@@ -8728,7 +8761,7 @@ StkProactiveCmdHelperObject.prototype = {
     if (!length) {
       return null;
     }
-
+    this.context.GsmPDUHelper.initWith(value);
     let iconId = {
       qualifier: this.context.GsmPDUHelper.readHexOctet(),
       identifier: this.context.GsmPDUHelper.readHexOctet(),
@@ -8751,7 +8784,7 @@ StkProactiveCmdHelperObject.prototype = {
     if (!length) {
       return null;
     }
-
+    this.context.GsmPDUHelper.initWith(value);
     let iconIdList = {
       qualifier: this.context.GsmPDUHelper.readHexOctet(),
       identifiers: [],
@@ -8772,6 +8805,7 @@ StkProactiveCmdHelperObject.prototype = {
    * |  3    | Timer Identifier     |   1    |
    */
   retrieveTimerId(value, length) {
+    this.context.GsmPDUHelper.initWith(value);
     let id = {
       timerId: this.context.GsmPDUHelper.readHexOctet(),
     };
@@ -8791,6 +8825,7 @@ StkProactiveCmdHelperObject.prototype = {
    */
   retrieveTimerValue(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let timer = {
       timerValue:
         GsmPDUHelper.readSwappedNibbleBcdNum(1) * 60 * 60 +
@@ -8826,6 +8861,7 @@ StkProactiveCmdHelperObject.prototype = {
    */
   retrieveUrl(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let s = "";
     for (let i = 0; i < length; i++) {
       s += String.fromCharCode(GsmPDUHelper.readHexOctet());
@@ -8845,6 +8881,7 @@ StkProactiveCmdHelperObject.prototype = {
    */
   retrieveNextActionList(value, length) {
     let GsmPDUHelper = this.context.GsmPDUHelper;
+    GsmPDUHelper.initWith(value);
     let nextActionList = [];
     for (let i = 0; i < length; i++) {
       nextActionList.push(GsmPDUHelper.readHexOctet());
@@ -9088,7 +9125,7 @@ StkCommandParamsFactoryObject.prototype = {
       ctlvs
     );
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9129,7 +9166,7 @@ StkCommandParamsFactoryObject.prototype = {
       ctlvs
     );
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9174,7 +9211,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Item data object for item 1 is mandatory.
     let menuCtlvs = selectedCtlvs[COMPREHENSIONTLV_TAG_ITEM];
     if (!menuCtlvs) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9280,7 +9317,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Text string is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_TEXT_STRING);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9298,7 +9335,7 @@ StkCommandParamsFactoryObject.prototype = {
           "processDisplayText, text empty, through error CMD_DATA_NOT_UNDERSTOOD"
         );
       }
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_CMD_DATA_NOT_UNDERSTOOD,
       });
@@ -9346,7 +9383,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Text string is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_TEXT_STRING);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9397,7 +9434,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Text string is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_TEXT_STRING);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9453,7 +9490,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Text string is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_TEXT_STRING);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9464,7 +9501,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Response length is mandatory.
     ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_RESPONSE_LENGTH);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9568,7 +9605,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Address is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_ADDRESS);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9642,7 +9679,7 @@ StkCommandParamsFactoryObject.prototype = {
     // URL is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_URL);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9763,7 +9800,7 @@ StkCommandParamsFactoryObject.prototype = {
     // Timer identifier is mandatory.
     let ctlv = selectedCtlvs.retrieve(COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER);
     if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
+      this.context.RIL.processSendStkTerminalResponse({
         command: cmdDetails,
         resultCode: STK_RESULT_REQUIRED_VALUES_MISSING,
       });
@@ -9843,7 +9880,6 @@ StkCommandParamsFactoryObject.prototype[
 StkCommandParamsFactoryObject.prototype[
   STK_CMD_SET_UP_MENU
 ] = function STK_CMD_SET_UP_MENU(cmdDetails, ctlvs, onComplete) {
-  this.context.debug("StkCommandParamsFactoryObject STK_CMD_SET_UP_MENU ");
   return this.processSetupMenu(cmdDetails, ctlvs, onComplete);
 };
 StkCommandParamsFactoryObject.prototype[

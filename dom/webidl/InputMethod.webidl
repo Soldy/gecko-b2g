@@ -46,4 +46,16 @@ interface InputMethod {
   // Select and delete all editable content including selection|text|node.
   void clearAll();
 
+  /**
+   * Commit text to current input field and replace text around
+   * cursor position. It will clear the current composition.
+   *
+   * @param text The string to be replaced with.
+   * @param offset The offset from the cursor position where replacing starts. Defaults to 0.
+   * @param length The length of text to replace. Defaults to 0.
+   * @return boolean
+   */
+  Promise<boolean> replaceSurroundingText(DOMString text, optional long offset, optional long length);
+
+
   };

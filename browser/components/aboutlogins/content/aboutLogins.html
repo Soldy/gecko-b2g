@@ -14,6 +14,7 @@
     <link rel="localization" href="browser/aboutLogins.ftl">
     <script type="module" src="chrome://browser/content/aboutlogins/components/confirmation-dialog.js"></script>
     <script type="module" src="chrome://browser/content/aboutlogins/components/remove-logins-dialog.js"></script>
+    <script type="module" src="chrome://browser/content/aboutlogins/components/import-summary-dialog.js"></script>
     <script type="module" src="chrome://browser/content/aboutlogins/components/fxaccounts-button.js"></script>
     <script type="module" src="chrome://browser/content/aboutlogins/components/login-filter.js"></script>
     <script type="module" src="chrome://browser/content/aboutlogins/components/login-intro.js"></script>
@@ -39,6 +40,7 @@
     <login-intro></login-intro>
     <confirmation-dialog hidden></confirmation-dialog>
     <remove-logins-dialog hidden></remove-logins-dialog>
+    <import-summary-dialog hidden></import-summary-dialog>
     <div id="master-password-required-overlay"></div>
 
     <template id="confirmation-dialog-template">
@@ -63,6 +65,38 @@
       </div>
     </template>
 
+    <template id="import-summary-dialog-template">
+      <link rel="stylesheet" href="chrome://global/skin/in-content/common.css">
+      <link rel="stylesheet" href="chrome://browser/content/aboutlogins/common.css">
+      <link rel="stylesheet" href="chrome://browser/content/aboutlogins/components/import-summary-dialog.css">
+      <div class="overlay">
+        <div class="container" role="dialog" aria-labelledby="title">
+          <img class="import-icon" src="chrome://browser/skin/import.svg"/>
+          <h1 class="title" id="title" data-l10n-id="about-logins-import-dialog-title"></h1>
+          <div class="content">
+            <div class="import-summary">
+              <div class="import-items-added import-items-row" data-l10n-id="about-logins-import-dialog-items-added" data-l10n-args='{"count": 0}'>
+                <span data-l10n-name="count" class="result-count"></span>
+              </div>
+              <div class="import-items-modified import-items-row" data-l10n-id="about-logins-import-dialog-items-modified" data-l10n-args='{"count": 0}'>
+                <span data-l10n-name="count" class="result-count"></span>
+              </div>
+              <div class="import-items-no-change import-items-row" data-l10n-id="about-logins-import-dialog-items-no-change" data-l10n-name="no-change" data-l10n-args='{"count": 0}'>
+                <span data-l10n-name="count" class="result-count"></span>
+                <span data-l10n-name="meta" class="result-meta"></span>
+              </div>
+              <div class="import-items-errors import-items-row" data-l10n-id="about-logins-import-dialog-items-error" data-l10n-args='{"count": 0}'>
+                <span data-l10n-name="count" class="result-count"></span>
+                <span data-l10n-name="meta" class="result-meta"></span>
+              </div>
+            </div>
+          </div>
+          <div class="import-separator"></div>
+          <button class="import-done-button primary" data-l10n-id="about-logins-import-dialog-done"></button>
+        </div>
+      </div>
+    </template>
+
     <template id="remove-logins-dialog-template">
       <link rel="stylesheet" href="chrome://global/skin/in-content/common.css">
       <link rel="stylesheet" href="chrome://browser/content/aboutlogins/common.css">
@@ -70,10 +104,10 @@
       <div class="overlay">
       <div class="container" role="dialog" aria-labelledby="title" aria-describedby="message">
         <button class="dismiss-button" data-l10n-id="confirmation-dialog-dismiss-button">
-          <img class="dismiss-icon" src="chrome://global/skin/icons/close.svg"/>
+          <img class="dismiss-icon" src="chrome://global/skin/icons/close.svg" draggable="false"/>
         </button>
         <div class="content">
-          <img class="warning-icon" src="chrome://global/skin/icons/delete.svg"/>
+          <img class="warning-icon" src="chrome://global/skin/icons/delete.svg" draggable="false"/>
           <h1 class="title" id="title"></h1>
           <p class="message" id="message"></p>
           <div class="checkbox-wrapper">
@@ -230,8 +264,8 @@
                 <a class="origin-input" dir="auto" target="_blank" rel="noreferrer" name="origin" href=""></a>
               </label>
             </div>
-            <div class="detail-row">
-              <div class="detail-row-contents">
+            <div class="detail-grid">
+              <div class="detail-row">
                 <label class="detail-cell">
                   <span class="username-label field-label" data-l10n-id="login-item-username-label"></span>
                   <input type="text"
@@ -245,9 +279,7 @@
                   <span class="copy-button-text" data-l10n-id="login-item-copy-username-button-text"></span>
                 </button>
               </div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-row-contents">
+              <div class="detail-row">
                 <label class="detail-cell">
                   <span class="password-label field-label" data-l10n-id="login-item-password-label"></span>
                   <div class="reveal-password-wrapper">

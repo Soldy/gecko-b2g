@@ -911,6 +911,9 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
                  StringBeginsWith(aboutSpec, "about:welcome"_ns) ||
                  StringBeginsWith(aboutSpec, "about:profiling"_ns) ||
                  StringBeginsWith(aboutSpec, "about:studies"_ns) ||
+#ifdef MOZ_B2G
+                 StringBeginsWith(aboutSpec, "about:neterror"_ns) ||
+#endif
                  StringBeginsWith(aboutSpec, "about:home"_ns),
              "about: page must not contain a CSP including script-src");
 
@@ -930,6 +933,9 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
                  StringBeginsWith(aboutSpec, "about:logins"_ns) ||
                  StringBeginsWith(aboutSpec, "about:home"_ns) ||
                  StringBeginsWith(aboutSpec, "about:welcome"_ns) ||
+#ifdef MOZ_B2G
+                 StringBeginsWith(aboutSpec, "about:neterror"_ns) ||
+#endif
                  StringBeginsWith(aboutSpec, "about:devtools"_ns),
              "about: page must not contain a CSP including a web scheme");
 
@@ -957,6 +963,9 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
       "about:newtab"_ns,
       "about:welcome"_ns,
       "about:home"_ns,
+#ifdef MOZ_B2G
+      "about:neterror"_ns,
+#endif
   };
 
   for (const nsLiteralCString& aUnsafeInlineEntry :
@@ -1131,7 +1140,7 @@ long nsContentSecurityUtils::ClassifyDownload(
   nsCOMPtr<nsILoadInfo> secCheckLoadInfo = new mozilla::net::LoadInfo(
       loadingPrincipal, loadInfo->TriggeringPrincipal(), nullptr,
       nsILoadInfo::SEC_ONLY_FOR_EXPLICIT_CONTENTSEC_CHECK,
-      nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD);
+      nsIContentPolicy::TYPE_FETCH);
 
   int16_t decission = nsIContentPolicy::ACCEPT;
   nsMixedContentBlocker::ShouldLoad(false,  //  aHadInsecureImageRedirect

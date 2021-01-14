@@ -36,6 +36,7 @@ PowerManagerDelegateService::ConstructPowerManagerDelegate() {
 
   if (!gPowerManagerDelegateService) {
     gPowerManagerDelegateService = new PowerManagerDelegateService();
+    ClearOnShutdown(&gPowerManagerDelegateService);
   }
 
   RefPtr<PowerManagerDelegateService> service =

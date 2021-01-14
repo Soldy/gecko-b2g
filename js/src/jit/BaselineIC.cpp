@@ -84,16 +84,16 @@ class MOZ_RAII FallbackICCodeCompiler final {
   uint32_t framePushedAtEnterStubFrame_ = 0;
 #endif
 
-  MOZ_MUST_USE bool emitCall(bool isSpread, bool isConstructing);
-  MOZ_MUST_USE bool emitGetElem(bool hasReceiver);
-  MOZ_MUST_USE bool emitGetProp(bool hasReceiver);
+  [[nodiscard]] bool emitCall(bool isSpread, bool isConstructing);
+  [[nodiscard]] bool emitGetElem(bool hasReceiver);
+  [[nodiscard]] bool emitGetProp(bool hasReceiver);
 
  public:
   FallbackICCodeCompiler(JSContext* cx, BaselineICFallbackCode& code,
                          MacroAssembler& masm)
       : code(code), masm(masm), cx(cx) {}
 
-#define DEF_METHOD(kind) MOZ_MUST_USE bool emit_##kind();
+#define DEF_METHOD(kind) [[nodiscard]] bool emit_##kind();
   IC_BASELINE_FALLBACK_CODE_KIND_LIST(DEF_METHOD)
 #undef DEF_METHOD
 
@@ -106,17 +106,17 @@ class MOZ_RAII FallbackICCodeCompiler final {
   void pushStubPayload(MacroAssembler& masm, Register scratch);
 
   // Emits a tail call to a VMFunction wrapper.
-  MOZ_MUST_USE bool tailCallVMInternal(MacroAssembler& masm,
-                                       TailCallVMFunctionId id);
+  [[nodiscard]] bool tailCallVMInternal(MacroAssembler& masm,
+                                        TailCallVMFunctionId id);
 
   template <typename Fn, Fn fn>
-  MOZ_MUST_USE bool tailCallVM(MacroAssembler& masm);
+  [[nodiscard]] bool tailCallVM(MacroAssembler& masm);
 
   // Emits a normal (non-tail) call to a VMFunction wrapper.
-  MOZ_MUST_USE bool callVMInternal(MacroAssembler& masm, VMFunctionId id);
+  [[nodiscard]] bool callVMInternal(MacroAssembler& masm, VMFunctionId id);
 
   template <typename Fn, Fn fn>
-  MOZ_MUST_USE bool callVM(MacroAssembler& masm);
+  [[nodiscard]] bool callVM(MacroAssembler& masm);
 
   // A stub frame is used when a stub wants to call into the VM without
   // performing a tail call. This is required for the return address
@@ -327,17 +327,7 @@ bool ICScript::initICEntries(JSContext* cx, JSScript* script) {
         break;
       }
       case JSOp::NewArray: {
-        JSObject* proto =
-            GlobalObject::getOrCreateArrayPrototype(cx, cx->global());
-        if (!proto) {
-          return false;
-        }
-        ObjectGroup* group = ObjectGroup::defaultNewGroup(
-            cx, &ArrayObject::class_, TaggedProto(proto));
-        if (!group) {
-          return false;
-        }
-        auto* stub = alloc.newStub<ICNewArray_Fallback>(Kind::NewArray, group);
+        auto* stub = alloc.newStub<ICNewArray_Fallback>(Kind::NewArray);
         if (!addIC(loc, stub)) {
           return false;
         }
@@ -574,57 +564,30 @@ ICStubIterator& ICStubIterator::operator++() {
   return *this;
 }
 
-void ICStubIterator::unlink(JSContext* cx, JSScript* script) {
+void ICStubIterator::unlink(JSContext* cx) {
   MOZ_ASSERT(currentStub_ != fallbackStub_);
   MOZ_ASSERT(currentStub_->maybeNext() != nullptr);
   MOZ_ASSERT(!unlinked_);
 
-  fallbackStub_->maybeInvalidateWarp(cx, script);
-  fallbackStub_->unlinkStubDontInvalidateWarp(cx->zone(), previousStub_,
-                                              currentStub_->toCacheIRStub());
+  fallbackStub_->unlinkStub(cx->zone(), previousStub_,
+                            currentStub_->toCacheIRStub());
 
   // Mark the current iterator position as unlinked, so operator++ works
   // properly.
   unlinked_ = true;
 }
 
-bool ICStub::makesGCCalls() const {
-  if (!isFallback()) {
-    return toCacheIRStub()->stubInfo()->makesGCCalls();
-  }
+bool ICCacheIRStub::makesGCCalls() const { return stubInfo()->makesGCCalls(); }
 
-  Kind kind = toFallbackStub()->kind();
-  MOZ_ASSERT(IsValidKind(kind));
-  switch (kind) {
-    case Call_Fallback:
-    // These three fallback stubs don't actually make non-tail calls,
-    // but the fallback code for the bailout path needs to pop the stub frame
-    // pushed during the bailout.
-    case GetProp_Fallback:
-    case SetProp_Fallback:
-    case GetElem_Fallback:
-      return true;
-    default:
-      return false;
-  }
-}
+void ICFallbackStub::trackNotAttached() { state().trackNotAttached(); }
 
-void ICFallbackStub::trackNotAttached(JSContext* cx, JSScript* script) {
-  maybeInvalidateWarp(cx, script);
-  state().trackNotAttached();
-}
-
-void ICFallbackStub::maybeInvalidateWarp(JSContext* cx, JSScript* script) {
-  if (!state_.usedByTranspiler()) {
-    return;
-  }
-
-  clearUsedByTranspiler();
-
-  if (script->hasIonScript()) {
-    Invalidate(cx, script);
-  } else {
-    CancelOffThreadIonCompile(script);
+// When we enter a baseline fallback stub, if a Warp compilation
+// exists that transpiled that IC, we notify that compilation. This
+// helps the bailout code tell whether a bailing instruction hoisted
+// by LICM would have been executed anyway.
+static void MaybeNotifyWarp(JSScript* script, ICFallbackStub* stub) {
+  if (stub->state().usedByTranspiler() && script->hasIonScript()) {
+    script->ionScript()->noteBaselineFallback();
   }
 }
 
@@ -644,8 +607,6 @@ void ICFallbackStub::trace(JSTracer* trc) {
       ICNewArray_Fallback* stub = toNewArray_Fallback();
       TraceNullableEdge(trc, &stub->templateObject(),
                         "baseline-newarray-template");
-      TraceEdge(trc, &stub->templateGroup(),
-                "baseline-newarray-template-group");
       break;
     }
     case ICStub::NewObject_Fallback: {
@@ -674,7 +635,7 @@ static void MaybeTransition(JSContext* cx, BaselineFrame* frame,
       cih.rateIC(cx, stub->icEntry(), script, SpewContext::Transition);
     }
 #endif
-    stub->discardStubs(cx, frame->invalidationScript());
+    stub->discardStubs(cx);
   }
 }
 
@@ -710,14 +671,13 @@ static void TryAttachStub(const char* name, JSContext* cx, BaselineFrame* frame,
         break;
     }
     if (!attached) {
-      stub->trackNotAttached(cx, frame->invalidationScript());
+      stub->trackNotAttached();
     }
   }
 }
 
-void ICFallbackStub::unlinkStubDontInvalidateWarp(Zone* zone,
-                                                  ICCacheIRStub* prev,
-                                                  ICCacheIRStub* stub) {
+void ICFallbackStub::unlinkStub(Zone* zone, ICCacheIRStub* prev,
+                                ICCacheIRStub* stub) {
   if (prev) {
     MOZ_ASSERT(prev->next() == stub);
     prev->setNext(stub->next());
@@ -745,9 +705,9 @@ void ICFallbackStub::unlinkStubDontInvalidateWarp(Zone* zone,
 #endif
 }
 
-void ICFallbackStub::discardStubs(JSContext* cx, JSScript* script) {
+void ICFallbackStub::discardStubs(JSContext* cx) {
   for (ICStubIterator iter = beginChain(); !iter.atEnd(); iter++) {
-    iter.unlink(cx, script);
+    iter.unlink(cx);
   }
 }
 
@@ -861,6 +821,7 @@ bool DoToBoolFallback(JSContext* cx, BaselineFrame* frame,
                       ICToBool_Fallback* stub, HandleValue arg,
                       MutableHandleValue ret) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "ToBool");
 
   MOZ_ASSERT(!arg.isBoolean());
@@ -897,7 +858,7 @@ bool DoGetElemFallback(JSContext* cx, BaselineFrame* frame,
                        ICGetElem_Fallback* stub, HandleValue lhs,
                        HandleValue rhs, MutableHandleValue res) {
   stub->incrementEnteredCount();
-
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "GetElem");
 
 #ifdef DEBUG
@@ -916,7 +877,7 @@ bool DoGetElemFallback(JSContext* cx, BaselineFrame* frame,
   }
 
   TryAttachStub<GetPropIRGenerator>("GetElem", cx, frame, stub,
-                                    CacheKind::GetElem, lhs, rhs, lhs);
+                                    CacheKind::GetElem, lhs, rhs);
 
   if (!isOptimizedArgs) {
     if (!GetElementOperation(cx, lhsCopy, rhs, res)) {
@@ -932,6 +893,7 @@ bool DoGetElemSuperFallback(JSContext* cx, BaselineFrame* frame,
                             HandleValue rhs, HandleValue receiver,
                             MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(frame->script());
@@ -942,8 +904,7 @@ bool DoGetElemSuperFallback(JSContext* cx, BaselineFrame* frame,
   MOZ_ASSERT(op == JSOp::GetElemSuper);
 
   TryAttachStub<GetPropIRGenerator>("GetElemSuper", cx, frame, stub,
-                                    CacheKind::GetElemSuper, lhs, rhs,
-                                    receiver);
+                                    CacheKind::GetElemSuper, lhs, rhs);
 
   // |lhs| is [[HomeObject]].[[Prototype]] which must be Object
   RootedObject lhsObj(cx, &lhs.toObject());
@@ -1029,6 +990,7 @@ bool DoSetElemFallback(JSContext* cx, BaselineFrame* frame,
   using DeferType = SetPropIRGenerator::DeferType;
 
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   RootedScript outerScript(cx, script);
@@ -1147,7 +1109,7 @@ bool DoSetElemFallback(JSContext* cx, BaselineFrame* frame,
     }
   }
   if (!attached && canAttachStub) {
-    stub->trackNotAttached(cx, frame->invalidationScript());
+    stub->trackNotAttached();
   }
   return true;
 }
@@ -1197,7 +1159,7 @@ bool DoInFallback(JSContext* cx, BaselineFrame* frame, ICIn_Fallback* stub,
                   HandleValue key, HandleValue objValue,
                   MutableHandleValue res) {
   stub->incrementEnteredCount();
-
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "In");
 
   if (!objValue.isObject()) {
@@ -1244,7 +1206,7 @@ bool DoHasOwnFallback(JSContext* cx, BaselineFrame* frame,
                       ICHasOwn_Fallback* stub, HandleValue keyValue,
                       HandleValue objValue, MutableHandleValue res) {
   stub->incrementEnteredCount();
-
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "HasOwn");
 
   TryAttachStub<HasPropIRGenerator>("HasOwn", cx, frame, stub,
@@ -1286,6 +1248,8 @@ bool DoCheckPrivateFieldFallback(JSContext* cx, BaselineFrame* frame,
                                  HandleValue objValue, HandleValue keyValue,
                                  MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
+
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
 
@@ -1332,6 +1296,7 @@ bool DoGetNameFallback(JSContext* cx, BaselineFrame* frame,
                        ICGetName_Fallback* stub, HandleObject envChain,
                        MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1381,6 +1346,7 @@ bool DoBindNameFallback(JSContext* cx, BaselineFrame* frame,
                         ICBindName_Fallback* stub, HandleObject envChain,
                         MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   jsbytecode* pc = stub->icEntry()->pc(frame->script());
   mozilla::DebugOnly<JSOp> op = JSOp(*pc);
@@ -1424,6 +1390,7 @@ bool DoGetIntrinsicFallback(JSContext* cx, BaselineFrame* frame,
                             ICGetIntrinsic_Fallback* stub,
                             MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1492,6 +1459,7 @@ bool DoGetPropFallback(JSContext* cx, BaselineFrame* frame,
                        ICGetProp_Fallback* stub, MutableHandleValue val,
                        MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1504,7 +1472,7 @@ bool DoGetPropFallback(JSContext* cx, BaselineFrame* frame,
   RootedValue idVal(cx, StringValue(name));
 
   TryAttachStub<GetPropIRGenerator>("GetProp", cx, frame, stub,
-                                    CacheKind::GetProp, val, idVal, val);
+                                    CacheKind::GetProp, val, idVal);
 
   return ComputeGetPropResult(cx, frame, op, name, val, res);
 }
@@ -1513,6 +1481,7 @@ bool DoGetPropSuperFallback(JSContext* cx, BaselineFrame* frame,
                             ICGetProp_Fallback* stub, HandleValue receiver,
                             MutableHandleValue val, MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1524,8 +1493,7 @@ bool DoGetPropSuperFallback(JSContext* cx, BaselineFrame* frame,
   RootedValue idVal(cx, StringValue(name));
 
   TryAttachStub<GetPropIRGenerator>("GetPropSuper", cx, frame, stub,
-                                    CacheKind::GetPropSuper, val, idVal,
-                                    receiver);
+                                    CacheKind::GetPropSuper, val, idVal);
 
   // |val| is [[HomeObject]].[[Prototype]] which must be Object
   RootedObject valObj(cx, &val.toObject());
@@ -1606,6 +1574,7 @@ bool DoSetPropFallback(JSContext* cx, BaselineFrame* frame,
   using DeferType = SetPropIRGenerator::DeferType;
 
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1731,7 +1700,7 @@ bool DoSetPropFallback(JSContext* cx, BaselineFrame* frame,
     }
   }
   if (!attached && canAttachStub) {
-    stub->trackNotAttached(cx, frame->invalidationScript());
+    stub->trackNotAttached();
   }
 
   return true;
@@ -1787,6 +1756,7 @@ bool FallbackICCodeCompiler::emit_SetProp() {
 bool DoCallFallback(JSContext* cx, BaselineFrame* frame, ICCall_Fallback* stub,
                     uint32_t argc, Value* vp, MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1844,7 +1814,7 @@ bool DoCallFallback(JSContext* cx, BaselineFrame* frame, ICCall_Fallback* stub,
         MOZ_CRASH("No deferred Call stubs");
     }
     if (!handled) {
-      stub->trackNotAttached(cx, frame->invalidationScript());
+      stub->trackNotAttached();
     }
   }
 
@@ -1883,6 +1853,7 @@ bool DoSpreadCallFallback(JSContext* cx, BaselineFrame* frame,
                           ICCall_Fallback* stub, Value* vp,
                           MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -1935,7 +1906,7 @@ bool DoSpreadCallFallback(JSContext* cx, BaselineFrame* frame,
         break;
     }
     if (!handled) {
-      stub->trackNotAttached(cx, frame->invalidationScript());
+      stub->trackNotAttached();
     }
   }
 
@@ -2127,6 +2098,7 @@ bool DoGetIteratorFallback(JSContext* cx, BaselineFrame* frame,
                            ICGetIterator_Fallback* stub, HandleValue value,
                            MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "GetIterator");
 
   TryAttachStub<GetIteratorIRGenerator>("GetIterator", cx, frame, stub, value);
@@ -2163,6 +2135,7 @@ bool DoOptimizeSpreadCallFallback(JSContext* cx, BaselineFrame* frame,
                                   ICOptimizeSpreadCall_Fallback* stub,
                                   HandleValue value, MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "OptimizeSpreadCall");
 
   TryAttachStub<OptimizeSpreadCallIRGenerator>("OptimizeSpreadCall", cx, frame,
@@ -2198,7 +2171,7 @@ bool DoInstanceOfFallback(JSContext* cx, BaselineFrame* frame,
                           ICInstanceOf_Fallback* stub, HandleValue lhs,
                           HandleValue rhs, MutableHandleValue res) {
   stub->incrementEnteredCount();
-
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "InstanceOf");
 
   if (!rhs.isObject()) {
@@ -2218,7 +2191,7 @@ bool DoInstanceOfFallback(JSContext* cx, BaselineFrame* frame,
     // ensure we've recorded at least one failure, so we can detect there was a
     // non-optimizable case
     if (!stub->state().hasFailures()) {
-      stub->trackNotAttached(cx, frame->invalidationScript());
+      stub->trackNotAttached();
     }
     return true;
   }
@@ -2252,6 +2225,7 @@ bool DoTypeOfFallback(JSContext* cx, BaselineFrame* frame,
                       ICTypeOf_Fallback* stub, HandleValue val,
                       MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "TypeOf");
 
   TryAttachStub<TypeOfIRGenerator>("TypeOf", cx, frame, stub, val);
@@ -2282,6 +2256,7 @@ bool DoToPropertyKeyFallback(JSContext* cx, BaselineFrame* frame,
                              ICToPropertyKey_Fallback* stub, HandleValue val,
                              MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "ToPropertyKey");
 
   TryAttachStub<ToPropertyKeyIRGenerator>("ToPropertyKey", cx, frame, stub,
@@ -2340,6 +2315,7 @@ bool DoUnaryArithFallback(JSContext* cx, BaselineFrame* frame,
                           ICUnaryArith_Fallback* stub, HandleValue val,
                           MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -2424,6 +2400,7 @@ bool DoBinaryArithFallback(JSContext* cx, BaselineFrame* frame,
                            ICBinaryArith_Fallback* stub, HandleValue lhs,
                            HandleValue rhs, MutableHandleValue ret) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -2544,6 +2521,7 @@ bool DoCompareFallback(JSContext* cx, BaselineFrame* frame,
                        ICCompare_Fallback* stub, HandleValue lhs,
                        HandleValue rhs, MutableHandleValue ret) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
 
   RootedScript script(cx, frame->script());
   jsbytecode* pc = stub->icEntry()->pc(script);
@@ -2640,35 +2618,23 @@ bool DoNewArrayFallback(JSContext* cx, BaselineFrame* frame,
                         ICNewArray_Fallback* stub, uint32_t length,
                         MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "NewArray");
 
-  RootedObject obj(cx);
-  if (stub->templateObject()) {
-    RootedObject templateObject(cx, stub->templateObject());
-    obj = NewArrayOperationWithTemplate(cx, templateObject);
-    if (!obj) {
+  if (!stub->templateObject()) {
+    ArrayObject* templateObject = NewArrayOperation(cx, length, TenuredObject);
+    if (!templateObject) {
       return false;
     }
-  } else {
-    RootedScript script(cx, frame->script());
-    jsbytecode* pc = stub->icEntry()->pc(script);
-
-    obj = NewArrayOperation(cx, script, pc, length);
-    if (!obj) {
-      return false;
-    }
-
-    if (!obj->isSingleton()) {
-      ArrayObject* templateObject =
-          NewArrayOperation(cx, script, pc, length, TenuredObject);
-      if (!templateObject) {
-        return false;
-      }
-      stub->setTemplateObject(templateObject);
-    }
+    stub->setTemplateObject(templateObject);
   }
 
-  res.setObject(*obj);
+  ArrayObject* arr = NewArrayOperation(cx, length);
+  if (!arr) {
+    return false;
+  }
+
+  res.setObject(*arr);
   return true;
 }
 
@@ -2690,6 +2656,7 @@ bool FallbackICCodeCompiler::emit_NewArray() {
 bool DoNewObjectFallback(JSContext* cx, BaselineFrame* frame,
                          ICNewObject_Fallback* stub, MutableHandleValue res) {
   stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "NewObject");
 
   RootedObject obj(cx);
@@ -2702,7 +2669,7 @@ bool DoNewObjectFallback(JSContext* cx, BaselineFrame* frame,
     jsbytecode* pc = stub->icEntry()->pc(script);
     obj = NewObjectOperation(cx, script, pc);
 
-    if (obj && !obj->isSingleton()) {
+    if (obj) {
       templateObject = NewObjectOperation(cx, script, pc, TenuredObject);
       if (!templateObject) {
         return false;

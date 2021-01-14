@@ -12,6 +12,9 @@
         -moz-user-select: none;
         font-family: sans-serif;
         margin-top: 1em;
+
+        position: absolute;
+        bottom: 60px;
       }
 
       #vkb div {
@@ -31,6 +34,20 @@
       #vkb span:active {
         background-color: gray;
       }
+
+      #popup {
+        width: 100px;
+
+        background: yellow;
+        position: absolute;
+        bottom: 190px;
+        left: 100px;
+      }
+
+      #popup.oneline {
+        word-wrap: nowrap;
+      }
+
     </style>
     <script>
       function addLine(container, line) {
@@ -69,6 +86,11 @@
                 }
               );
           });
+
+          let popup = document.getElementById("popup");
+          popup.addEventListener("click", event => {
+            popup.classList.toggle('oneline');
+          });
         },
         { once: true }
       );
@@ -76,5 +98,6 @@
   </head>
   <body>
     <div id="vkb"></div>
+    <div id="popup">Keyboard popup content, test for mozpasspointerevents</div>
   </body>
 </html>

@@ -111,7 +111,7 @@ using namespace mozilla::a11y;
 static const uint64_t kCachedStates =
     states::CHECKED | states::PRESSED | states::MIXED | states::EXPANDED |
     states::CURRENT | states::SELECTED | states::TRAVERSED | states::LINKED |
-    states::HASPOPUP;
+    states::HASPOPUP | states::BUSY;
 static const uint64_t kCacheInitialized = ((uint64_t)0x1) << 63;
 
 - (uint64_t)state {
@@ -143,19 +143,20 @@ static const uint64_t kCacheInitialized = ((uint64_t)0x1) << 63;
 }
 
 - (void)stateChanged:(uint64_t)state isEnabled:(BOOL)enabled {
-  if ((state & kCachedStates) == 0) {
-    return;
+  if ((state & kCachedStates) != 0) {
+    if (!(mCachedState & kCacheInitialized)) {
+      [self state];
+    } else {
+      if (enabled) {
+        mCachedState |= state;
+      } else {
+        mCachedState &= ~state;
+      }
+    }
   }
 
-  if (!(mCachedState & kCacheInitialized)) {
-    [self state];
-    return;
-  }
-
-  if (enabled) {
-    mCachedState |= state;
-  } else {
-    mCachedState &= ~state;
+  if (state == states::BUSY) {
+    [self moxPostNotification:@"AXElementBusyChanged"];
   }
 }
 
@@ -789,6 +790,10 @@ struct RoleDescrComparator {
   return @([self stateWithMask:states::REQUIRED] != 0);
 }
 
+- (NSNumber*)moxElementBusy {
+  return @([self stateWithMask:states::BUSY] != 0);
+}
+
 - (mozAccessible*)topWebArea {
   AccessibleOrProxy doc = [self geckoDocument];
   while (!doc.IsNull()) {
@@ -949,9 +954,7 @@ struct RoleDescrComparator {
       LayoutDeviceIntPoint(geckoRect.X() + (geckoRect.Width() / 2),
                            geckoRect.Y() + (geckoRect.Height() / 2));
   nsIWidget* widget = [objOrView widget];
-  // XXX: NSRightMouseDown is depreciated in 10.12, should be
-  // changed to NSEventTypeRightMouseDown after refactoring.
-  widget->SynthesizeNativeMouseEvent(p, NSRightMouseDown, 0, nullptr);
+  widget->SynthesizeNativeMouseEvent(p, NSEventTypeRightMouseDown, 0, nullptr);
 }
 
 - (void)moxPerformPress {
@@ -1017,21 +1020,23 @@ struct RoleDescrComparator {
       // reduntant.
       id<MOXTextMarkerSupport> delegate = [self moxTextMarkerDelegate];
       id selectedRange = [delegate moxSelectedTextMarkerRange];
-      id editableAncestor = [self moxEditableAncestor];
-      id textChangeElement = editableAncestor ? editableAncestor : self;
+      BOOL isCollapsed =
+          [static_cast<MOXTextMarkerDelegate*>(delegate) selectionIsCollapsed];
       NSDictionary* userInfo = @{
-        @"AXTextChangeElement" : textChangeElement,
+        @"AXTextChangeElement" : self,
         @"AXSelectedTextMarkerRange" :
-            (selectedRange ? selectedRange : [NSNull null])
+            (selectedRange ? selectedRange : [NSNull null]),
+        @"AXTextStateChangeType" : isCollapsed
+            ? @(AXTextStateChangeTypeSelectionMove)
+            : @(AXTextStateChangeTypeSelectionExtend)
       };
 
       mozAccessible* webArea = [self topWebArea];
       [webArea
           moxPostNotification:NSAccessibilitySelectedTextChangedNotification
                  withUserInfo:userInfo];
-      [textChangeElement
-          moxPostNotification:NSAccessibilitySelectedTextChangedNotification
-                 withUserInfo:userInfo];
+      [self moxPostNotification:NSAccessibilitySelectedTextChangedNotification
+                   withUserInfo:userInfo];
       break;
     }
     case nsIAccessibleEvent::EVENT_LIVE_REGION_ADDED:

@@ -128,6 +128,9 @@ JSObject* RTCRtpReceiver::WrapObject(JSContext* aCx,
 }
 
 RTCDtlsTransport* RTCRtpReceiver::GetTransport() const {
+  if (!mTransceiverImpl) {
+    return nullptr;
+  }
   return mTransceiverImpl->GetDtlsTransport();
 }
 

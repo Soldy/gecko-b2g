@@ -10,7 +10,7 @@ use crate::common::{JsonValue, ObjectRef, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub static SERVICE_FINGERPRINT: &str =
-    "3caca81849ed601b9c166c2eb3a9bd41d9dea32f5b3b91a61bec357a8bb";
+    "9f69c36e87a5b62281b68e5a0fa75f5d6f764a686862173c1dca72e07c715";
 
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
 pub enum ChangeReason {
@@ -199,33 +199,33 @@ pub struct SpeedDialInfo {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ContactsManagerFromClient {
-    ContactCursorNext,                                           // 0
-    ContactsFactoryAdd(Vec<ContactInfo>),                        // 1
-    ContactsFactoryAddBlockedNumber(String),                     // 2
-    ContactsFactoryAddGroup(String),                             // 3
-    ContactsFactoryAddSpeedDial(String, String, String),         // 4
-    ContactsFactoryClearContacts,                                // 5
-    ContactsFactoryFind(ContactFindSortOptions, i64),            // 6
-    ContactsFactoryFindBlockedNumbers(BlockedNumberFindOptions), // 7
-    ContactsFactoryGet(String, bool),                            // 8
-    ContactsFactoryGetAll(ContactSortOptions, i64, bool),        // 9
-    ContactsFactoryGetAllBlockedNumbers,                         // 10
-    ContactsFactoryGetAllGroups,                                 // 11
-    ContactsFactoryGetAllIce,                                    // 12
-    ContactsFactoryGetContactidsFromGroup(String),               // 13
-    ContactsFactoryGetCount,                                     // 14
-    ContactsFactoryGetSpeedDials,                                // 15
-    ContactsFactoryHasNumber(String),                            // 16
-    ContactsFactoryImportVcf(String),                            // 17
-    ContactsFactoryRemove(Vec<String>),                          // 18
-    ContactsFactoryRemoveBlockedNumber(String),                  // 19
-    ContactsFactoryRemoveGroup(String),                          // 20
-    ContactsFactoryRemoveIce(String),                            // 21
-    ContactsFactoryRemoveSpeedDial(String),                      // 22
-    ContactsFactorySetIce(String, i64),                          // 23
-    ContactsFactoryUpdate(Vec<ContactInfo>),                     // 24
-    ContactsFactoryUpdateGroup(String, String),                  // 25
-    ContactsFactoryUpdateSpeedDial(String, String, String),      // 26
+    ContactCursorNext,                                            // 0
+    ContactsFactoryAdd(Vec<ContactInfo>),                         // 1
+    ContactsFactoryAddBlockedNumber(String),                      // 2
+    ContactsFactoryAddGroup(String),                              // 3
+    ContactsFactoryAddSpeedDial(String, String, String),          // 4
+    ContactsFactoryClearContacts,                                 // 5
+    ContactsFactoryFind(ContactFindSortOptions, i64),             // 6
+    ContactsFactoryFindBlockedNumbers(BlockedNumberFindOptions),  // 7
+    ContactsFactoryGet(String, bool),                             // 8
+    ContactsFactoryGetAll(ContactSortOptions, i64, bool),         // 9
+    ContactsFactoryGetAllBlockedNumbers,                          // 10
+    ContactsFactoryGetAllGroups,                                  // 11
+    ContactsFactoryGetAllIce,                                     // 12
+    ContactsFactoryGetContactidsFromGroup(String),                // 13
+    ContactsFactoryGetCount,                                      // 14
+    ContactsFactoryGetSpeedDials,                                 // 15
+    ContactsFactoryImportVcf(String),                             // 16
+    ContactsFactoryMatches(FilterByOption, FilterOption, String), // 17
+    ContactsFactoryRemove(Vec<String>),                           // 18
+    ContactsFactoryRemoveBlockedNumber(String),                   // 19
+    ContactsFactoryRemoveGroup(String),                           // 20
+    ContactsFactoryRemoveIce(String),                             // 21
+    ContactsFactoryRemoveSpeedDial(String),                       // 22
+    ContactsFactorySetIce(String, i64),                           // 23
+    ContactsFactoryUpdate(Vec<ContactInfo>),                      // 24
+    ContactsFactoryUpdateGroup(String, String),                   // 25
+    ContactsFactoryUpdateSpeedDial(String, String, String),       // 26
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,10 +262,10 @@ pub enum ContactsManagerToClient {
     ContactsFactoryGetCountError,               // 29
     ContactsFactoryGetSpeedDialsSuccess(Option<Vec<SpeedDialInfo>>), // 30
     ContactsFactoryGetSpeedDialsError,          // 31
-    ContactsFactoryHasNumberSuccess(bool),      // 32
-    ContactsFactoryHasNumberError,              // 33
-    ContactsFactoryImportVcfSuccess(i64),       // 34
-    ContactsFactoryImportVcfError,              // 35
+    ContactsFactoryImportVcfSuccess(i64),       // 32
+    ContactsFactoryImportVcfError,              // 33
+    ContactsFactoryMatchesSuccess(bool),        // 34
+    ContactsFactoryMatchesError,                // 35
     ContactsFactoryRemoveSuccess,               // 36
     ContactsFactoryRemoveError,                 // 37
     ContactsFactoryRemoveBlockedNumberSuccess,  // 38

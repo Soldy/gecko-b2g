@@ -302,14 +302,16 @@ impl VertexDescriptor {
         }
     }
 
-    fn bind(&self, gl: &dyn gl::Gl, main: VBOId, instance: VBOId) {
+    fn bind(&self, gl: &dyn gl::Gl, main: VBOId, instance: VBOId, instance_divisor: u32) {
         Self::bind_attributes(self.vertex_attributes, 0, 0, gl, main);
 
         if !self.instance_attributes.is_empty() {
             Self::bind_attributes(
                 self.instance_attributes,
                 self.vertex_attributes.len(),
-                1, gl, instance,
+                instance_divisor,
+                gl,
+                instance,
             );
         }
     }
@@ -597,6 +599,7 @@ pub struct VAO {
     main_vbo_id: VBOId,
     instance_vbo_id: VBOId,
     instance_stride: usize,
+    instance_divisor: u32,
     owns_vertices_and_indices: bool,
 }
 
@@ -973,6 +976,8 @@ pub struct Capabilities {
     pub supports_texture_usage: bool,
     /// Whether offscreen render targets can be partially updated.
     pub supports_render_target_partial_update: bool,
+    /// Whether we can use SSBOs.
+    pub supports_shader_storage_object: bool,
     /// Whether the driver prefers fewer and larger texture uploads
     /// over many smaller updates.
     pub prefers_batched_texture_uploads: bool,
@@ -1240,12 +1245,16 @@ impl DrawTarget {
                     fb_rect.origin.x += rect.origin.x;
                 }
             }
-            DrawTarget::Texture { .. } | DrawTarget::External { .. } => (),
-            DrawTarget::NativeSurface { .. } => {
-                panic!("bug: is this ever used for native surfaces?");
-            }
+            DrawTarget::Texture { .. } | DrawTarget::External { .. } | DrawTarget::NativeSurface { .. } => (),
         }
         fb_rect
+    }
+
+    pub fn surface_origin_is_top_left(&self) -> bool {
+        match *self {
+            DrawTarget::Default { surface_origin_is_top_left, .. } => surface_origin_is_top_left,
+            DrawTarget::Texture { .. } | DrawTarget::External { .. } | DrawTarget::NativeSurface { .. } => true,
+        }
     }
 
     /// Given a scissor rect, convert it to the right coordinate space
@@ -1347,6 +1356,8 @@ impl Device {
         let max_texture_size = max_texture_size[0];
         let max_texture_layers = max_texture_layers[0] as u32;
         let renderer_name = gl.get_string(gl::RENDERER);
+        info!("Renderer: {}", renderer_name);
+        info!("Max texture size: {}", max_texture_size);
 
         let mut extension_count = [0];
         unsafe {
@@ -1426,7 +1437,12 @@ impl Device {
         // So we must use glTexStorage instead. See bug 1591436.
         let is_emulator = renderer_name.starts_with("Android Emulator");
         let avoid_tex_image = is_emulator;
-        let gl_version = gl.get_string(gl::VERSION);
+        let mut gl_version = [0; 2];
+        unsafe {
+            gl.get_integer_v(gl::MAJOR_VERSION, &mut gl_version[0..1]);
+            gl.get_integer_v(gl::MINOR_VERSION, &mut gl_version[1..2]);
+        }
+        info!("GL context {:?} {}.{}", gl.get_type(), gl_version[0], gl_version[1]);
 
         // We block texture storage on mac because it doesn't support BGRA
         let supports_texture_storage = allow_texture_storage_support && !cfg!(target_os = "macos") &&
@@ -1439,7 +1455,7 @@ impl Device {
         let supports_texture_swizzle = allow_texture_swizzling &&
             match gl.get_type() {
                 // see https://www.g-truc.net/post-0734.html
-                gl::GlType::Gl => gl_version.as_str() >= "3.3" ||
+                gl::GlType::Gl => gl_version >= [3, 3] ||
                     supports_extension(&extensions, "GL_ARB_texture_swizzle"),
                 gl::GlType::Gles => true,
             };
@@ -1521,14 +1537,22 @@ impl Device {
             supports_extension(&extensions, "GL_ARB_copy_image")
         };
 
-        let supports_buffer_storage = supports_extension(&extensions, "GL_EXT_buffer_storage") ||
-            supports_extension(&extensions, "GL_ARB_buffer_storage");
+        let is_adreno = renderer_name.starts_with("Adreno");
+
+        // There appears to be a driver bug on older versions of the Adreno
+        // driver which prevents usage of persistenly mapped buffers.
+        // See bugs 1678585 and 1683936.
+        // TODO: only disable feature for affected driver versions.
+        let supports_buffer_storage = if is_adreno {
+            false
+        } else {
+            supports_extension(&extensions, "GL_EXT_buffer_storage") ||
+            supports_extension(&extensions, "GL_ARB_buffer_storage")
+        };
 
         // Due to a bug on Adreno devices, blitting to an fbo bound to
         // a non-0th layer of a texture array is not supported.
         let supports_blit_to_texture_array = !renderer_name.starts_with("Adreno");
-
-        let is_adreno = renderer_name.starts_with("Adreno");
 
         // KHR_blend_equation_advanced renders incorrectly on Adreno
         // devices. This has only been confirmed up to Adreno 5xx, and has been
@@ -1591,6 +1615,12 @@ impl Device {
         // See bug 1663355.
         let supports_render_target_partial_update = !is_mali_g;
 
+        let supports_shader_storage_object = match gl.get_type() {
+            // see https://www.g-truc.net/post-0734.html
+            gl::GlType::Gl => supports_extension(&extensions, "GL_ARB_shader_storage_buffer_object"),
+            gl::GlType::Gles => gl_version >= [3, 1],
+        };
+
         // On Mali-Gxx the driver really struggles with many small texture uploads,
         // and handles fewer, larger uploads better.
         let prefers_batched_texture_uploads = is_mali_g;
@@ -1616,6 +1646,7 @@ impl Device {
                 supports_nonzero_pbo_offsets,
                 supports_texture_usage,
                 supports_render_target_partial_update,
+                supports_shader_storage_object,
                 prefers_batched_texture_uploads,
                 renderer_name,
             },
@@ -3172,6 +3203,7 @@ impl Device {
         descriptor: &VertexDescriptor,
         main_vbo_id: VBOId,
         instance_vbo_id: VBOId,
+        instance_divisor: u32,
         ibo_id: IBOId,
         owns_vertices_and_indices: bool,
     ) -> VAO {
@@ -3180,7 +3212,7 @@ impl Device {
 
         self.bind_vao_impl(vao_id);
 
-        descriptor.bind(self.gl(), main_vbo_id, instance_vbo_id);
+        descriptor.bind(self.gl(), main_vbo_id, instance_vbo_id, instance_divisor);
         ibo_id.bind(self.gl()); // force it to be a part of VAO
 
         VAO {
@@ -3189,6 +3221,7 @@ impl Device {
             main_vbo_id,
             instance_vbo_id,
             instance_stride,
+            instance_divisor,
             owns_vertices_and_indices,
         }
     }
@@ -3239,7 +3272,7 @@ impl Device {
         vbo.id = 0;
     }
 
-    pub fn create_vao(&mut self, descriptor: &VertexDescriptor) -> VAO {
+    pub fn create_vao(&mut self, descriptor: &VertexDescriptor, instance_divisor: u32) -> VAO {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = self.gl.gen_buffers(3);
@@ -3247,7 +3280,7 @@ impl Device {
         let main_vbo_id = VBOId(buffer_ids[1]);
         let intance_vbo_id = VBOId(buffer_ids[2]);
 
-        self.create_vao_with_vbos(descriptor, main_vbo_id, intance_vbo_id, ibo_id, true)
+        self.create_vao_with_vbos(descriptor, main_vbo_id, intance_vbo_id, instance_divisor, ibo_id, true)
     }
 
     pub fn delete_vao(&mut self, mut vao: VAO) {
@@ -3325,6 +3358,7 @@ impl Device {
             descriptor,
             base_vao.main_vbo_id,
             intance_vbo_id,
+            base_vao.instance_divisor,
             base_vao.ibo_id,
             false,
         )
@@ -3340,16 +3374,54 @@ impl Device {
         self.update_vbo_data(vao.main_vbo_id, vertices, usage_hint)
     }
 
-    pub fn update_vao_instances<V>(
+    pub fn update_vao_instances<V: Clone>(
         &mut self,
         vao: &VAO,
         instances: &[V],
         usage_hint: VertexUsageHint,
+        // if `Some(count)`, each instance is repeated `count` times
+        repeat: Option<NonZeroUsize>,
     ) {
         debug_assert_eq!(self.bound_vao, vao.id);
         debug_assert_eq!(vao.instance_stride as usize, mem::size_of::<V>());
 
-        self.update_vbo_data(vao.instance_vbo_id, instances, usage_hint)
+        match repeat {
+            Some(count) => {
+                let target = gl::ARRAY_BUFFER;
+                self.gl.bind_buffer(target, vao.instance_vbo_id.0);
+                let size = instances.len() * count.get() * mem::size_of::<V>();
+                self.gl.buffer_data_untyped(
+                    target,
+                    size as _,
+                    ptr::null(),
+                    usage_hint.to_gl(),
+                );
+
+                let ptr = match self.gl.get_type() {
+                    gl::GlType::Gl => {
+                        self.gl.map_buffer(target, gl::WRITE_ONLY)
+                    }
+                    gl::GlType::Gles => {
+                        self.gl.map_buffer_range(target, 0, size as _, gl::MAP_WRITE_BIT)
+                    }
+                };
+                assert!(!ptr.is_null());
+
+                let buffer_slice = unsafe {
+                    slice::from_raw_parts_mut(ptr as *mut V, instances.len() * count.get())
+                };
+                for (quad, instance) in buffer_slice.chunks_mut(4).zip(instances) {
+                    quad[0] = instance.clone();
+                    quad[1] = instance.clone();
+                    quad[2] = instance.clone();
+                    quad[3] = instance.clone();
+                }
+                self.gl.unmap_buffer(target);
+            }
+            None => {
+                self.update_vbo_data(vao.instance_vbo_id, instances, usage_hint);
+            }
+        }
     }
 
     pub fn update_vao_indices<I>(&mut self, vao: &VAO, indices: &[I], usage_hint: VertexUsageHint) {
@@ -3405,6 +3477,19 @@ impl Device {
         debug_assert!(self.shader_is_ready);
 
         self.gl.draw_arrays(gl::LINES, first_vertex, vertex_count);
+    }
+
+    pub fn draw_indexed_triangles(&mut self, index_count: i32) {
+        debug_assert!(self.inside_frame);
+        #[cfg(debug_assertions)]
+        debug_assert!(self.shader_is_ready);
+
+        self.gl.draw_elements(
+            gl::TRIANGLES,
+            index_count,
+            gl::UNSIGNED_SHORT,
+            0,
+        );
     }
 
     pub fn draw_indexed_triangles_instanced_u16(&mut self, index_count: i32, instance_count: i32) {

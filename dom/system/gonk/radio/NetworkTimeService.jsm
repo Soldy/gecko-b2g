@@ -310,7 +310,10 @@ NetworkTimeService.prototype = {
         }
 
         // If the network comes from RIL, make sure the RIL service is matched.
-        if (aSubject instanceof Ci.nsIRilNetworkInfo) {
+        if (
+          networkInfo.type == NETWORK_TYPE_MOBILE &&
+          aSubject instanceof Ci.nsIRilNetworkInfo
+        ) {
           networkInfo = aSubject.QueryInterface(Ci.nsIRilNetworkInfo);
           if (networkInfo.serviceId != this.clientId) {
             return;
@@ -349,9 +352,9 @@ NetworkTimeService.prototype = {
     }
   },
 
-  // nsISettingsObserver
-  notify(aReason) {
-    switch (aReason) {
+  // nsITimeObserver
+  notify(aTimeInfo) {
+    switch (aTimeInfo.reason) {
       case Ci.nsITime.TIME_CHANGED:
         // TODO, current TimeService doesn't provide time delta.
         // let offset = parseInt(aData, 10);

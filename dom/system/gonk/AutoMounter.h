@@ -58,6 +58,14 @@ void SetAutoMounterSharingMode(const nsCString& aVolumeName,
                                bool aAllowSharing);
 
 /**
+ * Setup rndis request from RndisController.
+ *
+ * This will notify automounter we're currently try to
+ * enable rndis to prevent any race conditions.
+ */
+void SetAutoMounterRndis(bool aEnable);
+
+/**
  * Formats the volume with specified volume name.
  *
  * If the volume is ready to format, automounter

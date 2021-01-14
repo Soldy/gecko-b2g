@@ -28,7 +28,7 @@ function ActivityProxy() {
 ActivityProxy.prototype = {
   activities: new Map(),
 
-  create(owner, options, url) {
+  create(owner, options, origin) {
     let id = Cc["@mozilla.org/uuid-generator;1"]
       .getService(Ci.nsIUUIDGenerator)
       .generateUUID()
@@ -37,21 +37,9 @@ ActivityProxy.prototype = {
     this.activities.set(id, {
       owner: owner ? owner : {},
       options,
-      pageURL: url,
+      origin,
       childID: Services.appinfo.uniqueProcessID,
     });
-
-    // TODO: nsIPrincipal does not provide App related attributes such as appId
-    // anymore, and there's no way to retrieve app's manifestURL now, so
-    // security check here is left unimplemented. (Bug 80948)
-
-    // TODO: The old implementation check for pref "dom.apps.developer_mode" and
-    // "dom.activities.developer_mode_only" to see whether the activities are
-    // restricted to be used in developer mode. Remove it since we are unsure
-    // about porting back the app developer mode.
-
-    // TODO: We used to use _getHashForApp to validate app identity, but there's
-    // no way to retrieve app's manifestURL currently. (Bug 80948)
 
     debug(`${id} create activity`);
     return id;
@@ -69,7 +57,7 @@ ActivityProxy.prototype = {
     Services.cpmm.sendAsyncMessage("Activity:Start", {
       id,
       options: activity.options,
-      pageURL: activity.pageURL,
+      origin: activity.origin,
       childID: activity.childID,
     });
   },

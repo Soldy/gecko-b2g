@@ -67,9 +67,9 @@ class MOZ_STACK_CLASS WarpScriptOracle {
                                       BytecodeLocation loc, ICCacheIRStub* stub,
                                       ICFallbackStub* fallbackStub,
                                       uint8_t* stubDataCopy);
-  MOZ_MUST_USE bool replaceNurseryPointers(ICCacheIRStub* stub,
-                                           const CacheIRStubInfo* stubInfo,
-                                           uint8_t* stubDataCopy);
+  [[nodiscard]] bool replaceNurseryPointers(ICCacheIRStub* stub,
+                                            const CacheIRStubInfo* stubInfo,
+                                            uint8_t* stubDataCopy);
 
  public:
   WarpScriptOracle(JSContext* cx, WarpOracle* oracle, HandleScript script,
@@ -172,13 +172,33 @@ AbortReasonOr<WarpSnapshot*> WarpOracle::createSnapshot() {
   }
 #endif
 
+#ifdef DEBUG
+  // When transpiled CacheIR bails out, we do not want to recompile
+  // with the exact same data and get caught in an invalidation loop.
+  //
+  // To avoid this, we store a hash of the stub pointers and entry
+  // counts in this snapshot, save that hash in the JitScript if we
+  // have a TranspiledCacheIR bailout, and assert that the hash has
+  // changed when we recompile.
+  //
+  // Note: this assertion catches potential performance issues.
+  // Failing this assertion is not a correctness/security problem.
+  // We therefore ignore cases involving OOM or stack overflow.
+  HashNumber hash = icScript->hash();
+  if (outerScript_->jitScript()->hasFailedICHash()) {
+    HashNumber oldHash = outerScript_->jitScript()->getFailedICHash();
+    MOZ_ASSERT_IF(hash == oldHash, cx_->hadNondeterministicException());
+  }
+  snapshot->setICHash(hash);
+#endif
+
   return snapshot;
 }
 
 template <typename T, typename... Args>
-static MOZ_MUST_USE bool AddOpSnapshot(TempAllocator& alloc,
-                                       WarpOpSnapshotList& snapshots,
-                                       uint32_t offset, Args&&... args) {
+[[nodiscard]] static bool AddOpSnapshot(TempAllocator& alloc,
+                                        WarpOpSnapshotList& snapshots,
+                                        uint32_t offset, Args&&... args) {
   T* snapshot = new (alloc.fallible()) T(offset, std::forward<Args>(args)...);
   if (!snapshot) {
     return false;
@@ -188,10 +208,10 @@ static MOZ_MUST_USE bool AddOpSnapshot(TempAllocator& alloc,
   return true;
 }
 
-static MOZ_MUST_USE bool AddWarpGetImport(TempAllocator& alloc,
-                                          WarpOpSnapshotList& snapshots,
-                                          uint32_t offset, JSScript* script,
-                                          PropertyName* name) {
+[[nodiscard]] static bool AddWarpGetImport(TempAllocator& alloc,
+                                           WarpOpSnapshotList& snapshots,
+                                           uint32_t offset, JSScript* script,
+                                           PropertyName* name) {
   ModuleEnvironmentObject* env = GetModuleEnvironmentForScript(script);
   MOZ_ASSERT(env);
 
@@ -409,9 +429,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
         if (IsAsmJSModule(fun)) {
           return abort(AbortReason::Disable, "asm.js module function lambda");
         }
-
-        // WarpBuilder relies on this.
-        MOZ_ASSERT(!fun->isSingleton());
 
         if (!AddOpSnapshot<WarpLambda>(alloc_, opSnapshots, offset,
                                        fun->baseScript(), fun->flags(),
@@ -1008,8 +1025,7 @@ AbortReasonOr<bool> WarpScriptOracle::maybeInlineCall(
         // If the target script can't be warp-compiled, mark it as
         // uninlineable, clean up, and fall through to the non-inlined path.
         fallbackStub->setTrialInliningState(TrialInliningState::Failure);
-        fallbackStub->unlinkStubDontInvalidateWarp(cx_->zone(),
-                                                   /*prev=*/nullptr, stub);
+        fallbackStub->unlinkStub(cx_->zone(), /*prev=*/nullptr, stub);
         targetScript->setUninlineable();
         info_->inlineScriptTree()->removeCallee(inlineScriptTree);
         icScript_->removeInlinedChild(loc.bytecodeToOffset(script_));

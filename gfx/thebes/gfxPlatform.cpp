@@ -83,10 +83,6 @@
 #  include "mozilla/WindowsVersion.h"
 #endif
 
-#ifdef MOZ_WAYLAND
-#  include "mozilla/widget/nsWaylandDisplay.h"
-#endif
-
 #include "nsGkAtoms.h"
 #include "gfxPlatformFontList.h"
 #include "gfxContext.h"
@@ -611,6 +607,8 @@ static void WebRenderDebugPrefChangeCallback(const char* aPrefName, void*) {
   GFX_WEBRENDER_DEBUG(".texture-cache.clear-evicted",
                       wr::DebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED)
   GFX_WEBRENDER_DEBUG(".picture-caching", wr::DebugFlags::PICTURE_CACHING_DBG)
+  GFX_WEBRENDER_DEBUG(".force-picture-invalidation",
+                      wr::DebugFlags::FORCE_PICTURE_INVALIDATION)
   GFX_WEBRENDER_DEBUG(".tile-cache-logging",
                       wr::DebugFlags::TILE_CACHE_LOGGING_DBG)
   GFX_WEBRENDER_DEBUG(".primitives", wr::DebugFlags::PRIMITIVE_DBG)
@@ -786,6 +784,8 @@ WebRenderMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
         helper.Report(aReport.images, "resource-cache/images");
         helper.Report(aReport.rasterized_blobs,
                       "resource-cache/rasterized-blobs");
+        helper.Report(aReport.texture_cache_structures,
+                      "texture-cache/structures");
         helper.Report(aReport.shader_cache, "shader-cache");
         helper.Report(aReport.display_list, "display-list");
 
@@ -801,7 +801,8 @@ WebRenderMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
         helper.ReportTexture(aReport.texture_upload_pbos,
                              "texture-upload-pbos");
         helper.ReportTexture(aReport.swap_chain, "swap-chains");
-        helper.ReportTexture(aReport.render_texture_hosts, "render-texture-hosts");
+        helper.ReportTexture(aReport.render_texture_hosts,
+                             "render-texture-hosts");
 
         FinishAsyncMemoryReport();
       },
@@ -1360,10 +1361,6 @@ void gfxPlatform::ShutdownLayersIPC() {
   }
   sLayersIPCIsUp = false;
 
-#ifdef MOZ_WAYLAND
-  widget::WaylandDisplayShutdown();
-#endif
-
   if (XRE_IsContentProcess()) {
     gfx::VRManagerChild::ShutDown();
     // cf bug 1215265.
@@ -1822,8 +1819,8 @@ nsresult gfxPlatform::GetFontList(nsAtom* aLangGroup,
   return NS_OK;
 }
 
-nsresult gfxPlatform::UpdateFontList() {
-  gfxPlatformFontList::PlatformFontList()->UpdateFontList();
+nsresult gfxPlatform::UpdateFontList(bool aFullRebuild) {
+  gfxPlatformFontList::PlatformFontList()->UpdateFontList(aFullRebuild);
   return NS_OK;
 }
 

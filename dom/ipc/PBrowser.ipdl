@@ -80,7 +80,6 @@ using class mozilla::WidgetDragEvent from "ipc/nsGUIEventIPC.h";
 using struct nsRect from "nsRect.h";
 using class mozilla::WidgetSelectionEvent from "ipc/nsGUIEventIPC.h";
 using class mozilla::WidgetTouchEvent from "ipc/nsGUIEventIPC.h";
-using class mozilla::WidgetPluginEvent from "ipc/nsGUIEventIPC.h";
 using struct mozilla::dom::RemoteDOMEvent from "mozilla/dom/TabMessageTypes.h";
 using struct mozilla::layers::TextureFactoryIdentifier from "mozilla/layers/CompositorTypes.h";
 using mozilla::layers::CompositorOptions from "mozilla/layers/CompositorOptions.h";
@@ -111,6 +110,7 @@ using mozilla::dom::EmbedderElementEventType from "mozilla/dom/TabMessageTypes.h
 using refcounted class nsDocShellLoadState from "nsDocShellLoadState.h";
 using mozilla::IntrinsicSize from "nsIFrame.h";
 using mozilla::AspectRatio from "mozilla/AspectRatio.h";
+using class nsRegion from "nsRegion.h";
 
 namespace mozilla {
 namespace dom {
@@ -366,28 +366,6 @@ parent:
      * message      The message value of the handled event.
      */
     nested(inside_cpow) async OnEventNeedingAckHandled(EventMessage message);
-
-    /**
-     * Tells chrome to start plugin IME.  If this results in a string getting
-     * committed, the result is in aCommitted (otherwise aCommitted is empty).
-     *
-     * aKeyboardEvent     The event with which plugin IME is to be started
-     * panelX and panelY  Location in screen coordinates of the IME input panel
-     *                    (should be just under the plugin)
-     * aCommitted         The string committed during IME -- otherwise empty
-     */
-    nested(inside_cpow) sync StartPluginIME(WidgetKeyboardEvent aKeyboardEvent,
-                                            int32_t panelX, int32_t panelY)
-        returns (nsString aCommitted);
-
-    /**
-     * Tells chrome (and specifically the appropriate widget) whether or not
-     * a plugin (inside the widget) has the keyboard focus.  Should be sent
-     * when the keyboard focus changes too or from a plugin.
-     *
-     * aFocused  Whether or not a plugin is focused
-     */
-    nested(inside_cpow) async SetPluginFocused(bool aFocused);
 
     /**
      * Notifies the parent process of native key event data received in a
@@ -885,8 +863,6 @@ child:
                         uint32_t aDropEffect, nsIPrincipal aPrincipal,
                         nsIContentSecurityPolicy csp);
 
-    async PluginEvent(WidgetPluginEvent aEvent);
-
     prio(input) async CompositionEvent(WidgetCompositionEvent event);
     async NormalPriorityCompositionEvent(WidgetCompositionEvent event);
 
@@ -1107,6 +1083,16 @@ parent:
      */
     async NewWindowGlobal(ManagedEndpoint<PWindowGlobalParent> aEndpoint,
                           WindowGlobalInit aInit);
+
+child:
+    /**
+     * Tell the child side if it has to update it's touchable region
+     * to the parent.
+     */
+    async SetUpdateHitRegion(bool aEnabled);
+
+parent:
+    async UpdateHitRegion(nsRegion aRegion);
 
 /*
  * FIXME: write protocol!

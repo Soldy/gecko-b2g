@@ -10,7 +10,7 @@ use crate::common::{JsonValue, ObjectRef, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub static SERVICE_FINGERPRINT: &str =
-    "18e7ed2e8d2dc0a6da13e9605c92d2eea20a485295c9b3ddff6b470aaf1d77d";
+    "d76f2b662bafaf981ee817c61e66698be414446732db362e245ace81c399928";
 
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug, Eq, Hash)]
 pub enum CallbackReason {
@@ -19,6 +19,13 @@ pub enum CallbackReason {
     TimezoneChanged, // #2
 }
 impl Copy for CallbackReason {}
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct TimeInfo {
+    pub reason: CallbackReason,
+    pub timezone: String,
+    pub delta: i64,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TimeServiceFromClient {
@@ -34,19 +41,19 @@ pub enum TimeServiceFromClient {
 
 #[derive(Debug, Deserialize)]
 pub enum TimeServiceToClient {
-    TimeAddObserverSuccess,               // 0
-    TimeAddObserverError,                 // 1
-    TimeGetSuccess(SystemTime),           // 2
-    TimeGetError,                         // 3
-    TimeGetElapsedRealTimeSuccess(i64),   // 4
-    TimeGetElapsedRealTimeError,          // 5
-    TimeRemoveObserverSuccess,            // 6
-    TimeRemoveObserverError,              // 7
-    TimeSetSuccess,                       // 8
-    TimeSetError,                         // 9
-    TimeSetTimezoneSuccess,               // 10
-    TimeSetTimezoneError,                 // 11
-    TimeTimeChangedEvent,                 // 12
-    TimeTimezoneChangedEvent,             // 13
-    TimeObserverCallback(CallbackReason), // 14
+    TimeAddObserverSuccess,             // 0
+    TimeAddObserverError,               // 1
+    TimeGetSuccess(SystemTime),         // 2
+    TimeGetError,                       // 3
+    TimeGetElapsedRealTimeSuccess(i64), // 4
+    TimeGetElapsedRealTimeError,        // 5
+    TimeRemoveObserverSuccess,          // 6
+    TimeRemoveObserverError,            // 7
+    TimeSetSuccess,                     // 8
+    TimeSetError,                       // 9
+    TimeSetTimezoneSuccess,             // 10
+    TimeSetTimezoneError,               // 11
+    TimeTimeChangedEvent,               // 12
+    TimeTimezoneChangedEvent,           // 13
+    TimeObserverCallback(TimeInfo),     // 14
 }

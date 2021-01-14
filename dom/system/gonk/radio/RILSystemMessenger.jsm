@@ -62,7 +62,8 @@ RILSystemMessenger.prototype = {
     aHangUpLocal,
     aIsVt,
     aRadioTech,
-    aIsRtt
+    aIsRtt,
+    aVerStatus
   ) {
     let radioTech = "cs";
     switch (aRadioTech) {
@@ -79,6 +80,21 @@ RILSystemMessenger.prototype = {
         break;
     }
 
+    let verStatus = "none";
+    switch (aVerStatus) {
+      case Ci.nsITelephonyCallInfo.VER_FAIL:
+        verStatus = "fail";
+        break;
+      case Ci.nsITelephonyCallInfo.VER_PASS:
+        verStatus = "pass";
+        break;
+      case Ci.nsITelephonyCallInfo.VER_NONE:
+      /* falls through */
+      default:
+        verStatus = "none";
+        break;
+    }
+
     let data = {
       serviceId: aServiceId,
       number: aNumber,
@@ -89,6 +105,7 @@ RILSystemMessenger.prototype = {
       isVt: aIsVt,
       radioTech,
       isRtt: aIsRtt,
+      verStatus,
     };
 
     if (aCdmaWaitingNumber != null) {

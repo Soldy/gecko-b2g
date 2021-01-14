@@ -26,6 +26,9 @@
 #include "nsIWidgetListener.h"
 #include "nsPIDOMWindow.h"
 #include "nsWeakReference.h"
+#ifdef MOZ_B2G
+#include "mozilla/b2g/GeckoEditableSupport.h"
+#endif
 
 #include <algorithm>
 
@@ -287,12 +290,6 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   nsresult NotifyIME(const IMENotification& aIMENotification) final;
-  [[nodiscard]] virtual nsresult StartPluginIME(
-      const mozilla::WidgetKeyboardEvent& aKeyboardEvent, int32_t aPanelX,
-      int32_t aPanelY, nsString& aCommitted) override {
-    return NS_ERROR_NOT_IMPLEMENTED;
-  }
-  virtual void SetPluginFocused(bool& aFocused) override {}
   [[nodiscard]] virtual nsresult AttachNativeKeyEvent(
       mozilla::WidgetKeyboardEvent& aEvent) override {
     return NS_ERROR_NOT_IMPLEMENTED;
@@ -435,6 +432,11 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
                         bool aNeedsYFlip) override{};
 #endif
 
+#ifdef MOZ_B2G
+  void SetNativeTextEventDispatcherListener(
+      mozilla::widget::GeckoEditableSupport* aListener){};
+#endif
+
  protected:
   // These are methods for CompositorWidgetWrapper, and should only be
   // accessed from that class. Derived widgets can choose which methods to
@@ -443,7 +445,8 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
     return true;
   }
   virtual void PostRender(mozilla::widget::WidgetRenderingContext* aContext) {}
-  virtual void DrawWindowOverlay(LayerManagerComposite* aManager, LayoutDeviceIntRect aRect) override {}
+  virtual void DrawWindowOverlay(LayerManagerComposite* aManager,
+                                 LayoutDeviceIntRect aRect) override {}
 
   virtual RefPtr<mozilla::layers::NativeLayerRoot> GetNativeLayerRoot() {
     return nullptr;

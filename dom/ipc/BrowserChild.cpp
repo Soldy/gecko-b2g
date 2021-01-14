@@ -230,12 +230,8 @@ class BrowserChild::DelayedDeleteRunnable final : public Runnable,
                                                   public nsIRunnablePriority {
   RefPtr<BrowserChild> mBrowserChild;
 
-  // In order to ensure that this runnable runs after everything that could
-  // possibly touch this tab, we send it through the event queue twice. The
-  // first time it runs at normal priority and the second time it runs at
-  // input priority. This ensures that it runs after all events that were in
-  // either queue at the time it was first dispatched. mReadyToDelete starts
-  // out false (when it runs at normal priority) and is then set to true.
+  // In order to try that this runnable runs after everything that could
+  // possibly touch this tab, we send it through the event queue twice.
   bool mReadyToDelete = false;
 
  public:
@@ -255,8 +251,7 @@ class BrowserChild::DelayedDeleteRunnable final : public Runnable,
   }
 
   NS_IMETHOD GetPriority(uint32_t* aPriority) override {
-    *aPriority = mReadyToDelete ? nsIRunnablePriority::PRIORITY_INPUT_HIGH
-                                : nsIRunnablePriority::PRIORITY_NORMAL;
+    *aPriority = nsIRunnablePriority::PRIORITY_NORMAL;
     return NS_OK;
   }
 
@@ -639,27 +634,11 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
   NS_ENSURE_SUCCESS(rv, rv);
 #endif
 
-  InitVsyncChild();
-
   // We've all set up, make sure our visibility state is consistent. This is
   // important for OOP iframes, which start off as hidden.
   UpdateVisibility();
 
   return NS_OK;
-}
-
-void BrowserChild::InitVsyncChild() {
-#if defined(MOZ_WAYLAND)
-  if (!IsWaylandDisabled()) {
-    PVsyncChild* actor = SendPVsyncConstructor();
-    mVsyncChild = static_cast<VsyncChild*>(actor);
-  } else
-#endif
-  {
-    PBackgroundChild* actorChild =
-        BackgroundChild::GetOrCreateForCurrentThread();
-    mVsyncChild = static_cast<VsyncChild*>(actorChild->SendPVsyncConstructor());
-  }
 }
 
 void BrowserChild::NotifyTabContextUpdated() {
@@ -1114,7 +1093,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvLoadURL(
   if (!StringEndsWith(host, ".localhost"_ns) &&
       !StringEndsWith(host, "about:blank"_ns) && mIsTopLevel) {
     nsCOMPtr<nsIEffectiveTLDService> tldService =
-      do_GetService(NS_EFFECTIVETLDSERVICE_CONTRACTID);
+        do_GetService(NS_EFFECTIVETLDSERVICE_CONTRACTID);
     MOZ_ASSERT(tldService);
 
     nsAutoCString baseDomain;
@@ -2049,14 +2028,6 @@ mozilla::ipc::IPCResult BrowserChild::RecvRealDragEvent(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult BrowserChild::RecvPluginEvent(
-    const WidgetPluginEvent& aEvent) {
-  WidgetPluginEvent localEvent(aEvent);
-  localEvent.mWidget = mPuppetWidget;
-  DispatchWidgetEventViaAPZ(localEvent);
-  return IPC_OK();
-}
-
 void BrowserChild::RequestEditCommands(nsIWidget::NativeKeyBindingsType aType,
                                        const WidgetKeyboardEvent& aEvent,
                                        nsTArray<CommandInt>& aCommands) {
@@ -2317,7 +2288,18 @@ bool BrowserChild::DeallocPVsyncChild(PVsyncChild* aActor) {
   return true;
 }
 
-RefPtr<VsyncChild> BrowserChild::GetVsyncChild() { return mVsyncChild; }
+RefPtr<VsyncChild> BrowserChild::GetVsyncChild() {
+  // Initializing mVsyncChild here turns on per-BrowserChild Vsync for a
+  // given platform. Note: this only makes sense if nsWindow returns a
+  // window-specific VsyncSource.
+#if defined(MOZ_WAYLAND)
+  if (!IsWaylandDisabled() && !mVsyncChild) {
+    PVsyncChild* actor = SendPVsyncConstructor();
+    mVsyncChild = static_cast<VsyncChild*>(actor);
+  }
+#endif
+  return mVsyncChild;
+}
 
 mozilla::ipc::IPCResult BrowserChild::RecvActivateFrameEvent(
     const nsString& aType, const bool& capture) {
@@ -3134,14 +3116,6 @@ void BrowserChild::MakeHidden() {
     }
   }
 
-  // FIXME(emilio): The lack of parallelism between this and MakeVisible is a
-  // bit suspect, but I guess we don't always want the front-end to manage the
-  // tab visibility.
-  if (mIsTopLevel && mBrowsingContext && mBrowsingContext->IsActive()) {
-    Unused << mBrowsingContext->SetExplicitActive(
-        dom::ExplicitActiveStatus::None);
-  }
-
   if (mPuppetWidget) {
     mPuppetWidget->Show(false);
   }
@@ -3530,6 +3504,25 @@ mozilla::ipc::IPCResult BrowserChild::RecvSetWidgetNativeData(
 
 mozilla::ipc::IPCResult BrowserChild::RecvReleaseAllPointerCapture() {
   PointerEventHandler::ReleaseAllPointerCapture();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult BrowserChild::RecvSetUpdateHitRegion(
+    const bool& aEnabled) {
+  mUpdateHitRegion = aEnabled;
+
+  // We need to trigger a repaint of the child frame to ensure that it
+  // recomputes and sends its region.
+  if (!mUpdateHitRegion) {
+    return IPC_OK();
+  }
+
+  if (RefPtr<Document> document = GetTopLevelDocument()) {
+    if (RefPtr<nsPresContext> presContext = document->GetPresContext()) {
+      presContext->InvalidatePaintedLayers();
+    }
+  }
+
   return IPC_OK();
 }
 

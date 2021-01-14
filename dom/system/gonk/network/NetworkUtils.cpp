@@ -68,21 +68,7 @@ static bool ENABLE_NU_DEBUG = false;
 
 static const int32_t SUCCESS = 0;
 
-static const char* PERSIST_SYS_USB_CONFIG_PROPERTY = "persist.sys.usb.config";
-static const char* SYS_USB_CONFIG_PROPERTY = "sys.usb.config";
-static const char* SYS_USB_STATE_PROPERTY = "sys.usb.state";
-
-static const char* USB_FUNCTION_NONE = "none";
-static const char* USB_FUNCTION_RNDIS = "rndis";
-static const char* USB_FUNCTION_ADB = "adb";
-
 static const char* TCP_BUFFER_DELIMIT = ",";
-static const char* USB_CONFIG_DELIMIT = ",";
-
-// Retry 10 times (1 seconds) for wait usb state transition.
-static const uint32_t USB_FUNCTION_RETRY_TIMES = 10;
-// Check "sys.usb.state" every 100ms.
-static const uint32_t USB_FUNCTION_RETRY_INTERVAL = 100;
 
 // Default resolver parameters.
 static const uint32_t DNS_RESOLVER_DEFAULT_SAMPLE_VALIDITY_SECONDS = 1800;
@@ -1398,14 +1384,6 @@ void NetworkUtils::usbTetheringFail(NetworkParams& aOptions,
     aOptions.mEnable = false;
     runChain(aOptions, sUSBFailChain, nullptr);
   }
-
-  // Disable usb rndis function.
-  {
-    NetworkParams options;
-    options.mEnable = false;
-    options.mReport = false;
-    gNetworkUtils->enableUsbRndis(options);
-  }
 }
 
 void NetworkUtils::usbTetheringSuccess(CommandChain* aChain,
@@ -1548,7 +1526,6 @@ void NetworkUtils::ExecuteCommand(NetworkParams aOptions) {
       BUILD_ENTRY(removeTetheringAlarm),
       BUILD_ENTRY(setDhcpServer),
       BUILD_ENTRY(getTetheringStatus),
-      BUILD_ENTRY(enableUsbRndis),
       BUILD_ENTRY(updateUpStream),
       BUILD_ENTRY(removeUpStream),
       BUILD_ENTRY(setUSBTethering),
@@ -2349,109 +2326,6 @@ CommandResult NetworkUtils::getTetheringStatus(NetworkParams& aOptions) {
   result.mResult = tetherEnabled;
 
   return CommandResult(result);
-}
-
-bool NetworkUtils::waitForUsbState(bool aTryToFind, const char* aState) {
-  static uint32_t retry = 0;
-
-  char currentState[Property::VALUE_MAX_LENGTH];
-  Property::Get(SYS_USB_STATE_PROPERTY, currentState, nullptr);
-
-  nsTArray<nsCString> stateFuncs;
-  split(currentState, USB_CONFIG_DELIMIT, stateFuncs);
-  bool foundState = stateFuncs.Contains(nsCString(aState));
-
-  if (foundState == aTryToFind) {
-    retry = 0;
-    return true;
-  }
-  if (retry < USB_FUNCTION_RETRY_TIMES) {
-    retry++;
-    usleep(USB_FUNCTION_RETRY_INTERVAL * 1000);
-    return waitForUsbState(aTryToFind, aState);
-  }
-
-  retry = 0;
-  return false;
-}
-
-CommandResult NetworkUtils::enableUsbRndis(NetworkParams& aOptions) {
-  // For some reason, rndis doesn't play well with diag,modem,nmea.
-  // So when turning rndis on, we set sys.usb.config to either "rndis"
-  // or "rndis,adb". When turning rndis off, we go back to
-  // persist.sys.usb.config.
-  //
-  // On the otoro/unagi, persist.sys.usb.config should be one of:
-  //
-  //    diag,modem,nmea,mass_storage
-  //    diag,modem,nmea,mass_storage,adb
-  //
-  // When rndis is enabled, sys.usb.config should be one of:
-  //
-  //    rdnis
-  //    rndis,adb
-  //
-  // and when rndis is disabled, it should revert to persist.sys.usb.config
-
-  char currentConfig[Property::VALUE_MAX_LENGTH];
-  Property::Get(SYS_USB_CONFIG_PROPERTY, currentConfig, nullptr);
-
-  nsTArray<nsCString> configFuncs;
-  split(currentConfig, USB_CONFIG_DELIMIT, configFuncs);
-
-  char persistConfig[Property::VALUE_MAX_LENGTH];
-  Property::Get(PERSIST_SYS_USB_CONFIG_PROPERTY, persistConfig, nullptr);
-
-  nsTArray<nsCString> persistFuncs;
-  split(persistConfig, USB_CONFIG_DELIMIT, persistFuncs);
-
-  if (aOptions.mEnable) {
-    configFuncs.Clear();
-    configFuncs.AppendElement(nsCString(USB_FUNCTION_RNDIS));
-    if (persistFuncs.Contains(nsCString(USB_FUNCTION_ADB))) {
-      configFuncs.AppendElement(nsCString(USB_FUNCTION_ADB));
-    }
-  } else {
-    // We're turning rndis off, revert back to the persist setting.
-    // adb will already be correct there, so we don't need to do any
-    // further adjustments.
-    configFuncs = persistFuncs.Clone();
-  }
-
-  char newConfig[Property::VALUE_MAX_LENGTH] = "";
-  Property::Get(SYS_USB_CONFIG_PROPERTY, currentConfig, nullptr);
-  join(configFuncs, USB_CONFIG_DELIMIT, Property::VALUE_MAX_LENGTH, newConfig);
-
-  memset(&persistConfig, 0, sizeof(persistConfig));
-  join(persistFuncs, USB_CONFIG_DELIMIT, Property::VALUE_MAX_LENGTH,
-       persistConfig);
-
-  NetworkResultOptions result;
-  result.mEnable = aOptions.mEnable;
-
-  bool cleanState = false;
-  if (strcmp(currentConfig, newConfig)) {
-    // Clean the USB stack to close existing connections
-    Property::Set(SYS_USB_CONFIG_PROPERTY, USB_FUNCTION_NONE);
-    if (waitForUsbState(true, USB_FUNCTION_NONE)) {
-      cleanState = true;
-      Property::Set(SYS_USB_CONFIG_PROPERTY, newConfig);
-    } else {
-      // Clean failed, reset to default and report failed
-      Property::Set(SYS_USB_CONFIG_PROPERTY, persistConfig);
-    }
-  }
-
-  // Trigger the timer to check usb state and report the result to
-  // NetworkManager.
-  if (aOptions.mReport) {
-    usleep(USB_FUNCTION_RETRY_INTERVAL * 1000);
-    result.mResult = cleanState
-                         ? waitForUsbState(aOptions.mEnable, USB_FUNCTION_RNDIS)
-                         : false;
-    return CommandResult(result);
-  }
-  return CommandResult(SUCCESS);
 }
 
 CommandResult NetworkUtils::setUSBTethering(NetworkParams& aOptions) {

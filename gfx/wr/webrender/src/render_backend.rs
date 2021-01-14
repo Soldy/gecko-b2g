@@ -1191,6 +1191,12 @@ impl RenderBackend {
                         self.resource_cache.set_debug_flags(flags);
                         self.gpu_cache.set_debug_flags(flags);
 
+                        let force_invalidation = flags.contains(DebugFlags::FORCE_PICTURE_INVALIDATION);
+                        if self.frame_config.force_invalidation != force_invalidation {
+                            self.frame_config.force_invalidation = force_invalidation;
+                            self.update_frame_builder_config();
+                        }
+
                         // If we're toggling on the GPU cache debug display, we
                         // need to blow away the cache. This is because we only
                         // send allocation/free notifications to the renderer
@@ -1653,6 +1659,9 @@ impl RenderBackend {
         }
 
         (*report) += self.resource_cache.report_memory(op);
+        report.texture_cache_structures = self.resource_cache
+            .texture_cache
+            .report_memory(ops);
 
         // Send a message to report memory on the scene-builder thread, which
         // will add its report to this one and send the result back to the original

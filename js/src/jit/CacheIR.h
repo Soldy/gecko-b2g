@@ -829,7 +829,6 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter {
   // Instead of calling guardGroup manually, use (or create) a specialization
   // below to clarify what constraint the group guard is implying.
   void guardGroupForProto(ObjOperandId obj, ObjectGroup* group) {
-    MOZ_ASSERT(!group->hasUncacheableProto());
     guardGroup(obj, group);
   }
 
@@ -1252,14 +1251,9 @@ class MOZ_RAII IRGenerator {
 class MOZ_RAII GetPropIRGenerator : public IRGenerator {
   HandleValue val_;
   HandleValue idVal_;
-  HandleValue receiver_;
 
   AttachDecision tryAttachNative(HandleObject obj, ObjOperandId objId,
                                  HandleId id, ValOperandId receiverId);
-  AttachDecision tryAttachUnboxed(HandleObject obj, ObjOperandId objId,
-                                  HandleId id);
-  AttachDecision tryAttachUnboxedExpando(HandleObject obj, ObjOperandId objId,
-                                         HandleId id);
   AttachDecision tryAttachObjectLength(HandleObject obj, ObjOperandId objId,
                                        HandleId id);
   AttachDecision tryAttachTypedArrayLength(HandleObject obj, ObjOperandId objId,
@@ -1355,7 +1349,7 @@ class MOZ_RAII GetPropIRGenerator : public IRGenerator {
  public:
   GetPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
                      ICState::Mode mode, CacheKind cacheKind, HandleValue val,
-                     HandleValue idVal, HandleValue receiver);
+                     HandleValue idVal);
 
   AttachDecision tryAttachStub();
 };
@@ -1428,11 +1422,6 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator {
 
   AttachDecision tryAttachNativeSetSlot(HandleObject obj, ObjOperandId objId,
                                         HandleId id, ValOperandId rhsId);
-  AttachDecision tryAttachUnboxedExpandoSetSlot(HandleObject obj,
-                                                ObjOperandId objId, HandleId id,
-                                                ValOperandId rhsId);
-  AttachDecision tryAttachUnboxedProperty(HandleObject obj, ObjOperandId objId,
-                                          HandleId id, ValOperandId rhsId);
   AttachDecision tryAttachSetter(HandleObject obj, ObjOperandId objId,
                                  HandleId id, ValOperandId rhsId);
   AttachDecision tryAttachSetArrayLength(HandleObject obj, ObjOperandId objId,
@@ -1520,10 +1509,6 @@ class MOZ_RAII HasPropIRGenerator : public IRGenerator {
   AttachDecision tryAttachNative(JSObject* obj, ObjOperandId objId, jsid key,
                                  ValOperandId keyId, PropertyResult prop,
                                  JSObject* holder);
-  AttachDecision tryAttachUnboxed(JSObject* obj, ObjOperandId objId, jsid key,
-                                  ValOperandId keyId);
-  AttachDecision tryAttachUnboxedExpando(JSObject* obj, ObjOperandId objId,
-                                         jsid key, ValOperandId keyId);
   AttachDecision tryAttachSlotDoesNotExist(JSObject* obj, ObjOperandId objId,
                                            jsid key, ValOperandId keyId);
   AttachDecision tryAttachDoesNotExist(HandleObject obj, ObjOperandId objId,

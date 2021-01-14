@@ -199,6 +199,7 @@ class MOZ_STACK_CLASS KeyEventDispatcher {
   KeyNameIndex mDOMKeyNameIndex;
   CodeNameIndex mDOMCodeNameIndex;
   char16_t mDOMPrintableKeyValue;
+  bool mIsSpecialKey;
 
   bool IsKeyPress() const { return mData.action == AKEY_EVENT_ACTION_DOWN; }
   bool IsRepeat() const {
@@ -260,6 +261,9 @@ KeyEventDispatcher::KeyEventDispatcher(const UserInputData& aData,
   }
 
   mDOMPrintableKeyValue = PrintableKeyValue();
+
+  mIsSpecialKey = mData.key.keyCode == AKEYCODE_SOFT_LEFT ||
+                  mData.key.keyCode == AKEYCODE_SOFT_RIGHT;
 }
 
 char16_t KeyEventDispatcher::PrintableKeyValue() const {
@@ -273,8 +277,10 @@ nsEventStatus KeyEventDispatcher::DispatchKeyEventInternal(
     EventMessage aEventMessage) {
   WidgetKeyboardEvent event(true, aEventMessage, nullptr);
 
-  uint32_t charcode = static_cast<uint32_t>(mChar);
-  event.SetCharCode(charcode ? charcode : mDOMKeyCode);
+  event.SetCharCode(static_cast<uint32_t>(mChar));
+  if (mIsSpecialKey) {
+    event.mCharCode = 0;
+  }
   if (!event.mCharCode) {
     event.mKeyCode = mDOMKeyCode;
   }
@@ -1109,8 +1115,6 @@ nsresult nsAppShell::Init() {
     obsServ->AddObserver(this, "browser-ui-startup-complete", false);
     obsServ->AddObserver(this, "network-active-changed", false);
   }
-  obsServ->AddObserver(this, "content-document-global-created", false);
-  obsServ->AddObserver(this, "chrome-document-global-created", false);
 
   // Delay initializing input devices until the screen has been
   // initialized (and we know the resolution).
@@ -1177,32 +1181,6 @@ nsAppShell::Observe(nsISupports* aSubject, const char* aTopic,
 
     NotifyEvent();
     return NS_OK;
-  } else if (!strcmp(aTopic, "content-document-global-created") ||
-             !strcmp(aTopic, "chrome-document-global-created")) {
-    nsCOMPtr<mozIDOMWindowProxy> domWindow = do_QueryInterface(aSubject);
-    MOZ_ASSERT(domWindow);
-    nsPIDOMWindowOuter* outer = nsPIDOMWindowOuter::From(domWindow);
-
-    nsCOMPtr<nsIWidget> domWidget = WidgetUtils::DOMWindowToWidget(outer);
-    NS_ENSURE_TRUE(domWidget, NS_OK);
-
-    if (XRE_IsParentProcess() && outer->GetBrowsingContext()->IsTop()) {
-      nsWindow* widget = static_cast<nsWindow*>(domWidget.get());
-      RefPtr<TextEventDispatcherListener> listener =
-          widget->GetNativeTextEventDispatcherListener();
-      if (!listener) {
-        RefPtr<GeckoEditableSupport> editableSupport =
-            new GeckoEditableSupport(outer);
-        widget->SetNativeTextEventDispatcherListener(editableSupport);
-      }
-    } else if (XRE_IsContentProcess() &&
-               outer->GetBrowsingContext()->IsTopContent()) {
-      // Associate the PuppetWidget of the newly-created BrowserChild with a
-      // B2GEditableChild instance.
-      GeckoEditableSupport::SetOnBrowserChild(
-          domWidget->GetOwningBrowserChild(), outer);
-    }
-    return NS_OK;
   }
 
   return nsBaseAppShell::Observe(aSubject, aTopic, aData);
@@ -1215,8 +1193,6 @@ nsAppShell::Exit() {
   if (obsServ) {
     obsServ->RemoveObserver(this, "browser-ui-startup-complete");
     obsServ->RemoveObserver(this, "network-active-changed");
-    obsServ->RemoveObserver(this, "content-document-global-created");
-    obsServ->RemoveObserver(this, "chrome-document-global-created");
   }
   return nsBaseAppShell::Exit();
 }

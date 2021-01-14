@@ -9,6 +9,7 @@
 #include "gfxConfig.h"
 #include "GLContext.h"
 #include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/SyncObject.h"
 #include "mozilla/webrender/RenderCompositorOGL.h"
@@ -88,6 +89,13 @@ void wr_compositor_attach_external_image(void* aCompositor,
                                          wr::ExternalImageId aExternalImage) {
   RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
   compositor->AttachExternalImage(aId, aExternalImage);
+}
+
+void wr_compositor_start_compositing(void* aCompositor,
+                                     const wr::DeviceIntRect* aDirtyRects,
+                                     size_t aNumDirtyRects) {
+  RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
+  compositor->StartCompositing(aDirtyRects, aNumDirtyRects);
 }
 
 void wr_compositor_end_frame(void* aCompositor) {

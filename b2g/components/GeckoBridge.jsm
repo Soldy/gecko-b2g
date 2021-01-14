@@ -81,6 +81,12 @@ this.GeckoBridge = {
         interface: Ci.nsIPowerManagerDelegate,
       },
       {
+        prop: "_preferenceDelegate",
+        xpcom: "preference",
+        interface: Ci.nsIPreferenceDelegate,
+      },
+
+      {
         prop: "_networkManagerDelegate",
         xpcom: "networkmanager",
         interface: Ci.nsINetworkManagerDelegate,
@@ -117,6 +123,7 @@ this.GeckoBridge = {
 
     this.setAppsServiceDelegate();
     this.setPowerManagerDelegate();
+    this.setPreferenceDelegate();
     this.setMobileManagerDelegate();
     this.setNetworkManagerDelegate();
   },
@@ -185,6 +192,19 @@ this.GeckoBridge = {
     this._bridge.setPowerManagerDelegate(
       this._powerManagerDelegate,
       this.generateLoggingCallback("PowerManagerDelegate")
+    );
+  },
+
+  setPreferenceDelegate() {
+    if (!this._preferenceDelegate) {
+      log(`Invalid preference delegate`);
+      return;
+    }
+
+    log(`Setting PreferenceDelegate`);
+    this._bridge.setPreferenceDelegate(
+      this._preferenceDelegate,
+      this.generateLoggingCallback("PreferenceDelegate")
     );
   },
 

@@ -112,11 +112,6 @@ DIRS += [
     "l10n",
 ]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gonk":
-    DIRS += [
-        "wifi",
-    ]
-
 if CONFIG["OS_ARCH"] == "WINNT":
     DIRS += ["plugins/ipc/hangui"]
 

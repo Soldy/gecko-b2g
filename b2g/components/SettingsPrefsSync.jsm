@@ -54,8 +54,22 @@ const kSettingsToObserve = {
   "apz.overscroll.enabled": true,
   "browser.safebrowsing.enabled": true,
   "browser.safebrowsing.malware.enabled": true,
+  "debug.fps.enabled": {
+    prefName: "layers.acceleration.draw-fps",
+    defaultValue: false,
+  },
+  "debug.paint-flashing.enabled": {
+    prefName: "nglayout.debug.paint_flashing",
+    defaultValue: false,
+  },
   "device.storage.writable.name": "sdcard",
+  "gfx.layerscope.enabled": false,
+  "layers.composer2d.enabled": false,
+  "layers.draw-borders": false,
+  "layers.draw-tile-borders": false,
+  "layers.dump": false,
   "layers.effect.invert": false,
+  "layers.enable-tiles": true,
   "mms.debugging.enabled": false,
   "network.debugging.enabled": false,
   "privacy.donottrackheader.enabled": false,
@@ -200,6 +214,7 @@ this.SettingsPrefsSync = {
     this.setupAccessibility();
     this.synchronizePrefs();
     this.setupLanguageSettingObserver();
+    this.setupLowPrecisionSettings();
   },
 
   // Returns a Commercial Unit Reference which is vendor dependent.
@@ -245,6 +260,7 @@ this.SettingsPrefsSync = {
     let base_version = null;
     let product_fota = null;
     let cuRefStr = null;
+    let build_fingerprint = null;
     if (isGonk) {
       hardware_info =
         libcutils.property_get("ro.product.model.name") ||
@@ -259,6 +275,7 @@ this.SettingsPrefsSync = {
       base_version = libcutils.property_get("ro.product.base_version");
       product_fota = libcutils.property_get("ro.product.fota");
       cuRefStr = this.cuRef || null;
+      build_fingerprint = libcutils.property_get("ro.build.fingerprint");
     }
 
     // Populate deviceinfo settings,
@@ -284,6 +301,7 @@ this.SettingsPrefsSync = {
         product_fota,
         // cu means Commercial Unit Reference
         cu: cuRefStr,
+        build_fingerprint,
       };
 
       let settingsArray = [];
@@ -373,31 +391,43 @@ this.SettingsPrefsSync = {
     );
   },
 
-  // Observes the accessibility.screenreader setting and attach AccessFu.
-  setupAccessibility() {
+  // Attach or detach AccessFu
+  updateAccessFu(value) {
     let accessibilityScope = {};
+    if (!("AccessFu" in accessibilityScope)) {
+      ChromeUtils.import(
+        "resource://gre/modules/accessibility/AccessFu.jsm",
+        accessibilityScope
+      );
+    }
+
+    if (value) {
+      accessibilityScope.AccessFu.attach(this.window);
+    } else {
+      accessibilityScope.AccessFu.detach();
+    }
+  },
+
+  // Observes the accessibility.screenreader setting
+  setupAccessibility() {
     this.addSettingsObserver(
       "accessibility.screenreader",
       {
         observeSetting: info => {
-          if (info) {
-            let value = JSON.parse(info.value);
-            if (!("AccessFu" in accessibilityScope)) {
-              ChromeUtils.import(
-                "resource://gre/modules/accessibility/AccessFu.jsm",
-                accessibilityScope
-              );
-            }
-
-            if (value) {
-              accessibilityScope.AccessFu.attach(this.window);
-            } else {
-              accessibilityScope.AccessFu.detach();
-            }
+          if (!info) {
+            return;
           }
+          let value = JSON.parse(info.value);
+          this.updateAccessFu(value);
         },
       },
       "Failed to add a setting observer for accessibility.screenreader"
+    );
+
+    this.getSettingWithDefault("accessibility.screenreader", false).then(
+      setting => {
+        this.updateAccessFu(setting.value);
+      }
     );
   },
 
@@ -414,7 +444,6 @@ this.SettingsPrefsSync = {
       }
 
       let prefs = Services.prefs;
-
       // If requested, reset setting value and defaultValue to the pref value.
       if (setting.resetToPref) {
         switch (prefs.getPrefType(prefName)) {
@@ -495,6 +524,71 @@ this.SettingsPrefsSync = {
         },
       },
       "Failed to add observer for language.current"
+    );
+  },
+  // Setup Low-precision buffer
+  setupLowPrecisionSettings() {
+    // The gaia setting layers.low-precision maps to two gecko prefs
+    this.addSettingsObserver(
+      "layers.low-precision",
+      {
+        observeSetting: info => {
+          if (info !== null) {
+            let value = JSON.parse(info.value);
+            // Update gecko from the new Gaia setting
+            Services.prefs.setBoolPref("layers.low-precision-buffer", value);
+            Services.prefs.setBoolPref("layers.progressive-paint", value);
+          } else {
+            // Update gaia setting from gecko value
+            try {
+              let prefValue = Services.prefs.getBoolPref(
+                "layers.low-precision-buffer"
+              );
+              let setting = [{ "layers.low-precision": prefValue }];
+              gSettingsManager.set(
+                setting,
+                settingCallback("Failure saving low-precision-buffer settings.")
+              );
+            } catch (e) {
+              dump("Unable to read pref layers.low-precision-buffer: " + e);
+            }
+          }
+        },
+      },
+      "Failed to add observer for low precision buffer"
+    );
+    // The gaia setting layers.low-opacity maps to a string gecko pref (0.5/1.0)
+    this.addSettingsObserver(
+      "layers.low-opacity",
+      {
+        observeSetting: info => {
+          if (info !== null) {
+            let value = JSON.parse(info.value);
+            // Update gecko from the new Gaia setting
+            Services.prefs.setCharPref(
+              "layers.low-precision-opacity",
+              value ? "0.5" : "1.0"
+            );
+          } else {
+            // Update gaia setting from gecko value
+            try {
+              let prefValue = Services.prefs.getCharPref(
+                "layers.low-precision-opacity"
+              );
+              let setting = [{ "layers.low-opacity": prefValue == "0.5" }];
+              gSettingsManager.set(
+                setting,
+                settingCallback(
+                  "Failure saving low-precision-opacity settings."
+                )
+              );
+            } catch (e) {
+              dump("Unable to read pref layers.low-precision-opacity: " + e);
+            }
+          }
+        },
+      },
+      "Failed to add observer for low precision opacity"
     );
   },
 };

@@ -72,6 +72,7 @@ MobileManagerDelegateService::ConstructMobileManagerDelegate() {
 
   if (!gMobileManagerDelegateService) {
     gMobileManagerDelegateService = new MobileManagerDelegateService();
+    ClearOnShutdown(&gMobileManagerDelegateService);
   }
 
   RefPtr<MobileManagerDelegateService> service =

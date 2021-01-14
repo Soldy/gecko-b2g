@@ -16,6 +16,16 @@ interface nsIPowerManagerDelegate : nsISupports {
     void setScreenEnabled(in bool enabled, in bool isExternalScreen);
 };
 
+[scriptable, uuid(9ccd844e-12a5-11eb-925e-bb3bde26260a)]
+interface nsIPreferenceDelegate : nsISupports {
+    int32_t getInt(in AString aKey);
+    AString getChar(in AString aKey);
+    bool getBool(in AString aKey);
+    void setInt(in AString aKey, in int32_t aValue);
+    void setChar(in AString aKey, in AString aValue);
+    void setBool(in AString aKey, in bool aValue);
+};
+
 [scriptable, uuid(0926dc56-fd47-4579-9cbc-3b1c746b2f65)]
 interface nsIMobileManagerDelegate : nsISupports {
     const unsigned long CIT_IMEI    = 0;
@@ -47,6 +57,10 @@ interface nsIGeckoBridge : nsISupports {
 
     // Register a power manager delegate that will be called by the power manager service.
     void setPowerManagerDelegate(in nsIPowerManagerDelegate delegate, in nsISidlDefaultResponse callback);
+
+    // Register a preference delegate that will be called by the power deviceconfig service.
+    void setPreferenceDelegate(in nsIPreferenceDelegate delegate, in nsISidlDefaultResponse callback);
+
     // Register a card info manager delegate that will be called by the fota service.
     void setMobileManagerDelegate(in nsIMobileManagerDelegate delegate, in nsISidlDefaultResponse callback);
     // Register a network manager delegate that will be called by the fota service.

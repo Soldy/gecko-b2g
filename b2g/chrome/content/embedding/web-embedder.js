@@ -14,6 +14,7 @@ const { XPCOMUtils } = ChromeUtils.import(
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   ChromeNotifications: "resource://gre/modules/ChromeNotifications.jsm",
+  SelectionActionParent: "resource://gre/actors/SelectionActionParent.jsm",
 });
 
 XPCOMUtils.defineLazyGetter(this, "Screenshot", function() {
@@ -499,6 +500,19 @@ XPCOMUtils.defineLazyServiceGetter(
           );
         }, "AccessFu:Enabled");
       }
+
+      Services.obs.addObserver((subject, topic, data) => {
+        _webembed_log(
+          `Get the caret-state-changed ${JSON.stringify(
+            subject.wrappedJSObject
+          )}`
+        );
+        this.dispatchEvent(
+          new CustomEvent(topic, {
+            detail: subject.wrappedJSObject,
+          })
+        );
+      }, "caret-state-changed");
     }
 
     isDaemonReady() {
@@ -527,6 +541,12 @@ XPCOMUtils.defineLazyServiceGetter(
         _webembed_log(`takeScreenshot error: ${e}`);
         return null;
       }
+    }
+
+    doSelectionAction(action) {
+      const command = "cmd_" + action;
+      _webembed_log(`doSelectionAction: ${command}`);
+      SelectionActionParent.sendCommand(command);
     }
 
     // Proxies a subset of nsIEventListenerService, useful eg. to listen

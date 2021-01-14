@@ -512,6 +512,10 @@ AudioCallbackDriver::AudioCallbackDriver(
       mSandboxed(CubebUtils::SandboxEnabled()) {
   LOG(LogLevel::Debug, ("%p: AudioCallbackDriver ctor", Graph()));
 
+#ifdef B2G_VOICE_PROCESSING
+  aGraphInterface->GetVoiceInputSettings(&mEnableAec, &mEnableAgc, &mEnableNs);
+#endif
+
   NS_WARNING_ASSERTION(mOutputChannelCount != 0,
                        "Invalid output channel count");
   MOZ_ASSERT(mOutputChannelCount <= 8);
@@ -687,6 +691,17 @@ void AudioCallbackDriver::Init() {
   if (mInputDevicePreference == CUBEB_DEVICE_PREF_VOICE) {
     input.prefs |= static_cast<cubeb_stream_prefs>(CUBEB_STREAM_PREF_VOICE);
   }
+#ifdef B2G_VOICE_PROCESSING
+  if (mEnableAec) {
+    input.prefs |= static_cast<cubeb_stream_prefs>(CUBEB_STREAM_PREF_AEC);
+  }
+  if (mEnableAgc) {
+    input.prefs |= static_cast<cubeb_stream_prefs>(CUBEB_STREAM_PREF_AGC);
+  }
+  if (mEnableNs) {
+    input.prefs |= static_cast<cubeb_stream_prefs>(CUBEB_STREAM_PREF_NS);
+  }
+#endif
 
   cubeb_stream* stream = nullptr;
   bool inputWanted = mInputChannelCount > 0;

@@ -386,26 +386,26 @@ class MOZ_STACK_CLASS ParserBase : public ParserSharedBase,
   Mark mark() const {
     Mark m;
     m.mark = alloc_.mark();
-    m.token = compilationInfo_.getRewindToken();
+    m.token = compilationInfo_.getRewindToken(compilationState_);
     return m;
   }
   void release(Mark m) {
     alloc_.release(m.mark);
-    compilationInfo_.rewind(m.token);
+    compilationInfo_.rewind(compilationState_, m.token);
   }
 
  public:
-  mozilla::Maybe<ParserGlobalScopeData*> newGlobalScopeData(
+  mozilla::Maybe<GlobalScope::ParserData*> newGlobalScopeData(
       ParseContext::Scope& scope);
-  mozilla::Maybe<ParserModuleScopeData*> newModuleScopeData(
+  mozilla::Maybe<ModuleScope::ParserData*> newModuleScopeData(
       ParseContext::Scope& scope);
-  mozilla::Maybe<ParserEvalScopeData*> newEvalScopeData(
+  mozilla::Maybe<EvalScope::ParserData*> newEvalScopeData(
       ParseContext::Scope& scope);
-  mozilla::Maybe<ParserFunctionScopeData*> newFunctionScopeData(
+  mozilla::Maybe<FunctionScope::ParserData*> newFunctionScopeData(
       ParseContext::Scope& scope, bool hasParameterExprs);
-  mozilla::Maybe<ParserVarScopeData*> newVarScopeData(
+  mozilla::Maybe<VarScope::ParserData*> newVarScopeData(
       ParseContext::Scope& scope);
-  mozilla::Maybe<ParserLexicalScopeData*> newLexicalScopeData(
+  mozilla::Maybe<LexicalScope::ParserData*> newLexicalScopeData(
       ParseContext::Scope& scope);
 
  protected:
@@ -1835,38 +1835,38 @@ class MOZ_STACK_CLASS AutoInParametersOfAsyncFunction {
   }
 };
 
-ParserGlobalScopeData* NewEmptyGlobalScopeData(JSContext* cx, LifoAlloc& alloc,
-                                               uint32_t numBindings);
-
-ParserVarScopeData* NewEmptyVarScopeData(JSContext* cx, LifoAlloc& alloc,
-                                         uint32_t numBindings);
-
-ParserLexicalScopeData* NewEmptyLexicalScopeData(JSContext* cx,
+GlobalScope::ParserData* NewEmptyGlobalScopeData(JSContext* cx,
                                                  LifoAlloc& alloc,
                                                  uint32_t numBindings);
 
-ParserFunctionScopeData* NewEmptyFunctionScopeData(JSContext* cx,
+VarScope::ParserData* NewEmptyVarScopeData(JSContext* cx, LifoAlloc& alloc,
+                                           uint32_t numBindings);
+
+LexicalScope::ParserData* NewEmptyLexicalScopeData(JSContext* cx,
                                                    LifoAlloc& alloc,
                                                    uint32_t numBindings);
 
-mozilla::Maybe<ParserGlobalScopeData*> NewGlobalScopeData(
+FunctionScope::ParserData* NewEmptyFunctionScopeData(JSContext* cx,
+                                                     LifoAlloc& alloc,
+                                                     uint32_t numBindings);
+
+mozilla::Maybe<GlobalScope::ParserData*> NewGlobalScopeData(
     JSContext* context, ParseContext::Scope& scope, LifoAlloc& alloc,
     ParseContext* pc);
 
-mozilla::Maybe<ParserEvalScopeData*> NewEvalScopeData(
+mozilla::Maybe<EvalScope::ParserData*> NewEvalScopeData(
     JSContext* context, ParseContext::Scope& scope, LifoAlloc& alloc,
     ParseContext* pc);
 
-mozilla::Maybe<ParserFunctionScopeData*> NewFunctionScopeData(
+mozilla::Maybe<FunctionScope::ParserData*> NewFunctionScopeData(
     JSContext* context, ParseContext::Scope& scope, bool hasParameterExprs,
     LifoAlloc& alloc, ParseContext* pc);
 
-mozilla::Maybe<ParserVarScopeData*> NewVarScopeData(JSContext* context,
-                                                    ParseContext::Scope& scope,
-                                                    LifoAlloc& alloc,
-                                                    ParseContext* pc);
+mozilla::Maybe<VarScope::ParserData*> NewVarScopeData(
+    JSContext* context, ParseContext::Scope& scope, LifoAlloc& alloc,
+    ParseContext* pc);
 
-mozilla::Maybe<ParserLexicalScopeData*> NewLexicalScopeData(
+mozilla::Maybe<LexicalScope::ParserData*> NewLexicalScopeData(
     JSContext* context, ParseContext::Scope& scope, LifoAlloc& alloc,
     ParseContext* pc);
 

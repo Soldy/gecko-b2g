@@ -735,19 +735,6 @@ function handleRequest(req, res) {
             "hex"
           ),
         });
-      } else if (packet.questions[0].type == "HTTPS") {
-        answers.push({
-          name: packet.questions[0].name,
-          type: packet.questions[0].type,
-          ttl: 55,
-          class: "IN",
-          flush: false,
-          data: {
-            priority: 1,
-            name: "some.domain.stuff.",
-            values: [{ key: "echconfig", value: "testytestystringstring" }],
-          },
-        });
       }
 
       if (u.query.cnameloop) {
@@ -912,6 +899,12 @@ function handleRequest(req, res) {
       let packet = dnsPacket.decode(payload);
       let answers = [];
       if (packet.questions[0].type == "HTTPS") {
+        let priority = 1;
+        // Set an invalid priority to test the case when receiving a corrupted
+        // response.
+        if (packet.questions[0].name === "foo.notexisted.com") {
+          priority = 0;
+        }
         answers.push({
           name: packet.questions[0].name,
           type: packet.questions[0].type,
@@ -919,7 +912,7 @@ function handleRequest(req, res) {
           class: "IN",
           flush: false,
           data: {
-            priority: 1,
+            priority,
             name: "foo.example.com",
             values: [
               { key: "alpn", value: "h2" },

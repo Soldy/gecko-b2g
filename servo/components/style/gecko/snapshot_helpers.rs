@@ -34,27 +34,28 @@ unsafe fn ptr<T>(attr: &structs::nsAttrValue) -> *const T {
 unsafe fn get_class_or_part_from_attr(attr: &structs::nsAttrValue) -> Class {
     debug_assert!(bindings::Gecko_AssertClassAttrValueIsSane(attr));
     let base_type = base_type(attr);
-    if base_type == structs::nsAttrValue_ValueBaseType_eStringBase {
-        return Class::None;
-    }
     if base_type == structs::nsAttrValue_ValueBaseType_eAtomBase {
         return Class::One(ptr::<nsAtom>(attr));
     }
-    debug_assert_eq!(base_type, structs::nsAttrValue_ValueBaseType_eOtherBase);
-
-    let container = ptr::<structs::MiscContainer>(attr);
-    debug_assert_eq!(
-        (*container).mType,
-        structs::nsAttrValue_ValueType_eAtomArray
-    );
-    let array = (*container)
-        .__bindgen_anon_1
-        .mValue
-        .as_ref()
-        .__bindgen_anon_1
-        .mAtomArray
-        .as_ref();
-    Class::More(&***array)
+    if base_type == structs::nsAttrValue_ValueBaseType_eOtherBase {
+        let container = ptr::<structs::MiscContainer>(attr);
+        debug_assert_eq!(
+            (*container).mType,
+            structs::nsAttrValue_ValueType_eAtomArray
+        );
+        // NOTE: Bindgen doesn't deal with AutoTArray, so cast it below.
+        let array: *mut u8 = *(*container)
+            .__bindgen_anon_1
+            .mValue
+            .as_ref()
+            .__bindgen_anon_1
+            .mAtomArray
+            .as_ref();
+        let array = array as *const structs::nsTArray<structs::RefPtr<nsAtom>>;
+        return Class::More(&**array)
+    }
+    debug_assert_eq!(base_type, structs::nsAttrValue_ValueBaseType_eStringBase);
+    Class::None
 }
 
 #[inline(always)]
@@ -133,7 +134,8 @@ pub fn has_class_or_part(
         Class::One(atom) => unsafe { case_sensitivity.eq_atom(name, WeakAtom::new(atom)) },
         Class::More(atoms) => match case_sensitivity {
             CaseSensitivity::CaseSensitive => {
-                atoms.iter().any(|atom| atom.mRawPtr == name.as_ptr())
+                let name_ptr = name.as_ptr();
+                atoms.iter().any(|atom| atom.mRawPtr == name_ptr)
             },
             CaseSensitivity::AsciiCaseInsensitive => unsafe {
                 atoms

@@ -6216,6 +6216,47 @@ class nsAutoNotifyDidPaint {
   PaintFlags mFlags;
 };
 
+class AutoUpdateHitRegion {
+ public:
+  AutoUpdateHitRegion(PresShell* aShell, nsIFrame* aFrame)
+      : mShell(aShell), mFrame(aFrame) {}
+
+  ~AutoUpdateHitRegion() {
+    if (!XRE_IsContentProcess() || !mFrame || !mShell) {
+      return;
+    }
+
+    BrowserChild* browserChild = BrowserChild::GetFrom(mShell);
+    if (!browserChild || !browserChild->GetUpdateHitRegion()) {
+      return;
+    }
+
+    nsRect bounds = mShell->GetPresContext()->GetVisibleArea();
+    AutoTArray<nsIFrame*, 100> outFrames;
+    nsresult rv =
+        nsLayoutUtils::GetFramesForArea(RelativeTo{mFrame}, bounds, outFrames);
+
+    nsRegion region;
+    for (int32_t i = outFrames.Length() - 1; i >= 0; --i) {
+      nsIFrame* f = outFrames[i];
+
+      if (f->GetContent()->IsHTMLElement(nsGkAtoms::html)) {
+        continue;
+      }
+
+      nsRect rect = nsLayoutUtils::TransformFrameRectToAncestor(
+          f, f->GetRectRelativeToSelf(), mFrame);
+      region.Or(region, rect);
+    }
+
+    browserChild->SendUpdateHitRegion(region);
+  }
+
+ private:
+  PresShell* mShell;
+  nsIFrame* mFrame;
+};
+
 void PresShell::Paint(nsView* aViewToPaint, const nsRegion& aDirtyRegion,
                       PaintFlags aFlags) {
   nsCString url;
@@ -6269,6 +6310,7 @@ void PresShell::Paint(nsView* aViewToPaint, const nsRegion& aDirtyRegion,
   bool shouldInvalidate = layerManager->NeedsWidgetInvalidation();
 
   nsAutoNotifyDidPaint notifyDidPaint(this, aFlags);
+  AutoUpdateHitRegion updateHitRegion(this, frame);
 
   // Whether or not we should set first paint when painting is suppressed
   // is debatable. For now we'll do it because B2G relied on first paint
@@ -7021,7 +7063,7 @@ nsresult PresShell::EventHandler::HandleEventUsingCoordinates(
   bool isWindowLevelMouseExit =
       (aGUIEvent->mMessage == eMouseExitFromWidget) &&
       (mouseEvent &&
-       (mouseEvent->mExitFrom.value() == WidgetMouseEvent::eTopLevel ||
+       (mouseEvent->mExitFrom.value() == WidgetMouseEvent::ePlatformTopLevel ||
         mouseEvent->mExitFrom.value() == WidgetMouseEvent::ePuppet));
 
   // Get the frame at the event point. However, don't do this if we're

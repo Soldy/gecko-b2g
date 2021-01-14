@@ -38,9 +38,11 @@ button {
 
 #keyboard {
   position: absolute;
-  bottom: 0;
-  height: 10em;
+  top: 0;
+  height: 100%;
   width: 100%;
+
+  pointer-events: none;
 }
 
 #keyboard.offscreen {

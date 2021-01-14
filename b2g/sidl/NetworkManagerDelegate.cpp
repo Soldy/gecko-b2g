@@ -49,6 +49,7 @@ NetworkManagerDelegateService::ConstructNetworkManagerDelegate() {
 
   if (!gNetworkManagerDelegateService) {
     gNetworkManagerDelegateService = new NetworkManagerDelegateService();
+    ClearOnShutdown(&gNetworkManagerDelegateService);
   }
 
   RefPtr<NetworkManagerDelegateService> service =

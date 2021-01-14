@@ -269,7 +269,7 @@ class ICStubIterator {
 
   bool atEnd() const { return currentStub_ == (ICStub*)fallbackStub_; }
 
-  void unlink(JSContext* cx, JSScript* script);
+  void unlink(JSContext* cx);
 };
 
 //
@@ -287,20 +287,6 @@ class ICStub {
 #undef DEF_ENUM_KIND
         LIMIT
   };
-
-  static bool IsValidKind(Kind k) { return (k > INVALID) && (k < LIMIT); }
-
-  static const char* KindString(Kind k) {
-    switch (k) {
-#define DEF_KIND_STR(kindName) \
-  case kindName:               \
-    return #kindName;
-      IC_BASELINE_STUB_KIND_LIST(DEF_KIND_STR)
-#undef DEF_KIND_STR
-      default:
-        MOZ_CRASH("Invalid kind.");
-    }
-  }
 
   template <typename T, typename... Args>
   static T* New(JSContext* cx, ICStubSpace* space, JitCode* code,
@@ -395,8 +381,6 @@ class ICStub {
   static constexpr size_t offsetOfEnteredCount() {
     return offsetof(ICStub, enteredCount_);
   }
-
-  bool makesGCCalls() const;
 };
 
 class ICFallbackStub : public ICStub {
@@ -465,7 +449,7 @@ class ICFallbackStub : public ICStub {
 
   ICStubIterator beginChain() { return ICStubIterator(this); }
 
-  void discardStubs(JSContext* cx, JSScript* script);
+  void discardStubs(JSContext* cx);
 
   void clearUsedByTranspiler() { state_.clearUsedByTranspiler(); }
   void setUsedByTranspiler() { state_.setUsedByTranspiler(); }
@@ -477,14 +461,9 @@ class ICFallbackStub : public ICStub {
     state_.setTrialInliningState(state);
   }
 
-  void trackNotAttached(JSContext* cx, JSScript* script);
+  void trackNotAttached();
 
-  // If the transpiler optimized based on this IC, invalidate the script's Warp
-  // code.
-  void maybeInvalidateWarp(JSContext* cx, JSScript* script);
-
-  void unlinkStubDontInvalidateWarp(Zone* zone, ICCacheIRStub* prev,
-                                    ICCacheIRStub* stub);
+  void unlinkStub(Zone* zone, ICCacheIRStub* prev, ICCacheIRStub* stub);
 };
 
 class ICCacheIRStub : public ICStub {
@@ -510,6 +489,7 @@ class ICCacheIRStub : public ICStub {
   // stack during GC - specifically the ones that can make calls.  To ensure
   // that these do not get purged, all stubs that can make calls are allocated
   // in the fallback stub space.
+  bool makesGCCalls() const;
   bool allocatedInFallbackSpace() const { return makesGCCalls(); }
 
   static constexpr size_t offsetOfNext() {
@@ -786,29 +766,14 @@ class ICNewArray_Fallback : public ICFallbackStub {
 
   GCPtrArrayObject templateObject_;
 
-  // The group used for objects created here is always available, even if the
-  // template object itself is not.
-  GCPtrObjectGroup templateGroup_;
-
-  ICNewArray_Fallback(TrampolinePtr stubCode, ObjectGroup* templateGroup)
+  explicit ICNewArray_Fallback(TrampolinePtr stubCode)
       : ICFallbackStub(ICStub::NewArray_Fallback, stubCode),
-        templateObject_(nullptr),
-        templateGroup_(templateGroup) {}
+        templateObject_(nullptr) {}
 
  public:
   GCPtrArrayObject& templateObject() { return templateObject_; }
 
-  void setTemplateObject(ArrayObject* obj) {
-    MOZ_ASSERT(obj->group() == templateGroup());
-    templateObject_ = obj;
-  }
-
-  GCPtrObjectGroup& templateGroup() { return templateGroup_; }
-
-  void setTemplateGroup(ObjectGroup* group) {
-    templateObject_ = nullptr;
-    templateGroup_ = group;
-  }
+  void setTemplateObject(ArrayObject* obj) { templateObject_ = obj; }
 };
 
 // JSOp::NewObject

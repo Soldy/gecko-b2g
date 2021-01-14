@@ -221,7 +221,7 @@ class nsNativeBasicTheme : protected nsNativeTheme, public nsITheme {
                                  RefPtr<Path>& aOutRect);
 
   virtual std::pair<sRGBColor, sRGBColor> ComputeCheckboxColors(
-      const EventStates& aState);
+      const EventStates& aState, StyleAppearance aAppearance);
   virtual sRGBColor ComputeCheckmarkColor(const EventStates& aState);
   virtual std::pair<sRGBColor, sRGBColor> ComputeRadioCheckmarkColors(
       const EventStates& aState);
@@ -240,7 +240,7 @@ class nsNativeBasicTheme : protected nsNativeTheme, public nsITheme {
   virtual std::pair<sRGBColor, sRGBColor> ComputeProgressColors();
   virtual std::pair<sRGBColor, sRGBColor> ComputeProgressTrackColors();
   virtual std::pair<sRGBColor, sRGBColor> ComputeMeterchunkColors(
-      const double aValue, const double aOptimum, const double aLow);
+      const EventStates& aMeterState);
   virtual std::pair<sRGBColor, sRGBColor> ComputeMeterTrackColors();
   virtual sRGBColor ComputeMenulistArrowButtonColor(const EventStates& aState);
   virtual std::array<sRGBColor, 3> ComputeFocusRectColors();
@@ -315,8 +315,7 @@ class nsNativeBasicTheme : protected nsNativeTheme, public nsITheme {
   void PaintMeter(DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect,
                   const EventStates& aState, DPIRatio aDpiRatio);
   void PaintMeterchunk(nsIFrame* aFrame, DrawTarget* aDrawTarget,
-                       const LayoutDeviceRect& aRect, const EventStates& aState,
-                       DPIRatio aDpiRatio);
+                       const LayoutDeviceRect& aRect, DPIRatio aDpiRatio);
   void PaintButton(nsIFrame* aFrame, DrawTarget* aDrawTarget,
                    const LayoutDeviceRect& aRect, const EventStates& aState,
                    DPIRatio aDpiRatio);

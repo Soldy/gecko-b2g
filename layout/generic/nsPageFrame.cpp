@@ -279,7 +279,7 @@ nscoord nsPageFrame::GetXPosition(gfxContext& aRenderingContext,
 }
 
 // Draw a header or footer
-// @param aRenderingContext - rendering content ot draw into
+// @param aRenderingContext - rendering content to draw into
 // @param aHeaderFooter - indicates whether it is a header or footer
 // @param aStrLeft - string for the left header or footer; can be empty
 // @param aStrCenter - string for the center header or footer; can be empty
@@ -522,7 +522,7 @@ static void PaintMarginGuides(nsIFrame* aFrame, DrawTarget* aDrawTarget,
   // Then reset rect, apply the left/right margins, and draw vertical guides
   // extending the full height of the page.
   rect = nsRect(aPt, aFrame->GetSize());
-  rect.Deflate(nsMargin(0, margin.left, 0, margin.right));
+  rect.Deflate(nsMargin(0, margin.right, 0, margin.left));
   r = NSRectToRect(rect, appUnitsPerDevPx);
   aDrawTarget->StrokeLine(r.TopLeft(), r.BottomLeft(), pattern, stroke,
                           options);

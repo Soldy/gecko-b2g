@@ -29,8 +29,6 @@ const GONK_SMSSERVICE_CID = Components.ID(
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
 const NS_PREFBRANCH_PREFCHANGE_TOPIC_ID = "nsPref:changed";
 
-const kPrefDefaultServiceId = "dom.sms.defaultServiceId";
-const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
 const kPrefLastKnownSimMcc = "ril.lastKnownSimMcc";
 
 const kDiskSpaceWatcherObserverTopic = "disk-space-watcher";
@@ -44,6 +42,9 @@ const kSmsDeliverySuccessObserverTopic = "sms-delivery-success";
 const kSmsDeliveryErrorObserverTopic = "sms-delivery-error";
 const kSmsDeletedObserverTopic = "sms-deleted";
 const kSmsSuplInitObserverTopic = "sms-supl-init";
+
+const kSettingsRequestStatusReport = "ril.sms.requestStatusReport.enabled";
+const kSettingsDefaukltServiceId = "ril.sms.defaultServiceId";
 
 const DOM_MOBILE_MESSAGE_DELIVERY_RECEIVED = "received";
 const DOM_MOBILE_MESSAGE_DELIVERY_SENDING = "sending";
@@ -165,6 +166,12 @@ XPCOMUtils.defineLazyModuleGetter(
   "PhoneNumberUtils"
 );
 
+XPCOMUtils.defineLazyGetter(this, "gSettingsObserver", function() {
+  let obj = {};
+  ChromeUtils.import("resource://gre/modules/RILSettingsObserver.jsm", obj);
+  return obj;
+});
+
 var DEBUG = RIL_DEBUG.DEBUG_RIL;
 function debug(s) {
   dump("SmsService: " + s);
@@ -174,7 +181,6 @@ function SmsService() {
   this._updateDebugFlag();
   this._silentNumbers = [];
   this._imsSmsProviders = [];
-  this.smsDefaultServiceId = this._getDefaultServiceId();
   this._initImsSms();
 
   this._portAddressedSmsApps = {};
@@ -188,8 +194,17 @@ function SmsService() {
 
   this._receivedSmsSegmentsMap = {};
 
+  this.settingsObserver = new gSettingsObserver.RILSettingsObserver();
+  this.settingsObserver.handleSettingChanged = this.handleSettingChanged;
+  this.settingsObserver
+    .getSettingWithDefault(kSettingsDefaukltServiceId, true)
+    .then(setting => {
+      this.smsDefaultServiceId = setting.value;
+    });
+
+  this.settingsObserver.addSettingObserver(kSettingsDefaukltServiceId);
+
   Services.prefs.addObserver(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED, this);
-  Services.prefs.addObserver(kPrefDefaultServiceId, this);
   Services.prefs.addObserver(kPrefLastKnownSimMcc, this);
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
   Services.obs.addObserver(this, kDiskSpaceWatcherObserverTopic);
@@ -214,17 +229,6 @@ SmsService.prototype = {
         RIL_DEBUG.DEBUG_RIL ||
         Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
     } catch (e) {}
-  },
-
-  _getDefaultServiceId() {
-    let id = Services.prefs.getIntPref(kPrefDefaultServiceId, 0);
-    let numRil = Services.prefs.getIntPref(kPrefRilNumRadioInterfaces);
-
-    if (id >= numRil || id < 0) {
-      id = 0;
-    }
-
-    return id;
   },
 
   _getPhoneNumber(aServiceId) {
@@ -1230,115 +1234,126 @@ SmsService.prototype = {
     );
 
     options.number = gPhoneNumberUtils.normalize(aNumber);
-    let requestStatusReport = Services.prefs.getBoolPref(
-      "dom.sms.requestStatusReport",
-      true
-    );
-    options.requestStatusReport = requestStatusReport && !aSilent;
+    this.settingsObserver
+      .getSettingWithDefault(kSettingsRequestStatusReport, true)
+      .then(setting => {
+        let requestStatusReport = setting.value;
+        options.requestStatusReport = requestStatusReport && !aSilent;
 
-    let sendingMessage = {
-      type: "sms",
-      sender: this._getPhoneNumber(aServiceId),
-      receiver: aNumber,
-      body: aMessage,
-      deliveryStatusRequested: options.requestStatusReport,
-      timestamp: Date.now(),
-      iccId: this._getIccId(aServiceId),
-    };
+        let sendingMessage = {
+          type: "sms",
+          sender: this._getPhoneNumber(aServiceId),
+          receiver: aNumber,
+          body: aMessage,
+          deliveryStatusRequested: options.requestStatusReport,
+          timestamp: Date.now(),
+          iccId: this._getIccId(aServiceId),
+        };
 
-    let saveSendingMessageCallback = (aRv, aDomMessage) => {
-      let smsMessage = null;
-      try {
-        smsMessage = aDomMessage.QueryInterface(Ci.nsISmsMessage);
-      } catch (e) {}
+        let saveSendingMessageCallback = (aRv, aDomMessage) => {
+          let smsMessage = null;
+          try {
+            smsMessage = aDomMessage.QueryInterface(Ci.nsISmsMessage);
+          } catch (e) {}
 
-      if (!Components.isSuccessCode(aRv)) {
-        if (DEBUG) {
-          debug("Error! Fail to save sending message! aRv = " + aRv);
-        }
-        this._broadcastSmsSystemMessage(
-          Ci.nsISmsMessenger.NOTIFICATION_TYPE_SENT_FAILED,
-          smsMessage
-        );
-        aRequest.notifySendMessageFailed(
-          gMobileMessageDatabaseService.translateCrErrorToMessageCallbackError(
-            aRv
-          ),
-          smsMessage
-        );
-        Services.obs.notifyObservers(smsMessage, kSmsFailedObserverTopic);
-        return;
-      }
+          if (!Components.isSuccessCode(aRv)) {
+            if (DEBUG) {
+              debug("Error! Fail to save sending message! aRv = " + aRv);
+            }
+            this._broadcastSmsSystemMessage(
+              Ci.nsISmsMessenger.NOTIFICATION_TYPE_SENT_FAILED,
+              smsMessage
+            );
+            aRequest.notifySendMessageFailed(
+              gMobileMessageDatabaseService.translateCrErrorToMessageCallbackError(
+                aRv
+              ),
+              smsMessage
+            );
+            Services.obs.notifyObservers(smsMessage, kSmsFailedObserverTopic);
+            return;
+          }
 
-      if (!aSilent) {
-        Services.obs.notifyObservers(smsMessage, kSmsSendingObserverTopic);
-      }
+          if (!aSilent) {
+            Services.obs.notifyObservers(smsMessage, kSmsSendingObserverTopic);
+          }
 
-      let connection = gMobileConnectionService.getItemByServiceId(aServiceId);
-      // If the radio is disabled or the SIM card is not ready, just directly
-      // return with the corresponding error code.
-      let errorCode;
-      let radioState = connection && connection.radioState;
-
-      if (!gPhoneNumberUtils.isPlainPhoneNumber(options.number)) {
-        if (DEBUG) {
-          debug(
-            "Error! Address is invalid when sending SMS: " + options.number
+          let connection = gMobileConnectionService.getItemByServiceId(
+            aServiceId
           );
-        }
-        errorCode = Ci.nsIMobileMessageCallback.INVALID_ADDRESS_ERROR;
-      } else if (
-        radioState == Ci.nsIMobileConnection.MOBILE_RADIO_STATE_UNKNOWN ||
-        (radioState == Ci.nsIMobileConnection.MOBILE_RADIO_STATE_DISABLED &&
-          !gSmsSendingSchedulers
-            .getSchedulerByServiceId(aServiceId)
-            .isVoWifiConnected())
-      ) {
-        if (DEBUG) {
-          debug("Error! Radio is disabled when sending SMS.");
-        }
-        errorCode = Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR;
-      } else if (this._getCardState(aServiceId) != Ci.nsIIcc.CARD_STATE_READY) {
-        if (DEBUG) {
-          debug("Error! SIM card is not ready when sending SMS.");
-        }
-        errorCode = Ci.nsIMobileMessageCallback.NO_SIM_CARD_ERROR;
-      }
-      if (errorCode) {
-        this._notifySendingError(errorCode, smsMessage, aSilent, aRequest);
-        return;
-      }
+          // If the radio is disabled or the SIM card is not ready, just directly
+          // return with the corresponding error code.
+          let errorCode;
+          let radioState = connection && connection.radioState;
 
-      this._scheduleSending(aServiceId, smsMessage, aSilent, options, aRequest);
-    }; // End of |saveSendingMessageCallback|.
+          if (!gPhoneNumberUtils.isPlainPhoneNumber(options.number)) {
+            if (DEBUG) {
+              debug(
+                "Error! Address is invalid when sending SMS: " + options.number
+              );
+            }
+            errorCode = Ci.nsIMobileMessageCallback.INVALID_ADDRESS_ERROR;
+          } else if (
+            radioState == Ci.nsIMobileConnection.MOBILE_RADIO_STATE_UNKNOWN ||
+            (radioState == Ci.nsIMobileConnection.MOBILE_RADIO_STATE_DISABLED &&
+              !gSmsSendingSchedulers
+                .getSchedulerByServiceId(aServiceId)
+                .isVoWifiConnected())
+          ) {
+            if (DEBUG) {
+              debug("Error! Radio is disabled when sending SMS.");
+            }
+            errorCode = Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR;
+          } else if (
+            this._getCardState(aServiceId) != Ci.nsIIcc.CARD_STATE_READY
+          ) {
+            if (DEBUG) {
+              debug("Error! SIM card is not ready when sending SMS.");
+            }
+            errorCode = Ci.nsIMobileMessageCallback.NO_SIM_CARD_ERROR;
+          }
+          if (errorCode) {
+            this._notifySendingError(errorCode, smsMessage, aSilent, aRequest);
+            return;
+          }
 
-    // Don't save message into DB for silent SMS.
-    if (aSilent) {
-      let delivery = DOM_MOBILE_MESSAGE_DELIVERY_SENDING;
-      let deliveryStatus = RIL.GECKO_SMS_DELIVERY_STATUS_PENDING;
-      let domMessage = gMobileMessageService.createSmsMessage(
-        -1, // id
-        0, // threadId
-        sendingMessage.iccId,
-        delivery,
-        deliveryStatus,
-        sendingMessage.sender,
-        sendingMessage.receiver,
-        sendingMessage.body,
-        "normal", // message class
-        sendingMessage.timestamp,
-        0,
-        0,
-        false
-      );
-      saveSendingMessageCallback(Cr.NS_OK, domMessage);
-      return;
-    }
+          this._scheduleSending(
+            aServiceId,
+            smsMessage,
+            aSilent,
+            options,
+            aRequest
+          );
+        }; // End of |saveSendingMessageCallback|.
 
-    gMobileMessageDatabaseService.saveSendingMessage(
-      sendingMessage,
-      saveSendingMessageCallback
-    );
+        // Don't save message into DB for silent SMS.
+        if (aSilent) {
+          let delivery = DOM_MOBILE_MESSAGE_DELIVERY_SENDING;
+          let deliveryStatus = RIL.GECKO_SMS_DELIVERY_STATUS_PENDING;
+          let domMessage = gMobileMessageService.createSmsMessage(
+            -1, // id
+            0, // threadId
+            sendingMessage.iccId,
+            delivery,
+            deliveryStatus,
+            sendingMessage.sender,
+            sendingMessage.receiver,
+            sendingMessage.body,
+            "normal", // message class
+            sendingMessage.timestamp,
+            0,
+            0,
+            false
+          );
+          saveSendingMessageCallback(Cr.NS_OK, domMessage);
+          return;
+        }
+
+        gMobileMessageDatabaseService.saveSendingMessage(
+          sendingMessage,
+          saveSendingMessageCallback
+        );
+      });
   },
 
   addSilentNumber(aNumber) {
@@ -1501,8 +1516,6 @@ SmsService.prototype = {
       case NS_PREFBRANCH_PREFCHANGE_TOPIC_ID:
         if (aData === RIL_DEBUG.PREF_RIL_DEBUG_ENABLED) {
           this._updateDebugFlag();
-        } else if (aData === kPrefDefaultServiceId) {
-          this.smsDefaultServiceId = this._getDefaultServiceId();
         } else if (aData === kPrefLastKnownSimMcc) {
           gSmsSegmentHelper.enabledGsmTableTuples = getEnabledGsmTableTuplesFromMcc();
         }
@@ -1516,8 +1529,8 @@ SmsService.prototype = {
       case NS_XPCOM_SHUTDOWN_OBSERVER_ID:
         // Release the CPU wake lock for handling the received SMS.
         this._releaseSmsHandledWakeLock();
+        this.settingsObserver.removeSettingObserver(kSettingsDefaukltServiceId);
         Services.prefs.removeObserver(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED, this);
-        Services.prefs.removeObserver(kPrefDefaultServiceId, this);
         Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
         Services.obs.removeObserver(this, kDiskSpaceWatcherObserverTopic);
         break;
@@ -1552,6 +1565,17 @@ SmsService.prototype = {
       debug("_isIms: return Ims SMS service " + isImsSms);
     }
     return isImsSms;
+  },
+
+  handleSettingChanged(aName, aResult) {
+    if (DEBUG) {
+      debug(aName + " is set to " + aResult);
+    }
+    switch (aName) {
+      case kSettingsDefaukltServiceId:
+        this.smsDefaultServiceId = aResult;
+        break;
+    }
   },
 };
 

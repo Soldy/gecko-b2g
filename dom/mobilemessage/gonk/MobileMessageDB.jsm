@@ -921,13 +921,6 @@ MobileMessageDB.prototype = {
     });
     smsSegmentStore.createIndex("hash", "hash", { unique: true });
 
-    next();
-  },
-
-  /**
-   * Add cellbroadcastStore to store cellbroadcast message.
-   */
-  upgradeSchema(db, transaction, next) {
     let cellBroadcastStore = db.createObjectStore(CELLBROADCAST_STORE_NAME, {
       keyPath: "id",
       autoIncrement: true,

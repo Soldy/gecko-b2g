@@ -505,6 +505,7 @@ class SandboxPolicyCommon : public SandboxPolicyBase {
                 PR_SET_NAME,      // Thread creation
                 PR_SET_DUMPABLE,  // Crash reporting
 #ifdef MOZ_WIDGET_GONK
+                PR_SET_TIMERSLACK, // task_profiles
                 PR_GET_DUMPABLE,  // Linker logger
 #endif
                 PR_SET_PTRACER),  // Debug-mode crash handling
@@ -663,6 +664,14 @@ class SandboxPolicyCommon : public SandboxPolicyBase {
             .ElseIf(clk_id == CLOCK_REALTIME_COARSE, Allow())
 #endif
             .ElseIf(clk_id == CLOCK_THREAD_CPUTIME_ID, Allow())
+#ifdef MOZ_GECKO_PROFILER
+            // Allow clock_gettime on a thread.
+            // 4 -> CPUCLOCK_PERTHREAD_MASK. 2 -> CPUCLOCK_SCHED.
+            .ElseIf((clk_id & 7u) == (4u | 2u), Allow())
+#endif
+#ifdef CLOCK_BOOTTIME
+            .ElseIf(clk_id == CLOCK_BOOTTIME, Allow())
+#endif
             .Else(InvalidSyscall());
       }
 

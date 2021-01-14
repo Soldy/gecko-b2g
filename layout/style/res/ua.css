@@ -448,11 +448,6 @@ div:-moz-native-anonymous.moz-accessiblecaret {
   /* Add transition effect to make caret size changing smoother. */
   transition-duration: 250ms;
   transition-property: width, height, margin-left;
-}
-
-div:-moz-native-anonymous.moz-accessiblecaret {
-  /* Add transition effect to make caret size changing smoother. */
-  transition-property: width, height, margin-left;
 
   position: absolute;
   z-index: 2147483647;

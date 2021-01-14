@@ -93,6 +93,7 @@ def old_configure_options(*options):
     "--enable-b2g-fm",
     "--enable-b2g-ims",
     "--enable-b2g-ril",
+    "--enable-b2g-voice-processing",
     "--enable-crashreporter",
     "--enable-dbus",
     "--enable-debug-js-modules",

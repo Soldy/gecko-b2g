@@ -39,6 +39,10 @@ interface nsIImsPhoneDialRequest : nsISupports {
   readonly attribute boolean isEmergency;
   readonly attribute unsigned short type;
   readonly attribute unsigned short rttMode;
+  /**
+   * CLIR mode. Please refer nsIMobileConnection.CLIR_*.
+   */
+  readonly attribute unsigned short clirMode;
 };
 
 [scriptable, uuid(1202dd60-3701-4f30-8c0b-a770d25fa913)]

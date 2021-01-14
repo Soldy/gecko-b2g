@@ -108,7 +108,8 @@ RILSystemMessengerHelper.prototype = {
     aHangUpLocal,
     aIsVt,
     aRadioTech,
-    aIsRtt
+    aIsRtt,
+    aVerStatus
   ) {
     this.messenger.notifyCallEnded(
       aServiceId,
@@ -120,7 +121,8 @@ RILSystemMessengerHelper.prototype = {
       aHangUpLocal,
       aIsVt,
       aRadioTech,
-      aIsRtt
+      aIsRtt,
+      aVerStatus
     );
   },
 

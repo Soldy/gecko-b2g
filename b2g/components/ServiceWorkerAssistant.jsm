@@ -222,11 +222,10 @@ this.ServiceWorkerAssistant = {
   _subscribeSystemMessages(aFeatures, aPrincipal, aScope) {
     debug(`Subscribing system messages...`);
     let messages = aFeatures.messages ? aFeatures.messages : [];
-    for (const msg of messages) {
-      let name = Object.keys(msg)[0];
-      debug(` message name: ${name}`);
-      systemMessageService.subscribe(aPrincipal, name, aScope);
-    }
+    messages.forEach(message => {
+      debug(` message: ${message}`);
+      systemMessageService.subscribe(aPrincipal, message, aScope);
+    });
   },
 
   _registerActivities(aManifestURL, aFeatures, aPrincipal, aScope) {

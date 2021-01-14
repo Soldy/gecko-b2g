@@ -20,6 +20,7 @@ interface nsIEditableSupportListener : nsISupports
   void onGetText(in uint32_t aId, in nsresult aStatus, in AString aText);
   void onSetValue(in uint32_t aId, in nsresult aStatus);
   void onClearAll(in uint32_t aId, in nsresult aStatus);
+  void onReplaceSurroundingText(in uint32_t aId, in nsresult aStatus);
 };
 
 [scriptable, uuid(44bf6cea-f5db-11ea-b598-ff5a3d009e25)]
@@ -38,4 +39,5 @@ interface nsIEditableSupport : nsISupports
   void GetText(in uint32_t aId, in nsIEditableSupportListener aListener, in int32_t aOffset, in int32_t aLength);
   void SetValue(in uint32_t aId, in nsIEditableSupportListener aListener, in AString aValue);
   void ClearAll(in uint32_t aId, in nsIEditableSupportListener aListener);
+  void ReplaceSurroundingText(in uint32_t aId, in nsIEditableSupportListener aListener, in AString aText, in int32_t aOffset, in int32_t aLength);
 };

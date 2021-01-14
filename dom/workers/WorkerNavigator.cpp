@@ -73,6 +73,7 @@ JSObject* WorkerNavigator::WrapObject(JSContext* aCx,
 }
 
 void WorkerNavigator::SetLanguages(const nsTArray<nsString>& aLanguages) {
+  WorkerNavigator_Binding::ClearCachedLanguageValue(this);
   WorkerNavigator_Binding::ClearCachedLanguagesValue(this);
   mProperties.mLanguages = aLanguages.Clone();
 }

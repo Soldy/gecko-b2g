@@ -288,12 +288,12 @@ wine-5.0:
             sig-url: "{url}.sign"
             key-path: build/unix/build-gcc/DA23579A74D4AD9AF9D3F945CEFAC8EAAF17519D.key
 
-cbindgen-0.15.0:
+cbindgen-0.16.0:
     description: cbindgen source code
     fetch:
         type: git
         repo: https://github.com/eqrion/cbindgen
-        revision: 83b3be9f884697a51f8717af8b5498866a81e62e
+        revision: a00b4215a907601680f6e9acaf93df1cbafa8ded
 
 cctools-port:
     description: cctools-port source code
@@ -351,8 +351,8 @@ sccache:
     fetch:
         type: git
         repo: https://github.com/mozilla/sccache
-        # 0.2.13 release + various changes
-        revision: 6628e1f70db3d583cb5e79210603ad878de3d315
+        # 0.2.14 release
+        revision: 5f57603ff6338d7b07221bf1fddcaedc14dba9b8
 
 fxc2:
     description: fxc2 source code
@@ -410,13 +410,6 @@ clang-8:
         repo: https://github.com/llvm/llvm-project
         revision: 19a71f6bdf2dddb10764939e7f0ec2b98dba76c9
 
-clang-9:
-    description: clang 9.0.1 source code
-    fetch:
-        type: git
-        repo: https://github.com/llvm/llvm-project
-        revision: c1a0a213378a458fbea1a5c77b315c7dce08fd05
-
 clang-10:
     description: clang 10.0.0 source code
     fetch:
@@ -425,11 +418,11 @@ clang-10:
         revision: d32170dbd5b0d54436537b6b75beaf44324e0c28
 
 clang-11:
-    description: clang 11.0.0 source code
+    description: clang 11.0.1 source code
     fetch:
         type: git
         repo: https://github.com/llvm/llvm-project
-        revision: 176249bd6732a8044d457092ed932768724a6f06
+        revision: 43ff75f2c3feef64f9d73328230d34dac8832a91
 
 rust-1.47.0-dev:
     description: Rust 1.47.0-dev source code

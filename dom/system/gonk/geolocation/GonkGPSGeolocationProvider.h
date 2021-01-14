@@ -82,6 +82,8 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
 
   static GonkGPSGeolocationProvider* sSingleton;
   void Init();
+  void SetupGnssHal();
+  void CleanupGnssHal();
   void StartGPS();
   void ShutdownGPS();
 
@@ -148,8 +150,16 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
   }
 #endif  // MOZ_B2G_RIL
 
-  // Whether the GPS HAL has been initialized
-  bool mInitialized;
+  // Whether IGNSS HAL is ready to handle location callbacks
+  // Framework activate/deactivate HAL when Geolocation setting is toggled.
+  // When Geolocation setting is on,
+  //  - IGnss::setCallback_2_0()
+  //  - IGnssVisibilityControl::enableNfwLocationAccess({"b2g_system"})
+  // When Geolocation setting is off,
+  //  - IGnss::cleanup()
+  //  - IGnssVisibilityControl::enableNfwLocationAccess({})
+  bool mGnssHalReady;
+
   bool mStarted;
   bool mSupportsScheduling;
   bool mSupportsSingleShot;

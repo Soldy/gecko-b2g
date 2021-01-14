@@ -42,6 +42,7 @@
 #  include "mozilla/a11y/AccessibleWrap.h"
 #  include "mozilla/a11y/Compatibility.h"
 #endif
+#include <map>
 #include <utility>
 
 #include "BrowserParent.h"
@@ -49,7 +50,6 @@
 #include "Geolocation.h"
 #include "GfxInfoBase.h"
 #include "MMPrinter.h"
-#include "PDMFactory.h"
 #include "PreallocatedProcessManager.h"
 #include "ProcessPriorityManager.h"
 #include "SandboxHal.h"
@@ -428,6 +428,9 @@ extern FileDescriptor CreateAudioIPCConnection();
 namespace dom {
 
 LazyLogModule gProcessLog("Process");
+
+static std::map<RemoteDecodeIn, PDMFactory::MediaCodecsSupported>
+    sCodecsSupported;
 
 /* static */
 LogModule* ContentParent::GetLog() { return gProcessLog; }
@@ -1603,6 +1606,16 @@ void ContentParent::BroadcastThemeUpdate(widget::ThemeChangeKind aKind) {
 
   for (auto* cp : AllProcesses(eLive)) {
     Unused << cp->SendThemeChanged(lnfData, aKind);
+  }
+}
+
+/*static */
+void ContentParent::BroadcastMediaCodecsSupportedUpdate(
+    RemoteDecodeIn aLocation,
+    const PDMFactory::MediaCodecsSupported& aSupported) {
+  sCodecsSupported[aLocation] = aSupported;
+  for (auto* cp : AllProcesses(eAll)) {
+    Unused << cp->SendUpdateMediaCodecsSupported(aLocation, aSupported);
   }
 }
 
@@ -2908,9 +2921,9 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
   // Send the dynamic scalar definitions to the new process.
   TelemetryIPC::GetDynamicScalarDefinitions(xpcomInit.dynamicScalarDefs());
 
-  // Pre-calculate the various PlatformDecoderModule (PDM) supported on this
-  // machine.
-  xpcomInit.codecsSupported() = PDMFactory::Supported();
+  for (auto const& [location, supported] : sCodecsSupported) {
+    Unused << SendUpdateMediaCodecsSupported(location, supported);
+  }
 
   // Must send screen info before send initialData
   ScreenManager& screenManager = ScreenManager::GetSingleton();
@@ -5403,18 +5416,19 @@ void ContentParent::NotifyUpdatedDictionaries() {
   }
 }
 
-void ContentParent::NotifyUpdatedFonts() {
+void ContentParent::NotifyUpdatedFonts(bool aFullRebuild) {
+  if (gfxPlatformFontList::PlatformFontList()->SharedFontList()) {
+    for (auto* cp : AllProcesses(eLive)) {
+      Unused << cp->SendRebuildFontList(aFullRebuild);
+    }
+    return;
+  }
+
   nsTArray<SystemFontListEntry> fontList;
   gfxPlatform::GetPlatform()->ReadSystemFontList(&fontList);
 
   for (auto* cp : AllProcesses(eLive)) {
     Unused << cp->SendUpdateFontList(fontList);
-  }
-}
-
-void ContentParent::NotifyRebuildFontList() {
-  for (auto* cp : AllProcesses(eLive)) {
-    Unused << cp->SendRebuildFontList();
   }
 }
 
@@ -5995,7 +6009,7 @@ mozilla::ipc::IPCResult ContentParent::RecvGetOutputColorProfileData(
 mozilla::ipc::IPCResult ContentParent::RecvGetFontListShmBlock(
     const uint32_t& aGeneration, const uint32_t& aIndex,
     base::SharedMemoryHandle* aOut) {
-  auto fontList = gfxPlatformFontList::PlatformFontList();
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
   MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
   fontList->ShareFontListShmBlockToProcess(aGeneration, aIndex, Pid(), aOut);
   return IPC_OK();
@@ -6004,7 +6018,7 @@ mozilla::ipc::IPCResult ContentParent::RecvGetFontListShmBlock(
 mozilla::ipc::IPCResult ContentParent::RecvInitializeFamily(
     const uint32_t& aGeneration, const uint32_t& aFamilyIndex,
     const bool& aLoadCmaps) {
-  auto fontList = gfxPlatformFontList::PlatformFontList();
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
   MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
   fontList->InitializeFamily(aGeneration, aFamilyIndex, aLoadCmaps);
   return IPC_OK();
@@ -6013,7 +6027,7 @@ mozilla::ipc::IPCResult ContentParent::RecvInitializeFamily(
 mozilla::ipc::IPCResult ContentParent::RecvSetCharacterMap(
     const uint32_t& aGeneration, const mozilla::fontlist::Pointer& aFacePtr,
     const gfxSparseBitSet& aMap) {
-  auto fontList = gfxPlatformFontList::PlatformFontList();
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
   MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
   fontList->SetCharacterMap(aGeneration, aFacePtr, aMap);
   return IPC_OK();
@@ -6021,18 +6035,25 @@ mozilla::ipc::IPCResult ContentParent::RecvSetCharacterMap(
 
 mozilla::ipc::IPCResult ContentParent::RecvInitOtherFamilyNames(
     const uint32_t& aGeneration, const bool& aDefer, bool* aLoaded) {
-  auto fontList = gfxPlatformFontList::PlatformFontList();
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
   MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
-  fontList->InitOtherFamilyNames(aGeneration, aDefer);
-  *aLoaded = true;
+  *aLoaded = fontList->InitOtherFamilyNames(aGeneration, aDefer);
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvSetupFamilyCharMap(
     const uint32_t& aGeneration, const mozilla::fontlist::Pointer& aFamilyPtr) {
-  auto fontList = gfxPlatformFontList::PlatformFontList();
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
   MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
   fontList->SetupFamilyCharMap(aGeneration, aFamilyPtr);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentParent::RecvStartCmapLoading(
+    const uint32_t& aGeneration, const uint32_t& aStartIndex) {
+  auto* fontList = gfxPlatformFontList::PlatformFontList();
+  MOZ_RELEASE_ASSERT(fontList, "gfxPlatformFontList not initialized?");
+  fontList->StartCmapLoading(aGeneration, aStartIndex);
   return IPC_OK();
 }
 

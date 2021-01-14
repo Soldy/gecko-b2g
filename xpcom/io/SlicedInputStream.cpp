@@ -391,6 +391,7 @@ SlicedInputStream::OnInputStreamReady(nsIAsyncInputStream* aStream) {
           asyncWaitFlags = 0;
           asyncWaitRequestedCount = mStart - mCurPos;
           // Here we want to exec another AsyncWait().
+          raii.release();
           callback = nullptr;
           break;
         }

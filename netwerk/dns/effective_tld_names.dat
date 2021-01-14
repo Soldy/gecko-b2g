@@ -7111,7 +7111,7 @@ org.zw
 
 // newGTLDs
 
-// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2020-12-11T13:40:43Z
+// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2020-12-21T16:35:44Z
 // This list is auto-generated, don't edit it manually.
 // aaa : 2015-02-26 American Automobile Association, Inc.
 aaa
@@ -7335,7 +7335,7 @@ autos
 // avianca : 2015-01-08 Avianca Holdings S.A.
 avianca
 
-// aws : 2015-06-25 Amazon Registry Services, Inc.
+// aws : 2015-06-25 AWS Registry LLC
 aws
 
 // axa : 2013-12-19 AXA Group Operations SAS
@@ -11870,6 +11870,10 @@ gentlentapis.com
 lab.ms
 cdn-edges.net
 
+// Ghost Foundation : https://ghost.org
+// Submitted by Matt Hanley <security@ghost.org>
+ghost.io
+
 // GitHub, Inc.
 // Submitted by Patrick Toomey <security@github.com>
 github.io
@@ -13075,6 +13079,10 @@ shiftedit.io
 // Shopblocks : http://www.shopblocks.com/
 // Submitted by Alex Bowers <alex@shopblocks.com>
 myshopblocks.com
+
+// Shopify : https://www.shopify.com
+// Submitted by Alex Richter <alex.richter@shopify.com>
+myshopify.com
 
 // Shopit : https://www.shopitcommerce.com/
 // Submitted by Craig McMahon <craig@shopitcommerce.com>

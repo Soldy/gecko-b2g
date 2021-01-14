@@ -673,11 +673,10 @@ bool js::TestIntegrityLevel(JSContext* cx, HandleObject obj,
       return false;
     }
 
-    // Typed array elements are non-configurable, writable properties, so
-    // if any elements are present, the typed array cannot be frozen.
+    // Typed array elements are configurable, writable properties, so if any
+    // elements are present, the typed array can neither be sealed nor frozen.
     if (nobj->is<TypedArrayObject>() &&
-        nobj->as<TypedArrayObject>().length().get() > 0 &&
-        level == IntegrityLevel::Frozen) {
+        nobj->as<TypedArrayObject>().length().get() > 0) {
       *result = false;
       return true;
     }
@@ -794,14 +793,6 @@ static inline JSObject* NewObject(JSContext* cx, HandleObjectGroup group,
         cx, obj, TypedObject::create(cx, kind, heap, shape, group));
   }
 
-  if (newKind == SingletonObject) {
-    RootedObject nobj(cx, obj);
-    if (!JSObject::setSingleton(cx, nobj)) {
-      return nullptr;
-    }
-    obj = nobj;
-  }
-
   probes::CreateObject(cx, obj);
   return obj;
 }
@@ -846,8 +837,7 @@ JSObject* js::NewObjectWithGivenTaggedProto(JSContext* cx, const JSClass* clasp,
     }
   }
 
-  RootedObjectGroup group(
-      cx, ObjectGroup::defaultNewGroup(cx, clasp, proto, nullptr));
+  RootedObjectGroup group(cx, ObjectGroup::defaultNewGroup(cx, clasp, proto));
   if (!group) {
     return nullptr;
   }
@@ -1136,7 +1126,6 @@ JS_FRIEND_API bool JS_CopyOwnPropertiesAndPrivateFields(JSContext* cx,
 
 static bool GetScriptArrayObjectElements(
     HandleArrayObject arr, MutableHandle<GCVector<Value>> values) {
-  MOZ_ASSERT(!arr->isSingleton());
   MOZ_ASSERT(!arr->isIndexed());
 
   size_t length = arr->length();
@@ -1196,7 +1185,6 @@ static bool DeepCloneValue(JSContext* cx, Value* vp) {
 
 JSObject* js::DeepCloneObjectLiteral(JSContext* cx, HandleObject obj) {
   /* NB: Keep this in sync with XDRObjectLiteral. */
-  MOZ_ASSERT(!obj->isSingleton());
   MOZ_ASSERT(obj->is<PlainObject>() || obj->is<ArrayObject>());
 
   if (obj->is<ArrayObject>()) {
@@ -1228,8 +1216,6 @@ JSObject* js::DeepCloneObjectLiteral(JSContext* cx, HandleObject obj) {
     }
   }
 
-  MOZ_ASSERT(!obj->isSingleton());
-
   return NewPlainObjectWithProperties(cx, properties.begin(),
                                       properties.length(), TenuredObject);
 }
@@ -1239,7 +1225,6 @@ static bool InitializePropertiesFromCompatibleNativeObject(
   cx->check(src, dst);
   MOZ_ASSERT(src->getClass() == dst->getClass());
   MOZ_ASSERT(dst->lastProperty()->getObjectFlags() == 0);
-  MOZ_ASSERT(!src->isSingleton());
   MOZ_ASSERT(src->numFixedSlots() == dst->numFixedSlots());
 
   if (!dst->ensureElements(cx, src->getDenseInitializedLength())) {
@@ -1385,10 +1370,6 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
       properties[i].get().id = tmpId;
       properties[i].get().value = tmpValue;
     }
-  }
-
-  if (mode == XDR_ENCODE) {
-    MOZ_ASSERT(!obj->isSingleton());
   }
 
   if (mode == XDR_DECODE) {
@@ -1829,11 +1810,8 @@ static bool ReshapeForProtoMutation(JSContext* cx, HandleObject obj) {
   // to require a guard.
   //
   // Heuristics:
-  //  - Always reshape singleton objects. This historically avoided
-  //    de-optimizing in cases that compiler doesn't support
-  //    uncacheable-proto. TODO: Revisit if this is a good idea.
-  //  - Other objects instead set UNCACHEABLE_PROTO flag on shape to avoid
-  //    creating too many private shape copies.
+  //  - Set UNCACHEABLE_PROTO flag on shape to avoid creating too many private
+  //    shape copies.
   //  - Only propegate along proto chain if we are mark DELEGATE. This avoids
   //    reshaping in normal object access cases.
   //
@@ -1848,18 +1826,8 @@ static bool ReshapeForProtoMutation(JSContext* cx, HandleObject obj) {
   RootedObject pobj(cx, obj);
 
   while (pobj && pobj->isNative()) {
-    if (pobj->isSingleton()) {
-      // If object was converted to a singleton it should have cleared
-      // any UNCACHEABLE_PROTO flags.
-      MOZ_ASSERT(!pobj->hasUncacheableProto());
-
-      if (!NativeObject::reshapeForProtoMutation(cx, pobj.as<NativeObject>())) {
-        return false;
-      }
-    } else {
-      if (!JSObject::setUncacheableProto(cx, pobj)) {
-        return false;
-      }
+    if (!JSObject::setUncacheableProto(cx, pobj)) {
+      return false;
     }
 
     if (!obj->isDelegate()) {
@@ -1885,11 +1853,6 @@ static bool SetProto(JSContext* cx, HandleObject obj,
     if (!JSObject::setDelegate(cx, protoObj)) {
       return false;
     }
-  }
-
-  if (obj->isSingleton()) {
-    // Just splice the prototype.
-    return JSObject::splicePrototype(cx, obj, proto);
   }
 
   RootedObjectGroup oldGroup(cx, obj->group());

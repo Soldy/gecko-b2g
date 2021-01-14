@@ -249,15 +249,6 @@ void LIRGenerator::visitCreateThisWithTemplate(MCreateThisWithTemplate* ins) {
   assignSafepoint(lir, ins);
 }
 
-void LIRGenerator::visitCreateThisWithProto(MCreateThisWithProto* ins) {
-  LCreateThisWithProto* lir = new (alloc())
-      LCreateThisWithProto(useRegisterOrConstantAtStart(ins->getCallee()),
-                           useRegisterOrConstantAtStart(ins->getNewTarget()),
-                           useRegisterOrConstantAtStart(ins->getPrototype()));
-  defineReturn(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
 void LIRGenerator::visitCreateThis(MCreateThis* ins) {
   LCreateThis* lir = new (alloc())
       LCreateThis(useRegisterOrConstantAtStart(ins->getCallee()),
@@ -970,6 +961,40 @@ void LIRGenerator::visitCompare(MCompare* comp) {
     LCompareStrictS* lir = new (alloc())
         LCompareStrictS(useBox(left), useRegister(right), tempToUnbox());
     define(lir, comp);
+    assignSafepoint(lir, comp);
+    return;
+  }
+
+  // Compare two BigInts.
+  if (comp->compareType() == MCompare::Compare_BigInt) {
+    auto* lir = new (alloc()) LCompareBigInt(
+        useRegister(left), useRegister(right), temp(), temp(), temp());
+    define(lir, comp);
+    return;
+  }
+
+  // Compare BigInt with Int32.
+  if (comp->compareType() == MCompare::Compare_BigInt_Int32) {
+    auto* lir = new (alloc()) LCompareBigIntInt32(
+        useRegister(left), useRegister(right), temp(), temp());
+    define(lir, comp);
+    return;
+  }
+
+  // Compare BigInt with Double.
+  if (comp->compareType() == MCompare::Compare_BigInt_Double) {
+    auto* lir = new (alloc()) LCompareBigIntDouble(useRegisterAtStart(left),
+                                                   useRegisterAtStart(right),
+                                                   tempFixed(CallTempReg0));
+    defineReturn(lir, comp);
+    return;
+  }
+
+  // Compare BigInt with String.
+  if (comp->compareType() == MCompare::Compare_BigInt_String) {
+    auto* lir = new (alloc()) LCompareBigIntString(useRegisterAtStart(left),
+                                                   useRegisterAtStart(right));
+    defineReturn(lir, comp);
     assignSafepoint(lir, comp);
     return;
   }
@@ -1890,6 +1915,90 @@ void LIRGenerator::visitMod(MMod* ins) {
   MOZ_CRASH("Unhandled number specialization");
 }
 
+void LIRGenerator::visitBigIntAdd(MBigIntAdd* ins) {
+  auto* lir = new (alloc()) LBigIntAdd(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntSub(MBigIntSub* ins) {
+  auto* lir = new (alloc()) LBigIntSub(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntMul(MBigIntMul* ins) {
+  auto* lir = new (alloc()) LBigIntMul(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntDiv(MBigIntDiv* ins) { lowerBigIntDiv(ins); }
+
+void LIRGenerator::visitBigIntMod(MBigIntMod* ins) { lowerBigIntMod(ins); }
+
+void LIRGenerator::visitBigIntPow(MBigIntPow* ins) {
+  auto* lir = new (alloc()) LBigIntPow(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntBitAnd(MBigIntBitAnd* ins) {
+  auto* lir = new (alloc()) LBigIntBitAnd(
+      useRegister(ins->lhs()), useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntBitOr(MBigIntBitOr* ins) {
+  auto* lir = new (alloc()) LBigIntBitOr(
+      useRegister(ins->lhs()), useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntBitXor(MBigIntBitXor* ins) {
+  auto* lir = new (alloc()) LBigIntBitXor(
+      useRegister(ins->lhs()), useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntLsh(MBigIntLsh* ins) { lowerBigIntLsh(ins); }
+
+void LIRGenerator::visitBigIntRsh(MBigIntRsh* ins) { lowerBigIntRsh(ins); }
+
+void LIRGenerator::visitBigIntIncrement(MBigIntIncrement* ins) {
+  auto* lir =
+      new (alloc()) LBigIntIncrement(useRegister(ins->input()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntDecrement(MBigIntDecrement* ins) {
+  auto* lir =
+      new (alloc()) LBigIntDecrement(useRegister(ins->input()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntNegate(MBigIntNegate* ins) {
+  auto* lir = new (alloc()) LBigIntNegate(useRegister(ins->input()), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntBitNot(MBigIntBitNot* ins) {
+  auto* lir =
+      new (alloc()) LBigIntBitNot(useRegister(ins->input()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitConcat(MConcat* ins) {
   MDefinition* lhs = ins->getOperand(0);
   MDefinition* rhs = ins->getOperand(1);
@@ -2424,15 +2533,6 @@ void LIRGenerator::visitToObject(MToObject* ins) {
   MOZ_ASSERT(ins->input()->type() == MIRType::Value);
 
   LValueToObject* lir = new (alloc()) LValueToObject(useBox(ins->input()));
-  define(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
-void LIRGenerator::visitToObjectOrNull(MToObjectOrNull* ins) {
-  MOZ_ASSERT(ins->input()->type() == MIRType::Value);
-
-  LValueToObjectOrNull* lir =
-      new (alloc()) LValueToObjectOrNull(useBox(ins->input()));
   define(lir, ins);
   assignSafepoint(lir, ins);
 }
@@ -3452,14 +3552,9 @@ void LIRGenerator::visitArrayJoin(MArrayJoin* ins) {
   MOZ_ASSERT(ins->array()->type() == MIRType::Object);
   MOZ_ASSERT(ins->sep()->type() == MIRType::String);
 
-  LDefinition tempDef = LDefinition::BogusTemp();
-  if (ins->optimizeForArray()) {
-    tempDef = tempFixed(CallTempReg0);
-  }
-
-  LArrayJoin* lir =
-      new (alloc()) LArrayJoin(useRegisterAtStart(ins->array()),
-                               useRegisterAtStart(ins->sep()), tempDef);
+  auto* lir = new (alloc())
+      LArrayJoin(useRegisterAtStart(ins->array()),
+                 useRegisterAtStart(ins->sep()), tempFixed(CallTempReg0));
   defineReturn(lir, ins);
   assignSafepoint(lir, ins);
 }

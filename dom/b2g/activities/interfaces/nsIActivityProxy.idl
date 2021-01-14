@@ -19,7 +19,7 @@ interface nsIActivityStartCallback : nsISupports
 [scriptable, uuid(3cd334b4-01f5-11eb-a4f3-d70a879aa1d9)]
 interface nsIActivityProxy : nsISupports
 {
-  AString create(in nsISupports owner, in jsval options, in ACString url);
+  AString create(in nsISupports owner, in jsval options, in ACString origin);
 
   void start(in AString id, in nsIActivityStartCallback callback);
 

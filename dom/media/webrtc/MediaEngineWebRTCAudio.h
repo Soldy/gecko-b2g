@@ -152,10 +152,17 @@ class AudioInputProcessing : public AudioDataListener {
                        TrackRate aRate, uint32_t aChannels,
                        uint32_t aAlreadyBuffered) override;
   bool IsVoiceInput(MediaTrackGraphImpl* aGraph) const override {
+#ifdef B2G_VOICE_PROCESSING
+    // If platform voice processing is available, we should not use
+    // PassThrough() to check if it's voice input, because PassThrough() only
+    // indicates whether software voice processing is disabled or not.
+    return mEnableAec || mEnableAgc || mEnableNs;
+#else
     // If we're passing data directly without AEC or any other process, this
     // means that all voice-processing has been disabled intentionaly. In this
     // case, consider that the device is not used for voice input.
     return !PassThrough(aGraph);
+#endif
   }
 
   void Start();
@@ -168,6 +175,15 @@ class AudioInputProcessing : public AudioDataListener {
   }
 
   void Disconnect(MediaTrackGraphImpl* aGraph) override;
+
+#ifdef B2G_VOICE_PROCESSING
+  void GetVoiceInputSettings(MediaTrackGraphImpl* aGraph, bool* aEnableAec,
+                             bool* aEnableAgc, bool* aEnableNs) override {
+    *aEnableAec = mEnableAec;
+    *aEnableAgc = mEnableAgc;
+    *aEnableNs = mEnableNs;
+  }
+#endif
 
   template <typename T>
   void InsertInGraph(MediaTrackGraphImpl* aGraph, const T* aBuffer,
@@ -219,6 +235,13 @@ class AudioInputProcessing : public AudioDataListener {
   // because of prefs or constraints. This allows simply copying the audio into
   // the MTG, skipping resampling and the whole webrtc.org code.
   bool mSkipProcessing;
+
+#ifdef B2G_VOICE_PROCESSING
+  bool mEnableAec;
+  bool mEnableAgc;
+  bool mEnableNs;
+#endif
+
   // Stores the mixed audio output for the reverse-stream of the AEC (the
   // speaker data).
   AlignedFloatBuffer mOutputBuffer;

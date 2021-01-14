@@ -9,6 +9,32 @@ var EXPORTED_SYMBOLS = ["WebViewChild"];
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const kLongestReturnedString = 128;
 
+function debugEvents(global, els) {
+  let handler = function(evt) {
+    let msg = "event type: " + evt.type;
+    if (evt.key) {
+      msg += ", key: " + evt.key;
+    }
+    msg += ", target: " + evt.target;
+    if (evt.target.src) {
+      msg += ", src: " + evt.target.src;
+    }
+    if (evt.target.id) {
+      msg += ", id: " + evt.target.id;
+    }
+    if (evt.target.className) {
+      msg += ", class: " + evt.target.className;
+    }
+    dump(`[Event] ${msg}`);
+  };
+
+  // Event types that want to be printed.
+  let events = ["keydown", "keyup"];
+  for (let event of events) {
+    els.addSystemEventListener(global, event, handler, true);
+  }
+}
+
 var WebViewChild = {
   // Prints arguments separated by a space and appends a new line.
   log(...args) {
@@ -62,6 +88,8 @@ var WebViewChild = {
       this.scrollEventHandler.bind(this),
       /* useCapture = */ false
     );
+
+    debugEvents(global, els);
 
     global.addMessageListener(
       "WebView::fire-ctx-callback",

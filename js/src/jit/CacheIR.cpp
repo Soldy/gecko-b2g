@@ -41,6 +41,7 @@
 #include "wasm/WasmInstance.h"
 
 #include "jit/MacroAssembler-inl.h"
+#include "vm/BytecodeUtil-inl.h"
 #include "vm/EnvironmentObject-inl.h"
 #include "vm/JSContext-inl.h"
 #include "vm/JSObject-inl.h"
@@ -223,11 +224,8 @@ IRGenerator::IRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
 GetPropIRGenerator::GetPropIRGenerator(JSContext* cx, HandleScript script,
                                        jsbytecode* pc, ICState::Mode mode,
                                        CacheKind cacheKind, HandleValue val,
-                                       HandleValue idVal, HandleValue receiver)
-    : IRGenerator(cx, script, pc, cacheKind, mode),
-      val_(val),
-      idVal_(idVal),
-      receiver_(receiver) {}
+                                       HandleValue idVal)
+    : IRGenerator(cx, script, pc, cacheKind, mode), val_(val), idVal_(idVal) {}
 
 static void EmitLoadSlotResult(CacheIRWriter& writer, ObjOperandId holderId,
                                NativeObject* holder, Shape* shape) {
@@ -595,22 +593,12 @@ static NativeGetPropCacheability CanAttachNativeGetProp(
 
 static void GuardGroupProto(CacheIRWriter& writer, JSObject* obj,
                             ObjOperandId objId) {
-  // Uses the group to determine if the prototype is unchanged. If the
-  // group's prototype is mutable, we must check the actual prototype,
-  // otherwise checking the group is sufficient. This can be used if object
-  // is not ShapedObject or if Shape has UNCACHEABLE_PROTO flag set.
+  // Uses the group to determine if the prototype is unchanged. This works
+  // because groups have an immutable prototype. This can be used if the shape
+  // has the UNCACHEABLE_PROTO flag set.
 
   ObjectGroup* group = obj->group();
-
-  if (group->hasUncacheableProto()) {
-    if (JSObject* proto = obj->staticPrototype()) {
-      writer.guardProto(objId, proto);
-    } else {
-      writer.guardNullProto(objId);
-    }
-  } else {
-    writer.guardGroupForProto(objId, group);
-  }
+  writer.guardGroupForProto(objId, group);
 }
 
 // Guard that a given object has same class and same OwnProperties (excluding
@@ -653,14 +641,9 @@ static void GeneratePrototypeGuardsForReceiver(CacheIRWriter& writer,
     GuardGroupProto(writer, obj, objId);
   }
 
-#ifdef DEBUG
   // The following cases already guaranteed the prototype is unchanged.
-  if (obj->is<TypedObject>()) {
-    MOZ_ASSERT(!obj->group()->hasUncacheableProto());
-  } else if (obj->is<ProxyObject>()) {
-    MOZ_ASSERT(!obj->hasUncacheableProto());
-  }
-#endif  // DEBUG
+  MOZ_ASSERT_IF(obj->is<TypedObject>() || obj->is<ProxyObject>(),
+                !obj->hasUncacheableProto());
 }
 
 static bool ProtoChainSupportsTeleporting(JSObject* obj, JSObject* holder) {
@@ -1758,11 +1741,9 @@ AttachDecision GetPropIRGenerator::tryAttachTypedArrayLength(HandleObject obj,
 
   maybeEmitIdGuard(id);
   // Emit all the normal guards for calling this native, but specialize
-  // callNativeGetterResult. Also store the getter itself to enable
-  // AddCacheIRGetPropFunction to read it from the IC stub, which is needed for
-  // Ion-inlining.
+  // callNativeGetterResult.
   EmitCallGetterResultGuards(writer, obj, holder, shape, objId, mode_);
-  writer.loadTypedArrayLengthResult(objId, &fun);
+  writer.loadTypedArrayLengthResult(objId);
   writer.returnFromIC();
 
   trackAttached("TypedArrayLength");
@@ -2332,19 +2313,11 @@ AttachDecision GetPropIRGenerator::tryAttachTypedArrayElement(
   }
   TypedArrayObject* tarr = &obj->as<TypedArrayObject>();
 
-  // Ensure the index is in-bounds so the element type gets monitored.
-  if (index >= tarr->length().get()) {
-    return AttachDecision::NoAction;
-  }
-
   writer.guardShapeForClass(objId, tarr->shape());
 
-  // Don't handle out-of-bounds accesses here because we have to ensure the
-  // |undefined| type is monitored. See also tryAttachTypedArrayNonInt32Index.
-  // TODO(no-TI): Monitoring?
+  bool handleOOB = index >= tarr->length().get();
   bool allowDoubleForUint32 = AllowDoubleForUint32Array(tarr, index);
-  writer.loadTypedArrayElementResult(objId, indexId, tarr->type(),
-                                     /* handleOOB = */ false,
+  writer.loadTypedArrayElementResult(objId, indexId, tarr->type(), handleOOB,
                                      allowDoubleForUint32);
   writer.returnFromIC();
 
@@ -2370,7 +2343,8 @@ AttachDecision GetPropIRGenerator::tryAttachTypedArrayNonInt32Index(
   // false.
   bool allowDoubleForUint32 = false;
   int32_t indexInt32;
-  if (mozilla::NumberEqualsInt32(idVal_.toNumber(), &indexInt32)) {
+  if (mozilla::NumberEqualsInt32(idVal_.toNumber(), &indexInt32) &&
+      indexInt32 >= 0) {
     uint32_t index = uint32_t(indexInt32);
     allowDoubleForUint32 = AllowDoubleForUint32Array(tarr, index);
   }
@@ -2701,8 +2675,6 @@ AttachDecision GetNameIRGenerator::tryAttachEnvironmentName(ObjOperandId objId,
       return AttachDecision::NoAction;
     }
 
-    MOZ_ASSERT(!env->hasUncacheableProto());
-
     // Check for an 'own' property on the env. There is no need to
     // check the prototype as non-with scopes do not inherit properties
     // from any prototype.
@@ -2841,8 +2813,6 @@ AttachDecision BindNameIRGenerator::tryAttachEnvironmentName(ObjOperandId objId,
     if (env->is<WithEnvironmentObject>()) {
       return AttachDecision::NoAction;
     }
-
-    MOZ_ASSERT(!env->hasUncacheableProto());
 
     // When we reach an unqualified variables object (like the global) we
     // have to stop looking and return that object.
@@ -3978,6 +3948,11 @@ AttachDecision SetPropIRGenerator::tryAttachSetTypedArrayElement(
     return AttachDecision::NoAction;
   }
 
+  // InitElem (DefineProperty) has to throw an exception on out-of-bounds.
+  if (handleOutOfBounds && IsPropertyInitOp(JSOp(*pc_))) {
+    return AttachDecision::NoAction;
+  }
+
   writer.guardShapeForClass(objId, tarr->shape());
 
   OperandId rhsValId = emitNumericGuard(rhsId, elementType);
@@ -4005,6 +3980,11 @@ AttachDecision SetPropIRGenerator::tryAttachSetTypedArrayElementNonInt32Index(
 
   // Don't attach if the input type doesn't match the guard added below.
   if (!ValueIsNumeric(elementType, rhsVal_)) {
+    return AttachDecision::NoAction;
+  }
+
+  // InitElem (DefineProperty) has to throw an exception on out-of-bounds.
+  if (IsPropertyInitOp(JSOp(*pc_))) {
     return AttachDecision::NoAction;
   }
 
@@ -5087,13 +5067,6 @@ AttachDecision CallIRGenerator::tryAttachArraySlice(HandleFunction callee) {
 
   RootedArrayObject arr(cx_, &thisval_.toObject().as<ArrayObject>());
 
-  // The group of the result will be dynamically fixed up to match the input
-  // object, allowing us to handle 'this' objects that might have more than one
-  // group. Make sure that no singletons can be sliced here.
-  if (arr->isSingleton()) {
-    return AttachDecision::NoAction;
-  }
-
   JSObject* templateObj =
       NewDenseFullyAllocatedArray(cx_, 0, /* proto = */ nullptr, TenuredObject);
   if (!templateObj) {
@@ -5994,12 +5967,6 @@ AttachDecision CallIRGenerator::tryAttachStringSplitString(
   MOZ_ASSERT(args_[0].isString());
   MOZ_ASSERT(args_[1].isString());
 
-  ObjectGroup* group = ObjectGroupRealm::getStringSplitStringGroup(cx_);
-  if (!group) {
-    cx_->clearPendingException();
-    return AttachDecision::NoAction;
-  }
-
   // Initialize the input operand.
   Int32OperandId argcId(writer.setInputOperandId(0));
 
@@ -6011,7 +5978,7 @@ AttachDecision CallIRGenerator::tryAttachStringSplitString(
   ValOperandId arg1Id = writer.loadArgumentFixedSlot(ArgumentKind::Arg1, argc_);
   StringOperandId separatorId = writer.guardToString(arg1Id);
 
-  writer.stringSplitStringResult(strId, separatorId, group);
+  writer.stringSplitStringResult(strId, separatorId);
   writer.returnFromIC();
 
   trackAttached("StringSplitString");
@@ -6372,8 +6339,11 @@ AttachDecision CallIRGenerator::tryAttachMathFloor(HandleFunction callee) {
   if (args_[0].isInt32()) {
     MOZ_ASSERT(resultIsInt32);
 
+    // Use an indirect truncation to inform the optimizer it needs to preserve
+    // a bailout when the input can't be represented as an int32, even if the
+    // final result is fully truncated.
     Int32OperandId intId = writer.guardToInt32(argumentId);
-    writer.loadInt32Result(intId);
+    writer.indirectTruncateInt32Result(intId);
   } else {
     NumberOperandId numberId = writer.guardIsNumber(argumentId);
 
@@ -6413,8 +6383,11 @@ AttachDecision CallIRGenerator::tryAttachMathCeil(HandleFunction callee) {
   if (args_[0].isInt32()) {
     MOZ_ASSERT(resultIsInt32);
 
+    // Use an indirect truncation to inform the optimizer it needs to preserve
+    // a bailout when the input can't be represented as an int32, even if the
+    // final result is fully truncated.
     Int32OperandId intId = writer.guardToInt32(argumentId);
-    writer.loadInt32Result(intId);
+    writer.indirectTruncateInt32Result(intId);
   } else {
     NumberOperandId numberId = writer.guardIsNumber(argumentId);
 
@@ -6454,6 +6427,8 @@ AttachDecision CallIRGenerator::tryAttachMathTrunc(HandleFunction callee) {
   if (args_[0].isInt32()) {
     MOZ_ASSERT(resultIsInt32);
 
+    // We don't need an indirect truncation barrier here, because Math.trunc
+    // always truncates, but never rounds its input away from zero.
     Int32OperandId intId = writer.guardToInt32(argumentId);
     writer.loadInt32Result(intId);
   } else {
@@ -6495,8 +6470,11 @@ AttachDecision CallIRGenerator::tryAttachMathRound(HandleFunction callee) {
   if (args_[0].isInt32()) {
     MOZ_ASSERT(resultIsInt32);
 
+    // Use an indirect truncation to inform the optimizer it needs to preserve
+    // a bailout when the input can't be represented as an int32, even if the
+    // final result is fully truncated.
     Int32OperandId intId = writer.guardToInt32(argumentId);
-    writer.loadInt32Result(intId);
+    writer.indirectTruncateInt32Result(intId);
   } else {
     NumberOperandId numberId = writer.guardIsNumber(argumentId);
 
@@ -7660,9 +7638,7 @@ AttachDecision CallIRGenerator::tryAttachTypedArrayLength(
     writer.guardIsNotProxy(objArgId);
   }
 
-  // Note: the "getter" argument is a hint for IonBuilder. Just pass |callee|,
-  // the field isn't used for this intrinsic call.
-  writer.loadTypedArrayLengthResult(objArgId, callee);
+  writer.loadTypedArrayLengthResult(objArgId);
   writer.returnFromIC();
 
   trackAttached("TypedArrayLength");
@@ -8718,6 +8694,7 @@ ScriptedThisResult CallIRGenerator::getThisForScripted(
     return ScriptedThisResult::NoAction;
   }
 
+  AutoRealm ar(cx_, calleeFunc);
   PlainObject* thisObject =
       CreateThisForFunction(cx_, calleeFunc, newTarget, TenuredObject);
   if (!thisObject) {
@@ -9479,7 +9456,7 @@ AttachDecision CompareIRGenerator::tryAttachBigIntInt32(ValOperandId lhsId,
     Int32OperandId intId = createGuards(lhsVal_, lhsId);
     BigIntOperandId bigIntId = writer.guardToBigInt(rhsId);
 
-    writer.compareInt32BigIntResult(op_, intId, bigIntId);
+    writer.compareBigIntInt32Result(ReverseCompareOp(op_), bigIntId, intId);
   }
   writer.returnFromIC();
 
@@ -9507,7 +9484,7 @@ AttachDecision CompareIRGenerator::tryAttachBigIntNumber(ValOperandId lhsId,
     NumberOperandId numId = writer.guardIsNumber(lhsId);
     BigIntOperandId bigIntId = writer.guardToBigInt(rhsId);
 
-    writer.compareNumberBigIntResult(op_, numId, bigIntId);
+    writer.compareBigIntNumberResult(ReverseCompareOp(op_), bigIntId, numId);
   }
   writer.returnFromIC();
 
@@ -9535,7 +9512,7 @@ AttachDecision CompareIRGenerator::tryAttachBigIntString(ValOperandId lhsId,
     StringOperandId strId = writer.guardToString(lhsId);
     BigIntOperandId bigIntId = writer.guardToBigInt(rhsId);
 
-    writer.compareStringBigIntResult(op_, strId, bigIntId);
+    writer.compareBigIntStringResult(ReverseCompareOp(op_), bigIntId, strId);
   }
   writer.returnFromIC();
 

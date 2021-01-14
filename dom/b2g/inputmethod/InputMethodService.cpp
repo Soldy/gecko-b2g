@@ -185,6 +185,19 @@ NS_IMETHODIMP InputMethodService::ClearAll(
   return NS_OK;
 }
 
+NS_IMETHODIMP InputMethodService::ReplaceSurroundingText(
+    uint32_t aId, nsIEditableSupportListener* aListener, const nsAString& aText,
+    int32_t aOffset, int32_t aLength) {
+  IME_LOGD("InputMethodService::ReplaceSurroundingText");
+  if (mEditableSupport) {
+    mEditableSupport->ReplaceSurroundingText(aId, aListener, aText, aOffset,
+                                             aLength);
+  } else if (aListener) {
+    aListener->OnReplaceSurroundingText(aId, NS_ERROR_ABORT);
+  }
+  return NS_OK;
+}
+
 void InputMethodService::HandleFocus(nsIEditableSupport* aEditableSupport,
                                      nsIInputContext* aPropBag) {
   IME_LOGD("InputMethodService::HandleFocus");

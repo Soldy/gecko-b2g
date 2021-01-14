@@ -20,14 +20,20 @@ use crate::lru_cache::LRUCache;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{FrameStamp, FrameId};
 use crate::resource_cache::{CacheItem, CachedImageData};
-use crate::atlas_allocator::*;
-use crate::slab_allocator::*;
+use crate::texture_pack::{
+    AllocatorList,
+    AllocId,
+    AtlasAllocatorList,
+    ShelfAllocator,
+    ShelfAllocatorOptions,
+    SlabAllocator, SlabAllocatorParameters,
+};
 use smallvec::SmallVec;
 use std::cell::Cell;
 use std::{cmp, mem};
 use std::rc::Rc;
 use euclid::size2;
-
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 
 /// Information about which shader will use the entry.
 ///
@@ -63,6 +69,8 @@ enum EntryDetails {
         origin: DeviceIntPoint,
         /// ID of the allocation specific to its allocator.
         alloc_id: AllocId,
+        /// The allocated size in bytes for this entry.
+        allocated_size_in_bytes: usize,
     },
 }
 
@@ -89,7 +97,9 @@ pub enum CacheEntryMarker {}
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CacheEntry {
-    /// Size the requested item, in device pixels.
+    /// Size of the requested item, in device pixels. Does not include any
+    /// padding for alignment that the allocator may have added to this entry's
+    /// allocation.
     size: DeviceIntSize,
     /// Details specific to standalone or shared items.
     details: EntryDetails,
@@ -115,6 +125,8 @@ struct CacheEntry {
 
     shader: TargetShader,
 }
+
+malloc_size_of::malloc_size_of_is_0!(CacheEntry, CacheEntryMarker);
 
 impl CacheEntry {
     // Create a new entry for a standalone texture.
@@ -235,7 +247,7 @@ struct SharedTextures {
     alpha8_linear: AllocatorList<ShelfAllocator, TextureParameters>,
     alpha16_linear: AllocatorList<SlabAllocator, TextureParameters>,
     color8_linear: AllocatorList<ShelfAllocator, TextureParameters>,
-    color8_glyphs: AllocatorList<BucketedShelfAllocator, TextureParameters>,
+    color8_glyphs: AllocatorList<ShelfAllocator, TextureParameters>,
 }
 
 impl SharedTextures {
@@ -1137,7 +1149,7 @@ impl TextureCache {
                 // This is a standalone texture allocation. Free it directly.
                 self.pending_updates.push_free(entry.texture_id);
             }
-            EntryDetails::Cache { origin, alloc_id, .. } => {
+            EntryDetails::Cache { origin, alloc_id, allocated_size_in_bytes } => {
                 let allocator_list = self.shared_textures.select(
                     entry.input_format,
                     entry.filter,
@@ -1146,12 +1158,7 @@ impl TextureCache {
 
                 allocator_list.deallocate(entry.texture_id, alloc_id);
 
-                let bpp = allocator_list
-                    .texture_parameters()
-                    .formats
-                    .internal
-                    .bytes_per_pixel();
-                self.shared_bytes_allocated -= (entry.size.area() * bpp) as usize;
+                self.shared_bytes_allocated -= allocated_size_in_bytes;
 
                 if self.debug_flags.contains(
                     DebugFlags::TEXTURE_CACHE_DBG |
@@ -1219,7 +1226,8 @@ impl TextureCache {
         };
 
         let bpp = formats.internal.bytes_per_pixel();
-        self.shared_bytes_allocated += (allocated_rect.size.area() * bpp) as usize;
+        let allocated_size_in_bytes = (allocated_rect.size.area() * bpp) as usize;
+        self.shared_bytes_allocated += allocated_size_in_bytes;
 
         CacheEntry {
             size: params.descriptor.size,
@@ -1228,6 +1236,7 @@ impl TextureCache {
             details: EntryDetails::Cache {
                 origin: allocated_rect.origin,
                 alloc_id,
+                allocated_size_in_bytes,
             },
             uv_rect_handle: GpuCacheHandle::new(),
             input_format: params.descriptor.format,
@@ -1433,6 +1442,15 @@ impl TextureCache {
     pub fn default_picture_tile_size(&self) -> DeviceIntSize {
         self.picture_textures.default_tile_size
     }
+
+    #[cfg(test)]
+    pub fn total_allocated_bytes_for_testing(&self) -> usize {
+        self.standalone_bytes_allocated + self.shared_bytes_allocated
+    }
+
+    pub fn report_memory(&self, ops: &mut MallocSizeOfOps) -> usize {
+        self.lru_cache.size_of(ops)
+    }
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1514,5 +1532,77 @@ impl TextureCacheUpdate {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test_texture_cache {
+    #[test]
+    fn check_allocation_size_balance() {
+        // Allocate some glyphs, observe the total allocation size, and free
+        // the glyphs again. Check that the total allocation size is back at the
+        // original value.
+
+        use crate::texture_cache::{TextureCache, TextureCacheHandle, Eviction, TargetShader};
+        use crate::gpu_cache::GpuCache;
+        use crate::device::TextureFilter;
+        use crate::gpu_types::UvRectKind;
+        use api::{ImageDescriptor, ImageDescriptorFlags, ImageFormat, DirtyRect};
+        use api::units::*;
+        use euclid::size2;
+        let mut gpu_cache = GpuCache::new_for_testing();
+        let mut texture_cache = TextureCache::new_for_testing(2048, ImageFormat::BGRA8);
+
+        let sizes: &[DeviceIntSize] = &[
+            size2(23, 27),
+            size2(15, 22),
+            size2(11, 5),
+            size2(20, 25),
+            size2(38, 41),
+            size2(11, 19),
+            size2(13, 21),
+            size2(37, 40),
+            size2(13, 15),
+            size2(14, 16),
+            size2(10, 9),
+            size2(25, 28),
+        ];
+
+        let bytes_at_start = texture_cache.total_allocated_bytes_for_testing();
+
+        let handles: Vec<TextureCacheHandle> = sizes.iter().map(|size| {
+            let mut texture_cache_handle = TextureCacheHandle::invalid();
+            texture_cache.request(&texture_cache_handle, &mut gpu_cache);
+            texture_cache.update(
+                &mut texture_cache_handle,
+                ImageDescriptor {
+                    size: *size,
+                    stride: None,
+                    format: ImageFormat::BGRA8,
+                    flags: ImageDescriptorFlags::empty(),
+                    offset: 0,
+                },
+                TextureFilter::Linear,
+                None,
+                [0.0; 3],
+                DirtyRect::All,
+                &mut gpu_cache,
+                None,
+                UvRectKind::Rect,
+                Eviction::Manual,
+                TargetShader::Text,
+            );
+            texture_cache_handle
+        }).collect();
+
+        let bytes_after_allocating = texture_cache.total_allocated_bytes_for_testing();
+        assert!(bytes_after_allocating > bytes_at_start);
+
+        for handle in handles {
+            texture_cache.evict_manual_handle(&handle);
+        }
+
+        let bytes_at_end = texture_cache.total_allocated_bytes_for_testing();
+        assert_eq!(bytes_at_end, bytes_at_start);
     }
 }

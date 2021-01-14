@@ -5760,12 +5760,33 @@ PopupBlocker::PopupControlState nsGlobalWindowOuter::RevisePopupAbuseLevel(
     }
   }
 
+  // HACK: Some pages using bogus library + UA sniffing call window.open() from
+  // a blank iframe, only on Firefox, see bug 1685056.
+  //
+  // This is a hack-around to preserve behavior in that particular and specific
+  // case, by consuming activation on the parent document, so we don't care
+  // about the InProcessParent bits not being fission-safe or what not.
+  auto ConsumeTransientUserActivationForMultiplePopupBlocking = [&]() -> bool {
+    if (mDoc->ConsumeTransientUserGestureActivation()) {
+      return true;
+    }
+    if (!mDoc->IsInitialDocument()) {
+      return false;
+    }
+    Document* parentDoc = mDoc->GetInProcessParentDocument();
+    if (!parentDoc ||
+        !parentDoc->NodePrincipal()->Equals(mDoc->NodePrincipal())) {
+      return false;
+    }
+    return parentDoc->ConsumeTransientUserGestureActivation();
+  };
+
   // If this popup is allowed, let's block any other for this event, forcing
   // PopupBlocker::openBlocked state.
   if ((abuse == PopupBlocker::openAllowed ||
        abuse == PopupBlocker::openControlled) &&
       StaticPrefs::dom_block_multiple_popups() && !IsPopupAllowed() &&
-      !mDoc->ConsumeTransientUserGestureActivation()) {
+      !ConsumeTransientUserActivationForMultiplePopupBlocking()) {
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, mDoc,
                                     nsContentUtils::eDOM_PROPERTIES,
                                     "MultiplePopupsBlockedNoUserActivation");
@@ -6465,7 +6486,7 @@ void nsGlobalWindowOuter::LeaveModalState() {
   nsGlobalWindowOuter* topWin = GetInProcessScriptableTopInternal();
 
   if (!topWin) {
-    NS_ERROR("Uh, LeaveModalState() called w/o a reachable top window?");
+    NS_WARNING("Uh, LeaveModalState() called w/o a reachable top window?");
     return;
   }
 

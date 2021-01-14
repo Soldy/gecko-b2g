@@ -100,6 +100,13 @@ class InputMethodServiceCommon : public EditableSupportListenerCommon<T> {
         GetEditableSupport()->SetValue(request.id(), this, request.value());
         break;
       }
+      case InputMethodRequest::TReplaceSurroundingTextRequest: {
+        const ReplaceSurroundingTextRequest& request = aRequest;
+        GetEditableSupport()->ReplaceSurroundingText(
+            request.id(), this, request.text(), request.offset(),
+            request.length());
+        break;
+      }
       default:
         return IPC_FAIL(
             this, "InputMethodServiceCommon RecvRequest unknown request type.");
@@ -184,6 +191,9 @@ class InputMethodServiceCommon : public EditableSupportListenerCommon<T> {
             listener->OnSetValue(response.id(), response.status());
           } else if (response.responseName() == u"ClearAll"_ns) {
             listener->OnClearAll(response.id(), response.status());
+          } else if (response.responseName() == u"ReplaceSurroundingText"_ns) {
+            listener->OnReplaceSurroundingText(response.id(),
+                                               response.status());
           }
         }
         break;

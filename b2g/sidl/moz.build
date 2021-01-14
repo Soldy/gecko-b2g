@@ -1,8 +1,8 @@
 DIRS += ["interfaces"]
 
-EXPORTS.sidl += ["PowerManagerDelegate.h", "SidlComponents.h"]
+EXPORTS.sidl += ["PowerManagerDelegate.h", "PreferenceDelegate.h", "SidlComponents.h"]
 
-SOURCES += ["PowerManagerDelegate.cpp", "SidlComponents.cpp"]
+SOURCES += ["PowerManagerDelegate.cpp", "PreferenceDelegate.cpp", "SidlComponents.cpp"]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gonk":
     EXPORTS.sidl += [

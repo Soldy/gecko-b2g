@@ -397,9 +397,17 @@ void MediaEngineWebRTCMicrophoneSource::ApplySettings(
           uint32_t mRequestedInputChannelCount;
         };
 
+#ifdef B2G_VOICE_PROCESSING
+        // If each type of voice processing is either disabled or supported by
+        // the platform, we can activate pass through.
+        bool passThrough = (CubebUtils::IsAecSupported() || !prefs.mAecOn) &&
+                           (CubebUtils::IsAgcSupported() || !prefs.mAgcOn) &&
+                           (CubebUtils::IsNsSupported() || !prefs.mNoiseOn);
+#else
         // The high-pass filter is not taken into account when activating the
         // pass through, since it's not controllable from content.
         bool passThrough = !(prefs.mAecOn || prefs.mAgcOn || prefs.mNoiseOn);
+#endif
         if (track->IsDestroyed()) {
           return;
         }
@@ -621,6 +629,11 @@ AudioInputProcessing::AudioInputProcessing(
     : mAudioProcessing(AudioProcessing::Create()),
       mRequestedInputChannelCount(aMaxChannelCount),
       mSkipProcessing(false),
+#ifdef B2G_VOICE_PROCESSING
+      mEnableAec(false),
+      mEnableAgc(false),
+      mEnableNs(false),
+#endif
       mInputDownmixBuffer(MAX_SAMPLING_FREQ * MAX_CHANNELS / 100),
       mLiveFramesAppended(false),
       mLiveBufferingAppended(0),
@@ -690,6 +703,14 @@ void AudioInputProcessing::SetRequestedInputChannelCount(
 void AudioInputProcessing::UpdateAECSettings(
     bool aEnable, bool aUseAecMobile, EchoCancellation::SuppressionLevel aLevel,
     EchoControlMobile::RoutingMode aRoutingMode) {
+#ifdef B2G_VOICE_PROCESSING
+  mEnableAec = aEnable;
+  if (CubebUtils::IsAecSupported()) {
+    // Use platform-provided AEC if supported.
+    return;
+  }
+#endif
+
   if (aUseAecMobile) {
     HANDLE_APM_ERROR(mAudioProcessing->echo_control_mobile()->Enable(aEnable));
     HANDLE_APM_ERROR(mAudioProcessing->echo_control_mobile()->set_routing_mode(
@@ -716,6 +737,14 @@ void AudioInputProcessing::UpdateAECSettings(
 
 void AudioInputProcessing::UpdateAGCSettings(bool aEnable,
                                              GainControl::Mode aMode) {
+#ifdef B2G_VOICE_PROCESSING
+  mEnableAgc = aEnable;
+  if (CubebUtils::IsAgcSupported()) {
+    // Use platform-provided AGC if supported.
+    return;
+  }
+#endif
+
   if (aMode != GainControl::Mode::kAdaptiveAnalog &&
       aMode != GainControl::Mode::kAdaptiveDigital &&
       aMode != GainControl::Mode::kFixedDigital) {
@@ -747,6 +776,14 @@ void AudioInputProcessing::UpdateHPFSettings(bool aEnable) {
 
 void AudioInputProcessing::UpdateNSSettings(
     bool aEnable, webrtc::NoiseSuppression::Level aLevel) {
+#ifdef B2G_VOICE_PROCESSING
+  mEnableNs = aEnable;
+  if (CubebUtils::IsNsSupported()) {
+    // Use platform-provided NS if supported.
+    return;
+  }
+#endif
+
   if (aLevel != NoiseSuppression::Level::kLow &&
       aLevel != NoiseSuppression::Level::kModerate &&
       aLevel != NoiseSuppression::Level::kHigh &&

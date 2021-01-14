@@ -9,6 +9,7 @@ use super::messages::*;
 use super::mobile_manager_delegate::*;
 use super::network_manager_delegate::*;
 use super::power_manager_delegate::*;
+use super::preference_delegate::*;
 use crate::common::client_object::*;
 use crate::common::core::BaseMessage;
 use crate::common::default_response::*;
@@ -28,8 +29,8 @@ use thin_vec::ThinVec;
 use xpcom::{
     interfaces::{
         nsIAppsServiceDelegate, nsIGeckoBridge, nsIMobileManagerDelegate,
-        nsINetworkManagerDelegate, nsIPowerManagerDelegate, nsISidlConnectionObserver,
-        nsISidlDefaultResponse, nsISidlEventListener, nsISimContactInfo,
+        nsINetworkManagerDelegate, nsIPowerManagerDelegate, nsIPreferenceDelegate,
+        nsISidlConnectionObserver, nsISidlDefaultResponse, nsISidlEventListener, nsISimContactInfo,
     },
     RefPtr,
 };
@@ -59,6 +60,11 @@ type SetMobileManagerDelegateTask = (
 type SetPowerManagerDelegateTask = (
     SidlCallTask<(), (), nsISidlDefaultResponse>,
     ThreadPtrHandle<nsIPowerManagerDelegate>,
+);
+
+type SetPreferenceDelegateTask = (
+    SidlCallTask<(), (), nsISidlDefaultResponse>,
+    ThreadPtrHandle<nsIPreferenceDelegate>,
 );
 
 type SetNetworkManagerDelegateTask = (
@@ -91,6 +97,7 @@ enum GeckoBridgeTask {
     SetMobileManagerDelegate(SetMobileManagerDelegateTask),
     SetNetworkManagerDelegate(SetNetworkManagerDelegateTask),
     SetPowerManagerDelegate(SetPowerManagerDelegateTask),
+    SetPreferenceDelegate(SetPreferenceDelegateTask),
     CharPrefChanged(OnCharPrefChangedTask),
     IntPrefChanged(OnIntPrefChangedTask),
     BoolPrefChanged(OnBoolPrefChangedTask),
@@ -111,6 +118,8 @@ struct GeckoBridgeImpl {
     apps_service_delegate: Option<ClientObject<AppsServiceDelegate>>,
     // The power manager delegate.
     power_manager_delegate: Option<ClientObject<PowerManagerDelegate>>,
+    // The preference delegate.
+    preference_delegate: Option<ClientObject<PreferenceDelegate>>,
     // The mobile manager delegate.
     mobile_manager_delegate: Option<ClientObject<MobileManagerDelegate>>,
     // The network manager delegate.
@@ -143,6 +152,7 @@ impl ServiceClientImpl<GeckoBridgeTask> for GeckoBridgeImpl {
             object_id_generator: Shared::adopt(ObjectIdGenerator { current_id: 1 }),
             power_manager_delegate: None,
             apps_service_delegate: None,
+            preference_delegate: None,
             mobile_manager_delegate: None,
             network_manager_delegate: None,
         }
@@ -170,6 +180,9 @@ impl ServiceClientImpl<GeckoBridgeTask> for GeckoBridgeImpl {
                 }
                 GeckoBridgeTask::SetPowerManagerDelegate(task) => {
                     let _ = self.set_power_manager_delegate(task);
+                }
+                GeckoBridgeTask::SetPreferenceDelegate(task) => {
+                    let _ = self.set_preference_delegate(task);
                 }
                 GeckoBridgeTask::CharPrefChanged(task) => {
                     let _ = self.char_pref_changed(task);
@@ -273,6 +286,11 @@ impl GeckoBridgeImpl {
             SetAppsServiceDelegate
         );
         delegate_task!(
+            preference_delegate,
+            nsIPreferenceDelegate,
+            SetPreferenceDelegate
+        );
+        delegate_task!(
             mobile_manager_delegate,
             nsIMobileManagerDelegate,
             SetMobileManagerDelegate
@@ -348,6 +366,26 @@ impl GeckoBridgeImpl {
         let request = GeckoBridgeFromClient::GeckoFeaturesSetPowerManagerDelegate(object_id.into());
         self.sender
             .send_task(&request, SetPowerManagerDelegateTaskReceiver { task });
+
+        Ok(())
+    }
+
+    fn set_preference_delegate(&mut self, task: SetPreferenceDelegateTask) -> Result<(), nsresult> {
+        debug!("GeckoBridge::set_preference_delegate");
+        let object_id = self.next_object_id();
+
+        let (task, delegate) = task;
+        // Create a lightweight xpcom wrapper + session proxy that manages object release for us.
+        let wrapper =
+            PreferenceDelegate::new(delegate, self.service_id, object_id, &self.transport);
+        self.preference_delegate = Some(ClientObject::new::<PreferenceDelegate>(
+            wrapper,
+            &mut self.transport,
+        ));
+
+        let request = GeckoBridgeFromClient::GeckoFeaturesSetPreferenceDelegate(object_id.into());
+        self.sender
+            .send_task(&request, SetPreferenceDelegateTaskReceiver { task });
 
         Ok(())
     }
@@ -439,6 +477,14 @@ task_receiver!(
     GeckoBridgeToClient,
     GeckoFeaturesSetPowerManagerDelegateSuccess,
     GeckoFeaturesSetPowerManagerDelegateError
+);
+
+task_receiver!(
+    SetPreferenceDelegateTaskReceiver,
+    nsISidlDefaultResponse,
+    GeckoBridgeToClient,
+    GeckoFeaturesSetPreferenceDelegateSuccess,
+    GeckoFeaturesSetPreferenceDelegateError
 );
 
 task_receiver!(
@@ -640,6 +686,35 @@ impl GeckoBridgeXpcom {
 
         if let Some(inner) = self.inner.lock().as_ref() {
             return inner.lock().set_power_manager_delegate(task);
+        } else {
+            error!("Unable to get GeckoBridgeImpl");
+        }
+
+        Ok(())
+    }
+
+    xpcom_method!(set_preference_delegate => SetPreferenceDelegate(delegate: *const nsIPreferenceDelegate, callback: *const nsISidlDefaultResponse));
+    fn set_preference_delegate(
+        &self,
+        delegate: &nsIPreferenceDelegate,
+        callback: &nsISidlDefaultResponse,
+    ) -> Result<(), nsresult> {
+        debug!("GeckoBridgeXpcom::set_preference_delegate");
+
+        let delegate =
+            ThreadPtrHolder::new(cstr!("nsIPreferenceDelegate"), RefPtr::new(delegate)).unwrap();
+
+        let callback =
+            ThreadPtrHolder::new(cstr!("nsISidlDefaultResponse"), RefPtr::new(callback)).unwrap();
+        let task = (SidlCallTask::new(callback), delegate);
+
+        if !self.ensure_service() {
+            self.queue_task(GeckoBridgeTask::SetPreferenceDelegate(task));
+            return Ok(());
+        }
+
+        if let Some(inner) = self.inner.lock().as_ref() {
+            return inner.lock().set_preference_delegate(task);
         } else {
             error!("Unable to get GeckoBridgeImpl");
         }

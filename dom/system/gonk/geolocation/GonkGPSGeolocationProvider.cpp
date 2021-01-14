@@ -302,7 +302,7 @@ NS_IMPL_ISUPPORTS(GonkGPSGeolocationProvider, nsIGeolocationProvider,
     GonkGPSGeolocationProvider::sSingleton = nullptr;
 
 GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
-    : mInitialized(false),
+    : mGnssHalReady(false),
       mStarted(false),
       mSupportsScheduling(false),
       mSupportsSingleShot(false),
@@ -319,6 +319,19 @@ GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
 #endif
       mEnableHighAccuracy(false) {
   MOZ_ASSERT(NS_IsMainThread());
+
+  // Initialize GNSS HALs
+  nsresult rv = NS_NewNamedThread("GPS Init", getter_AddRefs(mInitThread));
+  if (NS_SUCCEEDED(rv)) {
+    RefPtr<GonkGPSGeolocationProvider> self = this;
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+        "GonkGPSGeolocationProvider::GonkGPSGeolocationProvider",
+        [self]() { self->Init(); });
+    mInitThread->Dispatch(r, NS_DISPATCH_NORMAL);
+  } else {
+    ERR("Failed to create GPS Init thread!");
+    mInitThread = nullptr;
+  }
 
   nsCOMPtr<nsISettingsManager> settings =
       do_GetService("@mozilla.org/sidl-native/settings;1");
@@ -433,7 +446,7 @@ GonkGPSGeolocationProvider::Startup() {
     }
   }
 
-  if (mInitialized) {
+  if (mGnssHalReady) {
     RefPtr<GonkGPSGeolocationProvider> self = this;
     nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
         "GonkGPSGeolocationProvider::Startup", [self]() { self->StartGPS(); });
@@ -511,27 +524,6 @@ void GonkGPSGeolocationProvider::Init() {
     DBG("Link to death notification successful");
   }
 
-  if (!gnssCbIface) {
-    gnssCbIface = new GnssCallback();
-  }
-
-  Return<bool> result = false;
-  if (mGnssHal_V2_0 != nullptr) {
-    DBG("mGnssHal_V2_0->setCallback_2_0");
-    result = mGnssHal_V2_0->setCallback_2_0(gnssCbIface);
-  } else if (mGnssHal_V1_1 != nullptr) {
-    DBG("mGnssHal_V1_1->setCallback_1_1");
-    result = mGnssHal_V1_1->setCallback_1_1(gnssCbIface);
-  } else {
-    DBG("mGnssHal->setCallback");
-    result = mGnssHal->setCallback(gnssCbIface);
-  }
-
-  if (!result.isOk() || !result) {
-    ERR("SetCallback for Gnss Interface fails");
-    return;
-  }
-
 #ifdef MOZ_B2G_RIL
   if (mAGnssHal_V2_0 != nullptr) {
     if (!agnssCbIface) {
@@ -553,33 +545,69 @@ void GonkGPSGeolocationProvider::Init() {
   if (mGnssVisibilityControlHal != nullptr) {
     if (!gnssVcCbIface) {
       gnssVcCbIface = new GnssVisibilityControlCallback();
-
-      // It's only needed when the Init() is called for the 1st time
-      hidl_vec<android::hardware::hidl_string> hidlProxyApps = {"b2g_system"};
-      auto result =
-          mGnssVisibilityControlHal->enableNfwLocationAccess(hidlProxyApps);
-      if (!result.isOk()) {
-        ERR("Failed to enableNfwLocationAccess");
-      }
     }
     Return<bool> gnssVcResult =
         mGnssVisibilityControlHal->setCallback(gnssVcCbIface);
-    if (!gnssVcResult.isOk()) {
+    if (!gnssVcResult.isOk() || !gnssVcResult) {
       ERR("SetCallback for Gnss VC Interface fails");
     }
   }
 
-  mInitialized = true;
+#ifdef MOZ_B2G_RIL
+  r = NS_NewRunnableFunction("GonkGPSGeolocationProvider::Init",
+                             [self]() { self->SetupAGPS(); });
+  NS_DispatchToMainThread(r);
+#endif
 
-  LOG("GPS HAL has been initialized");
+  LOG("GNSS HAL has been initialized");
+}
+
+void GonkGPSGeolocationProvider::SetupGnssHal() {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (mGnssHal == nullptr) {
+    ERR("Gnss HAL hasn't initialized");
+    return;
+  }
+
+  if (!gnssCbIface) {
+    gnssCbIface = new GnssCallback();
+  }
+
+  Return<bool> result = false;
+  if (mGnssHal_V2_0 != nullptr) {
+    DBG("mGnssHal_V2_0->setCallback_2_0");
+    result = mGnssHal_V2_0->setCallback_2_0(gnssCbIface);
+  } else if (mGnssHal_V1_1 != nullptr) {
+    DBG("mGnssHal_V1_1->setCallback_1_1");
+    result = mGnssHal_V1_1->setCallback_1_1(gnssCbIface);
+  } else {
+    DBG("mGnssHal->setCallback");
+    result = mGnssHal->setCallback(gnssCbIface);
+  }
+
+  if (!result.isOk() || !result) {
+    ERR("SetCallback for Gnss Interface fails");
+  }
+
+  mGnssHalReady = true;
+
+  LOG("GNSS HAL is ready for location callbacks");
 
   // If there is an ongoing location request, starts GPS navigating
   if (mStarted) {
-    RefPtr<GonkGPSGeolocationProvider> self = this;
-    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
-        "GonkGPSGeolocationProvider::Init", [self]() { self->StartGPS(); });
-    NS_DispatchToMainThread(r);
+    StartGPS();
   }
+}
+
+void GonkGPSGeolocationProvider::CleanupGnssHal() {
+  DBG("mGnssHal->stop and cleanup");
+  // Cleanup GNSS HAL when Geolocation setting is turned off
+  if (mGnssHal != nullptr) {
+    mGnssHal->stop();
+    mGnssHal->cleanup();
+  }
+  mGnssHalReady = false;
 }
 
 void GonkGPSGeolocationProvider::StartGPS() {
@@ -616,13 +644,13 @@ void GonkGPSGeolocationProvider::StartGPS() {
         0);  // preferred time
   }
 
-  if (!result.isOk()) {
+  if (!result.isOk() || !result) {
     ERR("failed to set IGnss position mode");
     return;
   }
   DBG("mGnssHal->start");
   result = mGnssHal->start();
-  if (!result.isOk()) {
+  if (!result.isOk() || !result) {
     ERR("failed to start IGnss HAL");
   }
 }
@@ -635,7 +663,7 @@ void GonkGPSGeolocationProvider::ShutdownGPS() {
   if (mGnssHal != nullptr) {
     DBG("mGnssHal->stop");
     auto result = mGnssHal->stop();
-    if (!result.isOk()) {
+    if (!result.isOk() || !result) {
       ERR("failed to stop IGnss HAL");
     }
   }
@@ -772,7 +800,7 @@ Return<void> GnssCallback::gnssSvStatusCb(
 
 Return<void> GnssCallback::gnssNmeaCb(
     int64_t timestamp, const ::android::hardware::hidl_string& nmea) {
-  DBG("%s: timestamp: %ld", __FUNCTION__, timestamp);
+  DBG("%s: timestamp: %lld", __FUNCTION__, timestamp);
   return Void();
 }
 
@@ -874,31 +902,18 @@ NS_IMETHODIMP GonkGPSGeolocationProvider::HandleSettings(
     LOG("ObserveSetting: geolocation-enabled: %d", gGeolocationEnabled);
 
     // Initialize GonkGPSGeolocationProvider
-    if (gGeolocationEnabled && !mInitialized) {
-      if (!mInitThread) {
-        nsresult rv =
-            NS_NewNamedThread("GPS Init", getter_AddRefs(mInitThread));
-        if (NS_FAILED(rv)) {
-          return NS_OK;
-        }
-      }
-
+    if (gGeolocationEnabled && !mGnssHalReady) {
       RefPtr<GonkGPSGeolocationProvider> self = this;
       nsCOMPtr<nsIRunnable> r =
           NS_NewRunnableFunction("GonkGPSGeolocationProvider::HandleSettings",
-                                 [self]() { self->Init(); });
-
-      mInitThread->Dispatch(r, NS_DISPATCH_NORMAL);
+                                 [self]() { self->SetupGnssHal(); });
+      NS_DispatchToMainThread(r);
     }
 
     // On demand cleanup
-    if (!gGeolocationEnabled && mInitialized && mGnssHal &&
+    if (!gGeolocationEnabled && mGnssHalReady &&
         Preferences::GetBool(kPrefOndemandCleanup)) {
-      DBG("mGnssHal->stop and cleanup");
-      // Cleanup GNSS HAL when Geolocation setting is turned off
-      mGnssHal->stop();
-      mGnssHal->cleanup();
-      mInitialized = false;
+      CleanupGnssHal();
     }
 
     // Handle NFW location access
@@ -910,7 +925,7 @@ NS_IMETHODIMP GonkGPSGeolocationProvider::HandleSettings(
 
       auto result =
           mGnssVisibilityControlHal->enableNfwLocationAccess(hidlProxyApps);
-      if (!result.isOk()) {
+      if (!result.isOk() || !result) {
         ERR("Failed to enableNfwLocationAccess");
       }
     }

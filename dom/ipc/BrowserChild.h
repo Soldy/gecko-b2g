@@ -390,8 +390,6 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvNativeSynthesisResponse(
       const uint64_t& aObserverId, const nsCString& aResponse);
 
-  mozilla::ipc::IPCResult RecvPluginEvent(const WidgetPluginEvent& aEvent);
-
   mozilla::ipc::IPCResult RecvCompositionEvent(
       const mozilla::WidgetCompositionEvent& aEvent);
 
@@ -426,6 +424,8 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
 
   mozilla::ipc::IPCResult RecvSafeAreaInsetsChanged(
       const mozilla::ScreenIntMargin& aSafeAreaInsets);
+
+  mozilla::ipc::IPCResult RecvSetUpdateHitRegion(const bool& aEnabled);
 
 #ifdef ACCESSIBILITY
   PDocAccessibleChild* AllocPDocAccessibleChild(PDocAccessibleChild*,
@@ -723,6 +723,8 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
           ContentBlockingNotifier::StorageAccessPermissionGrantedReason>&
           aReason);
 
+  bool GetUpdateHitRegion() const { return mUpdateHitRegion; }
+
  protected:
   virtual ~BrowserChild();
 
@@ -776,8 +778,6 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
       const layers::LayersId& aLayersId,
       const mozilla::layers::CompositorOptions& aCompositorOptions);
   void InitAPZState();
-
-  void InitVsyncChild();
 
   void DestroyWindow();
 
@@ -949,6 +949,8 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
 
   Maybe<LayoutDeviceToLayoutDeviceMatrix4x4> mChildToParentConversionMatrix;
   ScreenRect mTopLevelViewportVisibleRectInBrowserCoords;
+
+  bool mUpdateHitRegion;
 
 #ifdef XP_WIN
   // Should only be accessed on main thread.

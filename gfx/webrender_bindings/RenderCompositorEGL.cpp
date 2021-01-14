@@ -11,6 +11,7 @@
 #include "GLContextProvider.h"
 #include "GLLibraryEGL.h"
 #include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/BuildConstants.h"
 #include "mozilla/webrender/RenderThread.h"
@@ -144,8 +145,6 @@ bool RenderCompositorEGL::Resume() {
   if (kIsAndroid) {
     // Destroy EGLSurface if it exists.
     DestroyEGLSurface();
-    mEGLSurface = CreateEGLSurface();
-    gl::GLContextEGL::Cast(gl())->SetEGLSurfaceOverride(mEGLSurface);
 
 #ifdef MOZ_WIDGET_ANDROID
     // Query the new surface size as this may have changed. We cannot use
@@ -158,6 +157,24 @@ bool RenderCompositorEGL::Resume() {
         ANativeWindow_fromSurface(env, reinterpret_cast<jobject>(window));
     const int32_t width = ANativeWindow_getWidth(nativeWindow);
     const int32_t height = ANativeWindow_getHeight(nativeWindow);
+
+    GLint maxTextureSize = 0;
+    gl()->fGetIntegerv(LOCAL_GL_MAX_TEXTURE_SIZE, (GLint*)&maxTextureSize);
+
+    // When window size is too big, hardware buffer allocation could fail.
+    if (maxTextureSize < width || maxTextureSize < height) {
+      gfxCriticalNote << "Too big ANativeWindow size(" << width << ", "
+                      << height << ") MaxTextureSize " << maxTextureSize;
+      return false;
+    }
+
+    mEGLSurface = CreateEGLSurface();
+    if (mEGLSurface == EGL_NO_SURFACE) {
+      RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+      return false;
+    }
+    gl::GLContextEGL::Cast(gl())->SetEGLSurfaceOverride(mEGLSurface);
+
     mEGLSurfaceSize = LayoutDeviceIntSize(width, height);
     ANativeWindow_release(nativeWindow);
 #endif  // MOZ_WIDGET_ANDROID
@@ -178,10 +195,13 @@ bool RenderCompositorEGL::Resume() {
       egl->fSwapInterval(0);
     } else {
       RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+      return false;
     }
   }
   return true;
 }
+
+bool RenderCompositorEGL::IsPaused() { return mEGLSurface == EGL_NO_SURFACE; }
 
 gl::GLContext* RenderCompositorEGL::gl() const {
   return RenderThread::Get()->SharedGL();

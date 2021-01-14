@@ -183,8 +183,7 @@ ProcessGlobal.prototype = {
         let inParent =
           Services.appinfo.processType == Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT;
         if (inParent) {
-          // Initialize the ActorManagerParent
-          ChromeUtils.import("resource://gre/modules/ActorManagerParent.jsm");
+          this._initActor();
 
           Services.ppmm.addMessageListener("getProfD", () => {
             return Services.dirsvc.get("ProfD", Ci.nsIFile).path;
@@ -227,6 +226,30 @@ ProcessGlobal.prototype = {
         break;
       }
     }
+  },
+
+  _initActor() {
+    // Initialize the ActorManagerParent
+    const { ActorManagerParent } = ChromeUtils.import(
+      "resource://gre/modules/ActorManagerParent.jsm"
+    );
+
+    let JSWINDOWACTORS = {
+      SelectionAction: {
+        parent: {
+          moduleURI: "resource://gre/actors/SelectionActionParent.jsm",
+        },
+        child: {
+          moduleURI: "resource://gre/actors/SelectionActionChild.jsm",
+          events: {
+            mozcaretstatechanged: { mozSystemGroup: true },
+          },
+        },
+        allFrames: true,
+      },
+    };
+
+    ActorManagerParent.addJSWindowActors(JSWINDOWACTORS);
   },
 };
 

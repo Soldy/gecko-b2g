@@ -25,8 +25,8 @@ namespace widget {
 /* See libui/KeycodeLabels.h for the mapping */
 static const unsigned long kKeyMapping[] = {
     0,
-    NS_VK_META,   // SOFT_LEFT
-    NS_VK_META,   // SOFT_RIGHT
+    0,            // SOFT_LEFT
+    0,            // SOFT_RIGHT
     NS_VK_HOME,   // HOME
     0,            // BACK
     0,            // CALL

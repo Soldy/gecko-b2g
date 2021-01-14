@@ -5,3 +5,4 @@
 pub mod messages;
 pub mod observer;
 pub mod service;
+pub mod time_info;

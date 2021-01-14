@@ -16,6 +16,7 @@
 
 XPIDL_SOURCES += [
     "nsIAudioManager.idl",
+    "nsIRndisController.idl",
     "nsISystemWorkerManager.idl",
 ]
 
@@ -23,6 +24,7 @@ XPIDL_MODULE = "dom_system_gonk"
 
 EXPORTS += [
     "AudioChannelManager.h",
+    "RndisController.h",
     "SystemProperty.h",
     "SystemWorkerManager.h",
 ]
@@ -32,6 +34,7 @@ UNIFIED_SOURCES += [
     'AudioManager.cpp',
     'AutoMounter.cpp',
     'AutoMounterSetting.cpp',
+    'RndisController.cpp',
     'SystemProperty.cpp',
     'SystemWorkerManager.cpp',
 ]
@@ -42,6 +45,10 @@ EXTRA_JS_MODULES += [
 
 EXTRA_PP_JS_MODULES += [
     "BinderServices.jsm",
+]
+
+XPCOM_MANIFESTS += [
+    "components.conf",
 ]
 
 include("/ipc/chromium/chromium-config.mozbuild")

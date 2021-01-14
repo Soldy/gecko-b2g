@@ -307,7 +307,6 @@ class NetworkUtils final {
   CommandResult removeTetheringAlarm(NetworkParams& aOptions);
   CommandResult setDhcpServer(NetworkParams& aOptions);
   CommandResult getTetheringStatus(NetworkParams& aOptions);
-  CommandResult enableUsbRndis(NetworkParams& aOptions);
   CommandResult setUSBTethering(NetworkParams& aOptions);
   CommandResult setWifiTethering(NetworkParams& aOptions);
   CommandResult updateUpStream(NetworkParams& aOptions);
@@ -400,7 +399,6 @@ class NetworkUtils final {
    * Utility functions.
    */
   void dumpParams(NetworkParams& aOptions, const char* aType);
-  bool waitForUsbState(bool aTryToFind, const char* aState);
   static bool composeIpv6TetherConf(const char* aInternalIface,
                                     const char* aNetworkPrefix,
                                     uint32_t aDnsLength);

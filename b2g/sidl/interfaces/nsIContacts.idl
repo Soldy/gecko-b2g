@@ -3,7 +3,7 @@
 #include "nsISidl.idl"
 
 [scriptable, uuid(5611debf-e524-4a85-acb4-aa97a165eed7)]
-interface nsIHasNumberResponse : nsISupports
+interface nsIMatchesResponse : nsISupports
 {
     void resolve(in boolean result);
     void reject();
@@ -26,6 +26,17 @@ interface nsIFilterOption : nsISupports {
     const unsigned short FuzzyMatch = 4;
 };
 
+// This needs to stay in sync with the contacts.sidl enum
+[scriptable, uuid(7872445c-19f8-40a2-9bf8-ac21ff77a1f0)]
+interface nsIFilterByOption : nsISupports {
+    const unsigned short Name = 0;
+    const unsigned short GivenName = 1;
+    const unsigned short FamilyName = 2;
+    const unsigned short Tel = 3;
+    const unsigned short Email = 4;
+    const unsigned short Category = 5;
+};
+
 [scriptable, uuid(ea22f64e-9f34-492c-9f0a-f7df8056653b)]
 interface nsIBlockedNumberFindOptions : nsISupports {
     attribute AString filterValue;
@@ -35,7 +46,7 @@ interface nsIBlockedNumberFindOptions : nsISupports {
 [scriptable, uuid(53af3697-46a1-4928-900b-d61f183a8398)]
 interface nsIContactsManager : nsISupports
 {
-    // hasNumber and findBlockedNumbers api use to call contacts service
-    void hasNumber(in AString option, in nsIHasNumberResponse callback);
+    // matches and findBlockedNumbers api use to call contacts service
+    void matches(in unsigned short filterByOption, in unsigned short filterOption, in AString value, in nsIMatchesResponse callback);
     void findBlockedNumbers(in nsIBlockedNumberFindOptions option, in nsIFindBlockedNumbersResponse callback);
 };

@@ -404,39 +404,39 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
     sbfx(ARMRegister(dest, 64), ARMRegister(src, 64), JSVAL_TAG_SHIFT,
          (64 - JSVAL_TAG_SHIFT));
   }
-  MOZ_MUST_USE Register extractTag(const Address& address, Register scratch) {
+  [[nodiscard]] Register extractTag(const Address& address, Register scratch) {
     loadPtr(address, scratch);
     splitSignExtTag(scratch, scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractTag(const ValueOperand& value,
-                                   Register scratch) {
+  [[nodiscard]] Register extractTag(const ValueOperand& value,
+                                    Register scratch) {
     splitSignExtTag(value.valueReg(), scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractObject(const Address& address,
-                                      Register scratch) {
+  [[nodiscard]] Register extractObject(const Address& address,
+                                       Register scratch) {
     loadPtr(address, scratch);
     unboxObject(scratch, scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractObject(const ValueOperand& value,
-                                      Register scratch) {
+  [[nodiscard]] Register extractObject(const ValueOperand& value,
+                                       Register scratch) {
     unboxObject(value, scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractSymbol(const ValueOperand& value,
-                                      Register scratch) {
+  [[nodiscard]] Register extractSymbol(const ValueOperand& value,
+                                       Register scratch) {
     unboxSymbol(value, scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractInt32(const ValueOperand& value,
-                                     Register scratch) {
+  [[nodiscard]] Register extractInt32(const ValueOperand& value,
+                                      Register scratch) {
     unboxInt32(value, scratch);
     return scratch;
   }
-  MOZ_MUST_USE Register extractBoolean(const ValueOperand& value,
-                                       Register scratch) {
+  [[nodiscard]] Register extractBoolean(const ValueOperand& value,
+                                        Register scratch) {
     unboxBoolean(value, scratch);
     return scratch;
   }
@@ -964,6 +964,10 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
     storePtr(ImmWord(imm.value), address);
   }
 
+  void store64(Imm64 imm, const Address& address) {
+    storePtr(ImmWord(imm.value), address);
+  }
+
   template <typename S, typename T>
   void store64Unaligned(const S& src, const T& dest) {
     store64(src, dest);
@@ -1288,6 +1292,10 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
     Adds(scratch32, scratch32, Operand(imm.value));
     Str(scratch32, toMemOperand(dest));
   }
+  void adds64(Register src, Register dest) {
+    Adds(ARMRegister(dest, 64), ARMRegister(dest, 64),
+         Operand(ARMRegister(src, 64)));
+  }
 
   void subs32(Imm32 imm, Register dest) {
     Subs(ARMRegister(dest, 32), ARMRegister(dest, 32), Operand(imm.value));
@@ -1295,6 +1303,10 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
   void subs32(Register src, Register dest) {
     Subs(ARMRegister(dest, 32), ARMRegister(dest, 32),
          Operand(ARMRegister(src, 32)));
+  }
+  void subs64(Register src, Register dest) {
+    Subs(ARMRegister(dest, 64), ARMRegister(dest, 64),
+         Operand(ARMRegister(src, 64)));
   }
 
   void ret() {

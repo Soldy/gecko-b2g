@@ -51,6 +51,7 @@ EXTRA_JS_MODULES += [
     "RadioInterfaceLayer.jsm",
     "ril_consts.js",
     "ril_consts_debug.js",
+    "RILSettingsObserver.jsm",
     "RILSystemMessenger.jsm",
     "RILSystemMessengerHelper.jsm",
     "simIOHelper.js",

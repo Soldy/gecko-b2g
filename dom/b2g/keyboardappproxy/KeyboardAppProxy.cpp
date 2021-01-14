@@ -14,6 +14,18 @@
 
 mozilla::LazyLogModule gKeyboardAppProxyLog("KeyboardAppProxy");
 
+#if defined(MOZ_WIDGET_GONK)
+#  include <android/log.h>
+#  undef LOG_IME
+#  define LOG_IME(type, msg, ...)                                       \
+    if (type == mozilla::LogLevel::Info) {                              \
+      __android_log_print(ANDROID_LOG_INFO, "IME", msg, ##__VA_ARGS__); \
+    }                                                                   \
+    MOZ_LOG(gKeyboardAppProxyLog, type, (msg, ##__VA_ARGS__));
+#else
+#  define LOG_IME(args...)
+#endif
+
 namespace mozilla {
 namespace dom {
 
@@ -72,9 +84,8 @@ KeyboardAppProxy::MaybeForwardKey(WidgetKeyboardEvent* aEvent,
 
   nsString key;
   aEvent->GetDOMKeyName(key);
-  MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-          ("SendKey => keyType: [%s], DOMKeyName: [%s]", keyType.get(),
-           NS_ConvertUTF16toUTF8(key).get()));
+  LOG_IME(LogLevel::Info, "SendKey => keyType: [%s], DOMKeyName: [%s]",
+          keyType.get(), NS_ConvertUTF16toUTF8(key).get());
   nsCOMPtr<nsIKeyboardEventForwarder> forwarder =
       do_QueryReferent(mKeyboardEventForwarder);
   if (!forwarder) {
@@ -91,8 +102,7 @@ KeyboardAppProxy::MaybeForwardKey(WidgetKeyboardEvent* aEvent,
 NS_IMETHODIMP
 KeyboardAppProxy::Activate(nsFrameLoader* aFrameLoader) {
   if (!aFrameLoader) {
-    MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-            ("Activate fail due to no valid frameLoader"));
+    LOG_IME(LogLevel::Debug, "Activate fail due to no valid frameLoader");
     return NS_ERROR_FAILURE;
   }
 
@@ -116,7 +126,7 @@ KeyboardAppProxy::Activate(nsFrameLoader* aFrameLoader) {
     mKeyboardEventForwarder = do_GetWeakReference(actor);
   }
 
-  MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug, ("Activate"));
+  LOG_IME(LogLevel::Info, "IME: Activate");
   // Advance event generation and empty event queue. Instead of doing such
   // clean up at set inactive, we perform it at set active for the reason if
   // target app destroys itself at keydown, System app still expect handling
@@ -134,7 +144,8 @@ KeyboardAppProxy::Deactivate() {
   if (!mIsActive) {
     return NS_OK;
   }
-  MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug, ("Deactivate"));
+
+  LOG_IME(LogLevel::Info, "IME: Deactivate");
   mIsActive = false;
   nsCOMPtr<nsIKeyboardEventForwarder> forwarder =
       do_QueryReferent(mKeyboardEventForwarder);
@@ -180,29 +191,25 @@ KeyboardAppProxy::ReplyKey(const nsACString& aEventType,
   // postHandleEVent.
   if (!aDefaultPreventedStatus) {
     if (!mFrameLoader) {
-      MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-              ("KeyboardAppProxy::ReplyKey no mFrameLoader"));
+      LOG_IME(LogLevel::Debug, "KeyboardAppProxy::ReplyKey no mFrameLoader");
       return NS_OK;
     }
 
     Document* doc = mFrameLoader->GetOwnerDoc();
     if (!doc) {
-      MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-              ("KeyboardAppProxy::ReplyKey no doc"));
+      LOG_IME(LogLevel::Debug, "KeyboardAppProxy::ReplyKey no doc");
       return NS_OK;
     }
 
     PresShell* presShell = doc->GetPresShell();
     if (!presShell) {
-      MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-              ("KeyboardAppProxy::ReplyKey no presShell"));
+      LOG_IME(LogLevel::Debug, "KeyboardAppProxy::ReplyKey no presShell");
       return NS_OK;
     }
 
     nsIFrame* frame = presShell->GetRootScrollFrame();
     if (!frame) {
-      MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
-              ("KeyboardAppProxy::ReplyKey no frame"));
+      LOG_IME(LogLevel::Debug, "KeyboardAppProxy::ReplyKey no frame");
       return NS_OK;
     }
     nsEventStatus result = nsEventStatus_eIgnore;

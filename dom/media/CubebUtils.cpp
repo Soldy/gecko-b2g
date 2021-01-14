@@ -41,6 +41,10 @@
 #include "AudioThreadRegistry.h"
 #include "mozilla/StaticPrefs_media.h"
 
+#if defined(B2G_VOICE_PROCESSING)
+#  include <media/AudioEffect.h>
+#endif
+
 #define AUDIOIPC_POOL_SIZE_DEFAULT 1
 #define AUDIOIPC_STACK_SIZE_DEFAULT (64 * 4096)
 
@@ -842,6 +846,50 @@ bool EstimatedRoundTripLatencyDefaultDevices(double* aMean, double* aStdDev) {
 
   return true;
 }
+
+#ifdef B2G_VOICE_PROCESSING
+static bool sAecSupported = false;
+static bool sAgcSupported = false;
+static bool sNsSupported = false;
+
+void QueryAudioEffects() {
+  StaticMutexAutoLock lock(sMutex);
+  static bool sAudioEffectsQueried = false;
+  if (!sAudioEffectsQueried) {
+    sAudioEffectsQueried = true;
+
+    uint32_t numEffects = 0;
+    android::AudioEffect::queryNumberEffects(&numEffects);
+    for (uint32_t i = 0; i < numEffects; i++) {
+      effect_descriptor_t desc;
+      android::AudioEffect::queryEffect(i, &desc);
+
+      if (!strcmp(desc.name, "Acoustic Echo Canceler")) {
+        sAecSupported = true;
+      } else if (!strcmp(desc.name, "Automatic Gain Control")) {
+        sAgcSupported = true;
+      } else if (!strcmp(desc.name, "Noise Suppression")) {
+        sNsSupported = true;
+      }
+    }
+  }
+}
+
+bool IsAecSupported() {
+  QueryAudioEffects();
+  return sAecSupported;
+}
+
+bool IsAgcSupported() {
+  QueryAudioEffects();
+  return sAgcSupported;
+}
+
+bool IsNsSupported() {
+  QueryAudioEffects();
+  return sNsSupported;
+}
+#endif
 
 #ifdef MOZ_WIDGET_ANDROID
 uint32_t AndroidGetAudioOutputSampleRate() {

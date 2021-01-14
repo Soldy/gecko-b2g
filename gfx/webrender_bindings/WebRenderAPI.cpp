@@ -126,6 +126,10 @@ class NewRenderer : public RendererEvent {
     int picTileWidth = StaticPrefs::gfx_webrender_picture_tile_width();
     int picTileHeight = StaticPrefs::gfx_webrender_picture_tile_height();
     auto* swgl = compositor->swgl();
+    auto* gl = (compositor->gl() && !swgl) ? compositor->gl() : nullptr;
+    auto* progCache = (aRenderThread.GetProgramCache() && !swgl)
+                          ? aRenderThread.GetProgramCache()->Raw()
+                          : nullptr;
     auto* shaders = (aRenderThread.GetShaders() && !swgl)
                         ? aRenderThread.GetShaders()->RawShaders()
                         : nullptr;
@@ -140,17 +144,12 @@ class NewRenderer : public RendererEvent {
 #else
             false,
 #endif
-            swgl, compositor->gl(), compositor->SurfaceOriginIsTopLeft(),
-            aRenderThread.GetProgramCache()
-                ? aRenderThread.GetProgramCache()->Raw()
-                : nullptr,
-            shaders, aRenderThread.ThreadPool().Raw(),
+            swgl, gl, compositor->SurfaceOriginIsTopLeft(), progCache, shaders,
+            aRenderThread.ThreadPool().Raw(),
             aRenderThread.ThreadPoolLP().Raw(), &WebRenderMallocSizeOf,
-            &WebRenderMallocEnclosingSizeOf, 0,
-            compositor->ShouldUseNativeCompositor() ? compositor.get()
-                                                    : nullptr,
-            compositor->GetMaxUpdateRects(),
-            compositor->UsePartialPresent() ? compositor.get() : nullptr,
+            &WebRenderMallocEnclosingSizeOf, 0, compositor.get(),
+            compositor->ShouldUseNativeCompositor(),
+            compositor->GetMaxUpdateRects(), compositor->UsePartialPresent(),
             compositor->GetMaxPartialPresentRects(),
             compositor->ShouldDrawPreviousPartialPresentRegions(), mDocHandle,
             &wrRenderer, mMaxTextureSize, &errorMessage,
@@ -1168,9 +1167,12 @@ void DisplayListBuilder::PushRoundedRect(const wr::LayoutRect& aBounds,
   // - clips are not cached; borders are
   // - a simple border like this will be drawn as an image
   // - Processing lots of clips is not WebRender's strong point.
+  //
+  // Made the borders thicker than one half the width/height, to avoid
+  // little white dots at the center at some magnifications.
   wr::BorderSide side = {aColor, wr::BorderStyle::Solid};
-  float h = aBounds.size.width / 2;
-  float v = aBounds.size.height / 2;
+  float h = aBounds.size.width * 0.6f;
+  float v = aBounds.size.height * 0.6f;
   wr::LayoutSideOffsets widths = {v, h, v, h};
   wr::BorderRadius radii = {{h, v}, {h, v}, {h, v}, {h, v}};
 

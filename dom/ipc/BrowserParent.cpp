@@ -2035,12 +2035,6 @@ void BrowserParent::SendRealTouchMoveEvent(
   MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
 }
 
-void BrowserParent::SendPluginEvent(WidgetPluginEvent& aEvent) {
-  DebugOnly<bool> ret = PBrowserParent::SendPluginEvent(aEvent);
-  NS_WARNING_ASSERTION(ret, "PBrowserParent::SendPluginEvent() failed");
-  MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
-}
-
 bool BrowserParent::SendHandleTap(TapType aType,
                                   const LayoutDevicePoint& aPoint,
                                   Modifiers aModifiers,
@@ -3150,28 +3144,6 @@ mozilla::ipc::IPCResult BrowserParent::RecvRequestIMEToCommitComposition(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult BrowserParent::RecvStartPluginIME(
-    const WidgetKeyboardEvent& aKeyboardEvent, const int32_t& aPanelX,
-    const int32_t& aPanelY, nsString* aCommitted) {
-  nsCOMPtr<nsIWidget> widget = GetWidget();
-  if (!widget) {
-    return IPC_OK();
-  }
-  Unused << widget->StartPluginIME(aKeyboardEvent, (int32_t&)aPanelX,
-                                   (int32_t&)aPanelY, *aCommitted);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult BrowserParent::RecvSetPluginFocused(
-    const bool& aFocused) {
-  nsCOMPtr<nsIWidget> widget = GetWidget();
-  if (!widget) {
-    return IPC_OK();
-  }
-  widget->SetPluginFocused((bool&)aFocused);
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult BrowserParent::RecvGetInputContext(
     widget::IMEState* aState) {
   nsCOMPtr<nsIWidget> widget = GetWidget();
@@ -4251,6 +4223,21 @@ mozilla::ipc::IPCResult BrowserParent::RecvReleasePointerCapture(
     const uint32_t& aPointerId) {
   PointerEventHandler::ReleasePointerCaptureRemoteTarget(aPointerId);
   return IPC_OK();
+}
+
+mozilla::ipc::IPCResult BrowserParent::RecvUpdateHitRegion(
+    const nsRegion& aRegion) {
+  mHitRegion = aRegion;
+  return IPC_OK();
+}
+
+bool BrowserParent::SetUpdateHitRegion(bool aEnabled) {
+  mEnableHitRegion = aEnabled;
+  return SendSetUpdateHitRegion(aEnabled);
+}
+
+bool BrowserParent::HitTest(const nsRect& aRect) {
+  return mEnableHitRegion && mHitRegion.Contains(aRect);
 }
 
 PKeyboardEventForwarderParent*

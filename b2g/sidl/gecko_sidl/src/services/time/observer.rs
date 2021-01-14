@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use super::time_info::TimeInfoXpcom;
 use crate::common::core::{BaseMessage, BaseMessageKind};
 use crate::common::traits::TrackerId;
 use crate::common::uds_transport::*;
@@ -17,16 +18,16 @@ use xpcom::interfaces::nsITimeObserver;
 #[derive(Clone)]
 struct ObserverTask {
     xpcom: ThreadPtrHandle<nsITimeObserver>,
-    reason: CallbackReason,
+    time_info: TimeInfo,
 }
 
 impl Task for ObserverTask {
     fn run(&self) {
         // Call the method on the initial thread.
         if let Some(object) = self.xpcom.get() {
-            let reason = self.reason;
+            let timeinfo_xpcom = TimeInfoXpcom::new(&self.time_info);
             unsafe {
-                object.Notify(reason as i16);
+                object.Notify(timeinfo_xpcom.coerce());
             }
         }
     }
@@ -60,11 +61,13 @@ impl ObserverWrapper {
 impl SessionObject for ObserverWrapper {
     fn on_request(&mut self, request: BaseMessage, request_id: u64) -> Option<BaseMessage> {
         // Unpack the request.
-        if let Ok(TimeServiceToClient::TimeObserverCallback(reason)) = from_base_message(&request) {
+        if let Ok(TimeServiceToClient::TimeObserverCallback(time_info)) =
+            from_base_message(&request)
+        {
             // Dispatch the setting change to the xpcom observer.
             let task = ObserverTask {
                 xpcom: self.xpcom.clone(),
-                reason,
+                time_info,
             };
             let _ = TaskRunnable::new("ObserverWrapper", Box::new(task))
                 .and_then(|r| TaskRunnable::dispatch(r, self.xpcom.owning_thread()));

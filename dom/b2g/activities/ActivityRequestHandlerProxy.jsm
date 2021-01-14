@@ -15,18 +15,7 @@ function debug(aMsg) {
  * WebActivityRequestHandler (running on service worker) to ActivitiesService.
  */
 
-function ActivityRequestHandlerProxy() {
-  // TODO: We used to observe "inner-window-destroyed" to moniter whether the
-  // activity app window is closed before request is handled, but since
-  // WebActivityRequestHandler is exposed to worker only, I'm not sure how to
-  // retrieve the inner window ID out of it (innter window ID is the subject of
-  // "inner-window-destroyed"). (Bug 80953)
-  // TODO: We used to listen for "Activity:FireCancel" about cancelation from
-  // activity requester, and should notify BrowserElementChildPreload with
-  // "activity-done". however, since ActivityRequestHandlerProxy is now a proxy of
-  // WebActivityRequestHandler (created on service worker), there is no way to
-  // retrieve its window and turn it into docShell. (Bug 80953)
-}
+function ActivityRequestHandlerProxy() {}
 
 ActivityRequestHandlerProxy.prototype = {
   notifyActivityReady(id) {
@@ -40,10 +29,6 @@ ActivityRequestHandlerProxy.prototype = {
       id,
       result,
     });
-    // TODO: Should notify BrowserElementChildPreload with "activity-done"
-    // that an WebActivity has handled, however, since ActivityRequestHandlerProxy is now
-    // a proxy of WebActivityRequestHandler (created on service worker), there
-    // is no way to retrieve its window and turn it into docShell. (Bug 80953)
   },
 
   postActivityError(id, error) {
@@ -52,10 +37,6 @@ ActivityRequestHandlerProxy.prototype = {
       id,
       error,
     });
-    // TODO: Should notify BrowserElementChildPreload with "activity-done"
-    // that an WebActivity has handled, however, since ActivityRequestHandlerProxy is now
-    // a proxy of WebActivityRequestHandler (created on service worker), there
-    // is no way to retrieve its window and turn it into docShell. (Bug 80953)
   },
 
   contractID: "@mozilla.org/dom/activities/handlerproxy;1",

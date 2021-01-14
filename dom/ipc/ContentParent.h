@@ -259,6 +259,10 @@ class ContentParent final
 
   static void BroadcastThemeUpdate(widget::ThemeChangeKind);
 
+  static void BroadcastMediaCodecsSupportedUpdate(
+      RemoteDecodeIn aLocation,
+      const PDMFactory::MediaCodecsSupported& aSupported);
+
   const nsACString& GetRemoteType() const override;
 
   virtual void DoGetRemoteType(nsACString& aRemoteType,
@@ -314,8 +318,11 @@ class ContentParent final
 
   static void NotifyUpdatedDictionaries();
 
-  static void NotifyUpdatedFonts();
-  static void NotifyRebuildFontList();
+  // Tell content processes the font list has changed. If aFullRebuild is true,
+  // the shared list has been rebuilt and must be freshly mapped by child
+  // processes; if false, existing mappings are still valid but the data has
+  // been updated and so full reflows are in order.
+  static void NotifyUpdatedFonts(bool aFullRebuild);
 
 #if defined(XP_WIN)
   /**
@@ -1318,6 +1325,10 @@ class ContentParent final
 
   mozilla::ipc::IPCResult RecvGetDeviceStorageLocations(
       DeviceStorageLocationInfo* info);
+
+  mozilla::ipc::IPCResult RecvStartCmapLoading(const uint32_t& aGeneration,
+                                               const uint32_t& aStartIndex);
+
   mozilla::ipc::IPCResult RecvGetHyphDict(nsIURI* aURIParams,
                                           base::SharedMemoryHandle* aOutHandle,
                                           uint32_t* aOutSize);

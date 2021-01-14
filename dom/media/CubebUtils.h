@@ -74,6 +74,12 @@ bool RouteOutputAsVoice();
 // the devices being used matter. This is blocking.
 bool EstimatedRoundTripLatencyDefaultDevices(double* aMean, double* aStdDev);
 
+#  ifdef B2G_VOICE_PROCESSING
+bool IsAecSupported();
+bool IsAgcSupported();
+bool IsNsSupported();
+#  endif
+
 #  ifdef MOZ_WIDGET_ANDROID
 uint32_t AndroidGetAudioOutputSampleRate();
 uint32_t AndroidGetAudioOutputFramesPerBuffer();

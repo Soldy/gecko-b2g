@@ -205,6 +205,15 @@ struct GraphInterface : public nsISupports {
 #endif
 
   virtual dom::AudioChannel AudioChannel() const = 0;
+
+#ifdef B2G_VOICE_PROCESSING
+  virtual void GetVoiceInputSettings(bool* aEnableAec, bool* aEnableAgc,
+                                     bool* aEnableNs) {
+    *aEnableAec = false;
+    *aEnableAgc = false;
+    *aEnableNs = false;
+  }
+#endif
 };
 
 /**
@@ -768,6 +777,12 @@ class AudioCallbackDriver : public GraphDriver,
   cubeb_device_pref mInputDevicePreference;
   /* This is set during initialization, and can be read safely afterwards. */
   dom::AudioChannel mAudioChannel;
+#ifdef B2G_VOICE_PROCESSING
+  /* Voice processing settings */
+  bool mEnableAec;
+  bool mEnableAgc;
+  bool mEnableNs;
+#endif
   /* The mixer that the graph mixes into during an iteration. Audio thread only.
    */
   AudioMixer mMixer;

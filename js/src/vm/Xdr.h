@@ -48,16 +48,7 @@ using XDRAtomMap = JS::GCHashMap<PreBarriered<JSAtom*>, uint32_t>;
 class XDRBufferBase {
  public:
   explicit XDRBufferBase(JSContext* cx, size_t cursor = 0)
-      : context_(cx),
-        cursor_(cursor)
-#ifdef DEBUG
-        // Note, when decoding the buffer can be set to a range, which does not
-        // have any alignment requirement as opposed to allocations.
-        ,
-        aligned_(false)
-#endif
-  {
-  }
+      : context_(cx), cursor_(cursor) {}
 
   JSContext* cx() const { return context_; }
 
@@ -66,9 +57,6 @@ class XDRBufferBase {
  protected:
   JSContext* const context_;
   size_t cursor_;
-#ifdef DEBUG
-  bool aligned_;
-#endif
 
   friend class XDRIncrementalStencilEncoder;
 };
@@ -284,7 +272,7 @@ class XDRState : public XDRCoderBase {
 
   virtual bool hasAtomTable() const { return false; }
   virtual XDRAtomTable& atomTable() { MOZ_CRASH("does not have atomTable"); }
-  virtual frontend::ParserAtomVectorBuilder& frontendAtoms() {
+  virtual frontend::ParserAtomSpanBuilder& frontendAtoms() {
     MOZ_CRASH("does not have frontendAtoms");
   }
   virtual LifoAlloc& stencilAlloc() { MOZ_CRASH("does not have stencilAlloc"); }
@@ -537,12 +525,15 @@ class XDRStencilDecoder : public XDRDecoderBase {
   XDRStencilDecoder(JSContext* cx, const JS::ReadOnlyCompileOptions* options,
                     JS::TranscodeBuffer& buffer, size_t cursor)
       : XDRDecoderBase(cx, buffer, cursor), options_(options) {
+    MOZ_ASSERT(JS::IsTranscodingBytecodeAligned(buffer.begin()));
+    MOZ_ASSERT(JS::IsTranscodingBytecodeOffsetAligned(cursor));
     MOZ_ASSERT(options_);
   }
 
   XDRStencilDecoder(JSContext* cx, const JS::ReadOnlyCompileOptions* options,
                     const JS::TranscodeRange& range)
       : XDRDecoderBase(cx, range), options_(options) {
+    MOZ_ASSERT(JS::IsTranscodingBytecodeAligned(range.begin().get()));
     MOZ_ASSERT(options_);
   }
 
@@ -551,7 +542,7 @@ class XDRStencilDecoder : public XDRDecoderBase {
   bool isForStencil() const override { return true; }
 
   bool hasAtomTable() const override { return hasFinishedAtomTable_; }
-  frontend::ParserAtomVectorBuilder& frontendAtoms() override {
+  frontend::ParserAtomSpanBuilder& frontendAtoms() override {
     return *parserAtomBuilder_;
   }
   LifoAlloc& stencilAlloc() override { return *stencilAlloc_; }
@@ -565,7 +556,7 @@ class XDRStencilDecoder : public XDRDecoderBase {
  private:
   const JS::ReadOnlyCompileOptions* options_;
   bool hasFinishedAtomTable_ = false;
-  frontend::ParserAtomVectorBuilder* parserAtomBuilder_ = nullptr;
+  frontend::ParserAtomSpanBuilder* parserAtomBuilder_ = nullptr;
   LifoAlloc* stencilAlloc_ = nullptr;
 };
 
@@ -753,12 +744,10 @@ class XDRIncrementalStencilEncoder : public XDRIncrementalEncoderBase {
   //   b. atoms
   //   c. CompilationStencil
 
-  using FunctionKey = uint64_t;
-  static FunctionKey toFunctionKey(const SourceExtent& extent);
-
   // A set of functions that is passed to codeFunctionStencil.
   // Used to avoid encoding delazification for same function twice.
   // NOTE: This is not a set of all encoded functions.
+  using FunctionKey = uint64_t;
   HashSet<FunctionKey> encodedFunctions_;
 
  public:
@@ -785,10 +774,6 @@ XDRResult XDRAtom(XDRState<mode>* xdr, js::MutableHandleAtom atomp);
 
 template <XDRMode mode>
 XDRResult XDRAtomData(XDRState<mode>* xdr, js::MutableHandleAtom atomp);
-
-template <XDRMode mode>
-XDRResult XDRTaggedParserAtomIndex(
-    XDRState<mode>* xdr, frontend::TaggedParserAtomIndex* taggedIndex);
 
 template <XDRMode mode>
 XDRResult XDRParserAtomEntry(XDRState<mode>* xdr,

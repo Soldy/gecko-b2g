@@ -935,20 +935,13 @@ pref("browser.autofocus", false);
 // Enable wakelock
 pref("dom.wakelock.enabled", true);
 
-// New implementation to unify touch-caret and selection-carets.
-pref("layout.accessiblecaret.enabled", false);
-
-// Show the selection bars at the two ends of the selection highlight. Required
-// by the spec in bug 921965.
-pref("layout.accessiblecaret.bar.enabled", true);
-
-// APZ on real devices supports long tap events.
-#ifdef MOZ_WIDGET_GONK
-pref("layout.accessiblecaret.use_long_tap_injector", false);
-#endif
-
-// Hide carets and text selection dialog during scrolling.
-pref("layout.accessiblecaret.always_show_when_scrolling", false);
+// Overwrite the size in all.js
+pref("layout.accessiblecaret.width", "14");
+pref("layout.accessiblecaret.height", "14");
+pref("layout.accessiblecaret.margin-left", "0");
+pref("layout.accessiblecaret.caret_shown_when_long_tapping_on_empty_content", true);
+pref("layout.accessiblecaret.always_tilt", true);
+pref("layout.accessiblecaret.transition-duration", "0");
 
 // Enable mapped array buffer.
 #ifndef XP_WIN
@@ -965,10 +958,6 @@ pref("dom.tv.simulator.enabled", false);
 
 // Enable Inputport Manager API
 pref("dom.inputport.enabled", true);
-
-// Comma separated list of activity names that can only be provided by
-// the system app in dev mode.
-pref("dom.activities.developer_mode_only", "import-app");
 
 // ServiceWorker API
 pref("dom.serviceWorkers.enabled", true);
@@ -1067,7 +1056,7 @@ pref("dom.microphonetoggle.hardwareKey", false);
 
 // Dispatch the function key events to the content first.
 pref("dom.keyboardevent.dispatch_function_keys_to_content_first", true);
-pref("dom.keyboardevent.function_keys", "Backspace,MicrophoneToggle,GoBack,EndCall");
+pref("dom.keyboardevent.function_keys", "Backspace,MicrophoneToggle,GoBack,EndCall,AudioVolumeDown,AudioVolumeUp");
 
 // Enable keyboardEventGenerator on touch devices.
 pref("dom.keyboardEventGenerator.enabled", false);
@@ -1094,15 +1083,6 @@ pref('dom.performance.enable_user_timing_logging', true);
 pref('dom.performance.enable_user_timing_logging', false);
 #endif
 
-#ifdef TARGET_VARIANT_USER
-// Keep the least debug log in user build, to turn it off completely, set to 0.
-pref('focusmanager.loglevel', 1);
-pref('dom.browserElement.loglevel', 1);
-#else
-pref('focusmanager.loglevel', 2);
-pref('dom.browserElement.loglevel', 1);
-#endif
-
 // Turn off update of dummy thermal status
 pref('dom.battery.test.dummy_thermal_status', false);
 
@@ -1126,6 +1106,9 @@ pref("device.dual-lte", false);
 
 // Support wifi passpoint
 pref("dom.passpoint.supported", false);
+
+// Control wifi during emergency session
+pref("dom.emergency.wifi-control", true);
 
 // Enable IPv6 tethering router mode in Gecko
 pref("dom.b2g_ipv6_router_mode", true);
@@ -1249,3 +1232,5 @@ pref("b2g.ims.enabled", true);
 #if B2G_CCUSTOM_MODULES == C001
 pref("device.mvs", true);
 #endif
+
+pref("dom.popup_allowed_events", "change click dblclick auxclick mouseup pointerup notificationclick reset submit touchend contextmenu keydown");

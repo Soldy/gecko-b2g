@@ -47,6 +47,7 @@ this.Sntp = function Sntp(
   if (timeoutInSecs != null) {
     this._timeoutInMS = timeoutInSecs * 1000;
   }
+
   if (pools != null && Array.isArray(pools) && pools.length) {
     this._pools = pools;
   }
@@ -199,7 +200,6 @@ Sntp.prototype = {
 
       onDataAvailable: function onDataAvailable(
         request,
-        context,
         inputStream,
         offset,
         count
@@ -248,6 +248,7 @@ Sntp.prototype = {
 
     function SNTPRequester() {}
     SNTPRequester.prototype = {
+      QueryInterface: ChromeUtils.generateQI([Ci.nsIStreamListener]),
       onOutputStreamReady: function(stream) {
         try {
           let data = GetRequest();
@@ -290,7 +291,6 @@ Sntp.prototype = {
     );
     let transport = socketTransportService.createTransport(
       ["udp"],
-      1,
       this._pools[Math.floor(this._pools.length * Math.random())],
       this._port,
       null
@@ -310,7 +310,7 @@ Sntp.prototype = {
       .QueryInterface(Ci.nsIAsyncOutputStream);
     let inStream = transport.openInputStream(0, 0, 0);
 
-    pump.init(inStream, -1, -1, 0, 0, false);
+    pump.init(inStream, 0, 0, false);
     pump.asyncRead(new SNTPListener(), null);
 
     outStream.asyncWait(new SNTPRequester(), 0, 0, currentThread);

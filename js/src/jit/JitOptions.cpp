@@ -75,9 +75,6 @@ DefaultJitOptions::DefaultJitOptions() {
   // RangeAnalysis results.
   SET_DEFAULT(checkRangeAnalysis, false);
 
-  // Toggles whether IonBuilder fallbacks to a call if we fail to inline.
-  SET_DEFAULT(disableInlineBacktracking, false);
-
   // Toggles whether Alignment Mask Analysis is globally disabled.
   SET_DEFAULT(disableAma, false);
 
@@ -131,10 +128,10 @@ DefaultJitOptions::DefaultJitOptions() {
   SET_DEFAULT(ion, true);
 
   // Warp compile Async functions
-  SET_DEFAULT(warpAsync, false);
+  SET_DEFAULT(warpAsync, true);
 
   // Warp compile Generator functions
-  SET_DEFAULT(warpGenerator, false);
+  SET_DEFAULT(warpGenerator, true);
 
   // Whether the IonMonkey and Baseline JITs are enabled for Trusted Principals.
   // (Ignored if ion or baselineJit is set to true.)
@@ -143,7 +140,7 @@ DefaultJitOptions::DefaultJitOptions() {
   // Whether the RegExp JIT is enabled.
   SET_DEFAULT(nativeRegExp, true);
 
-  // Whether IonBuilder should prefer IC generation above specialized MIR.
+  // Whether Warp should use ICs instead of transpiling Baseline CacheIR.
   SET_DEFAULT(forceInlineCaches, false);
 
   // Toggles whether large scripts are rejected.

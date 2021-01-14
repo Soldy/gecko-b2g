@@ -229,7 +229,7 @@ var shell = {
 
     let promise = a.start();
     if (activity.response) {
-      let sender = message.target.QueryInterface(Ci.nsIMessageSender);
+      let sender = message.target;
       promise.then(
         result => {
           sender.sendAsyncMessage(activity.response, {

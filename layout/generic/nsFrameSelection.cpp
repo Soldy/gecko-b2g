@@ -15,6 +15,7 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/HTMLEditor.h"
+#include "mozilla/Logging.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ScrollTypes.h"
 #include "mozilla/StaticPrefs_bidi.h"
@@ -85,6 +86,8 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 using namespace mozilla;
 using namespace mozilla::dom;
 using mozilla::layers::ScrollInputMethod;
+
+static LazyLogModule sFrameSelectionLog("FrameSelection");
 
 //#define DEBUG_TABLE 1
 
@@ -1239,6 +1242,16 @@ nsresult nsFrameSelection::HandleClick(nsIContent* aNewFocus,
                                        const FocusMode aFocusMode,
                                        CaretAssociateHint aHint) {
   if (!aNewFocus) return NS_ERROR_INVALID_ARG;
+
+  if (MOZ_LOG_TEST(sFrameSelectionLog, LogLevel::Debug)) {
+    const int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
+    MOZ_LOG(sFrameSelectionLog, LogLevel::Debug,
+            ("%s: selection=%p, new focus=%p, offsets=(%u,%u), focus mode=%i",
+             __FUNCTION__,
+             mDomSelections[index] ? mDomSelections[index].get() : nullptr,
+             aNewFocus, aContentOffset, aContentEndOffset,
+             static_cast<int>(aFocusMode)));
+  }
 
   mDesiredCaretPos.Invalidate();
 

@@ -49,7 +49,7 @@ MediaOffloadPlayer::MediaOffloadPlayer(MediaFormatReaderInit& aInit)
       INIT_MIRROR(mLooping, false),
       INIT_MIRROR(mSinkDevice, nullptr),
       INIT_MIRROR(mSecondaryVideoContainer, nullptr),
-      INIT_MIRROR(mOutputCaptured, false),
+      INIT_MIRROR(mOutputCaptureState, MediaDecoder::OutputCaptureState::None),
       INIT_MIRROR(mOutputTracks, nsTArray<RefPtr<ProcessedMediaTrack>>()),
       INIT_MIRROR(mOutputPrincipal, PRINCIPAL_HANDLE_NONE) {
   LOG("MediaOffloadPlayer::MediaOffloadPlayer");
@@ -76,7 +76,7 @@ void MediaOffloadPlayer::InitializationTask(MediaDecoder* aDecoder) {
   mSinkDevice.Connect(aDecoder->CanonicalSinkDevice());
   mSecondaryVideoContainer.Connect(
       aDecoder->CanonicalSecondaryVideoContainer());
-  mOutputCaptured.Connect(aDecoder->CanonicalOutputCaptured());
+  mOutputCaptureState.Connect(aDecoder->CanonicalOutputCaptureState());
   mOutputTracks.Connect(aDecoder->CanonicalOutputTracks());
   mOutputPrincipal.Connect(aDecoder->CanonicalOutputPrincipal());
 
@@ -88,8 +88,8 @@ void MediaOffloadPlayer::InitializationTask(MediaDecoder* aDecoder) {
   mWatchManager.Watch(mLooping, &MediaOffloadPlayer::LoopingChanged);
   mWatchManager.Watch(mSecondaryVideoContainer,
                       &MediaOffloadPlayer::UpdateSecondaryVideoContainer);
-  mWatchManager.Watch(mOutputCaptured,
-                      &MediaOffloadPlayer::UpdateOutputCaptured);
+  mWatchManager.Watch(mOutputCaptureState,
+                      &MediaOffloadPlayer::UpdateOutputCaptureState);
   mWatchManager.Watch(mOutputTracks, &MediaOffloadPlayer::OutputTracksChanged);
   mWatchManager.Watch(mOutputPrincipal,
                       &MediaOffloadPlayer::OutputPrincipalChanged);
@@ -126,7 +126,7 @@ RefPtr<ShutdownPromise> MediaOffloadPlayer::Shutdown() {
   mLooping.DisconnectIfConnected();
   mSinkDevice.DisconnectIfConnected();
   mSecondaryVideoContainer.DisconnectIfConnected();
-  mOutputCaptured.DisconnectIfConnected();
+  mOutputCaptureState.DisconnectIfConnected();
   mOutputTracks.DisconnectIfConnected();
   mOutputPrincipal.DisconnectIfConnected();
 

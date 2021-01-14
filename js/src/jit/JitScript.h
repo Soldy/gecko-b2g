@@ -23,7 +23,7 @@ namespace jit {
 
 class JitZone;
 
-// Information about a script's bytecode, used by IonBuilder. This is cached
+// Information about a script's bytecode, used by WarpBuilder. This is cached
 // in JitScript.
 struct IonBytecodeInfo {
   bool usesEnvironmentChain = false;
@@ -93,7 +93,7 @@ class alignas(uintptr_t) ICScript final : public TrailingArray {
 
   bool isInlined() const { return depth_ > 0; }
 
-  MOZ_MUST_USE bool initICEntries(JSContext* cx, JSScript* script);
+  [[nodiscard]] bool initICEntries(JSContext* cx, JSScript* script);
 
   ICEntry& icEntry(size_t index) {
     MOZ_ASSERT(index < numICEntries());
@@ -129,9 +129,9 @@ class alignas(uintptr_t) ICScript final : public TrailingArray {
   ICEntry& icEntryFromPCOffset(uint32_t pcOffset);
   ICEntry& icEntryFromPCOffset(uint32_t pcOffset, ICEntry* prevLookedUpEntry);
 
-  MOZ_MUST_USE bool addInlinedChild(JSContext* cx,
-                                    js::UniquePtr<ICScript> child,
-                                    uint32_t pcOffset);
+  [[nodiscard]] bool addInlinedChild(JSContext* cx,
+                                     js::UniquePtr<ICScript> child,
+                                     uint32_t pcOffset);
   ICScript* findInlinedChild(uint32_t pcOffset);
   void removeInlinedChild(uint32_t pcOffset);
   bool hasInlinedChild(uint32_t pcOffset);
@@ -140,6 +140,10 @@ class alignas(uintptr_t) ICScript final : public TrailingArray {
   void purgeOptimizedStubs(Zone* zone);
 
   void trace(JSTracer* trc);
+
+#ifdef DEBUG
+  mozilla::HashNumber hash();
+#endif
 
  private:
   class CallSite {
@@ -238,8 +242,8 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
   const char* profileString_ = nullptr;
 
   // Data allocated lazily the first time this script is compiled, inlined, or
-  // analyzed by IonBuilder. This is done lazily to improve performance and
-  // memory usage as most scripts are never Ion-compiled.
+  // analyzed by WarpBuilder. This is done lazily to improve performance and
+  // memory usage as most scripts are never Warp-compiled.
   struct CachedIonData {
     // For functions with a call object, template objects to use for the call
     // object and decl env object (linked via the call object's enclosing
@@ -281,6 +285,13 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
 
   js::UniquePtr<InliningRoot> inliningRoot_;
 
+#ifdef DEBUG
+  // If the last warp compilation invalidated because of TranspiledCacheIR
+  // bailouts, this is a hash of the ICScripts used in that compilation.
+  // When recompiling, we assert that the hash has changed.
+  mozilla::Maybe<mozilla::HashNumber> failedICHash_;
+#endif
+
   ICScript icScript_;
   // End of fields.
 
@@ -315,7 +326,7 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
   }
 #endif
 
-  MOZ_MUST_USE bool ensureHasCachedIonData(JSContext* cx, HandleScript script);
+  [[nodiscard]] bool ensureHasCachedIonData(JSContext* cx, HandleScript script);
 
   void setHadIonOSR() { flags_.hadIonOSR = true; }
   bool hadIonOSR() const { return flags_.hadIonOSR; }
@@ -438,8 +449,8 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
     setBaselineScriptImpl(script, baselineScript);
     MOZ_ASSERT(hasBaselineScript());
   }
-  MOZ_MUST_USE BaselineScript* clearBaselineScript(JSFreeOp* fop,
-                                                   JSScript* script) {
+  [[nodiscard]] BaselineScript* clearBaselineScript(JSFreeOp* fop,
+                                                    JSScript* script) {
     BaselineScript* baseline = baselineScript();
     setBaselineScriptImpl(fop, script, nullptr);
     return baseline;
@@ -468,7 +479,7 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
     setIonScriptImpl(script, ionScript);
     MOZ_ASSERT(hasIonScript());
   }
-  MOZ_MUST_USE IonScript* clearIonScript(JSFreeOp* fop, JSScript* script) {
+  [[nodiscard]] IonScript* clearIonScript(JSFreeOp* fop, JSScript* script) {
     IonScript* ion = ionScript();
     setIonScriptImpl(fop, script, nullptr);
     return ion;
@@ -492,6 +503,15 @@ class alignas(uintptr_t) JitScript final : public TrailingArray {
   InliningRoot* inliningRoot() const { return inliningRoot_.get(); }
   InliningRoot* getOrCreateInliningRoot(JSContext* cx, JSScript* script);
   void clearInliningRoot() { inliningRoot_.reset(); }
+
+#ifdef DEBUG
+  bool hasFailedICHash() const { return failedICHash_.isSome(); }
+  mozilla::HashNumber getFailedICHash() { return failedICHash_.extract(); }
+  void setFailedICHash(mozilla::HashNumber hash) {
+    MOZ_ASSERT(failedICHash_.isNothing());
+    failedICHash_.emplace(hash);
+  }
+#endif
 };
 
 // Ensures no JitScripts are purged in the current zone.

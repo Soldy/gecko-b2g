@@ -939,6 +939,7 @@ Return<void> nsRilResponse::sendEnvelopeResponse(
   rspInfo = info;
   mRIL->processResponse(rspInfo.type);
 
+  defaultResponse(rspInfo, u"sendEnvelopeResponse"_ns);
   return Void();
 }
 

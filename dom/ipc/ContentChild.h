@@ -395,7 +395,7 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvUpdateFontList(
       nsTArray<SystemFontListEntry>&& aFontList);
-  mozilla::ipc::IPCResult RecvRebuildFontList();
+  mozilla::ipc::IPCResult RecvRebuildFontList(const bool& aFullRebuild);
 
   mozilla::ipc::IPCResult RecvUpdateAppLocales(
       nsTArray<nsCString>&& aAppLocales);
@@ -937,6 +937,10 @@ class ContentChild final : public PContentChild,
 
  private:
   mozilla::ipc::IPCResult RecvFlushFOGData(FlushFOGDataResolver&& aResolver);
+
+  mozilla::ipc::IPCResult RecvUpdateMediaCodecsSupported(
+      RemoteDecodeIn aLocation,
+      const PDMFactory::MediaCodecsSupported& aSupported);
 
 #ifdef NIGHTLY_BUILD
   virtual PContentChild::Result OnMessageReceived(const Message& aMsg) override;

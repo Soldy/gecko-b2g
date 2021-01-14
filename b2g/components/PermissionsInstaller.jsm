@@ -198,6 +198,16 @@ this.PermissionsInstaller = {
             );
             if (permValue === UNKNOWN_ACTION) {
               permValue = PROMPT_ACTION;
+              // Overwrite default prompt permission value if defaultPromptAction
+              // is declared
+              if (PermissionsTable[permName].defaultPromptAction) {
+                let defaultPromptAction =
+                  PermissionsTable[permName].defaultPromptAction;
+                let index = isCore ? "core" : appType;
+                if (defaultPromptAction[index] !== undefined) {
+                  permValue = defaultPromptAction[index];
+                }
+              }
             }
           }
 

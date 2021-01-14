@@ -13,6 +13,8 @@
 #include "mozilla/webrender/WebRenderTypes.h"
 #include "Units.h"
 
+#include "GLTypes.h"
+
 namespace mozilla {
 
 namespace gl {
@@ -134,6 +136,10 @@ class RenderCompositor {
                           const wr::CompositorSurfaceTransform& aTransform,
                           wr::DeviceIntRect aClipRect,
                           wr::ImageRendering aImageRendering) {}
+  // Called in the middle of a frame after all surfaces have been added but
+  // before tiles are updated to signal that early compositing can start
+  virtual void StartCompositing(const wr::DeviceIntRect* aDirtyRects,
+                                size_t aNumDirtyRects) {}
   virtual void EnableNativeCompositor(bool aEnable) {}
   virtual void DeInit() {}
   virtual CompositorCapabilities GetCompositorCapabilities() = 0;
@@ -182,6 +188,8 @@ class RenderCompositor {
   virtual ipc::FileDescriptor GetAndResetReleaseFence() {
     return ipc::FileDescriptor();
   }
+
+  virtual bool IsPaused() { return false; }
 
  protected:
   // We default this to 2, so that mLatestRenderFrameId.Prev() is always valid.

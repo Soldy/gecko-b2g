@@ -161,10 +161,6 @@ pref("security.webauth.webauthn_enable_softtoken", false);
   pref("security.webauth.webauthn_enable_usbtoken", true);
 #endif
 
-pref("security.ssl.errorReporting.enabled", false);
-pref("security.ssl.errorReporting.url", "https://incoming.telemetry.mozilla.org/submit/sslreports/");
-pref("security.ssl.errorReporting.automatic", false);
-
 pref("security.xfocsp.errorReporting.enabled", true);
 pref("security.xfocsp.errorReporting.automatic", false);
 
@@ -176,11 +172,7 @@ pref("security.cert_pinning.max_max_age_seconds", 5184000);
 // 0: Disable CRLite entirely
 // 1: Enable and check revocations via CRLite, but only collect telemetry
 // 2: Enable and enforce revocations via CRLite
-#if defined(NIGHTLY_BUILD)
-pref("security.pki.crlite_mode", 2);
-#else
 pref("security.pki.crlite_mode", 1);
-#endif
 
 // Represents the expected certificate transparency log merge delay (including
 // the time to generate a CRLite filter). Currently 28 hours in seconds.
@@ -666,6 +658,7 @@ pref("gfx.webrender.debug.echo-driver-messages", false);
 pref("gfx.webrender.debug.show-overdraw", false);
 pref("gfx.webrender.debug.slow-frame-indicator", false);
 pref("gfx.webrender.debug.picture-caching", false);
+pref("gfx.webrender.debug.force-picture-invalidation", false);
 pref("gfx.webrender.debug.tile-cache-logging", false);
 pref("gfx.webrender.debug.primitives", false);
 pref("gfx.webrender.debug.small-screen", false);
@@ -3321,8 +3314,6 @@ pref("font.size.monospace.x-math", 13);
   // See bug 404131, topmost <panel> element wins to Dashboard on MacOSX.
   pref("ui.panel.default_level_parent", false);
 
-  pref("ui.plugin.cancel_composition_at_input_source_changed", false);
-
   // Macbook touchpad two finger pixel scrolling
   pref("mousewheel.enable_pixel_scrolling", true);
 
@@ -4367,11 +4358,6 @@ pref("media.default_volume", "1.0");
 // return the maximum number of cores that navigator.hardwareCurrency returns
 pref("dom.maxHardwareConcurrency", 16);
 
-// Shutdown the osfile worker if its no longer needed.
-#if !defined(RELEASE_OR_BETA)
-  pref("osfile.reset_worker_delay", 30000);
-#endif
-
 pref("dom.storageManager.prompt.testing", false);
 pref("dom.storageManager.prompt.testing.allow", false);
 
@@ -4600,11 +4586,7 @@ pref("marionette.contentListener", false);
 #if defined(ENABLE_REMOTE_AGENT)
   // Indicates whether the remote agent is enabled.
   // If it is false, the remote agent will not be loaded.
-  #if defined(NIGHTLY_BUILD)
-    pref("remote.enabled", true);
-  #else
-    pref("remote.enabled", false);
-  #endif
+  pref("remote.enabled", true);
 
   // Limits remote agent to listen on loopback devices,
   // e.g. 127.0.0.1, localhost, and ::1.

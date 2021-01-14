@@ -675,10 +675,10 @@ void CodeGenerator::visitUDivConstantI(LUDivConstantI* ins) {
     masm.Add(output64, lhs64, Operand(output64, vixl::LSR, 32));
 
     // (M * n) >> (32 + shift) is the truncated division answer.
-    masm.Asr(output64, output64, rmc.shiftAmount);
+    masm.Lsr(output64, output64, rmc.shiftAmount);
   } else {
     // (M * n) >> (32 + shift) is the truncated division answer.
-    masm.Asr(output64, output64, 32 + rmc.shiftAmount);
+    masm.Lsr(output64, output64, 32 + rmc.shiftAmount);
   }
 
   // We now have the truncated division value. We are checking whether the
@@ -867,6 +867,41 @@ void CodeGenerator::visitModMaskI(LModMaskI* ins) {
     masm.neg32(dest);
     masm.bind(&done);
   }
+}
+
+void CodeGeneratorARM64::emitBigIntDiv(LBigIntDiv* ins, Register dividend,
+                                       Register divisor, Register output,
+                                       Label* fail) {
+  // Callers handle division by zero and integer overflow.
+
+  const ARMRegister dividend64(dividend, 64);
+  const ARMRegister divisor64(divisor, 64);
+
+  masm.Sdiv(/* result= */ dividend64, dividend64, divisor64);
+
+  // Create and return the result.
+  masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+  masm.initializeBigInt(output, dividend);
+}
+
+void CodeGeneratorARM64::emitBigIntMod(LBigIntMod* ins, Register dividend,
+                                       Register divisor, Register output,
+                                       Label* fail) {
+  // Callers handle division by zero and integer overflow.
+
+  const ARMRegister dividend64(dividend, 64);
+  const ARMRegister divisor64(divisor, 64);
+  const ARMRegister output64(output, 64);
+
+  // Signed division.
+  masm.Sdiv(output64, dividend64, divisor64);
+
+  // Compute the remainder: output = dividend - (output * divisor).
+  masm.Msub(/* result= */ dividend64, output64, divisor64, dividend64);
+
+  // Create and return the result.
+  masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+  masm.initializeBigInt(output, dividend);
 }
 
 void CodeGenerator::visitBitNotI(LBitNotI* ins) {
@@ -1640,13 +1675,13 @@ void CodeGenerator::visitNegI(LNegI* ins) {
 
 void CodeGenerator::visitNegD(LNegD* ins) {
   const ARMFPRegister input(ToFloatRegister(ins->input()), 64);
-  const ARMFPRegister output(ToFloatRegister(ins->input()), 64);
+  const ARMFPRegister output(ToFloatRegister(ins->output()), 64);
   masm.Fneg(output, input);
 }
 
 void CodeGenerator::visitNegF(LNegF* ins) {
   const ARMFPRegister input(ToFloatRegister(ins->input()), 32);
-  const ARMFPRegister output(ToFloatRegister(ins->input()), 32);
+  const ARMFPRegister output(ToFloatRegister(ins->output()), 32);
   masm.Fneg(output, input);
 }
 

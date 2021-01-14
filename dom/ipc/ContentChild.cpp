@@ -1373,7 +1373,6 @@ void ContentChild::InitXPCOM(
 
   DataStorage::SetCachedStorageEntries(aXPCOMInit.dataStorage());
 
-  PDMFactory::SetSupported(aXPCOMInit.codecsSupported());
   // Initialize the RemoteDecoderManager thread and its associated PBackground
   // channel.
   RemoteDecoderManagerChild::Init();
@@ -1732,7 +1731,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetProcessSandbox(
       CrashReporter::Annotation::ContentSandboxCapabilities,
       static_cast<int>(SandboxInfo::Get().AsInteger()));
 #  endif /* XP_LINUX && !OS_ANDROID */
-#endif /* MOZ_SANDBOX */
+#endif   /* MOZ_SANDBOX */
 
   return IPC_OK();
 }
@@ -2457,7 +2456,7 @@ void ContentChild::ActorDestroy(ActorDestroyReason why) {
   CrashReporterClient::DestroySingleton();
 
   XRE_ShutdownChildProcess();
-#endif  // NS_FREE_PERMANENT_DATA
+#endif    // NS_FREE_PERMANENT_DATA
 }
 
 void ContentChild::ProcessingError(Result aCode, const char* aReason) {
@@ -2705,12 +2704,13 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateDictionaryList(
 mozilla::ipc::IPCResult ContentChild::RecvUpdateFontList(
     nsTArray<SystemFontListEntry>&& aFontList) {
   mFontList = std::move(aFontList);
-  gfxPlatform::GetPlatform()->UpdateFontList();
+  gfxPlatform::GetPlatform()->UpdateFontList(true);
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentChild::RecvRebuildFontList() {
-  gfxPlatform::GetPlatform()->UpdateFontList();
+mozilla::ipc::IPCResult ContentChild::RecvRebuildFontList(
+    const bool& aFullRebuild) {
+  gfxPlatform::GetPlatform()->UpdateFontList(aFullRebuild);
   return IPC_OK();
 }
 
@@ -4833,6 +4833,14 @@ IPCResult ContentChild::RecvFlushFOGData(FlushFOGDataResolver&& aResolver) {
 #ifdef MOZ_GLEAN
   glean::FlushFOGData(std::move(aResolver));
 #endif
+  return IPC_OK();
+}
+
+IPCResult ContentChild::RecvUpdateMediaCodecsSupported(
+    RemoteDecodeIn aLocation,
+    const PDMFactory::MediaCodecsSupported& aSupported) {
+  RemoteDecoderManagerChild::SetSupported(aLocation, aSupported);
+
   return IPC_OK();
 }
 

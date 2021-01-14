@@ -34,6 +34,9 @@ interface nsITelephonyMessenger : nsISupports
    *        Possible values: nsITelephonyCallInfo.RADIO_TECH_*.
    * @param aIsRtt
    *        true if this call was a rtt call.
+   * @param aVerStatus
+   *        The verification status of incoming call.
+   *        Possible values: nsITelephonyCallInfo.VER_*.
    */
   void notifyCallEnded(in unsigned long aServiceId,
                        in AString aNumber,
@@ -44,7 +47,8 @@ interface nsITelephonyMessenger : nsISupports
                        in boolean aHangUpLocal,
                        in boolean aIsVt,
                        in unsigned long aRadioTech,
-                       in boolean aIsRtt);
+                       in boolean aIsRtt,
+                       in unsigned long aVerStatus);
 
   /**
    * 'ussd-received' system message

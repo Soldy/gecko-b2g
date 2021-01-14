@@ -72,10 +72,6 @@ static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
 #  include "mozilla/widget/WinMessages.h"
 #endif  // #ifdef XP_WIN
 
-#ifdef XP_MACOSX
-#  include "ComplexTextInputPanel.h"
-#endif
-
 #ifdef MOZ_WIDGET_GTK
 #  include <gdk/gdk.h>
 #  include <gtk/gtk.h>
@@ -1519,17 +1515,7 @@ void nsPluginInstanceOwner::HandleNoConsumedCompositionMessage(
     }
   }
 
-  NPEvent npevent;
   if (aPluginEvent->lParam & GCS_RESULTSTR) {
-    // GCS_RESULTSTR's default proc will generate WM_CHAR. So emulate it.
-    for (size_t i = 0; i < aCompositionEvent->mData.Length(); i++) {
-      WidgetPluginEvent charEvent(true, ePluginInputEvent, widget);
-      npevent.event = WM_CHAR;
-      npevent.wParam = aCompositionEvent->mData[i];
-      npevent.lParam = 0;
-      charEvent.mPluginEvent.Copy(npevent);
-      ProcessEvent(charEvent);
-    }
     return;
   }
   if (!mSentStartComposition) {
@@ -1833,38 +1819,8 @@ static NPCocoaEvent TranslateToNPCocoaEvent(WidgetGUIEvent* anEvent,
       break;
     }
     case eKeyDown:
-    case eKeyUp: {
-      WidgetKeyboardEvent* keyEvent = anEvent->AsKeyboardEvent();
-
-      // That keyEvent->mPluginTextEventString is non-empty is a signal that we
-      // should create a text event for the plugin, instead of a key event.
-      if (anEvent->mMessage == eKeyDown &&
-          !keyEvent->mPluginTextEventString.IsEmpty()) {
-        cocoaEvent.type = NPCocoaEventTextInput;
-        const char16_t* pluginTextEventString =
-            keyEvent->mPluginTextEventString.get();
-        cocoaEvent.data.text.text = (NPNSString*)::CFStringCreateWithCharacters(
-            NULL, reinterpret_cast<const UniChar*>(pluginTextEventString),
-            keyEvent->mPluginTextEventString.Length());
-      } else {
-        cocoaEvent.data.key.keyCode = keyEvent->mNativeKeyCode;
-        cocoaEvent.data.key.isARepeat = keyEvent->mIsRepeat;
-        cocoaEvent.data.key.modifierFlags = keyEvent->mNativeModifierFlags;
-        const char16_t* nativeChars = keyEvent->mNativeCharacters.get();
-        cocoaEvent.data.key.characters =
-            (NPNSString*)::CFStringCreateWithCharacters(
-                NULL, reinterpret_cast<const UniChar*>(nativeChars),
-                keyEvent->mNativeCharacters.Length());
-        const char16_t* nativeCharsIgnoringModifiers =
-            keyEvent->mNativeCharactersIgnoringModifiers.get();
-        cocoaEvent.data.key.charactersIgnoringModifiers =
-            (NPNSString*)::CFStringCreateWithCharacters(
-                NULL,
-                reinterpret_cast<const UniChar*>(nativeCharsIgnoringModifiers),
-                keyEvent->mNativeCharactersIgnoringModifiers.Length());
-      }
+    case eKeyUp:
       break;
-    }
     case eFocus:
     case eBlur:
       cocoaEvent.data.focus.hasFocus = (anEvent->mMessage == eFocus);
@@ -1941,30 +1897,6 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(
   int16_t response = kNPEventNotHandled;
   mInstance->HandleEvent(&cocoaEvent, &response,
                          NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
-  if ((response == kNPEventStartIME) &&
-      (cocoaEvent.type == NPCocoaEventKeyDown)) {
-    nsIWidget* widget = mPluginFrame->GetNearestWidget();
-    if (widget) {
-      const WidgetKeyboardEvent* keyEvent = anEvent.AsKeyboardEvent();
-      double screenX, screenY;
-      ConvertPoint(0.0, mPluginFrame->GetScreenRect().height,
-                   NPCoordinateSpacePlugin, &screenX, &screenY,
-                   NPCoordinateSpaceScreen);
-      nsAutoString outText;
-      if (NS_SUCCEEDED(
-              widget->StartPluginIME(*keyEvent, screenX, screenY, outText)) &&
-          !outText.IsEmpty()) {
-        CFStringRef cfString = ::CFStringCreateWithCharacters(
-            kCFAllocatorDefault,
-            reinterpret_cast<const UniChar*>(outText.get()), outText.Length());
-        NPCocoaEvent textEvent;
-        InitializeNPCocoaEvent(&textEvent);
-        textEvent.type = NPCocoaEventTextInput;
-        textEvent.data.text.text = (NPNSString*)cfString;
-        mInstance->HandleEvent(&textEvent, nullptr);
-      }
-    }
-  }
 
   bool handled = (response == kNPEventHandled || response == kNPEventStartIME);
   bool leftMouseButtonDown =

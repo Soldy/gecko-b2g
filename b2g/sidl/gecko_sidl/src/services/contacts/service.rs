@@ -21,7 +21,7 @@ use thin_vec::ThinVec;
 use xpcom::{
     interfaces::{
         nsIBlockedNumberFindOptions, nsIContactsManager, nsIFindBlockedNumbersResponse,
-        nsIHasNumberResponse, nsISidlConnectionObserver, nsISidlEventListener,
+        nsIMatchesResponse, nsISidlConnectionObserver, nsISidlEventListener,
     },
     RefPtr,
 };
@@ -61,14 +61,17 @@ macro_rules! deref_bool {
     };
 }
 
-sidl_callback_for!(nsIHasNumberResponse, bool, deref_bool);
+sidl_callback_for!(nsIMatchesResponse, bool, deref_bool);
 
 sidl_callback_for_resolve_string_array!(
     nsIFindBlockedNumbersResponse,
     FindBlockedNumbersSuccessType
 );
 
-type HasNumberTask = (SidlCallTask<bool, (), nsIHasNumberResponse>, String);
+type MatchesTask = (
+    SidlCallTask<bool, (), nsIMatchesResponse>,
+    FilterByOption, FilterOption, String,
+);
 
 type FindBlockedNumbersTask = (
     SidlCallTask<FindBlockedNumbersSuccessType, (), nsIFindBlockedNumbersResponse>,
@@ -76,11 +79,11 @@ type FindBlockedNumbersTask = (
 );
 
 task_receiver_success!(
-    HasNumberTaskReceiver,
-    nsIHasNumberResponse,
+    MatchesTaskReceiver,
+    nsIMatchesResponse,
     ContactsManagerToClient,
-    ContactsFactoryHasNumberSuccess,
-    ContactsFactoryHasNumberError,
+    ContactsFactoryMatchesSuccess,
+    ContactsFactoryMatchesError,
     bool
 );
 
@@ -95,7 +98,7 @@ task_receiver_success!(
 
 // The tasks that can be dispatched to the calling thread.
 enum ContactsTask {
-    HasNumber(HasNumberTask),
+    Matches(MatchesTask),
     FindBlockedNumbers(FindBlockedNumbersTask),
 }
 
@@ -150,8 +153,8 @@ impl ServiceClientImpl<ContactsTask> for ContactsManagerImpl {
         // drain the queue.
         for task in task_queue.drain(..) {
             match task {
-                ContactsTask::HasNumber(task) => {
-                    let _ = self.has_number(task);
+                ContactsTask::Matches(task) => {
+                    let _ = self.matches(task);
                 }
                 ContactsTask::FindBlockedNumbers(task) => {
                     let _ = self.find_blocked_numbers(task);
@@ -172,13 +175,13 @@ impl ContactsManagerImpl {
         vec![]
     }
 
-    fn has_number(&mut self, task: HasNumberTask) -> Result<(), nsresult> {
-        debug!("ContactsManager::has_number");
+    fn matches(&mut self, task: MatchesTask) -> Result<(), nsresult> {
+        debug!("ContactsManager::matches");
 
-        let (task, number) = task;
-        let request = ContactsManagerFromClient::ContactsFactoryHasNumber(number);
+        let (task, filter_by_option, filter_option, value) = task;
+        let request = ContactsManagerFromClient::ContactsFactoryMatches(filter_by_option, filter_option, value);
         self.sender
-            .send_task(&request, HasNumberTaskReceiver { task });
+            .send_task(&request, MatchesTaskReceiver { task });
         Ok(())
     }
 
@@ -249,23 +252,44 @@ impl ContactsManagerXpcom {
     // nsISidlConnectionObserver implementation.
     implement_connection_observer!("ContactsManagerXpcom");
 
-    xpcom_method!(has_number => HasNumber(number: *const nsAString, callback: *const nsIHasNumberResponse));
-    fn has_number(
+    xpcom_method!(matches => Matches(filter_by_option: u16, filter_option: u16, value: *const nsAString, callback: *const nsIMatchesResponse));
+    fn matches(
         &self,
-        number: &nsAString,
-        callback: &nsIHasNumberResponse,
+        filter_by_option: u16,
+        filter_option: u16,
+        value: &nsAString,
+        callback: &nsIMatchesResponse,
     ) -> Result<(), nsresult> {
+        let filter_by = match filter_by_option {
+            0 => FilterByOption::Name,
+            1 => FilterByOption::GivenName,
+            2 => FilterByOption::FamilyName,
+            3 => FilterByOption::Tel,
+            4 => FilterByOption::Email,
+            5 => FilterByOption::Category,
+            _ => return Err(NS_ERROR_INVALID_ARG),
+        };
+
+        let filter =  match filter_option {
+            0 => FilterOption::Equals,
+            1 => FilterOption::Contains,
+            2 => FilterOption::Match,
+            3 => FilterOption::StartsWith,
+            4 => FilterOption::FuzzyMatch,
+            _ => return Err(NS_ERROR_INVALID_ARG),
+        };
+
         let callback =
-            ThreadPtrHolder::new(cstr!("nsIHasNumberResponse"), RefPtr::new(callback)).unwrap();
-        let task = (SidlCallTask::new(callback), number.to_string());
+            ThreadPtrHolder::new(cstr!("nsIMatchesResponse"), RefPtr::new(callback)).unwrap();
+        let task = (SidlCallTask::new(callback), filter_by, filter, value.to_string());
 
         if !self.ensure_service() {
-            self.queue_task(ContactsTask::HasNumber(task));
+            self.queue_task(ContactsTask::Matches(task));
             return Ok(());
         }
 
         if let Some(inner) = self.inner.lock().as_ref() {
-            return inner.lock().has_number(task);
+            return inner.lock().matches(task);
         } else {
             error!("Unable to get ContactsManagerImpl");
         }

@@ -907,10 +907,15 @@ class nsDisplayListBuilder {
 
   /**
    * Helper method to generate background painting flags based on the
-   * information available in the display list builder. Currently only
-   * accounts for mSyncDecodeImages.
+   * information available in the display list builder.
    */
   uint32_t GetBackgroundPaintFlags();
+
+  /**
+   * Helper method to generate nsImageRenderer flags based on the information
+   * available in the display list builder.
+   */
+  uint32_t GetImageRendererFlags() const;
 
   /**
    * Helper method to generate image decoding flags based on the
@@ -4739,7 +4744,7 @@ class nsDisplayBackgroundImage : public nsDisplayImageContainer {
     const auto& styleImage =
         mBackgroundStyle->StyleBackground()->mImage.mLayers[mLayer].mImage;
 
-    return styleImage.IsSizeAvailable() && styleImage.IsUrl();
+    return styleImage.IsSizeAvailable() && styleImage.FinalImage().IsUrl();
   }
 
  protected:

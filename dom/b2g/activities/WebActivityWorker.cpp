@@ -47,11 +47,11 @@ class ActivityInitRunnable : public WorkerMainThreadRunnable,
     if (NS_WARN_IF(!principal)) {
       return false;
     }
-    nsAutoCString url;
-    principal->GetAsciiSpec(url);
+    nsAutoCString origin;
+    principal->GetAsciiOrigin(origin);
 
     nsCOMPtr<nsIActivityProxy> proxy = WebActivity::GetOrCreateActivityProxy();
-    proxy->Create(nullptr, options, url, mWebActivity->mId);
+    proxy->Create(nullptr, options, origin, mWebActivity->mId);
     LOG("New Activity created: %s",
         NS_LossyConvertUTF16toASCII(mWebActivity->mId).get());
     return true;

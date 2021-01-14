@@ -429,7 +429,7 @@ Nat464Xlat.prototype = {
       success,
       clatdAddress
     ) {
-      this.nat64Debug(
+      self.nat64Debug(
         "Clatd started: " +
           (success ? "success" : "fail") +
           " address: " +

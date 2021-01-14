@@ -52,6 +52,8 @@
   --in-content-dialog-header-background: #f1f1f1;
   --in-content-sidebar-width: 240px;
 
+  --dialog-warning-text-color: var(--red-60);
+
   --panel-border-radius: 2px; /* This is overridden on Windows */
 
   --blue-40: #45a1ff;
@@ -77,6 +79,7 @@
   --green-80: #006504;
   --green-90: #003706;
   --orange-50: #ff9400;
+  --red-40: #ff4f5e;
   --red-50: #ff0039;
   --red-50-a30: rgba(255, 0, 57, 0.3);
   --red-60: #d70022;
@@ -140,6 +143,8 @@
     --in-content-tab-color: var(--in-content-page-color);
 
     --card-outline-color: var(--grey-60);
+
+    --dialog-warning-text-color: var(--red-40);
 
     scrollbar-color: rgba(249,249,250,.4) rgba(20,20,25,.3);
   }
@@ -571,17 +576,6 @@ html|input[type="checkbox"]:not(:disabled):checked:hover {
   background-color: var(--blue-70);
 }
 
-xul|checkbox[disabled="true"],
-xul|label[disabled="true"] {
-  color: inherit;
-}
-
-xul|checkbox[disabled="true"],
-html|input[type="checkbox"]:disabled,
-xul|label[disabled="true"] {
-  opacity: 0.5;
-}
-
 xul|richlistitem > xul|*.checkbox-check {
   margin: 3px 6px;
 }
@@ -607,7 +601,7 @@ xul|*.radio-check {
   background-color: var(--grey-90-a10);
 }
 
-xul|radio:not([disabled="true"], [selected="true"]):hover > xul|*.radio-check {
+xul|radio:not([disabled="true"]):hover > xul|*.radio-check {
   background-color: var(--grey-90-a20);
 }
 
@@ -619,18 +613,28 @@ xul|*.radio-check[selected] {
   background-color: var(--blue-60);
 }
 
-xul|radio:not([disabled="true"]):hover > xul|*.radio-check {
+xul|radio:not([disabled="true"])[selected]:hover > xul|*.radio-check {
   background-color: var(--blue-70);
-}
-
-xul|radio[disabled="true"] {
-  color: inherit;
-  opacity: 0.5;
 }
 
 xul|*.radio-label-box {
   margin-inline: -1px 8px; /* the negative margin-inline-start for the transparent border */
   padding-inline-start: 0;
+}
+
+/* Disabled checkboxes, radios and labels */
+
+xul|checkbox[disabled="true"],
+xul|radio[disabled="true"],
+xul|label[disabled="true"] {
+  color: inherit;
+}
+
+xul|checkbox[disabled="true"],
+html|input[type="checkbox"]:disabled,
+xul|radio[disabled="true"],
+xul|label[disabled="true"] {
+  opacity: 0.5;
 }
 
 /* Category List */

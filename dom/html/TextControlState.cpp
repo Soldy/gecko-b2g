@@ -2096,7 +2096,9 @@ void TextControlState::SetSelectionRange(
         handlingSetSelectionRange.IsTextControlStateDestroyed()) {
       return;
     }
-    if (aScroll == ScrollAfterSelection::Yes) {
+    if (aScroll == ScrollAfterSelection::Yes && mBoundFrame) {
+      // mBoundFrame could be gone if selection listeners flushed layout for
+      // example.
       mBoundFrame->ScrollSelectionIntoViewAsync();
     }
     // Press on to firing the event even if that failed, like our old code did.
@@ -2306,6 +2308,11 @@ void TextControlState::SetRangeText(const nsAString& aReplacement,
     selectionStart = *aSelectionStart;
     selectionEnd = *aSelectionEnd;
   }
+
+  // Batch selectionchanges from SetValueFromSetRangeText and SetSelectionRange
+  Selection* selection =
+      mSelCon ? mSelCon->GetSelection(SelectionType::eNormal) : nullptr;
+  SelectionBatcher selectionBatcher(selection);  // no-op if nullptr
 
   MOZ_ASSERT(aStart <= aEnd);
   value.Replace(aStart, aEnd - aStart, aReplacement);

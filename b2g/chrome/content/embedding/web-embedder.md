@@ -58,6 +58,7 @@ The `WebEmbedder` object exposes the following methods:
   - `removeObserver(observer, idleTime)`: remove an observer registered with addObserver.
     - `observer`: callback function that needs to be removed.
     - `idleTime`: the amount of time in seconds.
+- `doSelectionAction(action)`: send selection action to the active window, `action` can be one of ['cut', 'copy', 'paste', 'selectAll'].
 
 ### Events
 
@@ -79,6 +80,7 @@ Since the `WebEmbedder` object extends `EventTarget` you can attach event listen
 - `geolocation-status`: this event is dispatched when geolocation status changes. Its `detail` is a bool representing active/inactive.
 - `captive-portal-login-request`: this event is dispatched when captive portal detection redirect to a login page. Its `detail` is an object as { type, id, url }, type contains a string of this event, id contains a string of number which has increment 1 when each time the event is sent, and url contains a string of login page url.
 - `captive-portal-login-result`: this event is dispatched when captive portal login process is finished. Its `detail` is an object as { result, id }, result contains a boolean ture if login successfully, otherwise false. The id corresponds to the id from `captive-portal-login-request`, same id means that they are request/result pair.
+- `caret-state-changed`: this event is dispatched when the accessible-caret changes. See [`CaretStateChangedEvent.webidl`](https://searchfox.org/mozilla-central/source/dom/webidl/CaretStateChangedEvent.webidl) for `detail`. 
 
 ## WindowProvider delegate
 

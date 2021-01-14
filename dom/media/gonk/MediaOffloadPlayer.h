@@ -189,7 +189,7 @@ class MediaOffloadPlayer : public DecoderDoctorLifeLogger<MediaOffloadPlayer> {
   Mirror<bool> mLooping;
   Mirror<RefPtr<AudioDeviceInfo>> mSinkDevice;
   Mirror<RefPtr<VideoFrameContainer>> mSecondaryVideoContainer;
-  Mirror<bool> mOutputCaptured;
+  Mirror<MediaDecoder::OutputCaptureState> mOutputCaptureState;
   Mirror<CopyableTArray<RefPtr<ProcessedMediaTrack>>> mOutputTracks;
   Mirror<PrincipalHandle> mOutputPrincipal;
 
@@ -202,7 +202,7 @@ class MediaOffloadPlayer : public DecoderDoctorLifeLogger<MediaOffloadPlayer> {
   virtual void PreservesPitchChanged() {}
   virtual void LoopingChanged() {}
   virtual void UpdateSecondaryVideoContainer() {}
-  virtual void UpdateOutputCaptured() {}
+  virtual void UpdateOutputCaptureState() {}
   virtual void OutputTracksChanged() {}
   virtual void OutputPrincipalChanged() {}
   virtual void PlaybackRateChanged() {}

@@ -4734,6 +4734,8 @@ EventListenerManager* nsContentUtils::GetExistingListenerManagerForNode(
 void nsContentUtils::AddEntryToDOMArenaTable(nsINode* aNode,
                                              DOMArena* aDOMArena) {
   MOZ_ASSERT(StaticPrefs::dom_arena_allocator_enabled_AtStartup());
+  MOZ_ASSERT_IF(sDOMArenaHashtable, !sDOMArenaHashtable->Contains(aNode));
+  MOZ_ASSERT(!aNode->HasFlag(NODE_KEEPS_DOMARENA));
   if (!sDOMArenaHashtable) {
     sDOMArenaHashtable =
         new nsRefPtrHashtable<nsPtrHashKey<const nsINode>, dom::DOMArena>();
@@ -7009,17 +7011,22 @@ void nsContentUtils::GetSelectionInTextControl(Selection* aSelection,
   aOutEndOffset = endOffset;
 }
 
+// static
 HTMLEditor* nsContentUtils::GetHTMLEditor(nsPresContext* aPresContext) {
   if (!aPresContext) {
     return nullptr;
   }
+  return GetHTMLEditor(aPresContext->GetDocShell());
+}
 
-  nsCOMPtr<nsIDocShell> docShell(aPresContext->GetDocShell());
+// static
+HTMLEditor* nsContentUtils::GetHTMLEditor(nsDocShell* aDocShell) {
   bool isEditable;
-  if (!docShell || NS_FAILED(docShell->GetEditable(&isEditable)) || !isEditable)
+  if (!aDocShell || NS_FAILED(aDocShell->GetEditable(&isEditable)) ||
+      !isEditable) {
     return nullptr;
-
-  return docShell->GetHTMLEditor();
+  }
+  return aDocShell->GetHTMLEditor();
 }
 
 // static
@@ -7028,15 +7035,19 @@ TextEditor* nsContentUtils::GetActiveEditor(nsPresContext* aPresContext) {
     return nullptr;
   }
 
-  nsPIDOMWindowOuter* window = aPresContext->Document()->GetWindow();
-  if (!window) {
+  return GetActiveEditor(aPresContext->Document()->GetWindow());
+}
+
+// static
+TextEditor* nsContentUtils::GetActiveEditor(nsPIDOMWindowOuter* aWindow) {
+  if (!aWindow || !aWindow->GetExtantDoc()) {
     return nullptr;
   }
 
   // If it's in designMode, nobody can have focus.  Therefore, the HTMLEditor
   // handles all events.  I.e., it's focused editor in this case.
-  if (aPresContext->Document()->HasFlag(NODE_IS_EDITABLE)) {
-    return GetHTMLEditor(aPresContext);
+  if (aWindow->GetExtantDoc()->HasFlag(NODE_IS_EDITABLE)) {
+    return GetHTMLEditor(nsDocShell::Cast(aWindow->GetDocShell()));
   }
 
   // If focused element is associated with TextEditor, it must be <input>
@@ -7044,7 +7055,7 @@ TextEditor* nsContentUtils::GetActiveEditor(nsPresContext* aPresContext) {
   // contenteditable element.
   nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
   if (Element* focusedElement = nsFocusManager::GetFocusedDescendant(
-          window, nsFocusManager::SearchRange::eOnlyCurrentWindow,
+          aWindow, nsFocusManager::SearchRange::eOnlyCurrentWindow,
           getter_AddRefs(focusedWindow))) {
     if (TextEditor* textEditor = focusedElement->GetTextEditorInternal()) {
       return textEditor;
@@ -7053,7 +7064,7 @@ TextEditor* nsContentUtils::GetActiveEditor(nsPresContext* aPresContext) {
 
   // Otherwise, HTMLEditor may handle inputs even non-editable element has
   // focus or nobody has focus.
-  return GetHTMLEditor(aPresContext);
+  return GetHTMLEditor(nsDocShell::Cast(aWindow->GetDocShell()));
 }
 
 // static
@@ -8135,10 +8146,10 @@ nsresult nsContentUtils::SendMouseEvent(
     msg = eMouseEnterIntoWidget;
   } else if (aType.EqualsLiteral("mouseout")) {
     msg = eMouseExitFromWidget;
-    exitFrom = Some(WidgetMouseEvent::eChild);
+    exitFrom = Some(WidgetMouseEvent::ePlatformChild);
   } else if (aType.EqualsLiteral("mousecancel")) {
     msg = eMouseExitFromWidget;
-    exitFrom = Some(XRE_IsParentProcess() ? WidgetMouseEvent::eTopLevel
+    exitFrom = Some(XRE_IsParentProcess() ? WidgetMouseEvent::ePlatformTopLevel
                                           : WidgetMouseEvent::ePuppet);
   } else if (aType.EqualsLiteral("mouselongtap")) {
     msg = eMouseLongTap;

@@ -748,28 +748,6 @@ NetworkService.prototype = {
     });
   },
 
-  // Switch usb function by modifying property of persist.sys.usb.config.
-  enableUsbRndis(aEnable, aMsgCallback, aCallback) {
-    debug("enableUsbRndis: " + aEnable);
-
-    let params = {
-      cmd: "enableUsbRndis",
-      enable: aEnable,
-    };
-    // Ask net work to report the result when this value is set to true.
-    if (aCallback) {
-      params.report = true;
-    } else {
-      params.report = false;
-    }
-
-    // The callback function in controlMessage may not be fired immediately.
-    //this._usbTetheringAction = TETHERING_STATE_ONGOING;
-    this.controlMessage(params, function(aData) {
-      aCallback.enableUsbRndisResult(aData.result, aData.enable, aMsgCallback);
-    });
-  },
-
   removeUpStream(aConfig, aCallback) {
     let params = {
       cmd: "removeUpStream",

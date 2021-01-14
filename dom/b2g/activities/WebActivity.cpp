@@ -187,11 +187,11 @@ nsresult WebActivityMain::Initialize(const GlobalObject& aOwner,
 
   nsCOMPtr<nsIPrincipal> principal = mOuter->mGlobal->PrincipalOrNull();
   NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
-  nsAutoCString url;
-  principal->GetAsciiSpec(url);
+  nsAutoCString origin;
+  principal->GetAsciiOrigin(origin);
 
   nsCOMPtr<nsIActivityProxy> proxy = WebActivity::GetOrCreateActivityProxy();
-  proxy->Create(aOwner.GetAsSupports(), optionsValue, url, mOuter->mId);
+  proxy->Create(aOwner.GetAsSupports(), optionsValue, origin, mOuter->mId);
   LOG("New Activity created: %s",
       NS_LossyConvertUTF16toASCII(mOuter->mId).get());
   return NS_OK;

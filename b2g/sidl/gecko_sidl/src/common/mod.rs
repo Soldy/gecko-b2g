@@ -20,9 +20,9 @@ use bincode::Options;
 use nsstring::nsString;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::time::UNIX_EPOCH;
 use std::fmt;
 use std::ops::Deref;
+use std::time::UNIX_EPOCH;
 use traits::TrackerId;
 
 pub fn get_bincode() -> impl Options {

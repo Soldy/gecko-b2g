@@ -3449,7 +3449,8 @@ bool HttpBaseChannel::ShouldIntercept(nsIURI* aURI) {
   bool internalRedirect =
       mLastRedirectFlags & nsIChannelEventSink::REDIRECT_INTERNAL;
 
-  if (controller && mLoadInfo && !BypassServiceWorker() && !internalRedirect) {
+  if (controller && mLoadInfo && !mLoadInfo->GetLoadErrorPage()
+        && !BypassServiceWorker() && !internalRedirect) {
     nsresult rv = controller->ShouldPrepareForIntercept(
         aURI ? aURI : mURI.get(), this, &shouldIntercept);
     if (NS_FAILED(rv)) {

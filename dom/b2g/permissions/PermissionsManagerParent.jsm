@@ -66,24 +66,24 @@ class PermissionsManagerParent extends JSWindowActorParent {
   }
 
   isExplicitInPermissionsTable(aOrigin, aPermName) {
-    let appType = "pwa";
     let realPerm = permissionsReverseTable[aPermName];
 
-    if (aOrigin.endsWith(".localhost")) {
-      // If the permission of core app is not specified in PermissionsTable,
-      // fallback to signed app. This should align the behavior with
-      // PermissionsInstaller.installPermissions.
-      if (
-        PermissionsHelper.isCoreApp(aOrigin) === true &&
-        PermissionsTable[realPerm].core !== undefined
-      ) {
-        appType = "core";
-      } else {
-        appType = "signed";
-      }
-    }
-
     if (realPerm) {
+      let appType = "pwa";
+      if (aOrigin.endsWith(".localhost")) {
+        // If the permission of core app is not specified in PermissionsTable,
+        // fallback to signed app. This should align the behavior with
+        // PermissionsInstaller.installPermissions.
+        if (
+          PermissionsHelper.isCoreApp(aOrigin) === true &&
+          PermissionsTable[realPerm].core !== undefined
+        ) {
+          appType = "core";
+        } else {
+          appType = "signed";
+        }
+      }
+
       let isExplicit =
         PermissionsTable[realPerm][appType] ==
         Ci.nsIPermissionManager.PROMPT_ACTION;

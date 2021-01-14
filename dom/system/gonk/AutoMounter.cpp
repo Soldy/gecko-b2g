@@ -209,7 +209,8 @@ class AutoMounter {
 
   typedef nsTArray<RefPtr<Volume>> VolumeArray;
 
-  AutoMounter() : mState(STATE_IDLE), mMode(AUTOMOUNTER_DISABLE) {
+  AutoMounter()
+      : mState(STATE_IDLE), mMode(AUTOMOUNTER_DISABLE), mRndisRequest(false) {
     VolumeManager::RegisterStateObserver(&mVolumeManagerStateObserver);
     Volume::RegisterVolumeObserver(&mVolumeEventObserver, "AutoMounter");
 
@@ -311,6 +312,16 @@ class AutoMounter {
       DBG("Calling UpdateState due to mode set to %d", mMode);
       UpdateState();
     }
+  }
+
+  void SetRndisEnable(bool aEnable) {
+    if (mRndisRequest == aEnable) {
+      return;
+    }
+    mRndisRequest = aEnable;
+    DBG("Calling UpdateState due Rndis change to %s",
+        mRndisRequest ? "enable" : "disable");
+    UpdateState();
   }
 
   void SetSharingMode(const nsACString& aVolumeName, bool aAllowSharing) {
@@ -447,6 +458,7 @@ class AutoMounter {
   AutoVolumeEventObserver mVolumeEventObserver;
   AutoVolumeManagerStateObserver mVolumeManagerStateObserver;
   int32_t mMode;
+  bool mRndisRequest;
   MozMtpStorage::Array mMozMtpStorage;
 };
 
@@ -701,6 +713,7 @@ void AutoMounter::UpdateState() {
   GetStatus(umsAvail, umsConfigured, umsEnabled, mtpAvail, mtpConfigured,
             mtpEnabled, rndisConfigured);
   bool enabled = mtpEnabled || umsEnabled;
+  bool rndisEnabled = rndisConfigured || mRndisRequest;
 
   if (mMode == AUTOMOUNTER_DISABLE_WHEN_UNPLUGGED) {
     // DISABLE_WHEN_UNPLUGGED implies already enabled.
@@ -715,7 +728,7 @@ void AutoMounter::UpdateState() {
   DBG("UpdateState: ums:A%dC%dE%d mtp:A%dC%dE%d rndis:%d mode:%d usb:%d "
       "mState:%s",
       umsAvail, umsConfigured, umsEnabled, mtpAvail, mtpConfigured, mtpEnabled,
-      rndisConfigured, mMode, usbCablePluggedIn, StateStr(mState));
+      rndisEnabled, mMode, usbCablePluggedIn, StateStr(mState));
 
   switch (mState) {
     case STATE_IDLE:
@@ -724,7 +737,7 @@ void AutoMounter::UpdateState() {
         // UEvent when the usb cable is plugged in.
         break;
       }
-      if (rndisConfigured) {
+      if (rndisEnabled) {
         // USB Tethering uses RNDIS. We'll just wait until its turned off.
         SetState(STATE_RNDIS_CONFIGURED);
         break;
@@ -782,7 +795,7 @@ void AutoMounter::UpdateState() {
         }
         break;
       }
-      if (rndisConfigured) {
+      if (rndisEnabled) {
         SetState(STATE_RNDIS_CONFIGURED);
         break;
       }
@@ -797,7 +810,7 @@ void AutoMounter::UpdateState() {
           "mtpConfigured = %d mtpEnabled = %d usbCablePluggedIn: %d",
           mtpConfigured, mtpEnabled, usbCablePluggedIn);
       StopMtpServer();
-      if (rndisConfigured) {
+      if (rndisEnabled) {
         SetState(STATE_RNDIS_CONFIGURED);
         break;
       }
@@ -821,7 +834,7 @@ void AutoMounter::UpdateState() {
         SetUsbFunction(USB_FUNC_MTP);
         break;
       }
-      if (rndisConfigured) {
+      if (rndisEnabled) {
         SetState(STATE_RNDIS_CONFIGURED);
         break;
       }
@@ -850,7 +863,7 @@ void AutoMounter::UpdateState() {
           break;
         }
       }
-      if (rndisConfigured) {
+      if (rndisEnabled) {
         SetState(STATE_RNDIS_CONFIGURED);
         break;
       }
@@ -858,7 +871,7 @@ void AutoMounter::UpdateState() {
       break;
 
     case STATE_RNDIS_CONFIGURED:
-      if (usbCablePluggedIn && rndisConfigured) {
+      if (usbCablePluggedIn && rndisEnabled) {
         // Normal state when RNDIS is enabled.
         break;
       }
@@ -1319,6 +1332,14 @@ static void SetAutoMounterModeIOThread(const int32_t& aMode) {
   sAutoMounter->SetMode(aMode);
 }
 
+static void SetAutoMounterRndisIOThread(const bool& aEnable) {
+  MOZ_ASSERT(XRE_IsParentProcess());
+  MOZ_ASSERT(MessageLoop::current() == XRE_GetIOMessageLoop());
+  MOZ_ASSERT(sAutoMounter);
+
+  sAutoMounter->SetRndisEnable(aEnable);
+}
+
 static void SetAutoMounterSharingModeIOThread(const nsCString& aVolumeName,
                                               const bool& aAllowSharing) {
   MOZ_ASSERT(XRE_IsParentProcess());
@@ -1427,6 +1448,12 @@ void SetAutoMounterStatus(int32_t aStatus) {
 void SetAutoMounterMode(int32_t aMode) {
   XRE_GetIOMessageLoop()->PostTask(NewRunnableFunction(
       "SetAutoMounterModeIOThreadRunnable", SetAutoMounterModeIOThread, aMode));
+}
+
+void SetAutoMounterRndis(bool aEnable) {
+  XRE_GetIOMessageLoop()->PostTask(
+      NewRunnableFunction("SetAutoMounterRndisIOThreadRunnable",
+                          SetAutoMounterRndisIOThread, aEnable));
 }
 
 void SetAutoMounterSharingMode(const nsCString& aVolumeName,

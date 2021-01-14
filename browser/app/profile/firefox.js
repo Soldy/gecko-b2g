@@ -276,7 +276,11 @@ pref("browser.startup.firstrunSkipsHomepage", true);
 // Show a skeleton UI window prior to loading libxul. Only visible for windows
 // users as it is not implemented anywhere else.
 #if defined(XP_WIN)
+#ifdef NIGHTLY_BUILD
+pref("browser.startup.preXulSkeletonUI", true);
+#else
 pref("browser.startup.preXulSkeletonUI", false);
+#endif
 #endif
 
 // Don't create the hidden window during startup on
@@ -820,18 +824,11 @@ pref("browser.preferences.exposeHTTPSOnly", true);
 
 pref("browser.proton.enabled", false);
 
-pref("browser.download.show_plugins_in_list", true);
-pref("browser.download.hide_plugins_without_extensions", true);
-
 // Backspace and Shift+Backspace behavior
 // 0 goes Back/Forward
 // 1 act like PgUp/PgDown
 // 2 and other values, nothing
-#ifdef UNIX_BUT_NOT_MAC
-  pref("browser.backspace_action", 2);
-#else
-  pref("browser.backspace_action", 0);
-#endif
+pref("browser.backspace_action", 2);
 
 pref("intl.regional_prefs.use_os_locales", false);
 
@@ -1365,6 +1362,7 @@ pref("browser.newtabpage.activity-stream.newNewtabExperience.enabled", false);
 // A preference which allows us to enable the fly out customization overlay
 // on the newtab page.
 pref("browser.newtabpage.activity-stream.customizationMenu.enabled", false);
+pref("browser.newtabpage.activity-stream.newNewtabExperience.colors", "#0090ED,#FF4F5F,#2AC3A2,#FF7139,#A172FF,#FFA437,#FF2A8A,#FFD567");
 
 // Activity Stream prefs that control to which page to redirect
 #ifndef RELEASE_OR_BETA
@@ -1401,6 +1399,7 @@ pref("browser.newtabpage.activity-stream.asrouter.useRemoteL10n", true);
 pref("browser.newtabpage.activity-stream.discoverystream.enabled", true);
 pref("browser.newtabpage.activity-stream.discoverystream.hardcoded-basic-layout", false);
 pref("browser.newtabpage.activity-stream.discoverystream.spocs-endpoint", "");
+pref("browser.newtabpage.activity-stream.discoverystream.spocs-endpoint-query", "");
 
 // List of regions that do not get stories, regardless of locale-list-config.
 pref("browser.newtabpage.activity-stream.discoverystream.region-stories-block", "FR");
@@ -1420,7 +1419,7 @@ pref("browser.newtabpage.activity-stream.discoverystream.region-basic-config", "
 
 // Allows Pocket story collections to be dismissed.
 pref("browser.newtabpage.activity-stream.discoverystream.isCollectionDismissible", true);
-pref("browser.newtabpage.activity-stream.discoverystream.personalization.version", 1);
+pref("browser.newtabpage.activity-stream.discoverystream.personalization.version", 2);
 // Configurable keys used by personalization version 2.
 pref("browser.newtabpage.activity-stream.discoverystream.personalization.modelKeys", "nb_model_arts_and_entertainment, nb_model_autos_and_vehicles, nb_model_beauty_and_fitness, nb_model_blogging_resources_and_services, nb_model_books_and_literature, nb_model_business_and_industrial, nb_model_computers_and_electronics, nb_model_finance, nb_model_food_and_drink, nb_model_games, nb_model_health, nb_model_hobbies_and_leisure, nb_model_home_and_garden, nb_model_internet_and_telecom, nb_model_jobs_and_education, nb_model_law_and_government, nb_model_online_communities, nb_model_people_and_society, nb_model_pets_and_animals, nb_model_real_estate, nb_model_reference, nb_model_science, nb_model_shopping, nb_model_sports, nb_model_travel");
 // System pref to allow Pocket stories personalization to be turned on/off.
@@ -1684,8 +1683,8 @@ pref("browser.contentblocking.fingerprinting.preferences.ui.enabled", true);
   // Enable cookieBehavior = BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN as an option in the custom category ui
   pref("browser.contentblocking.reject-and-isolate-cookies.preferences.ui.enabled", true);
 #endif
-// State Partitioning MVP UI. Disabled by default for now.
-pref("browser.contentblocking.state-partitioning.mvp.ui.enabled", false);
+// State Partitioning MVP UI.
+pref("browser.contentblocking.state-partitioning.mvp.ui.enabled", true);
 
 // Possible values for browser.contentblocking.features.strict pref:
 //   Tracking Protection:
@@ -1773,7 +1772,7 @@ pref("browser.contentblocking.report.cryptominer.url", "https://support.mozilla.
 pref("browser.contentblocking.cfr-milestone.enabled", true);
 pref("browser.contentblocking.cfr-milestone.milestone-achieved", 0);
 // Milestones should always be in increasing order
-pref("browser.contentblocking.cfr-milestone.milestones", "[1000, 5000, 10000, 25000, 50000, 100000, 500000]");
+pref("browser.contentblocking.cfr-milestone.milestones", "[1000, 5000, 10000, 25000, 50000, 100000, 250000, 314159, 500000, 750000, 1000000, 1250000, 1500000, 1750000, 2000000, 2250000, 2500000, 8675309]");
 
 // Enables the new Protections Panel.
 #ifdef NIGHTLY_BUILD
@@ -2514,4 +2513,11 @@ pref("first-startup.timeout", 30000);
 // but it exits immediately before taking any action.
 #ifdef XP_WIN
   pref("default-browser-agent.enabled", true);
+#endif
+
+// Test Prefs that do nothing for testing
+#if defined(EARLY_BETA_OR_EARLIER)
+  pref("app.normandy.test-prefs.bool", false);
+  pref("app.normandy.test-prefs.integer", 0);
+  pref("app.normandy.test-prefs.string", "");
 #endif

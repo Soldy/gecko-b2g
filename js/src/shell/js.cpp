@@ -133,8 +133,9 @@
 #include "js/StableStringChars.h"
 #include "js/StructuredClone.h"
 #include "js/SweepingAPI.h"
-#include "js/Warnings.h"    // JS::SetWarningReporter
-#include "js/WasmModule.h"  // JS::WasmModule
+#include "js/Transcoding.h"  // JS::TranscodeBuffer, JS::TranscodeRange
+#include "js/Warnings.h"     // JS::SetWarningReporter
+#include "js/WasmModule.h"   // JS::WasmModule
 #include "js/Wrapper.h"
 #include "shell/jsoptparse.h"
 #include "shell/jsshell.h"
@@ -495,6 +496,8 @@ struct MOZ_STACK_CLASS EnvironmentPreparer
   void invoke(JS::HandleObject global, Closure& closure) override;
 };
 
+const char* shell::selfHostedXDRPath = nullptr;
+bool shell::encodeSelfHostedCode = false;
 bool shell::enableCodeCoverage = false;
 bool shell::enableDisassemblyDumps = false;
 bool shell::offthreadCompilation = false;
@@ -574,8 +577,8 @@ enum class ShellGlobalKind {
 };
 
 static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
-                                 JSPrincipals* principals,
-                                 ShellGlobalKind kind);
+                                 JSPrincipals* principals, ShellGlobalKind kind,
+                                 bool immutablePrototype);
 
 /*
  * A toy WindowProxy class for the shell. This is intended for testing code
@@ -4337,7 +4340,8 @@ static void WorkerMain(WorkerInput* input) {
     SetStandardRealmOptions(realmOptions);
 
     RootedObject global(cx, NewGlobalObject(cx, realmOptions, nullptr,
-                                            ShellGlobalKind::WindowProxy));
+                                            ShellGlobalKind::WindowProxy,
+                                            /* immutablePrototype = */ true));
     if (!global) {
       break;
     }
@@ -5307,9 +5311,13 @@ static bool DumpAST(JSContext* cx, const JS::ReadOnlyCompileOptions& options,
   }
 
   // Emplace the top-level stencil.
-  MOZ_ASSERT(compilationInfo.stencil.scriptData.length() ==
+  MOZ_ASSERT(compilationState.scriptData.length() ==
              CompilationInfo::TopLevelIndex);
-  if (!compilationInfo.stencil.scriptData.emplaceBack()) {
+  if (!compilationState.scriptData.emplaceBack()) {
+    ReportOutOfMemory(cx);
+    return false;
+  }
+  if (!compilationState.scriptExtra.emplaceBack()) {
     ReportOutOfMemory(cx);
     return false;
   }
@@ -5801,9 +5809,8 @@ static bool runOffThreadScript(JSContext* cx, unsigned argc, Value* vp) {
   JS::OffThreadToken* token = job->waitUntilDone(cx);
   MOZ_ASSERT(token);
 
-  DeleteOffThreadJob(cx, job);
-
   RootedScript script(cx, JS::FinishOffThreadScript(cx, token));
+  DeleteOffThreadJob(cx, job);
   if (!script) {
     return false;
   }
@@ -5891,9 +5898,8 @@ static bool FinishOffThreadModule(JSContext* cx, unsigned argc, Value* vp) {
   JS::OffThreadToken* token = job->waitUntilDone(cx);
   MOZ_ASSERT(token);
 
-  DeleteOffThreadJob(cx, job);
-
   RootedObject module(cx, JS::FinishOffThreadModule(cx, token));
+  DeleteOffThreadJob(cx, job);
   if (!module) {
     return false;
   }
@@ -6004,9 +6010,8 @@ static bool runOffThreadDecodedScript(JSContext* cx, unsigned argc, Value* vp) {
   JS::OffThreadToken* token = job->waitUntilDone(cx);
   MOZ_ASSERT(token);
 
-  DeleteOffThreadJob(cx, job);
-
   RootedScript script(cx, JS::FinishOffThreadScriptDecoder(cx, token));
+  DeleteOffThreadJob(cx, job);
   if (!script) {
     return false;
   }
@@ -6515,6 +6520,7 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
   JS::RealmCreationOptions& creationOptions = options.creationOptions();
   JS::RealmBehaviors& behaviors = options.behaviors();
   ShellGlobalKind kind = ShellGlobalKind::WindowProxy;
+  bool immutablePrototype = true;
 
   SetStandardRealmOptions(options);
 
@@ -6577,6 +6583,13 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
                            : ShellGlobalKind::GlobalObject;
     }
 
+    if (!JS_GetProperty(cx, opts, "immutablePrototype", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      immutablePrototype = v.toBoolean();
+    }
+
     if (!JS_GetProperty(cx, opts, "enableWritableStreams", &v)) {
       return false;
     }
@@ -6636,7 +6649,8 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  RootedObject global(cx, NewGlobalObject(cx, options, principals.get(), kind));
+  RootedObject global(cx, NewGlobalObject(cx, options, principals.get(), kind,
+                                          immutablePrototype));
   if (!global) {
     return false;
   }
@@ -8790,12 +8804,6 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 
 #endif
 
-#ifdef JS_CACHEIR_SPEW
-JS_FN_HELP("rateMyCacheIR", RateMyCacheIR, 0, 0,
-"rateMyCacheIR()",
-"  Show health rating of CacheIR stubs."),
-#endif
-
     JS_FN_HELP("intern", Intern, 1, 0,
 "intern(str)",
 "  Internalize str in the atom table."),
@@ -9035,6 +9043,7 @@ JS_FN_HELP("rateMyCacheIR", RateMyCacheIR, 0, 0,
 "         (default false).\n"
 "      useWindowProxy: the global will be created with a WindowProxy attached. In this\n"
 "          case, the WindowProxy will be returned.\n"
+"      immutablePrototype: whether the global's prototype is immutable.\n"
 "      principal: if present, its value converted to a number must be an\n"
 "         integer that fits in 32 bits; use that as the new realm's\n"
 "         principal. Shell principals are toys, meant only for testing; one\n"
@@ -9348,6 +9357,12 @@ TestAssertRecoveredOnBailout,
 "setBufferStreamParams(delayMillis, chunkByteSize)",
 "  Set the delay time (between calls to StreamConsumer::consumeChunk) and chunk\n"
 "  size (in bytes)."),
+
+#ifdef JS_CACHEIR_SPEW
+  JS_FN_HELP("rateMyCacheIR", RateMyCacheIR, 0, 0,
+"rateMyCacheIR()",
+"  Show health rating of CacheIR stubs."),
+#endif
 
     JS_FS_HELP_END
 };
@@ -10070,8 +10085,8 @@ static const JSPropertySpec TestingProperties[] = {
     JS_PSG("timesAccessed", TimesAccessed, 0), JS_PS_END};
 
 static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
-                                 JSPrincipals* principals,
-                                 ShellGlobalKind kind) {
+                                 JSPrincipals* principals, ShellGlobalKind kind,
+                                 bool immutablePrototype) {
   RootedObject glob(cx,
                     JS_NewGlobalObject(cx, &global_class, principals,
                                        JS::DontFireOnNewGlobalHook, options));
@@ -10096,13 +10111,15 @@ static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
     }
 #endif
 
-    bool succeeded;
-    if (!JS_SetImmutablePrototype(cx, glob, &succeeded)) {
-      return nullptr;
+    if (immutablePrototype) {
+      bool succeeded;
+      if (!JS_SetImmutablePrototype(cx, glob, &succeeded)) {
+        return nullptr;
+      }
+      MOZ_ASSERT(succeeded,
+                 "a fresh, unexposed global object is always capable of "
+                 "having its [[Prototype]] be immutable");
     }
-    MOZ_ASSERT(succeeded,
-               "a fresh, unexposed global object is always capable of "
-               "having its [[Prototype]] be immutable");
 
 #ifdef JS_HAS_CTYPES
     if (!fuzzingSafe && !JS::InitCTypesClass(cx, glob)) {
@@ -11099,7 +11116,8 @@ static int Shell(JSContext* cx, OptionParser* op, char** envp) {
   JS::RealmOptions options;
   SetStandardRealmOptions(options);
   RootedObject glob(
-      cx, NewGlobalObject(cx, options, nullptr, ShellGlobalKind::WindowProxy));
+      cx, NewGlobalObject(cx, options, nullptr, ShellGlobalKind::WindowProxy,
+                          /* immutablePrototype = */ true));
   if (!glob) {
     return 1;
   }
@@ -11215,6 +11233,56 @@ class AutoLibraryLoader {
 };
 #endif
 
+static bool ReadSelfHostedXDRFile(JSContext* cx, FileContents& buf) {
+  FILE* file = fopen(selfHostedXDRPath, "rb");
+  if (!file) {
+    JS_ReportErrorUTF8(cx, "Can't open self-hosted stencil XDR file.");
+    return false;
+  }
+  AutoCloseFile autoClose(file);
+
+  struct stat st;
+  if (fstat(fileno(file), &st) < 0) {
+    JS_ReportErrorASCII(cx, "Unable to stat file");
+    return false;
+  }
+
+  if (st.st_size >= INT32_MAX) {
+    JS_ReportErrorASCII(cx, "Stencil XDR file too large.");
+    return false;
+  }
+  uint32_t filesize = uint32_t(st.st_size);
+
+  if (!buf.growBy(filesize)) {
+    return false;
+  }
+  size_t cc = fread(buf.begin(), 1, filesize, file);
+  if (cc != filesize) {
+    JS_ReportErrorUTF8(cx, "Short read on self-hosted stencil XDR file.");
+    return false;
+  }
+
+  return true;
+}
+
+static bool WriteSelfHostedXDRFile(JSContext* cx,
+                                   const JS::TranscodeBuffer& buffer) {
+  FILE* file = fopen(selfHostedXDRPath, "wb");
+  if (!file) {
+    JS_ReportErrorUTF8(cx, "Can't open self-hosted stencil XDR file.");
+    return false;
+  }
+  AutoCloseFile autoClose(file);
+
+  size_t cc = fwrite(buffer.begin(), 1, buffer.length(), file);
+  if (cc != buffer.length()) {
+    JS_ReportErrorUTF8(cx, "Short write on self-hosted stencil XDR file.");
+    return false;
+  }
+
+  return true;
+}
+
 int main(int argc, char** argv, char** envp) {
   PreInit();
 
@@ -11267,6 +11335,12 @@ int main(int argc, char** argv, char** envp) {
           "then parsing that") ||
       !op.addMultiStringOption('m', "module", "PATH", "Module path to run") ||
       !op.addMultiStringOption('e', "execute", "CODE", "Inline code to run") ||
+      !op.addStringOption('\0', "selfhosted-xdr-path", "[filename]",
+                          "Read/Write selfhosted script data from/to the given "
+                          "XDR file") ||
+      !op.addStringOption('\0', "selfhosted-xdr-mode", "(encode,decode,off)",
+                          "Whether to encode/decode data of the file provided"
+                          "with --selfhosted-xdr-path.") ||
       !op.addBoolOption('i', "shell", "Enter prompt after running code") ||
       !op.addBoolOption('c', "compileonly",
                         "Only compile, don't run (syntax checking mode)") ||
@@ -11749,6 +11823,23 @@ int main(int argc, char** argv, char** envp) {
     js::EnableCodeCoverage();
   }
 
+  if (const char* xdr = op.getStringOption("selfhosted-xdr-path")) {
+    shell::selfHostedXDRPath = xdr;
+  }
+  if (const char* opt = op.getStringOption("selfhosted-xdr-mode")) {
+    if (strcmp(opt, "encode") == 0) {
+      shell::encodeSelfHostedCode = true;
+    } else if (strcmp(opt, "decode") == 0) {
+      shell::encodeSelfHostedCode = false;
+    } else if (strcmp(opt, "off") == 0) {
+      shell::selfHostedXDRPath = nullptr;
+    } else {
+      MOZ_CRASH(
+          "invalid option value for --selfhosted-xdr-mode, must be "
+          "encode/decode");
+    }
+  }
+
 #ifdef JS_WITHOUT_NSPR
   if (!op.getMultiStringOption("dll").empty()) {
     fprintf(stderr, "Error: --dll requires NSPR support!\n");
@@ -11889,6 +11980,22 @@ int main(int argc, char** argv, char** envp) {
     } else {
       MOZ_CRASH("invalid option value for --nursery-bigints, must be on/off");
     }
+  }
+
+  // The file content should stay alive as long as Worker thread can be
+  // initialized.
+  Maybe<FileContents> buffer;
+  if (selfHostedXDRPath && !encodeSelfHostedCode) {
+    buffer.emplace(cx);
+    if (!ReadSelfHostedXDRFile(cx, *buffer)) {
+      MOZ_CRASH("Could not read self-hosted stencil XDR file.");
+    }
+    MOZ_ASSERT(buffer->length() > 0);
+    mozilla::Span<uint8_t> xdrSpan = buffer.ref();
+    cx->runtime()->setSelfHostedXDR(xdrSpan);
+  }
+  if (selfHostedXDRPath && encodeSelfHostedCode) {
+    cx->runtime()->setSelfHostedXDRWriterCallback(&WriteSelfHostedXDRFile);
   }
 
   if (!JS::InitSelfHostedCode(cx)) {

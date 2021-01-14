@@ -26,9 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import static org.mozilla.geckoview.WebExtension.InstallException.ErrorCodes.ERROR_POSTPONED;
-import static org.mozilla.geckoview.WebExtension.InstallException.ErrorCodes.ERROR_USER_CANCELED;
-
 public class WebExtensionController {
     private final static String LOGTAG = "WebExtension";
 
@@ -40,6 +37,9 @@ public class WebExtensionController {
     private final MultiMap<MessageRecipient, Message> mPendingMessages;
     private final MultiMap<String, Message> mPendingNewTab;
     private final MultiMap<String, Message> mPendingBrowsingData;
+    private final MultiMap<String, Message> mPendingDownload;
+
+    private final HashMap<Integer, WebExtension.Download> mDownloads;
 
     private static class Message {
         final GeckoBundle bundle;
@@ -71,23 +71,23 @@ public class WebExtensionController {
 
         public GeckoResult<WebExtension> get(final String id) {
             final WebExtension extension = mData.get(id);
-            if (extension == null) {
-                final WebExtensionResult result = new WebExtensionResult("extension");
-
-                final GeckoBundle bundle = new GeckoBundle(1);
-                bundle.putString("extensionId", id);
-
-                EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Get",
-                    bundle, result);
-
-                return result.then(ext -> {
-                    mData.put(ext.id, ext);
-                    mObserver.onNewExtension(ext);
-                    return GeckoResult.fromValue(ext);
-                });
+            if (extension != null) {
+                return GeckoResult.fromValue(extension);
             }
 
-            return GeckoResult.fromValue(extension);
+            final GeckoBundle bundle = new GeckoBundle(1);
+            bundle.putString("extensionId", id);
+
+            final GeckoResult<WebExtension> pending = EventDispatcher.getInstance()
+                    .queryBundle("GeckoView:WebExtension:Get", bundle)
+                    .map(WebExtension::fromBundle)
+                    .map(ext -> {
+                        mData.put(ext.id, ext);
+                        mObserver.onNewExtension(ext);
+                        return ext;
+                    });
+
+            return pending;
         }
 
         public void setObserver(final Observer observer) {
@@ -202,6 +202,23 @@ public class WebExtensionController {
         @Override
         public WebExtension.TabDelegate getTabDelegate() {
             return mListener.getTabDelegate(mExtension);
+        }
+
+        @Override
+        public void onDownloadDelegate(final WebExtension.DownloadDelegate delegate) {
+            mListener.setDownloadDelegate(mExtension, delegate);
+
+            for (final Message message : mPendingDownload.get(mExtension.id)) {
+                WebExtensionController.this.handleMessage(message.event, message.bundle,
+                        message.callback, message.session);
+            }
+
+            mPendingDownload.remove(mExtension.id);
+        }
+
+        @Override
+        public WebExtension.DownloadDelegate getDownloadDelegate() {
+            return mListener.getDownloadDelegate(mExtension);
         }
     }
 
@@ -339,107 +356,21 @@ public class WebExtensionController {
         mDebuggerDelegate = delegate;
     }
 
-    private static class WebExtensionResult extends GeckoResult<WebExtension>
-            implements EventCallback {
-        /** These states should match gecko's AddonManager.STATE_* constants. */
-        private static class StateCodes {
-            public static final int STATE_POSTPONED = 7;
-            public static final int STATE_CANCELED = 12;
-        }
+    private static class InstallCanceller implements GeckoResult.CancellationDelegate {
+        public final String installId;
 
-        private final String mFieldName;
-
-        public WebExtensionResult(final String fieldName) {
-            mFieldName = fieldName;
-        }
-
-        @Override
-        public void sendSuccess(final Object response) {
-            if (response == null) {
-                complete(null);
-                return;
-            }
-            final GeckoBundle bundle = (GeckoBundle) response;
-            complete(new WebExtension(bundle.getBundle(mFieldName)));
-        }
-
-        @Override
-        public void sendError(final Object response) {
-            if (response instanceof GeckoBundle
-                    && ((GeckoBundle) response).containsKey("installError")) {
-                final GeckoBundle bundle = (GeckoBundle) response;
-                int errorCode = bundle.getInt("installError");
-                final int installState = bundle.getInt("state");
-                if (errorCode == 0 && installState == StateCodes.STATE_CANCELED) {
-                    errorCode = ERROR_USER_CANCELED;
-                } else if (errorCode == 0 && installState == StateCodes.STATE_POSTPONED) {
-                    errorCode = ERROR_POSTPONED;
-                }
-                completeExceptionally(new WebExtension.InstallException(errorCode));
-            } else {
-                completeExceptionally(new Exception(response.toString()));
-            }
-        }
-    }
-
-    private static class WebExtensionInstallResult extends WebExtensionResult {
-        private static class InstallCanceller implements GeckoResult.CancellationDelegate {
-            private static class CancelResult extends GeckoResult<Boolean>
-                    implements EventCallback {
-                @Override
-                public void sendSuccess(final Object response) {
-                    final boolean result = ((GeckoBundle) response).getBoolean("cancelled");
-                    complete(result);
-                }
-
-                @Override
-                public void sendError(final Object response) {
-                    completeExceptionally(new Exception(response.toString()));
-                }
-            }
-
-            private final String mInstallId;
-            private boolean mCancelled;
-
-            public InstallCanceller(@NonNull final String aInstallId) {
-                mInstallId = aInstallId;
-                mCancelled = false;
-            }
-
-            @Override
-            public GeckoResult<Boolean> cancel() {
-                CancelResult result = new CancelResult();
-
-                final GeckoBundle bundle = new GeckoBundle(1);
-                bundle.putString("installId", mInstallId);
-
-                EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:CancelInstall",
-                        bundle, result);
-
-                return result.then(wasCancelled -> {
-                    mCancelled = wasCancelled;
-                    return GeckoResult.fromValue(wasCancelled);
-                });
-            }
-        }
-
-        /* package */ final @NonNull String installId;
-
-        private final InstallCanceller mInstallCanceller;
-
-        public WebExtensionInstallResult() {
-            super("extension");
-
+        public InstallCanceller() {
             installId = UUID.randomUUID().toString();
-            mInstallCanceller = new InstallCanceller(installId);
-            setCancellationDelegate(mInstallCanceller);
         }
 
         @Override
-        public void sendError(final Object response) {
-            if (!mInstallCanceller.mCancelled) {
-                super.sendError(response);
-            }
+        public GeckoResult<Boolean> cancel() {
+            final GeckoBundle bundle = new GeckoBundle(1);
+            bundle.putString("installId", installId);
+
+            return EventDispatcher.getInstance()
+                    .queryBundle("GeckoView:WebExtension:CancelInstall", bundle)
+                    .map(response -> response.getBoolean("cancelled"));
         }
     }
 
@@ -481,16 +412,18 @@ public class WebExtensionController {
     @NonNull
     @AnyThread
     public GeckoResult<WebExtension> install(final @NonNull String uri) {
-        WebExtensionInstallResult result = new WebExtensionInstallResult();
+        final InstallCanceller canceller = new InstallCanceller();
         final GeckoBundle bundle = new GeckoBundle(2);
         bundle.putString("locationUri", uri);
-        bundle.putString("installId", result.installId);
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Install",
-                        bundle, result);
-        return result.then(extension -> {
-            registerWebExtension(extension);
-            return GeckoResult.fromValue(extension);
-        });
+        bundle.putString("installId", canceller.installId);
+
+        final GeckoResult<WebExtension> result = EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:Install", bundle)
+                .map(WebExtension::fromBundle,
+                     WebExtension.InstallException::fromQueryException)
+                .map(this::registerWebExtension);
+        result.setCancellationDelegate(canceller);
+        return result;
     }
 
     /**
@@ -506,20 +439,14 @@ public class WebExtensionController {
     public GeckoResult<WebExtension> setAllowedInPrivateBrowsing(
             final @NonNull WebExtension extension,
             final boolean allowed) {
-        final WebExtensionController.WebExtensionResult result =
-                new WebExtensionController.WebExtensionResult("extension");
-
         final GeckoBundle bundle = new GeckoBundle(2);
         bundle.putString("extensionId", extension.id);
         bundle.putBoolean("allowed", allowed);
 
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:SetPBAllowed",
-                bundle, result);
-
-        return result.then(newExtension -> {
-            registerWebExtension(newExtension);
-            return GeckoResult.fromValue(newExtension);
-        });
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:SetPBAllowed", bundle)
+                .map(WebExtension::fromBundle)
+                .map(this::registerWebExtension);
     }
 
     /**
@@ -547,15 +474,14 @@ public class WebExtensionController {
     @NonNull
     @AnyThread
     public GeckoResult<WebExtension> installBuiltIn(final @NonNull String uri) {
-        WebExtensionInstallResult result = new WebExtensionInstallResult();
         final GeckoBundle bundle = new GeckoBundle(1);
         bundle.putString("locationUri", uri);
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:InstallBuiltIn",
-                        bundle, result);
-        return result.then(extension -> {
-            registerWebExtension(extension);
-            return GeckoResult.fromValue(extension);
-        });
+
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:InstallBuiltIn", bundle)
+                .map(WebExtension::fromBundle,
+                     WebExtension.InstallException::fromQueryException)
+                .map(this::registerWebExtension);
     }
 
     /**
@@ -584,16 +510,15 @@ public class WebExtensionController {
     @AnyThread
     public GeckoResult<WebExtension> ensureBuiltIn(final @NonNull String uri,
                                                    final @Nullable String id) {
-        WebExtensionInstallResult result = new WebExtensionInstallResult();
         final GeckoBundle bundle = new GeckoBundle(2);
         bundle.putString("locationUri", uri);
         bundle.putString("webExtensionId", id);
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:EnsureBuiltIn",
-                bundle, result);
-        return result.then(extension -> {
-            registerWebExtension(extension);
-            return GeckoResult.fromValue(extension);
-        });
+
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:EnsureBuiltIn", bundle)
+                .map(WebExtension::fromBundle,
+                     WebExtension.InstallException::fromQueryException)
+                .map(this::registerWebExtension);
     }
 
     /**
@@ -609,23 +534,12 @@ public class WebExtensionController {
     @NonNull
     @AnyThread
     public GeckoResult<Void> uninstall(final @NonNull WebExtension extension) {
-        final CallbackResult<Void> result = new CallbackResult<Void>() {
-            @Override
-            public void sendSuccess(final Object response) {
-                complete(null);
-            }
-        };
-
         final GeckoBundle bundle = new GeckoBundle(1);
         bundle.putString("webExtensionId", extension.id);
 
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Uninstall",
-                bundle, result);
-
-        return result.then(success -> {
-            unregisterWebExtension(extension);
-            return GeckoResult.fromValue(success);
-        });
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:Uninstall", bundle)
+                .accept(result -> unregisterWebExtension(extension));
     }
 
     @Retention(RetentionPolicy.SOURCE)
@@ -666,19 +580,14 @@ public class WebExtensionController {
     @NonNull
     public GeckoResult<WebExtension> enable(final @NonNull WebExtension extension,
                                             final @EnableSources int source) {
-        final WebExtensionResult result = new WebExtensionResult("extension");
-
         final GeckoBundle bundle = new GeckoBundle(2);
         bundle.putString("webExtensionId", extension.id);
         bundle.putString("source", EnableSource.toString(source));
 
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Enable",
-                bundle, result);
-
-        return result.then(newExtension -> {
-            registerWebExtension(newExtension);
-            return GeckoResult.fromValue(newExtension);
-        });
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:Enable", bundle)
+                .map(WebExtension::fromBundle)
+                .map(this::registerWebExtension);
     }
 
     /**
@@ -694,19 +603,26 @@ public class WebExtensionController {
     @NonNull
     public GeckoResult<WebExtension> disable(final @NonNull WebExtension extension,
                                              final @EnableSources int source) {
-        final WebExtensionResult result = new WebExtensionResult("extension");
-
         final GeckoBundle bundle = new GeckoBundle(2);
         bundle.putString("webExtensionId", extension.id);
         bundle.putString("source", EnableSource.toString(source));
 
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Disable",
-                bundle, result);
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:Disable", bundle)
+                .map(WebExtension::fromBundle)
+                .map(this::registerWebExtension);
+    }
 
-        return result.then(newExtension -> {
-            registerWebExtension(newExtension);
-            return GeckoResult.fromValue(newExtension);
-        });
+    private List<WebExtension> listFromBundle(final GeckoBundle response) {
+        final GeckoBundle[] bundles = response.getBundleArray("extensions");
+        final List<WebExtension> list = new ArrayList<>(bundles.length);
+
+        for (GeckoBundle bundle : bundles) {
+            final WebExtension extension = new WebExtension(bundle);
+            list.add(registerWebExtension(extension));
+        }
+
+        return list;
     }
 
     /**
@@ -720,27 +636,9 @@ public class WebExtensionController {
     @AnyThread
     @NonNull
     public GeckoResult<List<WebExtension>> list() {
-        final CallbackResult<List<WebExtension>> result = new CallbackResult<List<WebExtension>>() {
-            @Override
-            public void sendSuccess(final Object response) {
-                final GeckoBundle[] bundles = ((GeckoBundle) response)
-                        .getBundleArray("extensions");
-                final List<WebExtension> list = new ArrayList<>(bundles.length);
-
-                for (GeckoBundle bundle : bundles) {
-                    final WebExtension extension = new WebExtension(bundle);
-                    registerWebExtension(extension);
-                    list.add(extension);
-                }
-
-                complete(list);
-            }
-        };
-
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:List",
-                null, result);
-
-        return result;
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:List")
+                .map(this::listFromBundle);
     }
 
     /**
@@ -768,20 +666,14 @@ public class WebExtensionController {
     @AnyThread
     @NonNull
     public GeckoResult<WebExtension> update(final @NonNull WebExtension extension) {
-        final WebExtensionResult result = new WebExtensionResult("extension");
-
         final GeckoBundle bundle = new GeckoBundle(1);
         bundle.putString("webExtensionId", extension.id);
 
-        EventDispatcher.getInstance().dispatch("GeckoView:WebExtension:Update",
-                bundle, result);
-
-        return result.then(newExtension -> {
-            if (newExtension != null) {
-                registerWebExtension(newExtension);
-            }
-            return GeckoResult.fromValue(newExtension);
-        });
+        return EventDispatcher.getInstance()
+                .queryBundle("GeckoView:WebExtension:Update", bundle)
+                .map(WebExtension::fromBundle,
+                     WebExtension.InstallException::fromQueryException)
+                .map(this::registerWebExtension);
     }
 
     /* package */ WebExtensionController(final GeckoRuntime runtime) {
@@ -789,12 +681,17 @@ public class WebExtensionController {
         mPendingMessages = new MultiMap<>();
         mPendingNewTab = new MultiMap<>();
         mPendingBrowsingData = new MultiMap<>();
+        mPendingDownload = new MultiMap<>();
         mExtensions.setObserver(mInternals);
+        mDownloads = new HashMap<>();
     }
 
-    /* package */ void registerWebExtension(final WebExtension webExtension) {
-        webExtension.setDelegateController(new DelegateController(webExtension));
-        mExtensions.update(webExtension.id, webExtension);
+    /* package */ WebExtension registerWebExtension(final WebExtension webExtension) {
+        if (webExtension != null) {
+            webExtension.setDelegateController(new DelegateController(webExtension));
+            mExtensions.update(webExtension.id, webExtension);
+        }
+        return webExtension;
     }
 
     /* package */ void handleMessage(final String event, final GeckoBundle bundle,
@@ -854,6 +751,9 @@ public class WebExtensionController {
                 return;
             } else if ("GeckoView:BrowsingData:Clear".equals(event)) {
                 browsingDataClear(message, extension);
+                return;
+            } else if ("GeckoView:WebExtension:Download".equals(event)) {
+                download(message, extension);
                 return;
             }
             final String nativeApp = bundle.getString("nativeApp");
@@ -1008,6 +908,38 @@ public class WebExtensionController {
     }
 
 
+    /* package */ void download(final Message message, final WebExtension extension) {
+        final WebExtension.DownloadDelegate delegate = mListener.getDownloadDelegate(extension);
+        if (delegate == null) {
+            mPendingDownload.add(extension.id, message);
+            return;
+        }
+
+        final GeckoBundle optionsBundle = message.bundle.getBundle("options");
+
+        WebExtension.DownloadRequest request = WebExtension.DownloadRequest.fromBundle(optionsBundle);
+
+        GeckoResult<WebExtension.Download> result = delegate.onDownload(extension, request);
+        if (result == null) {
+            message.callback.sendError("downloads.download() is not supported");
+            return;
+        }
+        result.then(
+                value -> {
+                    if (value != null) {
+                        message.callback.sendSuccess(value.id);
+                    } else {
+                        message.callback.sendError("downloads.download is not supported");
+                        Log.e(LOGTAG, "onDownload returned invalid null id");
+                    }
+                    return GeckoResult.fromValue(value);
+                },
+                error -> {
+                    message.callback.sendError(error.getCause().getMessage());
+                    return GeckoResult.fromException(error);
+                });
+    }
+
     /* package */ void openOptionsPage(
             final Message message,
             final WebExtension extension) {
@@ -1018,7 +950,7 @@ public class WebExtensionController {
         if (delegate != null) {
             delegate.onOpenOptionsPage(extension);
         } else {
-            // TODO: Save as pending?
+            message.callback.sendError("runtime.openOptionsPage is not supported");
         }
 
         message.callback.sendSuccess(null);
@@ -1045,10 +977,9 @@ public class WebExtensionController {
             return;
         }
 
-        result.accept(session -> {
+        message.callback.resolveTo(result.map(session -> {
             if (session == null) {
-                message.callback.sendSuccess(null);
-                return;
+                return null;
             }
 
             if (session.isOpen()) {
@@ -1057,8 +988,8 @@ public class WebExtensionController {
 
             session.open(mListener.runtime);
 
-            message.callback.sendSuccess(session.getId());
-        });
+            return session.getId();
+        }));
     }
 
     /* package */ void updateTab(final Message message, final WebExtension extension) {
@@ -1067,19 +998,21 @@ public class WebExtensionController {
         final EventCallback callback = message.callback;
 
         if (delegate == null) {
-            callback.sendError(null);
+            callback.sendError("tabs.update is not supported");
             return;
         }
 
-        delegate.onUpdateTab(extension, message.session,
-            new WebExtension.UpdateTabDetails(message.bundle.getBundle("updateProperties")))
-            .accept(value -> {
+        final WebExtension.UpdateTabDetails details =
+                new WebExtension.UpdateTabDetails(message.bundle.getBundle("updateProperties"));
+        callback.resolveTo(delegate
+            .onUpdateTab(extension, message.session, details)
+            .map(value -> {
                 if (value == AllowOrDeny.ALLOW) {
-                    callback.sendSuccess(null);
+                    return null;
                 } else {
-                    callback.sendError(null);
+                    throw new Exception("tabs.update is not supported");
                 }
-            });
+            }));
     }
 
     /* package */ void closeTab(final Message message,
@@ -1094,13 +1027,13 @@ public class WebExtensionController {
             result = GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
-        result.accept(value -> {
+        message.callback.resolveTo(result.map(value -> {
             if (value == AllowOrDeny.ALLOW) {
-                message.callback.sendSuccess(null);
+                return null;
             } else {
-                message.callback.sendError(null);
+                throw new Exception("tabs.remove is not supported");
             }
-        });
+        }));
     }
 
     /**
@@ -1268,7 +1201,7 @@ public class WebExtensionController {
         try {
             content = message.bundle.toJSONObject().get("data");
         } catch (JSONException ex) {
-            callback.sendError(ex);
+            callback.sendError(ex.getMessage());
             return;
         }
 
@@ -1347,8 +1280,16 @@ public class WebExtensionController {
         return null;
     }
 
-    // TODO: implement bug 1538348
-    /* package */ WebExtension.Download createDownload(final String id) {
-        return null;
+    @Nullable
+    @UiThread
+    public WebExtension.Download createDownload(final int id) {
+        if (mDownloads.containsKey(id)) {
+            throw new IllegalArgumentException("Download with this id already exists");
+        } else {
+            WebExtension.Download download = new WebExtension.Download(id);
+            mDownloads.put(id, download);
+
+            return download;
+        }
     }
 }

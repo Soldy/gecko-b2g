@@ -2523,7 +2523,7 @@ nsINode* nsINode::ReplaceOrInsertBefore(bool aReplace, nsINode* aNewChild,
     fragChildren->SetCapacity(count);
     for (nsIContent* child = newContent->GetFirstChild(); child;
          child = child->GetNextSibling()) {
-      NS_ASSERTION(child->GetComposedDoc() == nullptr,
+      NS_ASSERTION(child->GetUncomposedDoc() == nullptr,
                    "How did we get a child with a current doc?");
       fragChildren->AppendElement(child);
     }
@@ -2855,38 +2855,26 @@ uint32_t nsINode::Length() const {
 }
 
 const RawServoSelectorList* nsINode::ParseSelectorList(
-    const nsAString& aSelectorString, ErrorResult& aRv) {
+    const nsACString& aSelectorString, ErrorResult& aRv) {
   Document* doc = OwnerDoc();
 
   Document::SelectorCache& cache = doc->GetSelectorCache();
-  Document::SelectorCache::SelectorList* list = cache.GetList(aSelectorString);
-  if (list) {
-    if (!*list) {
-      // Invalid selector.
-      aRv.ThrowSyntaxError("'"_ns + NS_ConvertUTF16toUTF8(aSelectorString) +
-                           "' is not a valid selector"_ns);
-      return nullptr;
-    }
+  RawServoSelectorList* list =
+      cache.GetList(aSelectorString)
+          .OrInsert([&] {
+            // Note that we want to cache even if null was returned, because we
+            // want to cache the "This is not a valid selector" result.
+            return Servo_SelectorList_Parse(&aSelectorString).Consume();
+          })
+          .get();
 
-    return list->get();
-  }
-
-  NS_ConvertUTF16toUTF8 selectorString(aSelectorString);
-
-  UniquePtr<RawServoSelectorList> selectorList =
-      Servo_SelectorList_Parse(&selectorString).Consume();
-  // We want to cache even if null was returned, because we want to
-  // cache the "This is not a valid selector" result.
-  auto* ret = selectorList.get();
-  cache.CacheList(aSelectorString, std::move(selectorList));
-
-  // Now make sure we throw an exception if the selector was invalid.
-  if (!ret) {
-    aRv.ThrowSyntaxError("'"_ns + selectorString +
+  if (!list) {
+    // Invalid selector.
+    aRv.ThrowSyntaxError("'"_ns + aSelectorString +
                          "' is not a valid selector"_ns);
   }
 
-  return ret;
+  return list;
 }
 
 // Given an id, find first element with that id under aRoot.
@@ -2925,10 +2913,10 @@ inline static Element* FindMatchingElementWithId(
   return nullptr;
 }
 
-Element* nsINode::QuerySelector(const nsAString& aSelector,
+Element* nsINode::QuerySelector(const nsACString& aSelector,
                                 ErrorResult& aResult) {
-  AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("nsINode::QuerySelector",
-                                             LAYOUT_SelectorQuery, aSelector);
+  AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING("nsINode::QuerySelector",
+                                        LAYOUT_SelectorQuery, aSelector);
 
   const RawServoSelectorList* list = ParseSelectorList(aSelector, aResult);
   if (!list) {
@@ -2940,9 +2928,9 @@ Element* nsINode::QuerySelector(const nsAString& aSelector,
 }
 
 already_AddRefed<nsINodeList> nsINode::QuerySelectorAll(
-    const nsAString& aSelector, ErrorResult& aResult) {
-  AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("nsINode::QuerySelectorAll",
-                                             LAYOUT_SelectorQuery, aSelector);
+    const nsACString& aSelector, ErrorResult& aResult) {
+  AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING("nsINode::QuerySelectorAll",
+                                        LAYOUT_SelectorQuery, aSelector);
 
   RefPtr<nsSimpleContentList> contentList = new nsSimpleContentList(this);
   const RawServoSelectorList* list = ParseSelectorList(aSelector, aResult);
@@ -3154,6 +3142,11 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
   } else if (nodeInfoManager) {
     Document* oldDoc = aNode->OwnerDoc();
 
+    DOMArena* domArenaToStore =
+        !aNode->HasFlag(NODE_KEEPS_DOMARENA)
+            ? aNode->NodeInfo()->NodeInfoManager()->GetArenaAllocator()
+            : nullptr;
+
     Document* newDoc = nodeInfoManager->GetDocument();
     MOZ_ASSERT(newDoc);
 
@@ -3289,6 +3282,10 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
               docGroup->ArenaAllocator());
         }
       }
+
+      if (domArenaToStore && newDoc->GetDocGroup() != oldDoc->GetDocGroup()) {
+        nsContentUtils::AddEntryToDOMArenaTable(aNode, domArenaToStore);
+      }
     }
   }
 
@@ -3394,13 +3391,6 @@ void nsINode::Adopt(nsNodeInfoManager* aNewNodeInfoManager,
         return aError.ThrowSecurityError(
             "Adopting nodes across docgroups in chrome documents "
             "is unsupported");
-      } else {
-        if (StaticPrefs::dom_arena_allocator_enabled_AtStartup()) {
-          if (DOMArena* arena =
-                  NodeInfo()->NodeInfoManager()->GetArenaAllocator()) {
-            nsContentUtils::AddEntryToDOMArenaTable(this, arena);
-          }
-        }
       }
     }
   }

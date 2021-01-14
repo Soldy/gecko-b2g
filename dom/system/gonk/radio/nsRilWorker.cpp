@@ -1198,6 +1198,22 @@ NS_IMETHODIMP nsRilWorker::SendTerminalResponseToSim(
   return NS_OK;
 }
 
+NS_IMETHODIMP nsRilWorker::SendEnvelope(
+    int32_t serial, const nsAString& contents) {
+  DEBUG(
+      "nsRilWorker: [%d] > RIL_REQUEST_STK_SEND_ENVELOPE_COMMAND contents = "
+      "%s",
+      serial, NS_ConvertUTF16toUTF8(contents).get());
+  GetRadioProxy();
+  if (mRadioProxy == nullptr) {
+    ERROR("No Radio HAL exist");
+  }
+  mRadioProxy->sendEnvelope(serial,
+                            NS_ConvertUTF16toUTF8(contents).get());
+
+  return NS_OK;
+}
+
 nsRilWorker::~nsRilWorker() {
   DEBUG("Destructor nsRilWorker");
   mRilResponse = nullptr;

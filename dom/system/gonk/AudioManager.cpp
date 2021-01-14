@@ -599,9 +599,11 @@ void AudioManager::HandleBluetoothStatusChanged(nsISupports* aSubject,
       int btSampleRate =
           hfp->IsWbsEnabled() ? kBtWideBandSampleRate : kBtSampleRate;
       SetParameters("bt_samplerate=%d", btSampleRate);
+      SetParameters("BT_SCO=on");
       SetForceForUse(nsIAudioManager::USE_COMMUNICATION,
                      nsIAudioManager::FORCE_BT_SCO);
     } else {
+      SetParameters("BT_SCO=off");
       int32_t force;
       GetForceForUse(nsIAudioManager::USE_COMMUNICATION, &force);
       if (force == nsIAudioManager::FORCE_BT_SCO) {

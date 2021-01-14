@@ -1666,7 +1666,7 @@ MobileConnectionProvider.prototype = {
       isNaN(parseInt(aNetwork.mcc, 10)) ||
       isNaN(parseInt(aNetwork.mnc, 10))
     ) {
-      this._dispatchNotifyError(aCallback, RIL.GECKO_ERROR_INVALID_PARAMETER);
+      this._dispatchNotifyError(aCallback, RIL.GECKO_ERROR_INVALID_ARGUMENTS);
       return;
     }
 
@@ -2158,7 +2158,7 @@ MobileConnectionProvider.prototype = {
 
   setCallingLineIdRestriction(aMode, aCallback) {
     if (!this._isValidClirMode(aMode)) {
-      this._dispatchNotifyError(aCallback, RIL.GECKO_ERROR_INVALID_PARAMETER);
+      this._dispatchNotifyError(aCallback, RIL.GECKO_ERROR_INVALID_ARGUMENTS);
       return;
     }
 

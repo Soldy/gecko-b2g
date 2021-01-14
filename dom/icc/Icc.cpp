@@ -95,8 +95,7 @@ nsresult Icc::NotifyEvent(const nsAString& aName) {
 
 nsresult Icc::NotifyStkEvent(const nsAString& aName,
                              nsIStkProactiveCmd* aStkProactiveCmd) {
-  /* TODO:
-    JSContext* cx = nsContentUtils::RootingCxForThread();
+    JS::RootingContext* cx = RootingCx();
     JS::Rooted<JS::Value> value(cx);
 
     nsCOMPtr<nsIStkCmdFactory> cmdFactory =
@@ -106,7 +105,7 @@ nsresult Icc::NotifyStkEvent(const nsAString& aName,
     cmdFactory->CreateCommandMessage(aStkProactiveCmd, &value);
     NS_ENSURE_TRUE(value.isObject(), NS_ERROR_UNEXPECTED);
 
-    RootedDictionary<StkCommandEventInit> init(cx);
+    StkCommandEventInit init;
     init.mBubbles = false;
     init.mCancelable = false;
     init.mCommand = value;
@@ -115,8 +114,6 @@ nsresult Icc::NotifyStkEvent(const nsAString& aName,
       StkCommandEvent::Constructor(this, aName, init);
 
     return DispatchTrustedEvent(event);
-  */
-  return NS_OK;
 }
 
 void Icc::UpdateIccInfo(nsIIccInfo* aIccInfo) {

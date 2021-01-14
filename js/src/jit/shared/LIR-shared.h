@@ -42,6 +42,16 @@ class LBinaryMath : public LInstructionHelper<1, 2 + ExtraUses, Temps> {
   const LAllocation* rhs() { return this->getOperand(1); }
 };
 
+template <size_t Temps, size_t ExtraUses = 0>
+class LUnaryMath : public LInstructionHelper<1, 1 + ExtraUses, Temps> {
+ protected:
+  explicit LUnaryMath(LNode::Opcode opcode)
+      : LInstructionHelper<1, 1 + ExtraUses, Temps>(opcode) {}
+
+ public:
+  const LAllocation* input() { return this->getOperand(0); }
+};
+
 // An LOsiPoint captures a snapshot after a call and ensures enough space to
 // patch in a call to the invalidation mechanism.
 //
@@ -727,27 +737,6 @@ class LCreateThis : public LCallInstructionHelper<BOX_PIECES, 2, 0> {
 
   const LAllocation* getCallee() { return getOperand(0); }
   const LAllocation* getNewTarget() { return getOperand(1); }
-
-  MCreateThis* mir() const { return mir_->toCreateThis(); }
-};
-
-// Allocate an object for |new| on the caller-side,
-// when the prototype is known.
-class LCreateThisWithProto : public LCallInstructionHelper<1, 3, 0> {
- public:
-  LIR_HEADER(CreateThisWithProto)
-
-  LCreateThisWithProto(const LAllocation& callee, const LAllocation& newTarget,
-                       const LAllocation& prototype)
-      : LCallInstructionHelper(classOpcode) {
-    setOperand(0, callee);
-    setOperand(1, newTarget);
-    setOperand(2, prototype);
-  }
-
-  const LAllocation* getCallee() { return getOperand(0); }
-  const LAllocation* getNewTarget() { return getOperand(1); }
-  const LAllocation* getPrototype() { return getOperand(2); }
 
   MCreateThis* mir() const { return mir_->toCreateThis(); }
 };
@@ -1729,6 +1718,82 @@ class LCompareStrictS : public LInstructionHelper<1, BOX_PIECES + 1, 1> {
 
   const LAllocation* right() { return getOperand(BOX_PIECES); }
   const LDefinition* tempToUnbox() { return getTemp(0); }
+  MCompare* mir() { return mir_->toCompare(); }
+};
+
+class LCompareBigInt : public LInstructionHelper<1, 2, 3> {
+ public:
+  LIR_HEADER(CompareBigInt)
+
+  LCompareBigInt(const LAllocation& left, const LAllocation& right,
+                 const LDefinition& temp1, const LDefinition& temp2,
+                 const LDefinition& temp3)
+      : LInstructionHelper(classOpcode) {
+    setOperand(0, left);
+    setOperand(1, right);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+    setTemp(2, temp3);
+  }
+
+  const LAllocation* left() { return getOperand(0); }
+  const LAllocation* right() { return getOperand(1); }
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+  const LDefinition* temp3() { return getTemp(2); }
+  MCompare* mir() { return mir_->toCompare(); }
+};
+
+class LCompareBigIntInt32 : public LInstructionHelper<1, 2, 2> {
+ public:
+  LIR_HEADER(CompareBigIntInt32)
+
+  LCompareBigIntInt32(const LAllocation& left, const LAllocation& right,
+                      const LDefinition& temp1, const LDefinition& temp2)
+      : LInstructionHelper(classOpcode) {
+    setOperand(0, left);
+    setOperand(1, right);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LAllocation* left() { return getOperand(0); }
+  const LAllocation* right() { return getOperand(1); }
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+  MCompare* mir() { return mir_->toCompare(); }
+};
+
+class LCompareBigIntDouble : public LCallInstructionHelper<1, 2, 1> {
+ public:
+  LIR_HEADER(CompareBigIntDouble)
+
+  LCompareBigIntDouble(const LAllocation& left, const LAllocation& right,
+                       const LDefinition& temp)
+      : LCallInstructionHelper(classOpcode) {
+    setOperand(0, left);
+    setOperand(1, right);
+    setTemp(0, temp);
+  }
+
+  const LAllocation* left() { return getOperand(0); }
+  const LAllocation* right() { return getOperand(1); }
+  const LDefinition* temp() { return getTemp(0); }
+  MCompare* mir() { return mir_->toCompare(); }
+};
+
+class LCompareBigIntString : public LCallInstructionHelper<1, 2, 0> {
+ public:
+  LIR_HEADER(CompareBigIntString)
+
+  LCompareBigIntString(const LAllocation& left, const LAllocation& right)
+      : LCallInstructionHelper(classOpcode) {
+    setOperand(0, left);
+    setOperand(1, right);
+  }
+
+  const LAllocation* left() { return getOperand(0); }
+  const LAllocation* right() { return getOperand(1); }
   MCompare* mir() { return mir_->toCompare(); }
 };
 
@@ -2749,6 +2814,266 @@ class LWasmBuiltinModD : public LInstructionHelper<1, 3, 0> {
   MWasmBuiltinModD* mir() const { return mir_->toWasmBuiltinModD(); }
 };
 
+class LBigIntAdd : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntAdd)
+
+  LBigIntAdd(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntSub : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntSub)
+
+  LBigIntSub(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntMul : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntMul)
+
+  LBigIntMul(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntDiv : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntDiv)
+
+  LBigIntDiv(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+
+  const MBigIntDiv* mir() const { return mirRaw()->toBigIntDiv(); }
+};
+
+class LBigIntMod : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntMod)
+
+  LBigIntMod(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+
+  const MBigIntMod* mir() const { return mirRaw()->toBigIntMod(); }
+};
+
+class LBigIntPow : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntPow)
+
+  LBigIntPow(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+
+  const MBigIntPow* mir() const { return mirRaw()->toBigIntPow(); }
+};
+
+class LBigIntBitAnd : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntBitAnd)
+
+  LBigIntBitAnd(const LAllocation& lhs, const LAllocation& rhs,
+                const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntBitOr : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntBitOr)
+
+  LBigIntBitOr(const LAllocation& lhs, const LAllocation& rhs,
+               const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntBitXor : public LBinaryMath<2> {
+ public:
+  LIR_HEADER(BigIntBitXor)
+
+  LBigIntBitXor(const LAllocation& lhs, const LAllocation& rhs,
+                const LDefinition& temp1, const LDefinition& temp2)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntLsh : public LBinaryMath<3> {
+ public:
+  LIR_HEADER(BigIntLsh)
+
+  LBigIntLsh(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2,
+             const LDefinition& temp3)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+    setTemp(2, temp3);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+  const LDefinition* temp3() { return getTemp(2); }
+};
+
+class LBigIntRsh : public LBinaryMath<3> {
+ public:
+  LIR_HEADER(BigIntRsh)
+
+  LBigIntRsh(const LAllocation& lhs, const LAllocation& rhs,
+             const LDefinition& temp1, const LDefinition& temp2,
+             const LDefinition& temp3)
+      : LBinaryMath(classOpcode) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+    setTemp(2, temp3);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+  const LDefinition* temp3() { return getTemp(2); }
+};
+
+class LBigIntIncrement : public LUnaryMath<2> {
+ public:
+  LIR_HEADER(BigIntIncrement)
+
+  LBigIntIncrement(const LAllocation& input, const LDefinition& temp1,
+                   const LDefinition& temp2)
+      : LUnaryMath(classOpcode) {
+    setOperand(0, input);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntDecrement : public LUnaryMath<2> {
+ public:
+  LIR_HEADER(BigIntDecrement)
+
+  LBigIntDecrement(const LAllocation& input, const LDefinition& temp1,
+                   const LDefinition& temp2)
+      : LUnaryMath(classOpcode) {
+    setOperand(0, input);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
+class LBigIntNegate : public LUnaryMath<1> {
+ public:
+  LIR_HEADER(BigIntNegate)
+
+  LBigIntNegate(const LAllocation& input, const LDefinition& temp)
+      : LUnaryMath(classOpcode) {
+    setOperand(0, input);
+    setTemp(0, temp);
+  }
+
+  const LDefinition* temp() { return getTemp(0); }
+};
+
+class LBigIntBitNot : public LUnaryMath<2> {
+ public:
+  LIR_HEADER(BigIntBitNot)
+
+  LBigIntBitNot(const LAllocation& input, const LDefinition& temp1,
+                const LDefinition& temp2)
+      : LUnaryMath(classOpcode) {
+    setOperand(0, input);
+    setTemp(0, temp1);
+    setTemp(1, temp2);
+  }
+
+  const LDefinition* temp1() { return getTemp(0); }
+  const LDefinition* temp2() { return getTemp(1); }
+};
+
 // Adds two string, returning a string.
 class LConcat : public LInstructionHelper<1, 2, 5> {
  public:
@@ -3272,21 +3597,6 @@ class LValueToObject : public LInstructionHelper<1, BOX_PIECES, 0> {
   static const size_t Input = 0;
 };
 
-// Convert a value to an object or null pointer.
-class LValueToObjectOrNull : public LInstructionHelper<1, BOX_PIECES, 0> {
- public:
-  LIR_HEADER(ValueToObjectOrNull)
-
-  explicit LValueToObjectOrNull(const LBoxAllocation& input)
-      : LInstructionHelper(classOpcode) {
-    setBoxOperand(Input, input);
-  }
-
-  static const size_t Input = 0;
-
-  const MToObjectOrNull* mir() { return mir_->toToObjectOrNull(); }
-};
-
 // Double raised to a half power.
 class LPowHalfD : public LInstructionHelper<1, 1, 0> {
  public:
@@ -3317,7 +3627,9 @@ class LNaNToZero : public LInstructionHelper<1, 1, 1> {
   const LDefinition* tempDouble() { return getTemp(0); }
 };
 
-// Passed the BaselineFrame address in the OsrFrameReg by SideCannon().
+// Passed the BaselineFrame address in the OsrFrameReg via the IonOsrTempData
+// populated by PrepareOsrTempData.
+//
 // Forwards this object to the LOsrValues for Value materialization.
 class LOsrEntry : public LInstructionHelper<1, 0, 1> {
  protected:
@@ -4097,9 +4409,7 @@ class LLoadElementT : public LInstructionHelper<1, 2, 0> {
   }
 
   const char* extraName() const {
-    return mir()->needsHoleCheck()
-               ? "HoleCheck"
-               : (mir()->loadDoubles() ? "Doubles" : nullptr);
+    return mir()->needsHoleCheck() ? "HoleCheck" : nullptr;
   }
 
   const MLoadElement* mir() const { return mir_->toLoadElement(); }

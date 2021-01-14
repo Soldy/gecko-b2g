@@ -681,6 +681,7 @@ STATIC_ATOMS = [
     Atom("mozCustomContentContainer", "moz-custom-content-container"),
     Atom("mozGrabber", "mozGrabber"),
     Atom("mozNativeAnonymous", "-moz-native-anonymous"),
+    Atom("mozpasspointerevents", "mozpasspointerevents"),
     Atom("mozprivatebrowsing", "mozprivatebrowsing"),
     Atom("mozResizer", "mozResizer"),
     Atom("mozResizingInfo", "mozResizingInfo"),
@@ -1464,6 +1465,7 @@ STATIC_ATOMS = [
     Atom("lengthAdjust", "lengthAdjust"),
     Atom("letter_spacing", "letter-spacing"),
     Atom("lighten", "lighten"),
+    Atom("lighter", "lighter"),
     Atom("lighting_color", "lighting-color"),
     Atom("limitingConeAngle", "limitingConeAngle"),
     Atom("linear", "linear"),
@@ -2583,7 +2585,6 @@ STATIC_ATOMS = [
     PseudoElementAtom("PseudoElement_firstLine", ":first-line"),
     PseudoElementAtom("PseudoElement_selection", ":selection"),
     PseudoElementAtom("PseudoElement_mozFocusInner", ":-moz-focus-inner"),
-    PseudoElementAtom("PseudoElement_mozFocusOuter", ":-moz-focus-outer"),
     PseudoElementAtom(
         "PseudoElement_mozComplexControlWrapper", ":-moz-complex-control-wrapper"
     ),

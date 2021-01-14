@@ -15,9 +15,10 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/Unused.h"
+#include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLFrameElement.h"
-#include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/MutationEventBinding.h"
 
 #include "nsCOMPtr.h"
 #include "nsGenericHTMLElement.h"
@@ -304,6 +305,30 @@ ScreenIntSize nsSubDocumentFrame::GetSubdocumentSize() {
       presContext->AppUnitsToDevPixels(docSizeAppUnits.height));
 }
 
+bool nsSubDocumentFrame::PassPointerEventsToChildren() {
+  // Limit use of mozpasspointerevents to <web-view> because this could
+  // be used by the parent document to discover which parts of the subdocument
+  // are transparent to events.
+  //
+  // Note: the web-view should be a parent of a nsSubDocumentFrame, so we check
+  // the parent here.
+  //   <web-view> // nsGenericElement
+  //     <browser> // nsSubDocumentFrame
+  if (nsCOMPtr<Element> element = do_QueryInterface(mContent->GetParent())) {
+    if (!element->NodePrincipal()->IsSystemPrincipal() ||
+        !element->HasAttr(kNameSpaceID_None, nsGkAtoms::mozpasspointerevents)) {
+      return false;
+    }
+
+    nsAutoString tagName;
+    element->GetTagName(tagName);
+    if (tagName.LowerCaseEqualsLiteral("web-view")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static void WrapBackgroundColorInOwnLayer(nsDisplayListBuilder* aBuilder,
                                           nsIFrame* aFrame,
                                           nsDisplayList* aList) {
@@ -351,7 +376,13 @@ void nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     decorations.MoveTo(aLists);
   }
 
-  if (aBuilder->IsForEventDelivery() && pointerEventsNone) {
+  // We only care about mozpasspointerevents if we're doing hit-testing
+  // related things.
+  bool passPointerEventsToChildren =
+      aBuilder->IsForEventDelivery() && PassPointerEventsToChildren();
+
+  if (aBuilder->IsForEventDelivery() && pointerEventsNone &&
+      !passPointerEventsToChildren) {
     return;
   }
 
@@ -369,7 +400,8 @@ void nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     DisplayListClipState::AutoSaveRestore clipState(aBuilder);
     clipState.ClipContainingBlockDescendantsToContentBox(aBuilder, this);
 
-    aLists.Content()->AppendNewToTop<nsDisplayRemote>(aBuilder, this);
+    aLists.Content()->AppendNewToTop<nsDisplayRemote>(
+        aBuilder, this, passPointerEventsToChildren);
     return;
   }
 
@@ -421,7 +453,8 @@ void nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
       ignoreViewportScrolling = presShell->IgnoringViewportScrolling();
     }
 
-    aBuilder->EnterPresShell(subdocRootFrame, pointerEventsNone);
+    aBuilder->EnterPresShell(subdocRootFrame,
+                             pointerEventsNone && !passPointerEventsToChildren);
     aBuilder->IncrementPresShellPaintCount(presShell);
   } else {
     visible = aBuilder->GetVisibleRect();
@@ -807,6 +840,14 @@ nsresult nsSubDocumentFrame::AttributeChanged(int32_t aNameSpaceID,
     // Notify the frameloader
     if (RefPtr<nsFrameLoader> frameloader = FrameLoader()) {
       frameloader->MarginsChanged();
+    }
+  } else if (aAttribute == nsGkAtoms::mozpasspointerevents) {
+    if (auto browserParent = BrowserParent::GetFrom(FrameLoader())) {
+      if (aModType == dom::MutationEvent_Binding::ADDITION) {
+        browserParent->SetUpdateHitRegion(true);
+      } else if (aModType == dom::MutationEvent_Binding::REMOVAL) {
+        browserParent->SetUpdateHitRegion(false);
+      }
     }
   }
 
@@ -1215,11 +1256,14 @@ inline static bool IsTempLayerManager(LayerManager* aManager) {
 }
 
 nsDisplayRemote::nsDisplayRemote(nsDisplayListBuilder* aBuilder,
-                                 nsSubDocumentFrame* aFrame)
+                                 nsSubDocumentFrame* aFrame,
+                                 bool aPassPointerEventsToChildren)
     : nsPaintedDisplayItem(aBuilder, aFrame),
       mTabId{0},
-      mEventRegionsOverride(EventRegionsOverride::NoOverride) {
-  bool frameIsPointerEventsNone = aFrame->StyleUI()->GetEffectivePointerEvents(
+      mEventRegionsOverride(EventRegionsOverride::NoOverride),
+      mPassPointerEventsToChildren(aPassPointerEventsToChildren) {
+  bool frameIsPointerEventsNone = !mPassPointerEventsToChildren &&
+                                  aFrame->StyleUI()->GetEffectivePointerEvents(
                                       aFrame) == StylePointerEvents::None;
   if (aBuilder->IsInsidePointerEventsNoneDoc() || frameIsPointerEventsNone) {
     mEventRegionsOverride |= EventRegionsOverride::ForceEmptyHitRegion;
@@ -1326,7 +1370,7 @@ already_AddRefed<mozilla::layers::Layer> nsDisplayRemote::BuildLayer(
   Matrix4x4 m = Matrix4x4::Translation(offset.x, offset.y, 0.0);
   // Remote content can't be repainted by us, so we multiply down
   // the resolution that our container expects onto our container.
-  m.PreScale(aContainerParameters.mXScale, aContainerParameters.mYScale, 1.0);
+  m.PostScale(aContainerParameters.mXScale, aContainerParameters.mYScale, 1.0);
   refLayer->SetBaseTransform(m);
   refLayer->SetEventRegionsOverride(mEventRegionsOverride);
   refLayer->SetReferentId(mLayersId);
@@ -1427,8 +1471,21 @@ bool nsDisplayRemote::UpdateScrollData(
 
   if (aLayerData) {
     aLayerData->SetReferentId(mLayersId);
-    aLayerData->SetTransform(
-        mozilla::gfx::Matrix4x4::Translation(mOffset.x, mOffset.y, 0.0));
+    Matrix4x4 m = Matrix4x4::Translation(mOffset.x, mOffset.y, 0.0);
+
+    // Apply the top level resolution if we are in the same process of the top
+    // level document. We don't need to apply it in cases where we are in OOP
+    // iframes since it will be applied later in
+    // HitTestingTreeNode::GetTransformToGecko by walking up the tree node.
+    nsPresContext* inProcessRootContext =
+        mFrame->PresContext()->GetInProcessRootContentDocumentPresContext();
+    if (inProcessRootContext &&
+        inProcessRootContext->IsRootContentDocumentCrossProcess()) {
+      float resolution = inProcessRootContext->PresShell()->GetResolution();
+      m.PostScale(resolution, resolution, 1.0);
+    }
+
+    aLayerData->SetTransform(m);
     aLayerData->SetEventRegionsOverride(mEventRegionsOverride);
     aLayerData->SetRemoteDocumentSize(GetFrameSize(mFrame));
   }
@@ -1438,4 +1495,17 @@ bool nsDisplayRemote::UpdateScrollData(
 nsFrameLoader* nsDisplayRemote::GetFrameLoader() const {
   return mFrame ? static_cast<nsSubDocumentFrame*>(mFrame)->FrameLoader()
                 : nullptr;
+}
+
+void nsDisplayRemote::HitTest(nsDisplayListBuilder* aBuilder,
+                              const nsRect& aRect, HitTestState* aState,
+                              nsTArray<nsIFrame*>* aOutFrames) {
+  if (!mPassPointerEventsToChildren) {
+    return;
+  }
+  if (auto browserParent = BrowserParent::GetFrom(mFrame->GetContent())) {
+    if (browserParent->HitTest(aRect)) {
+      aOutFrames->AppendElement(mFrame);
+    }
+  }
 }

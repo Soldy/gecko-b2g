@@ -205,8 +205,14 @@ class LUse : public LAllocation {
   static const uint32_t USED_AT_START_SHIFT = REG_SHIFT + REG_BITS;
   static const uint32_t USED_AT_START_MASK = (1 << USED_AT_START_BITS) - 1;
 
+  // The REG field will hold the register code for any Register or
+  // FloatRegister, though not for an AnyRegister.
+  static_assert(std::max(Registers::Total, FloatRegisters::Total) <=
+                    REG_MASK + 1,
+                "The field must be able to represent any register code");
+
  public:
-  // Virtual registers get the remaining 19 bits.
+  // Virtual registers get the remaining bits.
   static const uint32_t VREG_BITS =
       DATA_BITS - (USED_AT_START_SHIFT + USED_AT_START_BITS);
   static const uint32_t VREG_SHIFT = USED_AT_START_SHIFT + USED_AT_START_BITS;
@@ -240,6 +246,7 @@ class LUse : public LAllocation {
   };
 
   void set(Policy policy, uint32_t reg, bool usedAtStart) {
+    MOZ_ASSERT(reg <= REG_MASK, "Register code must fit in field");
     setKindAndData(USE, (policy << POLICY_SHIFT) | (reg << REG_SHIFT) |
                             ((usedAtStart ? 1 : 0) << USED_AT_START_SHIFT));
   }
@@ -966,7 +973,7 @@ class LBlock {
 
  public:
   explicit LBlock(MBasicBlock* block);
-  MOZ_MUST_USE bool init(TempAllocator& alloc);
+  [[nodiscard]] bool init(TempAllocator& alloc);
 
   void add(LInstruction* ins) {
     ins->setBlock(this);
@@ -1213,14 +1220,14 @@ class LRecoverInfo : public TempObject {
   RecoverOffset recoverOffset_;
 
   explicit LRecoverInfo(TempAllocator& alloc);
-  MOZ_MUST_USE bool init(MResumePoint* mir);
+  [[nodiscard]] bool init(MResumePoint* mir);
 
   // Fill the instruction vector such as all instructions needed for the
   // recovery are pushed before the current instruction.
   template <typename Node>
-  MOZ_MUST_USE bool appendOperands(Node* ins);
-  MOZ_MUST_USE bool appendDefinition(MDefinition* def);
-  MOZ_MUST_USE bool appendResumePoint(MResumePoint* rp);
+  [[nodiscard]] bool appendOperands(Node* ins);
+  [[nodiscard]] bool appendDefinition(MDefinition* def);
+  [[nodiscard]] bool appendResumePoint(MResumePoint* rp);
 
  public:
   static LRecoverInfo* New(MIRGenerator* gen, MResumePoint* mir);
@@ -1320,7 +1327,7 @@ class LSnapshot : public TempObject {
   BailoutKind bailoutKind_;
 
   LSnapshot(LRecoverInfo* recover, BailoutKind kind);
-  MOZ_MUST_USE bool init(MIRGenerator* gen);
+  [[nodiscard]] bool init(MIRGenerator* gen);
 
  public:
   static LSnapshot* New(MIRGenerator* gen, LRecoverInfo* recover,
@@ -1507,7 +1514,7 @@ class LSafepoint : public TempObject {
     assertInvariants();
   }
   LiveGeneralRegisterSet gcRegs() const { return gcRegs_; }
-  MOZ_MUST_USE bool addGcSlot(bool stack, uint32_t slot) {
+  [[nodiscard]] bool addGcSlot(bool stack, uint32_t slot) {
     bool result = gcSlots_.append(SlotEntry(stack, slot));
     if (result) {
       assertInvariants();
@@ -1524,14 +1531,14 @@ class LSafepoint : public TempObject {
     slotsOrElementsRegs_.addUnchecked(reg);
     assertInvariants();
   }
-  MOZ_MUST_USE bool addSlotsOrElementsSlot(bool stack, uint32_t slot) {
+  [[nodiscard]] bool addSlotsOrElementsSlot(bool stack, uint32_t slot) {
     bool result = slotsOrElementsSlots_.append(SlotEntry(stack, slot));
     if (result) {
       assertInvariants();
     }
     return result;
   }
-  MOZ_MUST_USE bool addSlotsOrElementsPointer(LAllocation alloc) {
+  [[nodiscard]] bool addSlotsOrElementsPointer(LAllocation alloc) {
     if (alloc.isMemory()) {
       return addSlotsOrElementsSlot(alloc.isStackSlot(), alloc.memorySlot());
     }
@@ -1554,7 +1561,7 @@ class LSafepoint : public TempObject {
     return false;
   }
 
-  MOZ_MUST_USE bool addGcPointer(LAllocation alloc) {
+  [[nodiscard]] bool addGcPointer(LAllocation alloc) {
     if (alloc.isMemory()) {
       return addGcSlot(alloc.isStackSlot(), alloc.memorySlot());
     }
@@ -1591,7 +1598,7 @@ class LSafepoint : public TempObject {
     return true;
   }
 
-  MOZ_MUST_USE bool addValueSlot(bool stack, uint32_t slot) {
+  [[nodiscard]] bool addValueSlot(bool stack, uint32_t slot) {
     bool result = valueSlots_.append(SlotEntry(stack, slot));
     if (result) {
       assertInvariants();
@@ -1611,8 +1618,8 @@ class LSafepoint : public TempObject {
 
 #ifdef JS_NUNBOX32
 
-  MOZ_MUST_USE bool addNunboxParts(uint32_t typeVreg, LAllocation type,
-                                   LAllocation payload) {
+  [[nodiscard]] bool addNunboxParts(uint32_t typeVreg, LAllocation type,
+                                    LAllocation payload) {
     bool result = nunboxParts_.append(NunboxEntry(typeVreg, type, payload));
     if (result) {
       assertInvariants();
@@ -1620,7 +1627,7 @@ class LSafepoint : public TempObject {
     return result;
   }
 
-  MOZ_MUST_USE bool addNunboxType(uint32_t typeVreg, LAllocation type) {
+  [[nodiscard]] bool addNunboxType(uint32_t typeVreg, LAllocation type) {
     for (size_t i = 0; i < nunboxParts_.length(); i++) {
       if (nunboxParts_[i].type == type) {
         return true;
@@ -1641,8 +1648,8 @@ class LSafepoint : public TempObject {
     return result;
   }
 
-  MOZ_MUST_USE bool addNunboxPayload(uint32_t payloadVreg,
-                                     LAllocation payload) {
+  [[nodiscard]] bool addNunboxPayload(uint32_t payloadVreg,
+                                      LAllocation payload) {
     for (size_t i = 0; i < nunboxParts_.length(); i++) {
       if (nunboxParts_[i].payload == payload) {
         return true;
@@ -1702,7 +1709,7 @@ class LSafepoint : public TempObject {
   }
   LiveGeneralRegisterSet valueRegs() const { return valueRegs_; }
 
-  MOZ_MUST_USE bool addBoxedValue(LAllocation alloc) {
+  [[nodiscard]] bool addBoxedValue(LAllocation alloc) {
     if (alloc.isRegister()) {
       Register reg = alloc.toRegister().gpr();
       if (!valueRegs().has(reg)) {
@@ -1845,14 +1852,14 @@ class LIRGraph {
  public:
   explicit LIRGraph(MIRGraph* mir);
 
-  MOZ_MUST_USE bool init() {
+  [[nodiscard]] bool init() {
     return blocks_.init(mir_.alloc(), mir_.numBlocks());
   }
   MIRGraph& mir() const { return mir_; }
   size_t numBlocks() const { return blocks_.length(); }
   LBlock* getBlock(size_t i) { return &blocks_[i]; }
   uint32_t numBlockIds() const { return mir_.numBlockIds(); }
-  MOZ_MUST_USE bool initBlock(MBasicBlock* mir) {
+  [[nodiscard]] bool initBlock(MBasicBlock* mir) {
     auto* block = &blocks_[mir->id()];
     auto* lir = new (block) LBlock(mir);
     return lir->init(mir_.alloc());
@@ -1892,7 +1899,7 @@ class LIRGraph {
   uint32_t totalSlotCount() const {
     return paddedLocalSlotCount() + argumentsSize();
   }
-  MOZ_MUST_USE bool addConstantToPool(const Value& v, uint32_t* index);
+  [[nodiscard]] bool addConstantToPool(const Value& v, uint32_t* index);
   size_t numConstants() const { return constantPool_.length(); }
   Value* constantPool() { return &constantPool_[0]; }
 

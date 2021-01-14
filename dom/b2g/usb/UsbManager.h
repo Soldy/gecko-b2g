@@ -10,6 +10,8 @@
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/Observer.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsICancelable.h"
+#include "nsITimer.h"
 
 class nsPIDOMWindowInner;
 class nsIScriptContext;
@@ -22,8 +24,13 @@ class UsbStatus;
 
 namespace dom {
 
-class UsbManager : public DOMEventTargetHelper, public UsbObserver {
+class UsbManager : public DOMEventTargetHelper,
+                   public UsbObserver,
+                   public nsITimerCallback {
  public:
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_NSITIMERCALLBACK
+
   explicit UsbManager(nsPIDOMWindowInner* aWindow);
 
   void Init();
@@ -47,6 +54,8 @@ class UsbManager : public DOMEventTargetHelper, public UsbObserver {
   IMPL_EVENT_HANDLER(usbstatuschange);
 
  private:
+  ~UsbManager() {}
+
   /**
    * Update the usb device status stored in the usb manager object using
    * a usbDeviceStatusobject.
@@ -56,11 +65,10 @@ class UsbManager : public DOMEventTargetHelper, public UsbObserver {
   /**
    * Delay for debouncing USB disconnects event during usb function swtiching
    */
-  void DebounceEvent();
+  nsCOMPtr<nsITimer> mDebouncingTimer;
 
   bool mDeviceAttached;
   bool mDeviceConfigured;
-  bool mDebounce;
 };
 
 }  // namespace dom

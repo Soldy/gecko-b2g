@@ -68,7 +68,7 @@ firefox-accounts-bridge = { path = "../../../../services/fxaccounts/rust-bridge/
 l10nregistry-ffi = { path = "../../../../intl/l10n/rust/l10nregistry-ffi" }
 
 processtools = { path = "../../../components/processtools" }
-qcms = { path = "../../../../gfx/qcms" }
+qcms = { path = "../../../../gfx/qcms", features = ["c_bindings"] }
 
 # Build it on Gonk for now.
 # [target.'cfg(not(target_os = "android"))'.dependencies]

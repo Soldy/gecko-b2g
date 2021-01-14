@@ -56,6 +56,7 @@ class ScreenOrientation final
   static void UpdateActiveOrientationLock(hal::ScreenOrientation aOrientation);
   static void AbortInProcessOrientationPromises(
       BrowsingContext* aBrowsingContext);
+  static bool CheckPermission(nsPIDOMWindowInner* aWindow);
 
  private:
   virtual ~ScreenOrientation();

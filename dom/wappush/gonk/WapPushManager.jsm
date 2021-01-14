@@ -44,9 +44,10 @@ XPCOMUtils.defineLazyGetter(this, "WSP", function() {
 XPCOMUtils.defineLazyServiceGetter(
   this,
   "gSystemMessenger",
-  "@mozilla.org/system-message-internal;1",
-  "nsISystemMessagesInternal"
+  "@mozilla.org/systemmessage-service;1",
+  "nsISystemMessageService"
 );
+
 XPCOMUtils.defineLazyServiceGetter(
   this,
   "gIccService",

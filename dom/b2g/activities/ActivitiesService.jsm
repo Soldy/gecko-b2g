@@ -217,19 +217,21 @@ ActivitiesDb.prototype = {
 
 var Activities = {
   messages: [
-    // WebActivity.jsm
+    // ActivityProxy.jsm
     "Activity:Start",
     "Activity:Cancel",
 
-    // ActivityProxy.jsm (WebActivityRequestHandler.cpp)
+    // ActivityRequestHandlerProxy.jsm
     "Activity:Ready",
     "Activity:PostResult",
     "Activity:PostError",
 
-    // From the future AppsService
+    // ServiceWorkerAssistant.jsm
     "Activities:Register",
     "Activities:Unregister",
     "Activities:UnregisterAll",
+
+    // Not in used for now.
     "Activities:Get",
 
     "child-process-shutdown",
@@ -280,7 +282,7 @@ var Activities = {
         messages.forEach(function(id) {
           self.trySendAndCleanup(id, "Activity:FireError", {
             id,
-            error: "service worker shutdown error",
+            error: "SERVICE_WORKER_SHUTDOWN",
           });
         });
         break;
@@ -309,11 +311,6 @@ var Activities = {
         return;
       }
 
-      // TODO: We are suppose to check whether aMsg.getFilterResults is true
-      // and caller is a certified app, if so, send back the activities'
-      // manifest url, icon url, app name directly without passing results to
-      // activitiy chooser.
-
       let getActivityChoice = function(aResult) {
         debug("Activity choice: " + aResult);
 
@@ -336,13 +333,6 @@ var Activities = {
         }
 
         let result = aResults.options[aResult];
-        let caller = {
-          pageURL: self.callers[aMsg.id].pageURL,
-        };
-        let handler = {
-          manifestURL: result.manifest,
-          pageURL: result.description.href,
-        };
         let origin = Services.io.newURI(result.manifest).prePath;
         debug("Sending system message to " + origin);
         self.callers[aMsg.id].handlerOrigin = origin;
@@ -354,8 +344,6 @@ var Activities = {
               id: aMsg.id,
               payload: aMsg.options,
               returnValue: result.description.returnValue,
-              handler,
-              caller,
             },
             origin
           );
@@ -409,15 +397,10 @@ var Activities = {
     };
 
     let matchFunc = function matchFunc(aResult) {
-      // If the activity is in the developer mode activity list, only let the
-      // system app be a provider.
-      // TODO: We used to check for pref 'dom.activities.developer_mode_only'
-      // to hijack the activity with developer mode. Remove it since we are
-      // unsure about porting back the app developer mode.
-
       return ActivitiesServiceFilter.match(
         aMsg.options.data,
-        aResult.description.filters
+        aMsg.origin,
+        aResult.description
       );
     };
 
@@ -458,28 +441,23 @@ var Activities = {
     switch (aMessage.name) {
       case "Activity:Start":
         // TODO: For ProcessPriorityManager to manage. (Bug 80942)
+        // Not in used for now.
         Services.obs.notifyObservers(null, "activity-opened", msg.childID);
         this.callers[msg.id] = {
           mm,
           childID: msg.childID,
-          pageURL: msg.pageURL,
+          origin: msg.origin,
         };
         this.startActivity(msg);
         break;
 
       case "Activity:Cancel":
         this.trySendAndCleanup(msg.id, "Activity:FireCancel", msg);
-        // Also notify ActivityProxy that this activity has been canceled.
-        if (caller.childMM) {
-          caller.childMM.sendAsyncMessage("Activity:FireCancel", msg);
-        }
         break;
 
       case "Activity:Ready":
-        // Sent from ActivityProxy, this is ActivityProxy's message manager.
-        caller.childMM = mm;
+        caller.handlerMM = mm;
         break;
-
       case "Activity:PostResult":
         this.trySendAndCleanup(msg.id, "Activity:FireSuccess", msg);
         break;
@@ -517,7 +495,7 @@ var Activities = {
         break;
       case "child-process-shutdown":
         for (let id in this.callers) {
-          if (this.callers[id].childMM == mm) {
+          if (this.callers[id].handlerMM == mm) {
             debug(
               "child-process-shutdown caller=" +
                 this.callers[id].pageURL +
@@ -567,6 +545,7 @@ var Activities = {
 
   removeCaller: function activities_removeCaller(id) {
     // TODO: For ProcessPriorityManager to manage. (Bug 80942)
+    // Not in used for now.
     Services.obs.notifyObservers(
       null,
       "activity-closed",

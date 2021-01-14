@@ -24,7 +24,7 @@ const DENY_ACTION = Ci.nsIPermissionManager.DENY_ACTION;
 const PROMPT_ACTION = Ci.nsIPermissionManager.PROMPT_ACTION;
 
 // Permissions that are granted to all installed apps.
-this.defaultPermissions = ["vibration"];
+this.defaultPermissions = ["vibration", "lock-orientation"];
 
 /**
  * For efficient lookup and systematic indexing, please help to arrange the
@@ -94,6 +94,11 @@ this.PermissionsTable = {
     signed: DENY_ACTION,
     core: ALLOW_ACTION,
   },
+  "background-sensors": {
+    pwa: DENY_ACTION,
+    signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+  },
   battery: {
     pwa: DENY_ACTION,
     signed: DENY_ACTION,
@@ -134,8 +139,12 @@ this.PermissionsTable = {
   },
   "desktop-notification": {
     pwa: PROMPT_ACTION,
-    signed: ALLOW_ACTION,
-    core: ALLOW_ACTION,
+    signed: PROMPT_ACTION,
+    core: PROMPT_ACTION,
+    defaultPromptAction: {
+      signed: ALLOW_ACTION,
+      core: ALLOW_ACTION,
+    },
   },
   "device-configuration": {
     pwa: DENY_ACTION,

@@ -193,7 +193,8 @@ class nsDisplayRemote final : public nsPaintedDisplayItem {
   typedef mozilla::LayoutDevicePoint LayoutDevicePoint;
 
  public:
-  nsDisplayRemote(nsDisplayListBuilder* aBuilder, nsSubDocumentFrame* aFrame);
+  nsDisplayRemote(nsDisplayListBuilder* aBuilder, nsSubDocumentFrame* aFrame,
+                  bool aPassPointerEventsToChildren);
 
   LayerState GetLayerState(
       nsDisplayListBuilder* aBuilder, LayerManager* aManager,
@@ -215,6 +216,9 @@ class nsDisplayRemote final : public nsPaintedDisplayItem {
       mozilla::layers::WebRenderScrollData* aData,
       mozilla::layers::WebRenderLayerScrollData* aLayerData) override;
 
+  void HitTest(nsDisplayListBuilder* aBuilder, const nsRect& aRect,
+               HitTestState* aState, nsTArray<nsIFrame*>* aOutFrames) override;
+
   NS_DISPLAY_DECL_NAME("Remote", TYPE_REMOTE)
 
  private:
@@ -225,6 +229,8 @@ class nsDisplayRemote final : public nsPaintedDisplayItem {
   LayersId mLayersId;
   LayoutDevicePoint mOffset;
   EventRegionsOverride mEventRegionsOverride;
+
+  bool mPassPointerEventsToChildren;
 };
 
 #endif /* NSSUBDOCUMENTFRAME_H_ */

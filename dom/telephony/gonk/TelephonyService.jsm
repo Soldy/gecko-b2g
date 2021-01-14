@@ -1162,7 +1162,7 @@ TelephonyService.prototype = {
     aClientId,
     aNumber,
     aRttMode,
-    aClirMode = RIL.CLIR_DEFAULT,
+    aClirMode = Ci.nsIMobileConnection.CLIR_DEFAULT,
     aCallback
   ) {
     if (this._isDialing) {
@@ -1387,6 +1387,7 @@ TelephonyService.prototype = {
           isEmergency: aOptions.isEmergency,
           rttMode: aOptions.rttMode,
           callback: aCallback,
+          clirMode: aOptions.clirMode,
         };
       }
     });
@@ -3069,7 +3070,8 @@ TelephonyService.prototype = {
         aCall.hangUpLocal,
         aCall.isVt,
         aCall.radioTech,
-        aCall.isRtt
+        aCall.isRtt,
+        aCall.verStatus
       );
     }
 
@@ -3556,6 +3558,7 @@ TelephonyService.prototype = {
       isEmergency: aOptions.isEmergency,
       type: aOptions.type,
       rttMode: aOptions.rttMode,
+      clirMode: aOptions.clirMode,
     };
 
     let self = this;
@@ -3569,6 +3572,7 @@ TelephonyService.prototype = {
           clientId: aClientId,
           isEmergency: aOptions.isEmergency,
           rttMode: aOptions.rttMode,
+          clirMode: aOptions.clirMode,
           callback: aCallback,
         };
       },

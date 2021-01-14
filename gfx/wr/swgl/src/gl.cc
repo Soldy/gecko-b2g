@@ -80,6 +80,8 @@
 
 using namespace glsl;
 
+typedef ivec2_scalar IntPoint;
+
 struct IntRect {
   int x0;
   int y0;
@@ -89,6 +91,8 @@ struct IntRect {
   int width() const { return x1 - x0; }
   int height() const { return y1 - y0; }
   bool is_empty() const { return width() <= 0 || height() <= 0; }
+
+  IntPoint origin() const { return IntPoint(x0, y0); }
 
   bool same_size(const IntRect& o) const {
     return width() == o.width() && height() == o.height();
@@ -129,12 +133,19 @@ struct IntRect {
     swap(y0, y1);
   }
 
-  IntRect& offset(int dx, int dy) {
-    x0 += dx;
-    y0 += dy;
-    x1 += dx;
-    y1 += dy;
+  IntRect& offset(const IntPoint& o) {
+    x0 += o.x;
+    y0 += o.y;
+    x1 += o.x;
+    y1 += o.y;
     return *this;
+  }
+
+  IntRect operator+(const IntPoint& o) const {
+    return IntRect(*this).offset(o);
+  }
+  IntRect operator-(const IntPoint& o) const {
+    return IntRect(*this).offset(-o);
   }
 };
 
@@ -535,6 +546,10 @@ struct Texture {
   // locks, we need to disallow modifying or destroying the texture as it may
   // be accessed by other threads where modifications could lead to races.
   int32_t locked = 0;
+  // When used as an attachment of a framebuffer, rendering to the texture
+  // behaves as if it is located at the given offset such that the offset is
+  // subtracted from all transformed vertexes after the viewport is applied.
+  IntPoint offset;
 
   enum FLAGS {
     // If the buffer is internally-allocated by SWGL
@@ -684,10 +699,11 @@ struct Texture {
   ~Texture() { cleanup(); }
 
   IntRect bounds() const { return IntRect{0, 0, width, height}; }
+  IntRect offset_bounds() const { return bounds() + offset; }
 
   // Find the valid sampling bounds relative to the requested region
   IntRect sample_bounds(const IntRect& req, bool invertY = false) const {
-    IntRect bb = bounds().intersect(req).offset(-req.x0, -req.y0);
+    IntRect bb = bounds().intersect(req) - req.origin();
     if (invertY) bb.invert_y(req.height());
     return bb;
   }
@@ -965,8 +981,13 @@ struct Context {
     return textures[texture_units[unit].texture_rectangle_binding];
   }
 
-  IntRect apply_scissor(IntRect bb) const {
-    return scissortest ? bb.intersect(scissor) : bb;
+  IntRect apply_scissor(IntRect bb,
+                        const IntPoint& origin = IntPoint(0, 0)) const {
+    return scissortest ? bb.intersect(scissor - origin) : bb;
+  }
+
+  IntRect apply_scissor(const Texture& t) const {
+    return apply_scissor(t.bounds(), t.offset);
   }
 };
 static Context* ctx = nullptr;
@@ -1292,6 +1313,12 @@ void GetIntegerv(GLenum pname, GLint* params) {
       break;
     case GL_NUM_EXTENSIONS:
       params[0] = sizeof(extensions) / sizeof(extensions[0]);
+      break;
+    case GL_MAJOR_VERSION:
+      params[0] = 3;
+      break;
+    case GL_MINOR_VERSION:
+      params[0] = 2;
       break;
     default:
       debugf("unhandled glGetIntegerv parameter %x\n", pname);
@@ -2339,7 +2366,7 @@ static void clear_buffer(Texture& t, T value, int layer, IntRect bb,
 
 template <typename T>
 static inline void clear_buffer(Texture& t, T value, int layer = 0) {
-  IntRect bb = ctx->apply_scissor(t.bounds());
+  IntRect bb = ctx->apply_scissor(t);
   if (bb.width() > 0) {
     clear_buffer<T>(t, value, layer, bb);
   }
@@ -2433,7 +2460,7 @@ static void prepare_texture(Texture& t, const IntRect* skip) {
 }
 
 static inline bool clear_requires_scissor(Texture& t) {
-  return ctx->scissortest && !ctx->scissor.contains(t.bounds());
+  return ctx->scissortest && !ctx->scissor.contains(t.offset_bounds());
 }
 
 // Setup a clear on a texture. This may either force an immediate clear or
@@ -2443,7 +2470,8 @@ static void request_clear(Texture& t, int layer, T value) {
   // If the clear would require a scissor, force clear anything outside
   // the scissor, and then immediately clear anything inside the scissor.
   if (clear_requires_scissor(t)) {
-    force_clear<T>(t, &ctx->scissor);
+    IntRect skip = ctx->scissor - t.offset;
+    force_clear<T>(t, &skip);
     clear_buffer<T>(t, value, layer);
   } else if (t.depth > 1) {
     // Delayed clear is not supported on texture arrays.
@@ -2477,7 +2505,7 @@ static ALWAYS_INLINE void fill_depth_run(DepthRun* dst, size_t n,
 void Texture::fill_depth_runs(uint16_t depth) {
   if (!buf) return;
   assert(cleared());
-  IntRect bb = ctx->apply_scissor(bounds());
+  IntRect bb = ctx->apply_scissor(*this);
   DepthRun* runs = (DepthRun*)sample_ptr(0, bb.y0);
   for (int rows = bb.height(); rows > 0; rows--) {
     if (bb.width() >= width) {
@@ -2498,7 +2526,8 @@ void Texture::fill_depth_runs(uint16_t depth) {
 
 extern "C" {
 
-void InitDefaultFramebuffer(int width, int height, int stride, void* buf) {
+void InitDefaultFramebuffer(int x, int y, int width, int height, int stride,
+                            void* buf) {
   Framebuffer& fb = ctx->framebuffers[0];
   if (!fb.color_attachment) {
     GenTextures(1, &fb.color_attachment);
@@ -2508,12 +2537,14 @@ void InitDefaultFramebuffer(int width, int height, int stride, void* buf) {
   // the underlying storage for the color buffer texture.
   Texture& colortex = ctx->textures[fb.color_attachment];
   set_tex_storage(colortex, GL_RGBA8, width, height, buf, stride);
+  colortex.offset = IntPoint(x, y);
   if (!fb.depth_attachment) {
     GenTextures(1, &fb.depth_attachment);
   }
   // Ensure dimensions of the depth buffer match the color buffer.
   Texture& depthtex = ctx->textures[fb.depth_attachment];
   set_tex_storage(depthtex, GL_DEPTH_COMPONENT16, width, height);
+  depthtex.offset = IntPoint(x, y);
 }
 
 void* GetColorBuffer(GLuint fbo, GLboolean flush, int32_t* width,
@@ -2526,6 +2557,7 @@ void* GetColorBuffer(GLuint fbo, GLboolean flush, int32_t* width,
   if (flush) {
     prepare_texture(colortex);
   }
+  assert(colortex.offset == IntPoint(0, 0));
   *width = colortex.width;
   *height = colortex.height;
   *stride = colortex.stride();
@@ -2619,6 +2651,9 @@ void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
   prepare_texture(t);
   // debugf("read pixels %d, %d, %d, %d from fb %d with format %x\n", x, y,
   // width, height, ctx->read_framebuffer_binding, t.internal_format);
+  x -= t.offset.x;
+  y -= t.offset.y;
+  assert(x >= 0 && y >= 0);
   assert(x + width <= t.width);
   assert(y + height <= t.height);
   if (internal_format_for_data(format, type) != t.internal_format) {
@@ -3103,7 +3138,7 @@ struct ClipRect {
   float y1;
 
   ClipRect(const IntRect& i) : x0(i.x0), y0(i.y0), x1(i.x1), y1(i.y1) {}
-  ClipRect(Texture& t) : ClipRect(ctx->apply_scissor(t.bounds())) {}
+  ClipRect(const Texture& t) : ClipRect(ctx->apply_scissor(t)) {}
 
   template <typename P>
   bool overlaps(int nump, const P* p) const {
@@ -3740,30 +3775,64 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
 template <XYZW AXIS>
 static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
                      Interpolants* outInterp) {
+  // Potential mask bits of which side of a plane a coordinate falls on.
+  enum SIDE { POSITIVE = 1, NEGATIVE = 2 };
   int numClip = 0;
   Point3D prev = p[nump - 1];
   Interpolants prevInterp = interp[nump - 1];
   float prevCoord = prev.select(AXIS);
   // Coordinate must satisfy -W <= C <= W. Determine if it is outside, and
-  // if so, remember which side it is outside of.
-  int prevSide = prevCoord < -prev.w ? -1 : (prevCoord > prev.w ? 1 : 0);
+  // if so, remember which side it is outside of. In the special case that W is
+  // negative and |C| < |W|, both -W <= C and C <= W will be false, such that
+  // we must consider the coordinate as falling outside of both plane sides
+  // simultaneously. We test each condition separately and combine them to form
+  // a mask of which plane sides we exceeded. If we neglect to consider both
+  // sides simultaneously, points can erroneously oscillate from one plane side
+  // to the other and exceed the supported maximum number of clip outputs.
+  int prevMask = (prevCoord < -prev.w ? NEGATIVE : 0) |
+                 (prevCoord > prev.w ? POSITIVE : 0);
   // Loop through points, finding edges that cross the planes by evaluating
   // the side at each point.
   for (int i = 0; i < nump; i++) {
     Point3D cur = p[i];
     Interpolants curInterp = interp[i];
     float curCoord = cur.select(AXIS);
-    int curSide = curCoord < -cur.w ? -1 : (curCoord > cur.w ? 1 : 0);
-    // Check if the previous and current end points are on different sides.
-    if (curSide != prevSide) {
+    int curMask =
+        (curCoord < -cur.w ? NEGATIVE : 0) | (curCoord > cur.w ? POSITIVE : 0);
+    // Check if the previous and current end points are on different sides. If
+    // the masks of sides intersect, then we consider them to be on the same
+    // side. So in the case the masks do not intersect, we then consider them
+    // to fall on different sides.
+    if (!(curMask & prevMask)) {
       // One of the edge's end points is outside the plane with the other
       // inside the plane. Find the offset where it crosses the plane and
       // adjust the point and interpolants to there.
-      if (prevSide) {
+      if (prevMask) {
         // Edge that was previously outside crosses inside.
         // Evaluate plane equation for previous and current end-point
         // based on previous side and calculate relative offset.
-        assert(numClip < nump + 2);
+        if (numClip >= nump + 2) {
+          // If for some reason we produced more vertexes than we support, just
+          // bail out.
+          assert(false);
+          return 0;
+        }
+        // The positive plane is assigned the sign 1, and the negative plane is
+        // assigned -1. If the point falls outside both planes, that means W is
+        // negative. To compensate for this, we must interpolate the coordinate
+        // till W=0, at which point we can choose a single plane side for the
+        // coordinate to fall on since W will no longer be negative. To compute
+        // the coordinate where W=0, we compute K = prev.w / (prev.w-cur.w) and
+        // interpolate C = prev.C + K*(cur.C - prev.C). The sign of C will be
+        // the side of the plane we need to consider. Substituting K into the
+        // comparison C < 0, we can then avoid the division in K with a
+        // cross-multiplication.
+        float prevSide =
+            (prevMask & NEGATIVE) && (!(prevMask & POSITIVE) ||
+                                      prevCoord * (cur.w - prev.w) <
+                                          prev.w * (curCoord - prevCoord))
+                ? -1
+                : 1;
         float prevDist = prevCoord - prevSide * prev.w;
         float curDist = curCoord - prevSide * cur.w;
         // It may happen that after we interpolate by the weight k that due to
@@ -3782,11 +3851,25 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
         outInterp[numClip] = prevInterp + (curInterp - prevInterp) * k;
         numClip++;
       }
-      if (curSide) {
+      if (curMask) {
         // Edge that was previously inside crosses outside.
         // Evaluate plane equation for previous and current end-point
         // based on current side and calculate relative offset.
-        assert(numClip < nump + 2);
+        if (numClip >= nump + 2) {
+          assert(false);
+          return 0;
+        }
+        // In the case the coordinate falls on both plane sides, the computation
+        // here is much the same as for prevSide, but since we are going from a
+        // previous W that is positive to current W that is negative, then the
+        // sign of cur.w - prev.w will flip in the equation. The resulting sign
+        // is negated to compensate for this.
+        float curSide =
+            (curMask & POSITIVE) && (!(curMask & NEGATIVE) ||
+                                     prevCoord * (cur.w - prev.w) <
+                                         prev.w * (curCoord - prevCoord))
+                ? 1
+                : -1;
         float prevDist = prevCoord - curSide * prev.w;
         float curDist = curCoord - curSide * cur.w;
         // Calculate interpolation weight k and the nudge it inside clipping
@@ -3804,9 +3887,12 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
         numClip++;
       }
     }
-    if (!curSide) {
+    if (!curMask) {
       // The current end point is inside the plane, so output point unmodified.
-      assert(numClip < nump + 2);
+      if (numClip >= nump + 2) {
+        assert(false);
+        return 0;
+      }
       outP[numClip] = cur;
       outInterp[numClip] = curInterp;
       numClip++;
@@ -3814,7 +3900,7 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
     prev = cur;
     prevInterp = curInterp;
     prevCoord = curCoord;
-    prevSide = curSide;
+    prevMask = curMask;
   }
   return numClip;
 }
@@ -3863,7 +3949,8 @@ static void draw_perspective(int nump, Interpolants interp_outs[4],
   vec3_scalar scale =
       vec3_scalar(ctx->viewport.width(), ctx->viewport.height(), 1) * 0.5f;
   vec3_scalar offset =
-      vec3_scalar(ctx->viewport.x0, ctx->viewport.y0, 0.0f) + scale;
+      make_vec3(make_vec2(ctx->viewport.origin() - colortex.offset), 0.0f) +
+      scale;
   if (test_none(pos.z <= -pos.w || pos.z >= pos.w)) {
     // No points cross the near or far planes, so no clipping required.
     // Just divide coords by W and convert to viewport. We assume the W
@@ -3960,7 +4047,7 @@ static void draw_quad(int nump, Texture& colortex, int layer,
   if(!isfinite(w)) w = 0.0f;
   vec2 screen = (pos.sel(X, Y) * w + 1) * 0.5f *
                     vec2_scalar(ctx->viewport.width(), ctx->viewport.height()) +
-                vec2_scalar(ctx->viewport.x0, ctx->viewport.y0);
+                make_vec2(ctx->viewport.origin() - colortex.offset);
   Point2D p[4] = {{screen.x.x, screen.y.x},
                   {screen.x.y, screen.y.y},
                   {screen.x.z, screen.y.z},
@@ -4109,6 +4196,7 @@ void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
     assert(depthtex.internal_format == GL_DEPTH_COMPONENT16);
     assert(colortex.width == depthtex.width &&
            colortex.height == depthtex.height);
+    assert(colortex.offset == depthtex.offset);
   }
 
   // debugf("current_vertex_array %d\n", ctx->current_vertex_array);

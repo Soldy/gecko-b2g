@@ -14,6 +14,8 @@
 #include "mozilla/ProfileBufferChunkManagerSingle.h"
 #include "mozilla/ProfileChunkedBuffer.h"
 
+class RunningTimes;
+
 // Class storing most profiling data in a ProfileChunkedBuffer.
 //
 // This class is used as a queue of entries which, after construction, never
@@ -86,7 +88,8 @@ class ProfileBuffer final {
   // Returns whether duplication was successful.
   bool DuplicateLastSample(int aThreadId,
                            const mozilla::TimeStamp& aProcessStartTime,
-                           mozilla::Maybe<uint64_t>& aLastSample);
+                           mozilla::Maybe<uint64_t>& aLastSample,
+                           const RunningTimes& aRunningTimes);
 
   void DiscardSamplesBeforeTime(double aTime);
 
@@ -160,18 +163,15 @@ class ProfileBuffer final {
   uint64_t BufferRangeEnd() const { return mEntries.GetState().mRangeEnd; }
 
  private:
-  // 65536 bytes should be plenty for a single backtrace.
-  static constexpr auto WorkerBufferBytes = mozilla::MakePowerOfTwo32<65536>();
-
   // Single pre-allocated chunk (to avoid spurious mallocs), used when:
-  // - Duplicating sleeping stacks.
+  // - Duplicating sleeping stacks (hence scExpectedMaximumStackSize).
   // - Adding JIT info.
   // - Streaming stacks to JSON.
   // Mutable because it's accessed from non-multithreaded const methods.
   mutable mozilla::ProfileBufferChunkManagerSingle mWorkerChunkManager{
       mozilla::ProfileBufferChunk::Create(
           mozilla::ProfileBufferChunk::SizeofChunkMetadata() +
-          WorkerBufferBytes.Value())};
+          mozilla::ProfileBufferChunkManager::scExpectedMaximumStackSize)};
 
   double mFirstSamplingTimeUs = 0.0;
   double mLastSamplingTimeUs = 0.0;

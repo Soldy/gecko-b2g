@@ -205,6 +205,20 @@ InputMethodHandler::OnClearAll(uint32_t aId, nsresult aStatus) {
   return NS_OK;
 }
 
+NS_IMETHODIMP
+InputMethodHandler::OnReplaceSurroundingText(uint32_t aId, nsresult aStatus) {
+  IME_LOGD("--InputMethodHandler::OnReplaceSurroundingText");
+  if (mPromise) {
+    if (NS_SUCCEEDED(aStatus)) {
+      mPromise->MaybeResolve(JS::UndefinedHandleValue);
+    } else {
+      mPromise->MaybeReject(aStatus);
+    }
+    mPromise = nullptr;
+  }
+  return NS_OK;
+}
+
 nsresult InputMethodHandler::SetComposition(const nsAString& aText) {
   nsString text(aText);
   // TODO use a pure interface, and make it point to either the remote version
@@ -387,6 +401,24 @@ void InputMethodHandler::ClearAll() {
     MOZ_ASSERT(service);
     service->ClearAll(0, this);
   }
+}
+
+nsresult InputMethodHandler::ReplaceSurroundingText(const nsAString& aText,
+                                                    int32_t aOffset,
+                                                    int32_t aLength) {
+  nsString text(aText);
+  ContentChild* contentChild = ContentChild::GetSingleton();
+  if (contentChild) {
+    IME_LOGD("--InputMethodHandler::ReplaceSurroundingText content process");
+    ReplaceSurroundingTextRequest request(0, text, aOffset, aLength);
+    SendRequest(contentChild, request);
+  } else {
+    IME_LOGD("--InputMethodHandler::ReplaceSurroundingText in-process");
+    RefPtr<InputMethodService> service = InputMethodService::GetInstance();
+    MOZ_ASSERT(service);
+    service->ReplaceSurroundingText(0, this, aText, aOffset, aLength);
+  }
+  return NS_OK;
 }
 
 void InputMethodHandler::SendRequest(ContentChild* aContentChild,

@@ -2,9 +2,16 @@
 #include "nsISidl.idl"
 #include "domstubs.idl"
 
+[scriptable, uuid(f3fc4772-2f8e-11eb-baa8-635647741a77)]
+interface nsITimeInfo : nsISupports {
+  readonly attribute short reason;
+  readonly attribute AString timezone;
+  readonly attribute long long delta;
+};
+
 [scriptable, uuid(7313bf96-0225-11eb-b345-7fccda278561)]
 interface nsITimeObserver : nsISupports {
-  void notify(in short reason);
+  void notify(in nsITimeInfo reason);
 };
 
 [scriptable, uuid(84fb12c0-0dc6-11eb-ad74-17f50e35b29e)]

@@ -446,6 +446,27 @@ uint16_t ScreenOrientation::GetAngle(CallerType aCallerType,
   return bc->GetCurrentOrientationAngle();
 }
 
+bool ScreenOrientation::CheckPermission(nsPIDOMWindowInner* aWindow) {
+  RefPtr<Document> doc = aWindow->GetExtantDoc();
+  NS_ENSURE_TRUE(doc, false);
+
+  nsCOMPtr<nsIPrincipal> principal = doc->NodePrincipal();
+  NS_ENSURE_TRUE(principal, false);
+
+  nsCOMPtr<nsIPermissionManager> permissionManager =
+      services::GetPermissionManager();
+  NS_ENSURE_TRUE(permissionManager, false);
+
+  uint32_t permission = nsIPermissionManager::UNKNOWN_ACTION;
+  permissionManager->TestExactPermissionFromPrincipal(
+      principal, "lock-orientation"_ns, &permission);
+
+  if (permission == nsIPermissionManager::ALLOW_ACTION) {
+    return true;
+  }
+  return false;
+}
+
 ScreenOrientation::LockPermission
 ScreenOrientation::GetLockOrientationPermission(bool aCheckSandbox) const {
   nsCOMPtr<nsPIDOMWindowInner> owner = GetOwner();
@@ -466,6 +487,10 @@ ScreenOrientation::GetLockOrientationPermission(bool aCheckSandbox) const {
   // Sandboxed without "allow-orientation-lock"
   if (aCheckSandbox && doc->GetSandboxFlags() & SANDBOXED_ORIENTATION_LOCK) {
     return LOCK_DENIED;
+  }
+
+  if (CheckPermission(owner)) {
+    return LOCK_ALLOWED;
   }
 
   if (Preferences::GetBool(

@@ -7,7 +7,7 @@
 this.EXPORTED_SYMBOLS = ["ActivitiesServiceFilter"];
 
 this.ActivitiesServiceFilter = {
-  match(aValues, aFilters) {
+  match(aValues, aOrigin, aDescription) {
     function matchValue(aValue, aFilter, aFilterObj) {
       if (aFilter !== null) {
         // Custom functions for the different types.
@@ -76,49 +76,71 @@ this.ActivitiesServiceFilter = {
       return false;
     }
 
-    // Creation of a filter map useful to know what has been
-    // matched and what is not.
-    let filtersMap = {};
-    for (let filter in aFilters) {
-      // Convert this filter in an object if needed
-      let filterObj = aFilters[filter];
+    function filterResult(aValues, aFilters) {
+      // Creation of a filter map useful to know what has been
+      // matched and what is not.
+      let filtersMap = new Map();
+      for (let filter in aFilters) {
+        // Convert this filter in an object if needed
+        let filterObj = aFilters[filter];
 
-      if (Array.isArray(filterObj) || typeof filterObj !== "object") {
-        filterObj = {
-          required: false,
-          value: filterObj,
-        };
+        if (Array.isArray(filterObj) || typeof filterObj !== "object") {
+          filterObj = {
+            required: false,
+            value: filterObj,
+          };
+        }
+
+        filtersMap.set(filter, { filter: filterObj, found: false });
       }
 
-      filtersMap[filter] = { filter: filterObj, found: false };
+      // For any incoming property.
+      for (let prop in aValues) {
+        // If this is unknown for the app, let's continue.
+        if (!filtersMap.has(prop)) {
+          continue;
+        }
+
+        if (Array.isArray(aValues[prop]) && !aValues[prop].length) {
+          continue;
+        }
+
+        // Otherwise, let's check the value against the filter.
+        if (!matchObject(aValues[prop], filtersMap.get(prop).filter)) {
+          return false;
+        }
+
+        filtersMap.get(prop).found = true;
+      }
+
+      // Required filters:
+      for (const value of filtersMap.values()) {
+        if (value.filter.required && !value.found) {
+          return false;
+        }
+      }
+
+      return true;
     }
 
-    // For any incoming property.
-    for (let prop in aValues) {
-      // If this is unknown for the app, let's continue.
-      if (!(prop in filtersMap)) {
-        continue;
+    function allowedOriginsResult(aCallerOrigin, aAllowedOrigins) {
+      if (!aAllowedOrigins) {
+        // Grant for all requests if 'allowedOrigins' is not defined
+        // in handler's manifest.
+        return true;
       }
 
-      if (Array.isArray(aValues[prop]) && !aValues[prop].length) {
-        continue;
-      }
-
-      // Otherwise, let's check the value against the filter.
-      if (!matchObject(aValues[prop], filtersMap[prop].filter)) {
-        return false;
-      }
-
-      filtersMap[prop].found = true;
+      let allowedOrigins = Array.isArray(aAllowedOrigins)
+        ? aAllowedOrigins
+        : [aAllowedOrigins];
+      return (
+        allowedOrigins.findIndex(origin => origin === aCallerOrigin) !== -1
+      );
     }
 
-    // Required filters:
-    for (let filter in filtersMap) {
-      if (filtersMap[filter].filter.required && !filtersMap[filter].found) {
-        return false;
-      }
-    }
-
-    return true;
+    return (
+      filterResult(aValues, aDescription.filters) &&
+      allowedOriginsResult(aOrigin, aDescription.allowedOrigins)
+    );
   },
 };

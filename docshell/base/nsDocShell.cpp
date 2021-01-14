@@ -25,6 +25,7 @@
 #include "mozilla/Encoding.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/HTMLEditor.h"
+#include "mozilla/InputTaskManager.h"
 #include "mozilla/LoadInfo.h"
 #include "mozilla/Logging.h"
 #include "mozilla/MediaFeatureChange.h"
@@ -37,6 +38,7 @@
 #include "mozilla/ScrollTypes.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_browser.h"
+#include "mozilla/StaticPrefs_docshell.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_extensions.h"
 #include "mozilla/StaticPrefs_privacy.h"
@@ -6821,6 +6823,9 @@ bool nsDocShell::CanSavePresentation(uint32_t aLoadType,
 
     for (const auto& browsingContext : topLevelContext) {
       if (browsingContext != mBrowsingContext) {
+        if (StaticPrefs::docshell_shistory_bfcache_require_no_opener()) {
+          canSavePresentation = false;
+        }
         bfCacheCombo |= BFCacheStatus::NOT_ONLY_TOPLEVEL_IN_BCG;
         break;
       }
@@ -6839,8 +6844,7 @@ void nsDocShell::ReportBFCacheComboTelemetry(uint16_t aCombo) {
   // we need to adjust them when necessary.
   enum BFCacheStatusCombo : uint16_t {
     BFCACHE_SUCCESS,
-    SUCCESS_NOT_ONLY_TOPLEVEL =
-        mozilla::dom::BFCacheStatus::NOT_ONLY_TOPLEVEL_IN_BCG,
+    NOT_ONLY_TOPLEVEL = mozilla::dom::BFCacheStatus::NOT_ONLY_TOPLEVEL_IN_BCG,
     UNLOAD = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER,
     UNLOAD_REQUEST = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
                      mozilla::dom::BFCacheStatus::REQUEST,
@@ -6869,7 +6873,12 @@ void nsDocShell::ReportBFCacheComboTelemetry(uint16_t aCombo) {
       Telemetry::AccumulateCategorical(
           Telemetry::LABELS_BFCACHE_COMBO::BFCache_Success);
       break;
-    case SUCCESS_NOT_ONLY_TOPLEVEL:
+    case NOT_ONLY_TOPLEVEL:
+      if (StaticPrefs::docshell_shistory_bfcache_require_no_opener()) {
+        Telemetry::AccumulateCategorical(
+            Telemetry::LABELS_BFCACHE_COMBO::Other);
+        break;
+      }
       Telemetry::AccumulateCategorical(
           Telemetry::LABELS_BFCACHE_COMBO::BFCache_Success);
       Telemetry::AccumulateCategorical(
@@ -8866,7 +8875,7 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
       bool hadActiveEntry = !!mActiveEntry;
       mActiveEntry = MakeUnique<SessionHistoryInfo>(mLoadingEntry->mInfo);
       mBrowsingContext->SessionHistoryCommit(*mLoadingEntry, mLoadType,
-                                             hadActiveEntry, true , true);
+                                             hadActiveEntry, true, true);
       // FIXME Need to set postdata.
       SetCacheKeyOnHistoryEntry(nullptr, cacheKey);
 
@@ -8893,10 +8902,15 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
       MOZ_LOG(gSHLog, LogLevel::Debug,
               ("Creating an active entry on nsDocShell %p to %s", this,
                aLoadState->URI()->GetSpecOrDefault().get()));
-      mActiveEntry = MakeUnique<SessionHistoryInfo>(
-          mActiveEntry.get(), aLoadState->URI(), HistoryID(),
-          newURITriggeringPrincipal, newURIPrincipalToInherit,
-          newURIPartitionedPrincipalToInherit, newCsp, mContentTypeHint);
+      if (mActiveEntry) {
+        mActiveEntry =
+            MakeUnique<SessionHistoryInfo>(*mActiveEntry, aLoadState->URI());
+      } else {
+        mActiveEntry = MakeUnique<SessionHistoryInfo>(
+            aLoadState->URI(), newURITriggeringPrincipal,
+            newURIPrincipalToInherit, newURIPartitionedPrincipalToInherit,
+            newCsp, mContentTypeHint);
+      }
 
       // Save the postData obtained from the previous page in to the session
       // history entry created for the anchor page, so that any history load of
@@ -9925,9 +9939,32 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
                           nsIProtocolHandler::URI_DOES_NOT_RETURN_DATA,
                           &doesNotReturnData);
       if (doesNotReturnData) {
-        WindowContext* parentContext =
-            mBrowsingContext->GetParentWindowContext();
-        MOZ_ASSERT(parentContext);
+        // The context to check user-interaction with for the purposes of
+        // popup-blocking.
+        //
+        // We generally want to check the context that initiated the navigation.
+        WindowContext* sourceWindowContext = [&] {
+          const MaybeDiscardedBrowsingContext& sourceBC =
+              aLoadState->SourceBrowsingContext();
+          if (!sourceBC.IsNullOrDiscarded()) {
+            if (WindowContext* wc = sourceBC.get()->GetCurrentWindowContext()) {
+              return wc;
+            }
+          }
+          return mBrowsingContext->GetParentWindowContext();
+        }();
+
+        MOZ_ASSERT(sourceWindowContext);
+        // FIXME: We can't check user-interaction against an OOP window. This is
+        // the next best thing we can really do. The load state keeps whether
+        // the navigation had a user interaction in process
+        // (aLoadState->HasValidUserGestureActivation()), but we can't really
+        // consume it, which we want to prevent popup-spamming from the same
+        // click event.
+        WindowContext* context =
+            sourceWindowContext->IsInProcess()
+                ? sourceWindowContext
+                : mBrowsingContext->GetCurrentWindowContext();
         const bool popupBlocked = [&] {
           const bool active = mBrowsingContext->IsActive();
 
@@ -9936,15 +9973,15 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
           //
           // We consume the flag now even if there's no user activation.
           const bool hasFreePass = [&] {
-            if (!active || !parentContext->SameOriginWithTop()) {
+            if (!active || !context->SameOriginWithTop()) {
               return false;
             }
             nsGlobalWindowInner* win =
-                parentContext->TopWindowContext()->GetInnerWindow();
+                context->TopWindowContext()->GetInnerWindow();
             return win && win->TryOpenExternalProtocolIframe();
           }();
 
-          if (parentContext->ConsumeTransientUserGestureActivation()) {
+          if (context->ConsumeTransientUserGestureActivation()) {
             // If the user has interacted with the page, consume it.
             return false;
           }
@@ -9957,7 +9994,7 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
             return false;
           }
 
-          if (parentContext->CanShowPopup()) {
+          if (sourceWindowContext->CanShowPopup()) {
             return false;
           }
 
@@ -9977,7 +10014,7 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
           if (NS_SUCCEEDED(rv)) {
             nsContentUtils::ReportToConsoleByWindowID(
                 message, nsIScriptError::warningFlag, "DOM"_ns,
-                parentContext->InnerWindowId());
+                context->InnerWindowId());
           }
           return NS_OK;
         }
@@ -10409,6 +10446,11 @@ nsresult nsDocShell::OpenInitializedChannel(nsIChannel* aChannel,
 
   rv = aURILoader->OpenURI(aChannel, aOpenFlags, this);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  // We're about to load a new page and it may take time before necko
+  // gives back any data, so main thread might have a chance to process a
+  // collector slice
+  nsJSContext::MaybeRunNextCollectorSlice(this, JS::GCReason::DOCSHELL);
 
   // Success.  Keep the initial ClientSource if it exists.
   cleanupInitialClient.release();
@@ -11610,12 +11652,9 @@ void nsDocShell::UpdateActiveEntry(
   if (mActiveEntry) {
     // Link this entry to the previous active entry.
     mActiveEntry = MakeUnique<SessionHistoryInfo>(*mActiveEntry, aURI);
-    // FIXME Assert that mTriggeringPrincipal/mContentType/mDocShellID/
-    //       mDynamicallyCreated are correct?
   } else {
     mActiveEntry = MakeUnique<SessionHistoryInfo>(
-        nullptr, aURI, HistoryID(), aTriggeringPrincipal, nullptr, nullptr,
-        aCsp, mContentTypeHint);
+        aURI, aTriggeringPrincipal, nullptr, nullptr, aCsp, mContentTypeHint);
   }
   mActiveEntry->SetOriginalURI(aOriginalURI);
   mActiveEntry->SetTitle(aTitle);

@@ -69,21 +69,6 @@ interface nsIUsbTetheringCallback : nsISupports
   void usbTetheringEnabledChange(in jsval error, in nsIUsbTetheringApiCallback msgCallback);
 };
 
-[scriptable, function, uuid(055fd560-46ad-11e3-8f96-0800200c9a66)]
-interface nsIEnableUsbRndisCallback : nsISupports
-{
-  /**
-   * Callback function used to report the status of enabling/disabling usb rndis.
-   *
-   * @param success
-   *        Boolean to indicate the operation is successful or not.
-   * @param enable
-   *        Boolean to indicate if we are enabling or disabling usb rndis.
-   */
-  void enableUsbRndisResult(in boolean success, in boolean enable,
-                            in nsIUsbTetheringApiCallback msgCallback);
-};
-
 [scriptable, function, uuid(4f07ca30-46ad-31e3-8f96-0730210c9ac6)]
 interface nsIUpdateUpStreamCallback : nsISupports
 {
@@ -446,18 +431,6 @@ interface nsINetworkService : nsISupports
    */
   void removeSecondaryRoute(in AString interfaceName, in jsval route,
                             in nsINativeCommandCallback callback);
-
-  /**
-   * Enable or disable usb rndis.
-   *
-   * @param enable
-   *        Boolean to indicate we want enable or disable usb rndis.
-   * @param callback
-   *        Callback function to report the result.
-   */
-  void enableUsbRndis(in boolean enable,
-                      in nsIUsbTetheringApiCallback msgCallback,
-                      in nsIEnableUsbRndisCallback callback);
 
   /**
    * Remove upstream.

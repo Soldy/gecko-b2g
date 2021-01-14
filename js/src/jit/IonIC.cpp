@@ -162,7 +162,7 @@ bool IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript,
   MOZ_ASSERT(!val.isMagic());
 
   TryAttachIonStub<GetPropIRGenerator>(cx, ic, ionScript, ic->kind(), val,
-                                       idVal, val);
+                                       idVal);
 
   if (ic->kind() == CacheKind::GetProp) {
     RootedPropertyName name(cx, idVal.toString()->asAtom().asPropertyName());
@@ -192,7 +192,7 @@ bool IonGetPropSuperIC::update(JSContext* cx, HandleScript outerScript,
 
   RootedValue val(cx, ObjectValue(*obj));
   TryAttachIonStub<GetPropIRGenerator>(cx, ic, ionScript, ic->kind(), val,
-                                       idVal, receiver);
+                                       idVal);
 
   if (ic->kind() == CacheKind::GetPropSuper) {
     RootedPropertyName name(cx, idVal.toString()->asAtom().asPropertyName());
@@ -355,19 +355,10 @@ bool IonGetNameIC::update(JSContext* cx, HandleScript outerScript,
   }
 
   if (JSOp(*GetNextPc(pc)) == JSOp::Typeof) {
-    if (!FetchName<GetNameMode::TypeOf>(cx, obj, holder, name, prop, res)) {
-      return false;
-    }
-  } else {
-    if (!FetchName<GetNameMode::Normal>(cx, obj, holder, name, prop, res)) {
-      return false;
-    }
+    return FetchName<GetNameMode::TypeOf>(cx, obj, holder, name, prop, res);
   }
 
-  // No need to call JitScript::Monitor, IonBuilder always inserts a type
-  // barrier after GetName ICs.
-
-  return true;
+  return FetchName<GetNameMode::Normal>(cx, obj, holder, name, prop, res);
 }
 
 /* static */

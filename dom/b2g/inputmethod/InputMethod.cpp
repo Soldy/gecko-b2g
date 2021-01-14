@@ -184,6 +184,26 @@ void InputMethod::ClearAll() {
   handler->ClearAll();
 }
 
+already_AddRefed<Promise> InputMethod::ReplaceSurroundingText(
+    const nsAString& aText, const Optional<int32_t>& aOffset,
+    const Optional<int32_t>& aLength) {
+  ErrorResult rv;
+  RefPtr<Promise> promise;
+  promise = Promise::Create(mGlobal, rv);
+  ENSURE_SUCCESS(rv, nullptr);
+  IME_LOGD("-- InputMethod::ReplaceSurroundingText");
+
+  RefPtr<InputMethodHandler> handler = InputMethodHandler::Create(promise);
+  int32_t offset = aOffset.WasPassed() ? aOffset.Value() : 0;
+  int32_t length = aLength.WasPassed() ? aLength.Value() : 0;
+  nsresult result = handler->ReplaceSurroundingText(aText, offset, length);
+  if (NS_FAILED(result)) {
+    promise->MaybeReject(result);
+  }
+
+  return promise.forget();
+}
+
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(InputMethod, mGlobal)
 NS_IMPL_CYCLE_COLLECTING_ADDREF(InputMethod)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(InputMethod)

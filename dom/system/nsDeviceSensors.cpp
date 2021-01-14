@@ -28,6 +28,7 @@
 
 #ifdef MOZ_B2G
   #include "mozilla/dom/AtmPressureEvent.h"
+  #include "mozilla/dom/B2G.h"
 #endif
 
 using namespace mozilla;
@@ -202,7 +203,14 @@ static bool WindowCannotReceiveSensorEvent(nsPIDOMWindowInner* aWindow) {
   nsPIDOMWindowOuter* windowOuter = aWindow->GetOuterWindow();
   BrowsingContext* topBC = aWindow->GetBrowsingContext()->Top();
   if (windowOuter->IsBackground() || !topBC->GetIsActiveBrowserWindow()) {
+#ifdef MOZ_B2G
+    // Receiving event in background requires permission
+    if (!B2G::CheckPermission("background-sensors"_ns, aWindow)) {
+      return true;
+    }
+#else
     return true;
+#endif
   }
 
   // Check to see if this window is a cross-origin iframe:

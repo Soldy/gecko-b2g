@@ -186,6 +186,18 @@ class Canvas2dPixelsReporter final : public nsIMemoryReporter {
 
 NS_IMPL_ISUPPORTS(Canvas2dPixelsReporter, nsIMemoryReporter)
 
+class CanvasConicGradient : public CanvasGradient {
+ public:
+  CanvasConicGradient(CanvasRenderingContext2D* aContext, Float aAngle,
+                      const Point& aCenter)
+      : CanvasGradient(aContext, Type::CONIC),
+        mAngle(aAngle),
+        mCenter(aCenter) {}
+
+  const Float mAngle;
+  const Point mCenter;
+};
+
 class CanvasRadialGradient : public CanvasGradient {
  public:
   CanvasRadialGradient(CanvasRenderingContext2D* aContext,
@@ -279,6 +291,15 @@ class CanvasGeneralPattern {
       mPattern.InitRadialGradientPattern(
           gradient->mCenter1, gradient->mCenter2, gradient->mRadius1,
           gradient->mRadius2, gradient->GetGradientStopsForTarget(aRT));
+    } else if (state.gradientStyles[aStyle] &&
+               state.gradientStyles[aStyle]->GetType() ==
+                   CanvasGradient::Type::CONIC) {
+      auto gradient =
+          static_cast<CanvasConicGradient*>(state.gradientStyles[aStyle].get());
+
+      mPattern.InitConicGradientPattern(
+          gradient->mCenter, gradient->mAngle, 0, 1,
+          gradient->GetGradientStopsForTarget(aRT));
     } else if (state.patternStyles[aStyle]) {
       if (aCtx->mCanvasElement) {
         CanvasUtils::DoDrawImageSecurityCheck(
@@ -2064,6 +2085,11 @@ already_AddRefed<CanvasGradient> CanvasRenderingContext2D::CreateRadialGradient(
   return grad.forget();
 }
 
+already_AddRefed<CanvasGradient> CanvasRenderingContext2D::CreateConicGradient(
+    double aAngle, double aCx, double aCy) {
+  return MakeAndAddRef<CanvasConicGradient>(this, aAngle, Point(aCx, aCy));
+}
+
 already_AddRefed<CanvasPattern> CanvasRenderingContext2D::CreatePattern(
     const CanvasImageSource& aSource, const nsAString& aRepeat,
     ErrorResult& aError) {
@@ -3526,6 +3552,12 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor
     CanvasGradient::Type type = gradient->GetType();
 
     switch (type) {
+      case CanvasGradient::Type::CONIC: {
+        auto conic = static_cast<CanvasConicGradient*>(gradient);
+        pattern = new gfxPattern(conic->mCenter.x, conic->mCenter.y,
+                                 conic->mAngle, 0, 1);
+        break;
+      }
       case CanvasGradient::Type::RADIAL: {
         auto radial = static_cast<CanvasRadialGradient*>(gradient);
         pattern = new gfxPattern(radial->mCenter1.x, radial->mCenter1.y,
@@ -3540,7 +3572,7 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor
         break;
       }
       default:
-        MOZ_ASSERT(false, "Should be linear or radial gradient.");
+        MOZ_ASSERT(false, "Should be linear, radial or conic gradient.");
         return nullptr;
     }
 
@@ -4923,7 +4955,7 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
 //
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
-    JSContext* aCx, double aSx, double aSy, double aSw, double aSh,
+    JSContext* aCx, int32_t aSx, int32_t aSy, int32_t aSw, int32_t aSh,
     nsIPrincipal& aSubjectPrincipal, ErrorResult& aError) {
   if (!mCanvasElement && !mDocShell) {
     NS_ERROR("No canvas element and no docshell in GetImageData!!!");
@@ -4940,35 +4972,25 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
     return nullptr;
   }
 
-  if (!IsFinite(aSx) || !IsFinite(aSy) || !IsFinite(aSw) || !IsFinite(aSh)) {
-    aError.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-    return nullptr;
-  }
-
   if (!aSw || !aSh) {
     aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
     return nullptr;
   }
 
-  int32_t x = JS::ToInt32(aSx);
-  int32_t y = JS::ToInt32(aSy);
-  int32_t wi = JS::ToInt32(aSw);
-  int32_t hi = JS::ToInt32(aSh);
-
   // Handle negative width and height by flipping the rectangle over in the
   // relevant direction.
   uint32_t w, h;
   if (aSw < 0) {
-    w = -wi;
-    x -= w;
+    w = -aSw;
+    aSx -= w;
   } else {
-    w = wi;
+    w = aSw;
   }
   if (aSh < 0) {
-    h = -hi;
-    y -= h;
+    h = -aSh;
+    aSy -= h;
   } else {
-    h = hi;
+    h = aSh;
   }
 
   if (w == 0) {
@@ -4979,15 +5001,13 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
   }
 
   JS::Rooted<JSObject*> array(aCx);
-  aError =
-      GetImageDataArray(aCx, x, y, w, h, aSubjectPrincipal, array.address());
+  aError = GetImageDataArray(aCx, aSx, aSy, w, h, aSubjectPrincipal,
+                             array.address());
   if (aError.Failed()) {
     return nullptr;
   }
   MOZ_ASSERT(array);
-
-  RefPtr<ImageData> imageData = new ImageData(w, h, *array);
-  return imageData.forget();
+  return MakeAndAddRef<ImageData>(w, h, *array);
 }
 
 nsresult CanvasRenderingContext2D::GetImageDataArray(
@@ -5118,29 +5138,29 @@ void CanvasRenderingContext2D::FillRuleChanged() {
   }
 }
 
-void CanvasRenderingContext2D::PutImageData(ImageData& aImageData, double aDx,
-                                            double aDy, ErrorResult& aError) {
+void CanvasRenderingContext2D::PutImageData(ImageData& aImageData, int32_t aDx,
+                                            int32_t aDy, ErrorResult& aError) {
   RootedSpiderMonkeyInterface<Uint8ClampedArray> arr(RootingCx());
   DebugOnly<bool> inited = arr.Init(aImageData.GetDataObject());
   MOZ_ASSERT(inited);
 
-  PutImageData_explicit(JS::ToInt32(aDx), JS::ToInt32(aDy), aImageData.Width(),
-                        aImageData.Height(), &arr, false, 0, 0, 0, 0, aError);
+  PutImageData_explicit(aDx, aDy, aImageData.Width(), aImageData.Height(), &arr,
+                        false, 0, 0, 0, 0, aError);
 }
 
-void CanvasRenderingContext2D::PutImageData(ImageData& aImageData, double aDx,
-                                            double aDy, double aDirtyX,
-                                            double aDirtyY, double aDirtyWidth,
-                                            double aDirtyHeight,
+void CanvasRenderingContext2D::PutImageData(ImageData& aImageData, int32_t aDx,
+                                            int32_t aDy, int32_t aDirtyX,
+                                            int32_t aDirtyY,
+                                            int32_t aDirtyWidth,
+                                            int32_t aDirtyHeight,
                                             ErrorResult& aError) {
   RootedSpiderMonkeyInterface<Uint8ClampedArray> arr(RootingCx());
   DebugOnly<bool> inited = arr.Init(aImageData.GetDataObject());
   MOZ_ASSERT(inited);
 
-  PutImageData_explicit(JS::ToInt32(aDx), JS::ToInt32(aDy), aImageData.Width(),
-                        aImageData.Height(), &arr, true, JS::ToInt32(aDirtyX),
-                        JS::ToInt32(aDirtyY), JS::ToInt32(aDirtyWidth),
-                        JS::ToInt32(aDirtyHeight), aError);
+  PutImageData_explicit(aDx, aDy, aImageData.Width(), aImageData.Height(), &arr,
+                        true, aDirtyX, aDirtyY, aDirtyWidth, aDirtyHeight,
+                        aError);
 }
 
 void CanvasRenderingContext2D::PutImageData_explicit(
@@ -5300,24 +5320,21 @@ static already_AddRefed<ImageData> CreateImageData(
 }
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::CreateImageData(
-    JSContext* aCx, double aSw, double aSh, ErrorResult& aError) {
+    JSContext* aCx, int32_t aSw, int32_t aSh, ErrorResult& aError) {
   if (!aSw || !aSh) {
     aError.ThrowIndexSizeError("Invalid width or height");
     return nullptr;
   }
 
-  int32_t wi = JS::ToInt32(aSw);
-  int32_t hi = JS::ToInt32(aSh);
-
-  uint32_t w = Abs(wi);
-  uint32_t h = Abs(hi);
-  return mozilla::dom::CreateImageData(aCx, this, w, h, aError);
+  uint32_t w = Abs(aSw);
+  uint32_t h = Abs(aSh);
+  return dom::CreateImageData(aCx, this, w, h, aError);
 }
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::CreateImageData(
     JSContext* aCx, ImageData& aImagedata, ErrorResult& aError) {
-  return mozilla::dom::CreateImageData(aCx, this, aImagedata.Width(),
-                                       aImagedata.Height(), aError);
+  return dom::CreateImageData(aCx, this, aImagedata.Width(),
+                              aImagedata.Height(), aError);
 }
 
 void CanvasRenderingContext2D::OnBeforePaintTransaction() {

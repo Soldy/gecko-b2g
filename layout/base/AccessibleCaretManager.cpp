@@ -30,7 +30,12 @@
 #include "nsGenericHTMLElement.h"
 #include "nsIHapticFeedback.h"
 #include "nsIScrollableFrame.h"
+#include "nsLayoutUtils.h"
 #include "nsServiceManagerUtils.h"
+
+#ifdef MOZ_WIDGET_GONK
+#  include "AccessibleCaretGonk.h"
+#endif
 
 namespace mozilla {
 
@@ -80,8 +85,13 @@ AccessibleCaretManager::AccessibleCaretManager(PresShell* aPresShell)
     return;
   }
 
+#ifdef MOZ_WIDGET_GONK
+  mFirstCaret = MakeUnique<AccessibleCaretGonk>(mPresShell);
+  mSecondCaret = MakeUnique<AccessibleCaretGonk>(mPresShell);
+#else
   mFirstCaret = MakeUnique<AccessibleCaret>(mPresShell);
   mSecondCaret = MakeUnique<AccessibleCaret>(mPresShell);
+#endif
 }
 
 AccessibleCaretManager::~AccessibleCaretManager() {
@@ -114,7 +124,8 @@ nsresult AccessibleCaretManager::OnSelectionChanged(Document* aDoc,
   }
 
   // Move the cursor by JavaScript or unknown internal call.
-  if (aReason == nsISelectionListener::NO_REASON) {
+  if (aReason == nsISelectionListener::NO_REASON ||
+      aReason == nsISelectionListener::JS_REASON) {
     auto mode = static_cast<ScriptUpdateMode>(
         StaticPrefs::layout_accessiblecaret_script_change_update_mode());
     if (mode == kScriptAlwaysShow || (mode == kScriptUpdateVisible &&
@@ -862,7 +873,7 @@ nsIFrame* AccessibleCaretManager::GetFocusableFrame(nsIFrame* aFrame) const {
   // Look for the nearest enclosing focusable frame.
   nsIFrame* focusableFrame = aFrame;
   while (focusableFrame) {
-    if (focusableFrame->IsFocusable(nullptr, true)) {
+    if (focusableFrame->IsFocusable(/* aWithMouse = */ true)) {
       break;
     }
     focusableFrame = focusableFrame->GetParent();
@@ -891,6 +902,8 @@ void AccessibleCaretManager::ChangeFocusToOrClearOldFocus(
 
 nsresult AccessibleCaretManager::SelectWord(nsIFrame* aFrame,
                                             const nsPoint& aPoint) const {
+  AC_LOGV("%s", __FUNCTION__);
+
   SetSelectionDragState(true);
   nsresult rs = aFrame->SelectByTypeAtPoint(
       mPresShell->GetPresContext(), aPoint, eSelectWord, eSelectWord, 0);

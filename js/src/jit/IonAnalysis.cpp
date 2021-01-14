@@ -778,10 +778,10 @@ static bool BlockIsSingleTest(MBasicBlock* phiBlock, MBasicBlock* testBlock,
 
 // Change block so that it ends in a goto to the specific target block.
 // existingPred is an existing predecessor of the block.
-static MOZ_MUST_USE bool UpdateGotoSuccessor(TempAllocator& alloc,
-                                             MBasicBlock* block,
-                                             MBasicBlock* target,
-                                             MBasicBlock* existingPred) {
+[[nodiscard]] static bool UpdateGotoSuccessor(TempAllocator& alloc,
+                                              MBasicBlock* block,
+                                              MBasicBlock* target,
+                                              MBasicBlock* existingPred) {
   MInstruction* ins = block->lastIns();
   MOZ_ASSERT(ins->isGoto());
   ins->toGoto()->target()->removePredecessor(block);
@@ -798,7 +798,7 @@ static MOZ_MUST_USE bool UpdateGotoSuccessor(TempAllocator& alloc,
 // or ifFalse with the same values incoming to ifTrue/ifFalse as block.
 // existingPred is not required to be a predecessor of ifTrue/ifFalse if block
 // already ends in a test going to that block on a true/false result.
-static MOZ_MUST_USE bool UpdateTestSuccessors(
+[[nodiscard]] static bool UpdateTestSuccessors(
     TempAllocator& alloc, MBasicBlock* block, MDefinition* value,
     MBasicBlock* ifTrue, MBasicBlock* ifFalse, MBasicBlock* existingPred) {
   MInstruction* ins = block->lastIns();
@@ -1479,7 +1479,7 @@ class TypeAnalyzer {
     return phi;
   }
 
-  MOZ_MUST_USE bool propagateAllPhiSpecializations();
+  [[nodiscard]] bool propagateAllPhiSpecializations();
 
   bool respecialize(MPhi* phi, MIRType type);
   bool propagateSpecialization(MPhi* phi);
@@ -2361,7 +2361,7 @@ bool jit::RemoveUnmarkedBlocks(MIRGenerator* mir, MIRGraph& graph,
       for (size_t i = 0, e = block->numSuccessors(); i != e; ++i) {
         block->getSuccessor(i)->removePredecessor(block);
       }
-      graph.removeBlockIncludingPhis(block);
+      graph.removeBlock(block);
     }
   }
 
@@ -3159,13 +3159,13 @@ static MathSpace ExtractMathSpace(MDefinition* ins) {
     arith = ins->toSub();
   }
   switch (arith->truncateKind()) {
-    case MDefinition::NoTruncate:
-    case MDefinition::TruncateAfterBailouts:
+    case TruncateKind::NoTruncate:
+    case TruncateKind::TruncateAfterBailouts:
       // TruncateAfterBailouts is considered as infinite space because the
       // LinearSum will effectively remove the bailout check.
       return MathSpace::Infinite;
-    case MDefinition::IndirectTruncate:
-    case MDefinition::Truncate:
+    case TruncateKind::IndirectTruncate:
+    case TruncateKind::Truncate:
       return MathSpace::Modulo;
   }
   MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("Unknown TruncateKind");
@@ -3395,20 +3395,7 @@ static bool TryEliminateBoundsCheck(BoundsCheckMap& checks, size_t blockIndex,
   return true;
 }
 
-static bool TryOptimizeLoadObjectOrNull(MDefinition* def,
-                                        MDefinitionVector* peliminateList) {
-  if (def->type() != MIRType::Value) {
-    return true;
-  }
-
-  // TODO(no-TI): remove more code.
-  return true;
-}
-
 // Eliminate checks which are redundant given each other or other instructions.
-//
-// A type barrier is considered redundant if all missing types have been tested
-// for by earlier control instructions.
 //
 // A bounds check is considered redundant if it's dominated by another bounds
 // check with the same length and the indexes differ by only a constant amount.
@@ -3453,23 +3440,14 @@ bool jit::EliminateRedundantChecks(MIRGraph& graph) {
     for (MDefinitionIterator iter(block); iter;) {
       MDefinition* def = *iter++;
 
-      bool eliminated = false;
+      if (!def->isBoundsCheck()) {
+        continue;
+      }
 
-      switch (def->op()) {
-        case MDefinition::Opcode::BoundsCheck:
-          if (!TryEliminateBoundsCheck(checks, index, def->toBoundsCheck(),
-                                       &eliminated)) {
-            return false;
-          }
-          break;
-        case MDefinition::Opcode::LoadFixedSlot:
-        case MDefinition::Opcode::LoadDynamicSlot:
-          if (!TryOptimizeLoadObjectOrNull(def, &eliminateList)) {
-            return false;
-          }
-          break;
-        default:
-          break;
+      bool eliminated = false;
+      if (!TryEliminateBoundsCheck(checks, index, def->toBoundsCheck(),
+                                   &eliminated)) {
+        return false;
       }
 
       if (eliminated) {
@@ -4218,8 +4196,6 @@ bool jit::FoldLoadsWithUnbox(MIRGenerator* mir, MIRGraph& graph) {
         }
         case MDefinition::Opcode::LoadElement: {
           auto* loadIns = load->toLoadElement();
-          MOZ_ASSERT(!loadIns->loadDoubles(),
-                     "Unexpected loadDoubles with MIRType::Value");
           MOZ_ASSERT_IF(loadIns->needsHoleCheck(), unbox->fallible());
           replacement = MLoadElementAndUnbox::New(
               graph.alloc(), loadIns->elements(), loadIns->index(), mode, type,

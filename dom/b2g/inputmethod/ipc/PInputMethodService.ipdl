@@ -68,6 +68,13 @@ struct SetValueRequest {
   nsString value;
 };
 
+struct ReplaceSurroundingTextRequest {
+  uint32_t id;
+  nsString text;
+  int32_t offset;
+  int32_t length;
+};
+
 struct OptionDetail {
   bool group;
   bool inGroup;
@@ -188,6 +195,7 @@ union InputMethodRequest {
   GetSelectionRangeRequest;
   GetTextRequest;
   SetValueRequest;
+  ReplaceSurroundingTextRequest;
 };
 
 union InputMethodResponse

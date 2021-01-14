@@ -400,6 +400,9 @@ pub enum AudioCodecSpecific {
     MP3,
     LPCM,
     AMRSpecificBox(TryVec<u8>),
+    // Some mp4 file with AMR doesn't have above AMRSpecificBox "damr",
+    // we use empty box instead.
+    AMRSpecificEmptyBox,
 }
 
 #[derive(Debug)]
@@ -3740,6 +3743,16 @@ fn read_audio_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
     let (mut codec_type, mut codec_specific) = match name {
         BoxType::MP3AudioSampleEntry => (CodecType::MP3, Some(AudioCodecSpecific::MP3)),
         BoxType::LPCMAudioSampleEntry => (CodecType::LPCM, Some(AudioCodecSpecific::LPCM)),
+        // Some mp4 file with AMR doesn't have AMRSpecificBox "damr" in followed while loop,
+        // we use empty box by default.
+        BoxType::AMRNBSampleEntry => (
+            CodecType::AMRNB,
+            Some(AudioCodecSpecific::AMRSpecificEmptyBox),
+        ),
+        BoxType::AMRWBSampleEntry => (
+            CodecType::AMRWB,
+            Some(AudioCodecSpecific::AMRSpecificEmptyBox),
+        ),
         _ => (CodecType::Unknown, None),
     };
     let mut protection_info = TryVec::new();
@@ -3800,9 +3813,7 @@ fn read_audio_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
                 protection_info.push(sinf)?;
             }
             BoxType::AMRSpecificBox => {
-                if (name != BoxType::AMRNBSampleEntry && name != BoxType::AMRWBSampleEntry)
-                    || codec_specific.is_some()
-                {
+                if (codec_type != CodecType::AMRNB && codec_type != CodecType::AMRWB) {
                     return Err(Error::InvalidData("malformed audio sample entry"));
                 }
                 let amr_dec_spec_struc_size = b
@@ -3812,11 +3823,6 @@ fn read_audio_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
                     .expect("offset invalid");
                 let amr_dec_spec_struc = read_buf(&mut b.content, amr_dec_spec_struc_size)?;
                 debug!("{:?} (AMRDecSpecStruc)", amr_dec_spec_struc);
-                if name == BoxType::AMRNBSampleEntry {
-                    codec_type = CodecType::AMRNB;
-                } else {
-                    codec_type = CodecType::AMRWB;
-                }
                 codec_specific = Some(AudioCodecSpecific::AMRSpecificBox(amr_dec_spec_struc));
             }
             _ => {

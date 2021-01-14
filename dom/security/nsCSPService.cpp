@@ -151,10 +151,9 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
     if (preloadCsp) {
       // obtain the enforcement decision
       rv = preloadCsp->ShouldLoad(
-          contentType, cspEventListener, aContentLocation, aMimeTypeGuess,
+          contentType, cspEventListener, aContentLocation,
           nullptr,  // no redirect, aOriginal URL is null.
-          aLoadInfo->GetSendCSPViolationEvents(), cspNonce, parserCreatedScript,
-          aDecision);
+          false, cspNonce, parserCreatedScript, aDecision);
       NS_ENSURE_SUCCESS(rv, rv);
 
       // if the preload policy already denied the load, then there
@@ -177,10 +176,9 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
   if (csp) {
     // obtain the enforcement decision
     rv = csp->ShouldLoad(contentType, cspEventListener, aContentLocation,
-                         aMimeTypeGuess,
                          nullptr,  // no redirect, aOriginal URL is null.
-                         aLoadInfo->GetSendCSPViolationEvents(), cspNonce,
-                         parserCreatedScript, aDecision);
+                         !isPreload && aLoadInfo->GetSendCSPViolationEvents(),
+                         cspNonce, parserCreatedScript, aDecision);
 
     if (NS_CP_REJECTED(*aDecision)) {
       NS_SetRequestBlockingReason(
@@ -343,11 +341,9 @@ nsresult CSPService::ConsultCSPForRedirect(nsIURI* aOriginalURI,
   bool isPreload = nsContentUtils::IsPreloadType(policyType);
 
   /* On redirect, if the content policy is a preload type, rejecting the
-   * preload results in the load silently failing, so we convert preloads to
-   * the actual type. See Bug 1219453.
+   * preload results in the load silently failing, so we pass true to
+   * the aSendViolationReports parameter. See Bug 1219453.
    */
-  policyType =
-      nsContentUtils::InternalContentPolicyTypeToExternalOrWorker(policyType);
 
   int16_t decision = nsIContentPolicy::ACCEPT;
   bool parserCreatedScript = aLoadInfo->GetParserCreatedScript();
@@ -361,7 +357,6 @@ nsresult CSPService::ConsultCSPForRedirect(nsIURI* aOriginalURI,
           policyType,  // load type per nsIContentPolicy (uint32_t)
           cspEventListener,
           aNewURI,       // nsIURI
-          ""_ns,         // ACString - MIME guess
           aOriginalURI,  // Original nsIURI
           true,          // aSendViolationReports
           cspNonce,      // nonce
@@ -383,7 +378,6 @@ nsresult CSPService::ConsultCSPForRedirect(nsIURI* aOriginalURI,
     csp->ShouldLoad(policyType,  // load type per nsIContentPolicy (uint32_t)
                     cspEventListener,
                     aNewURI,       // nsIURI
-                    ""_ns,         // ACString - MIME guess
                     aOriginalURI,  // Original nsIURI
                     true,          // aSendViolationReports
                     cspNonce,      // nonce

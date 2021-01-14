@@ -350,7 +350,13 @@
     }
 
     static get observedAttributes() {
-      return ["src", "remote", "ignoreuserfocus", "transparent"];
+      return [
+        "src",
+        "remote",
+        "ignoreuserfocus",
+        "transparent",
+        "mozpasspointerevents",
+      ];
     }
 
     attributeChangedCallback(name, old_value, new_value) {
@@ -581,6 +587,11 @@
         this.attrs.push({ name: "src", new_value: url });
       } else {
         this.browser.setAttribute("src", url);
+        // Setting the "src" attribute doesn't trigger a load if the urls
+        // are the same, so we trigger a reload instead.
+        if (url == this.browser.currentURI?.spec) {
+          this.reload();
+        }
       }
     }
 

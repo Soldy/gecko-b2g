@@ -7,6 +7,7 @@
 #ifndef MOZILLA_GFX_RENDERCOMPOSITOR_SWGL_H
 #define MOZILLA_GFX_RENDERCOMPOSITOR_SWGL_H
 
+#include "mozilla/gfx/2D.h"
 #include "mozilla/webrender/RenderCompositor.h"
 
 namespace mozilla {
@@ -29,6 +30,9 @@ class RenderCompositorSWGL : public RenderCompositor {
   bool BeginFrame() override;
   void CancelFrame() override;
   RenderedFrameId EndFrame(const nsTArray<DeviceIntRect>& aDirtyRects) final;
+
+  void StartCompositing(const wr::DeviceIntRect* aDirtyRects,
+                        size_t aNumDirtyRects) override;
 
   bool UsePartialPresent() override { return true; }
 
@@ -53,15 +57,17 @@ class RenderCompositorSWGL : public RenderCompositor {
 
  private:
   void* mContext = nullptr;
-  RefPtr<DrawTarget> mDT;
+  RefPtr<gfx::DrawTarget> mDT;
   LayoutDeviceIntRegion mRegion;
-  RefPtr<DataSourceSurface> mSurface;
+  RefPtr<gfx::DataSourceSurface> mSurface;
   uint8_t* mMappedData = nullptr;
   int32_t mMappedStride = 0;
 
   void ClearMappedBuffer();
 
-  void CommitMappedBuffer();
+  bool AllocateMappedBuffer();
+
+  void CommitMappedBuffer(bool aDirty = true);
 };
 
 }  // namespace wr

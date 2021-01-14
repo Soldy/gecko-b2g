@@ -55,6 +55,7 @@ window.addEventListener("AboutLoginsChromeToContent", event => {
       document.documentElement.classList.remove(
         "master-password-auth-required"
       );
+      document.documentElement.classList.remove("login-selected");
       setKeyboardAccessForNonDialogElements(true);
       handleAllLogins(event.detail.value);
       break;
@@ -123,6 +124,14 @@ window.addEventListener("AboutLoginsChromeToContent", event => {
     case "UpdateVulnerableLogins": {
       gElements.loginList.updateVulnerableLogins(event.detail.value);
       gElements.loginItem.updateVulnerableLogins(event.detail.value);
+      break;
+    }
+    case "ImportPasswordsDialog": {
+      let dialog = document.querySelector("import-summary-dialog");
+      let options = {
+        logins: event.detail.value,
+      };
+      dialog.show(options);
       break;
     }
   }

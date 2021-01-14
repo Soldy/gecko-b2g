@@ -2936,6 +2936,18 @@ if test -n "$MOZ_B2G_FM"; then
 fi
 AC_SUBST(MOZ_B2G_FM)
 
+dnl ========================================================
+dnl = Enable platform voice processing for B2G (Gonk usually)
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(b2g-voice-processing,
+[  --enable-b2g-voice-processing      Enable b2g-voice-processing ],
+    B2G_VOICE_PROCESSING=1,
+    B2G_VOICE_PROCESSING= )
+if test -n "$B2G_VOICE_PROCESSING"; then
+    AC_DEFINE(B2G_VOICE_PROCESSING)
+fi
+AC_SUBST(B2G_VOICE_PROCESSING)
+
 dnl bug 988880: disable startup cache on b2g
 if test -n "$MOZ_B2G"; then
   MOZ_DISABLE_STARTUPCACHE=1

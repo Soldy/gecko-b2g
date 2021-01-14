@@ -38,6 +38,13 @@ const kDevicePhoneNumberSim2 = "ril.mms.phoneNumber.sim2";
 
 const kPrefMmsDebuggingEnabled = "mms.debugging.enabled";
 
+// Data and MMS share the same key - ril.data.defaultServiceId for now.
+// In case of needed, we will merge the different types into single key.
+const kSettingsDataDefaultServiceId = "ril.data.defaultServiceId";
+const kSettingsRetrievalMode = "ril.mms.retrieval_mode";
+const kSettingsMmsRequestStatusReport = "ril.mms.requestStatusReport.enabled";
+const kSettingsMmsRequestReadReport = "ril.mms.requestReadReport.enabled";
+
 // HTTP status codes:
 // @see http://tools.ietf.org/html/rfc2616#page-39
 const HTTP_STATUS_OK = 200;
@@ -73,7 +80,6 @@ const PREF_TIME_TO_RELEASE_MMS_CONNECTION = Services.prefs.getIntPref(
   "network.gonk.ms-release-mms-connection"
 );
 
-const kPrefRetrievalMode = "dom.mms.retrieval_mode";
 const RETRIEVAL_MODE_MANUAL = "manual";
 const RETRIEVAL_MODE_AUTOMATIC = "automatic";
 const RETRIEVAL_MODE_AUTOMATIC_HOME = "automatic-home";
@@ -132,11 +138,6 @@ const PREF_RETRIEVAL_RETRY_INTERVALS = (function() {
   intervals.length = PREF_RETRIEVAL_RETRY_COUNT;
   return intervals;
 })();
-
-const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
-// Data and MMS share the same key - dom.data.defaultServiceId for now.
-// In case of needed, we will merge the different types into single key.
-const kPrefDefaultServiceId = "dom.data.defaultServiceId";
 
 XPCOMUtils.defineLazyServiceGetter(
   this,
@@ -229,6 +230,12 @@ XPCOMUtils.defineLazyServiceGetter(
   "nsIDiskSpaceWatcher"
 );
 
+XPCOMUtils.defineLazyGetter(this, "gSettingsObserver", function() {
+  let obj = {};
+  ChromeUtils.import("resource://gre/modules/RILSettingsObserver.jsm", obj);
+  return obj;
+});
+
 XPCOMUtils.defineLazyGetter(this, "MMS", function() {
   let MMS = {};
   ChromeUtils.import("resource://gre/modules/MmsPduHelper.jsm", MMS);
@@ -236,20 +243,6 @@ XPCOMUtils.defineLazyGetter(this, "MMS", function() {
 });
 
 // Internal Utilities
-
-/**
- * Return default service Id for MMS.
- */
-function getDefaultServiceId() {
-  let id = Services.prefs.getIntPref(kPrefDefaultServiceId, 0);
-  let numRil = Services.prefs.getIntPref(kPrefRilNumRadioInterfaces);
-
-  if (id >= numRil || id < 0) {
-    id = 0;
-  }
-
-  return id;
-}
 
 /**
  * Return radio disabled state.
@@ -613,6 +606,7 @@ MmsConnection.prototype = {
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
     Services.obs.removeObserver(this, kNetworkConnStateChangedTopic);
 
+    this.settingsObserver.removeSettingObserver(kSettingsDataDefaultServiceId);
     this.connectTimer.cancel();
     this.flushPendingCallbacks(_HTTP_STATUS_RADIO_DISABLED);
     this.disconnectTimer.cancel();
@@ -1180,6 +1174,8 @@ function CancellableTransaction(cancellableId, serviceId) {
   this.cancellableId = cancellableId;
   this.serviceId = serviceId;
   this.isCancelled = false;
+  this.settingsObserver = new gSettingsObserver.RILSettingsObserver();
+  this.settingsObserver.handleSettingChanged = this.handleSettingChanged;
 }
 CancellableTransaction.prototype = {
   QueryInterface: ChromeUtils.generateQI([
@@ -1202,7 +1198,7 @@ CancellableTransaction.prototype = {
     if (!this.isObserversAdded) {
       Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
       Services.obs.addObserver(this, kSmsDeletedObserverTopic);
-      Services.prefs.addObserver(kPrefDefaultServiceId, this);
+      this.settingsObserver.addSettingObserver(kSettingsDataDefaultServiceId);
       gMobileConnectionService
         .getItemByServiceId(this.serviceId)
         .registerListener(this);
@@ -1217,7 +1213,9 @@ CancellableTransaction.prototype = {
     if (this.isObserversAdded) {
       Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
       Services.obs.removeObserver(this, kSmsDeletedObserverTopic);
-      Services.prefs.removeObserver(kPrefDefaultServiceId, this);
+      this.settingsObserver.removeSettingObserver(
+        kSettingsDataDefaultServiceId
+      );
       gMobileConnectionService
         .getItemByServiceId(this.serviceId)
         .unregisterListener(this);
@@ -1278,15 +1276,20 @@ CancellableTransaction.prototype = {
         }
         break;
       }
-      case NS_PREFBRANCH_PREFCHANGE_TOPIC_ID: {
-        if (
-          data === kPrefDefaultServiceId &&
-          this.serviceId != getDefaultServiceId()
-        ) {
+    }
+  },
+
+  handleSettingChanged(aName, aResult) {
+    if (DEBUG) {
+      debug(aName + " is set to " + aResult);
+    }
+    switch (aName) {
+      case kSettingsDataDefaultServiceId:
+        if (this.serviceId != aResult) {
           this.cancelRunning(_MMS_ERROR_SIM_CARD_CHANGED);
         }
+
         break;
-      }
     }
   },
 
@@ -1623,13 +1626,19 @@ SendTransaction.prototype = Object.create(CancellableTransaction.prototype, {
 
           // the input stream may be read in the previous failure request so
           // we have to re-compose it.
-          if (
-            this.istreamSize == null ||
-            this.istreamSize != this.istream.available()
-          ) {
+          try {
+            if (
+              this.istreamSize == null ||
+              this.istreamSize != this.istream.available()
+            ) {
+              throw new Error("input stream unavalibale");
+            }
+          } catch (e) {
+            if (DEBUG) {
+              debug("Input stream is not avaliable: " + e + ", re-compose it");
+            }
             this.istream = MMS.PduHelper.compose(null, this.msg);
           }
-
           this.timer.initWithCallback(
             () => this.send(retryCallback),
             PREF_SEND_RETRY_INTERVAL[this.retryCount],
@@ -1815,9 +1824,17 @@ function MmsService() {
     );
   }
 
-  Services.prefs.addObserver(kPrefDefaultServiceId, this);
+  this.settingsObserver = new gSettingsObserver.RILSettingsObserver();
+  this.settingsObserver.handleSettingChanged = this.handleSettingChanged;
+
+  this.settingsObserver
+    .getSettingWithDefault(kSettingsDataDefaultServiceId, 0)
+    .then(setting => {
+      this.mmsDefaultServiceId = setting.value;
+    });
+  this.settingsObserver.addSettingObserver(kSettingsDataDefaultServiceId);
+
   Services.prefs.addObserver(kPrefMmsDebuggingEnabled, this);
-  this.mmsDefaultServiceId = getDefaultServiceId();
 
   // TODO: bug 810084 - support application identifier
 }
@@ -1833,7 +1850,7 @@ MmsService.prototype = {
    * and M-Acknowledge.ind PDU.
    */
   confSendDeliveryReport: CONFIG_SEND_REPORT_DEFAULT_YES,
-
+  _retrievalMode: RETRIEVAL_MODE_MANUAL,
   _updateDebugFlag() {
     try {
       DEBUG = DEBUG || Services.prefs.getBoolPref(kPrefMmsDebuggingEnabled);
@@ -2343,67 +2360,66 @@ MmsService.prototype = {
           return;
         }
 
-        let retrievalMode = RETRIEVAL_MODE_MANUAL;
-        retrievalMode = Services.prefs.getCharPref(
-          kPrefRetrievalMode,
-          RETRIEVAL_MODE_MANUAL
-        );
+        this.settingsObserver
+          .getSettingWithDefault(kSettingsRetrievalMode, RETRIEVAL_MODE_MANUAL)
+          .then(setting => {
+            let retrievalMode = setting.value;
 
-        // Calculate the free space to see whether the data space is low.
-        let lowDataSpace = false;
-        if (gDiskWatcher) {
-          lowDataSpace = gDiskWatcher.isDiskFull;
-        }
-
-        // Under the "automatic"/"automatic-home" retrieval mode, we switch to
-        // the "manual" retrieval mode to download MMS for non-active SIM or
-        // to confirm the low space protection.
-        if (
-          (retrievalMode == RETRIEVAL_MODE_AUTOMATIC ||
-            retrievalMode == RETRIEVAL_MODE_AUTOMATIC_HOME) &&
-          (serviceId != this.mmsDefaultServiceId || lowDataSpace)
-        ) {
-          if (DEBUG) {
-            debug(
-              "Switch to 'manual' mode to download MMS for non-active SIM: " +
-                "serviceId = " +
-                serviceId +
-                " doesn't equal to " +
-                "mmsDefaultServiceId = " +
-                this.mmsDefaultServiceId +
-                " or switch to 'manual' mode because the low data space limit"
-            );
-          }
-
-          retrievalMode = RETRIEVAL_MODE_MANUAL;
-        }
-
-        let mmsConnection = gMmsConnections.getConnByServiceId(serviceId);
-
-        let that = this;
-        this.convertIntermediateToSavable(
-          mmsConnection,
-          notification,
-          retrievalMode,
-          serviceId
-        ).then(function(savableMessage) {
-          gMobileMessageDatabaseService.saveReceivedMessage(
-            savableMessage,
-            (aRv, aDomMessage) => {
-              let mmsMessage = null;
-              try {
-                mmsMessage = aDomMessage.QueryInterface(Ci.nsIMmsMessage);
-              } catch (e) {}
-              that.saveReceivedMessageCallback(
-                mmsConnection,
-                retrievalMode,
-                savableMessage,
-                aRv,
-                mmsMessage
-              );
+            // Calculate the free space to see whether the data space is low.
+            let lowDataSpace = false;
+            if (gDiskWatcher) {
+              lowDataSpace = gDiskWatcher.isDiskFull;
             }
-          );
-        });
+
+            // Under the "automatic"/"automatic-home" retrieval mode, we switch to
+            // the "manual" retrieval mode to download MMS for non-active SIM or
+            // to confirm the low space protection.
+            if (
+              (retrievalMode == RETRIEVAL_MODE_AUTOMATIC ||
+                retrievalMode == RETRIEVAL_MODE_AUTOMATIC_HOME) &&
+              (serviceId != this.mmsDefaultServiceId || lowDataSpace)
+            ) {
+              if (DEBUG) {
+                debug(
+                  "Switch to 'manual' mode to download MMS for non-active SIM: " +
+                    "serviceId = " +
+                    serviceId +
+                    " doesn't equal to " +
+                    "mmsDefaultServiceId = " +
+                    this.mmsDefaultServiceId +
+                    " or switch to 'manual' mode because the low data space limit"
+                );
+              }
+
+              retrievalMode = RETRIEVAL_MODE_MANUAL;
+            }
+
+            let mmsConnection = gMmsConnections.getConnByServiceId(serviceId);
+            let that = this;
+            this.convertIntermediateToSavable(
+              mmsConnection,
+              notification,
+              retrievalMode,
+              serviceId
+            ).then(function(savableMessage) {
+              gMobileMessageDatabaseService.saveReceivedMessage(
+                savableMessage,
+                (aRv, aDomMessage) => {
+                  let mmsMessage = null;
+                  try {
+                    mmsMessage = aDomMessage.QueryInterface(Ci.nsIMmsMessage);
+                  } catch (e) {}
+                  that.saveReceivedMessageCallback(
+                    mmsConnection,
+                    retrievalMode,
+                    savableMessage,
+                    aRv,
+                    mmsMessage
+                  );
+                }
+              );
+            });
+          });
       }
     );
   },
@@ -2713,15 +2729,9 @@ MmsService.prototype = {
     aMessage.receivers = receivers;
     aMessage.sender = aMmsConnection.getPhoneNumber();
     aMessage.iccId = aMmsConnection.getIccId();
-    aMessage.deliveryStatusRequested = Services.prefs.getBoolPref(
-      "dom.mms.requestStatusReport",
-      false
-    );
+    aMessage.deliveryStatusRequested = aParams.requestStatusReport;
 
-    headers["x-mms-read-report"] = Services.prefs.getBoolPref(
-      "dom.mms.requestReadReport",
-      false
-    );
+    headers["x-mms-read-report"] = aParams.requestReadReport;
 
     if (DEBUG) {
       debug("createSavableFromParams: aMessage: " + JSON.stringify(aMessage));
@@ -2856,124 +2866,152 @@ MmsService.prototype = {
 
     let mmsConnection = gMmsConnections.getConnByServiceId(aServiceId);
 
-    let savableMessage = {};
-    let errorCode = this.createSavableFromParams(
-      mmsConnection,
-      aParams,
-      savableMessage
-    );
-    // Adding the isGroup field.
-    savableMessage.isGroup = aParams.isGroup;
-    gMobileMessageDatabaseService.saveSendingMessage(
-      savableMessage,
-      (aRv, aDomMessage) => {
-        let mmsMessage = null;
-        try {
-          mmsMessage = aDomMessage.QueryInterface(Ci.nsIMmsMessage);
-        } catch (e) {}
+    this.settingsObserver
+      .getSettingWithDefault(kSettingsMmsRequestStatusReport, false)
+      .then(setting => {
+        aParams.requestStatusReport = setting.value;
+        this.settingsObserver
+          .getSettingWithDefault(kSettingsMmsRequestReadReport, false)
+          .then(settingRead => {
+            aParams.requestReadReport = settingRead.value;
 
-        if (!Components.isSuccessCode(aRv)) {
-          if (DEBUG) {
-            debug("Error! Fail to save sending message! rv = " + aRv);
-          }
-          aRequest.notifySendMessageFailed(
-            gMobileMessageDatabaseService.translateCrErrorToMessageCallbackError(
-              aRv
-            ),
-            mmsMessage
-          );
-          this.broadcastSentFailureMessageEvent(mmsMessage);
-          return;
-        }
+            let savableMessage = {};
+            let errorCode = this.createSavableFromParams(
+              mmsConnection,
+              aParams,
+              savableMessage
+            );
+            // Adding the isGroup field.
+            savableMessage.isGroup = aParams.isGroup;
+            gMobileMessageDatabaseService.saveSendingMessage(
+              savableMessage,
+              (aRv, aDomMessage) => {
+                let mmsMessage = null;
+                try {
+                  mmsMessage = aDomMessage.QueryInterface(Ci.nsIMmsMessage);
+                } catch (e) {}
 
-        if (DEBUG) {
-          debug("Saving sending message is done. Start to send.");
-        }
+                if (!Components.isSuccessCode(aRv)) {
+                  if (DEBUG) {
+                    debug("Error! Fail to save sending message! rv = " + aRv);
+                  }
+                  aRequest.notifySendMessageFailed(
+                    gMobileMessageDatabaseService.translateCrErrorToMessageCallbackError(
+                      aRv
+                    ),
+                    mmsMessage
+                  );
+                  this.broadcastSentFailureMessageEvent(mmsMessage);
+                  return;
+                }
 
-        Services.obs.notifyObservers(mmsMessage, kSmsSendingObserverTopic);
+                if (DEBUG) {
+                  debug("Saving sending message is done. Start to send.");
+                }
 
-        if (errorCode !== Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR) {
-          if (DEBUG) {
-            debug("Error! The params for sending MMS are invalid.");
-          }
-          sendTransactionCb(mmsMessage, errorCode, null);
-          return;
-        }
+                Services.obs.notifyObservers(
+                  mmsMessage,
+                  kSmsSendingObserverTopic
+                );
 
-        // Check radio state in prior to default service Id.
-        if (isRadioOff(aServiceId) && !isWifiCallingAvailable(aServiceId)) {
-          if (DEBUG) {
-            debug("Error! Radio is disabled when sending MMS.");
-          }
-          sendTransactionCb(
-            mmsMessage,
-            Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR,
-            null
-          );
-          return;
-        }
+                if (
+                  errorCode !== Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR
+                ) {
+                  if (DEBUG) {
+                    debug("Error! The params for sending MMS are invalid.");
+                  }
+                  sendTransactionCb(mmsMessage, errorCode, null);
+                  return;
+                }
 
-        // To support DSDS, we have to stop users sending MMS when the selected
-        // SIM is not active, thus avoiding the data disconnection of the current
-        // SIM. Users have to manually swith the default SIM before sending.
-        if (mmsConnection.serviceId != this.mmsDefaultServiceId) {
-          if (DEBUG) {
-            debug("RIL service is not active to send MMS.");
-          }
-          sendTransactionCb(
-            mmsMessage,
-            Ci.nsIMobileMessageCallback.NON_ACTIVE_SIM_CARD_ERROR,
-            null
-          );
-          return;
-        }
+                // Check radio state in prior to default service Id.
+                if (
+                  isRadioOff(aServiceId) &&
+                  !isWifiCallingAvailable(aServiceId)
+                ) {
+                  if (DEBUG) {
+                    debug("Error! Radio is disabled when sending MMS.");
+                  }
+                  sendTransactionCb(
+                    mmsMessage,
+                    Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR,
+                    null
+                  );
+                  return;
+                }
 
-        // This is the entry point starting to send MMS.
-        let sendTransaction;
-        try {
-          sendTransaction = new SendTransaction(
-            mmsConnection,
-            mmsMessage.id,
-            savableMessage,
-            savableMessage.deliveryStatusRequested
-          );
-        } catch (e) {
-          if (DEBUG) {
-            debug("Exception: fail to create a SendTransaction instance.");
-          }
-          sendTransactionCb(
-            mmsMessage,
-            Ci.nsIMobileMessageCallback.INTERNAL_ERROR,
-            null
-          );
-          return;
-        }
-        sendTransaction.run((aMmsStatus, aMsg) => {
-          if (DEBUG) {
-            debug("The sending status of sendTransaction.run(): " + aMmsStatus);
-          }
-          let errorCode;
-          if (aMmsStatus == _MMS_ERROR_MESSAGE_DELETED) {
-            errorCode = Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR;
-          } else if (aMmsStatus == _MMS_ERROR_RADIO_DISABLED) {
-            errorCode = Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR;
-          } else if (aMmsStatus == _MMS_ERROR_NO_SIM_CARD) {
-            errorCode = Ci.nsIMobileMessageCallback.NO_SIM_CARD_ERROR;
-          } else if (aMmsStatus == _MMS_ERROR_SIM_CARD_CHANGED) {
-            errorCode = Ci.nsIMobileMessageCallback.NON_ACTIVE_SIM_CARD_ERROR;
-          } else if (aMmsStatus == _MMS_ERROR_NETWORK_ERROR) {
-            errorCode = Ci.nsIMobileMessageCallback.NETWORK_PROBLEMS_ERROR;
-          } else if (aMmsStatus != MMS.MMS_PDU_ERROR_OK) {
-            errorCode = Ci.nsIMobileMessageCallback.INTERNAL_ERROR;
-          } else {
-            errorCode = Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR;
-          }
-          let envelopeId =
-            (aMsg && aMsg.headers && aMsg.headers["message-id"]) || null;
-          sendTransactionCb(mmsMessage, errorCode, envelopeId);
-        });
-      }
-    );
+                // To support DSDS, we have to stop users sending MMS when the selected
+                // SIM is not active, thus avoiding the data disconnection of the current
+                // SIM. Users have to manually swith the default SIM before sending.
+                if (mmsConnection.serviceId != this.mmsDefaultServiceId) {
+                  if (DEBUG) {
+                    debug("RIL service is not active to send MMS.");
+                  }
+                  sendTransactionCb(
+                    mmsMessage,
+                    Ci.nsIMobileMessageCallback.NON_ACTIVE_SIM_CARD_ERROR,
+                    null
+                  );
+                  return;
+                }
+
+                // This is the entry point starting to send MMS.
+                let sendTransaction;
+                try {
+                  sendTransaction = new SendTransaction(
+                    mmsConnection,
+                    mmsMessage.id,
+                    savableMessage,
+                    savableMessage.deliveryStatusRequested
+                  );
+                } catch (e) {
+                  if (DEBUG) {
+                    debug(
+                      "Exception: fail to create a SendTransaction instance."
+                    );
+                  }
+                  sendTransactionCb(
+                    mmsMessage,
+                    Ci.nsIMobileMessageCallback.INTERNAL_ERROR,
+                    null
+                  );
+                  return;
+                }
+                sendTransaction.run((aMmsStatus, aMsg) => {
+                  if (DEBUG) {
+                    debug(
+                      "The sending status of sendTransaction.run(): " +
+                        aMmsStatus
+                    );
+                  }
+                  let errorCode;
+                  if (aMmsStatus == _MMS_ERROR_MESSAGE_DELETED) {
+                    errorCode = Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR;
+                  } else if (aMmsStatus == _MMS_ERROR_RADIO_DISABLED) {
+                    errorCode =
+                      Ci.nsIMobileMessageCallback.RADIO_DISABLED_ERROR;
+                  } else if (aMmsStatus == _MMS_ERROR_NO_SIM_CARD) {
+                    errorCode = Ci.nsIMobileMessageCallback.NO_SIM_CARD_ERROR;
+                  } else if (aMmsStatus == _MMS_ERROR_SIM_CARD_CHANGED) {
+                    errorCode =
+                      Ci.nsIMobileMessageCallback.NON_ACTIVE_SIM_CARD_ERROR;
+                  } else if (aMmsStatus == _MMS_ERROR_NETWORK_ERROR) {
+                    errorCode =
+                      Ci.nsIMobileMessageCallback.NETWORK_PROBLEMS_ERROR;
+                  } else if (aMmsStatus != MMS.MMS_PDU_ERROR_OK) {
+                    errorCode = Ci.nsIMobileMessageCallback.INTERNAL_ERROR;
+                  } else {
+                    errorCode = Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR;
+                  }
+                  let envelopeId =
+                    (aMsg && aMsg.headers && aMsg.headers["message-id"]) ||
+                    null;
+                  sendTransactionCb(mmsMessage, errorCode, envelopeId);
+                });
+              }
+            );
+          });
+      });
   },
 
   retrieve(aMessageId, aRequest) {
@@ -3330,11 +3368,20 @@ MmsService.prototype = {
   observe(aSubject, aTopic, aData) {
     switch (aTopic) {
       case NS_PREFBRANCH_PREFCHANGE_TOPIC_ID:
-        if (aData === kPrefDefaultServiceId) {
-          this.mmsDefaultServiceId = getDefaultServiceId();
-        } else if (aData === kPrefMmsDebuggingEnabled) {
+        if (aData === kPrefMmsDebuggingEnabled) {
           this._updateDebugFlag();
         }
+        break;
+    }
+  },
+
+  handleSettingChanged(aName, aResult) {
+    if (DEBUG) {
+      debug(aName + " is set to " + aResult);
+    }
+    switch (aName) {
+      case kSettingsDataDefaultServiceId:
+        this.mmsDefaultServiceId = aResult;
         break;
     }
   },

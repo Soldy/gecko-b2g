@@ -15,6 +15,7 @@
 # limitations under the License.
 
 EXPORTS += [
+    "AccessibleCaretGonk.h",
     "GfxDebugger.h",
     "GonkActivityManagerService.h",
     # 'GeckoTouchDispatcher.h',
@@ -28,7 +29,6 @@ EXPORTS.mozilla += [
 ]
 
 EXPORTS.mozilla.widget += [
-    "GeckoEditableSupport.h",
     "GonkCompositorWidget.h",
 ]
 
@@ -72,7 +72,7 @@ UNIFIED_SOURCES += [
 ]
 
 SOURCES += [
-    "GeckoEditableSupport.cpp",
+    "AccessibleCaretGonk.cpp",
     "GeckoTouchDispatcher.cpp",
     "GfxDebugger.cpp",
     "GfxInfo.cpp",
@@ -111,6 +111,7 @@ include("/ipc/chromium/chromium-config.mozbuild")
 FINAL_LIBRARY = "xul"
 
 LOCAL_INCLUDES += [
+    "/b2g/components/ime",
     "/dom/base",
     "/dom/system/android",
     "/gfx/2d/",

@@ -897,10 +897,14 @@ fn get_track_audio_info(
             }
             AudioCodecSpecific::MP3 => Mp4parseCodec::Mp3,
             AudioCodecSpecific::ALACSpecificBox(_) => Mp4parseCodec::Alac,
-            AudioCodecSpecific::AMRSpecificBox(_) if audio.codec_type == CodecType::AMRNB => {
+            AudioCodecSpecific::AMRSpecificBox(_) | AudioCodecSpecific::AMRSpecificEmptyBox
+                if audio.codec_type == CodecType::AMRNB =>
+            {
                 Mp4parseCodec::AMRNB
             }
-            AudioCodecSpecific::AMRSpecificBox(_) => Mp4parseCodec::AMRWB,
+            AudioCodecSpecific::AMRSpecificBox(_) | AudioCodecSpecific::AMRSpecificEmptyBox => {
+                Mp4parseCodec::AMRWB
+            }
         };
         sample_info.channels = audio.channelcount as u16;
         sample_info.bit_depth = audio.samplesize;
@@ -963,7 +967,8 @@ fn get_track_audio_info(
             }
             AudioCodecSpecific::MP3
             | AudioCodecSpecific::LPCM
-            | AudioCodecSpecific::AMRSpecificBox(_) => (),
+            | AudioCodecSpecific::AMRSpecificBox(_)
+            | AudioCodecSpecific::AMRSpecificEmptyBox => (),
         }
 
         if let Some(p) = audio

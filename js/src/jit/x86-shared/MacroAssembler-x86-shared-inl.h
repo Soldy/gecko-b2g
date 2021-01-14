@@ -65,6 +65,14 @@ void MacroAssembler::xor32(Register src, Register dest) { xorl(src, dest); }
 
 void MacroAssembler::xor32(Imm32 imm, Register dest) { xorl(imm, dest); }
 
+void MacroAssembler::xor32(Imm32 imm, const Address& dest) {
+  xorl(imm, Operand(dest));
+}
+
+void MacroAssembler::xor32(const Address& src, Register dest) {
+  xorl(Operand(src), dest);
+}
+
 void MacroAssembler::clz32(Register src, Register dest, bool knownNotZero) {
   if (AssemblerX86Shared::HasLZCNT()) {
     lzcntl(src, dest);
@@ -611,6 +619,24 @@ void MacroAssembler::branchRshift32(Condition cond, T src, Register dest,
 void MacroAssembler::branchNeg32(Condition cond, Register reg, Label* label) {
   MOZ_ASSERT(cond == Overflow);
   neg32(reg);
+  j(cond, label);
+}
+
+void MacroAssembler::branchAddPtr(Condition cond, Register src, Register dest,
+                                  Label* label) {
+  addPtr(src, dest);
+  j(cond, label);
+}
+
+void MacroAssembler::branchSubPtr(Condition cond, Register src, Register dest,
+                                  Label* label) {
+  subPtr(src, dest);
+  j(cond, label);
+}
+
+void MacroAssembler::branchMulPtr(Condition cond, Register src, Register dest,
+                                  Label* label) {
+  mulPtr(src, dest);
   j(cond, label);
 }
 
@@ -1271,6 +1297,11 @@ void MacroAssembler::interleaveHighInt32x4(FloatRegister rhs,
   vpunpckhdq(rhs, lhsDest, lhsDest);
 }
 
+void MacroAssembler::interleaveHighInt64x2(FloatRegister rhs,
+                                           FloatRegister lhsDest) {
+  vpunpckhqdq(rhs, lhsDest, lhsDest);
+}
+
 void MacroAssembler::interleaveHighInt8x16(FloatRegister rhs,
                                            FloatRegister lhsDest) {
   vpunpckhbw(rhs, lhsDest, lhsDest);
@@ -1284,6 +1315,11 @@ void MacroAssembler::interleaveLowInt16x8(FloatRegister rhs,
 void MacroAssembler::interleaveLowInt32x4(FloatRegister rhs,
                                           FloatRegister lhsDest) {
   vpunpckldq(rhs, lhsDest, lhsDest);
+}
+
+void MacroAssembler::interleaveLowInt64x2(FloatRegister rhs,
+                                          FloatRegister lhsDest) {
+  vpunpcklqdq(rhs, lhsDest, lhsDest);
 }
 
 void MacroAssembler::interleaveLowInt8x16(FloatRegister rhs,

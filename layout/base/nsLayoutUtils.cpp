@@ -1422,10 +1422,18 @@ static nsIFrame* GetNearestScrollableOrOverflowClipFrame(
       aFrame,
       "GetNearestScrollableOrOverflowClipFrame expects a non-null frame");
 
-  for (nsIFrame* f = aFrame; f;
-       f = (aFlags & nsLayoutUtils::SCROLLABLE_SAME_DOC)
-               ? f->GetParent()
-               : nsLayoutUtils::GetCrossDocParentFrame(f)) {
+  auto GetNextFrame = [aFlags](const nsIFrame* aFrame) -> nsIFrame* {
+    if (aFlags & nsLayoutUtils::SCROLLABLE_FOLLOW_OOF_TO_PLACEHOLDER) {
+      return (aFlags & nsLayoutUtils::SCROLLABLE_SAME_DOC)
+                 ? nsLayoutUtils::GetParentOrPlaceholderFor(aFrame)
+                 : nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(aFrame);
+    }
+    return (aFlags & nsLayoutUtils::SCROLLABLE_SAME_DOC)
+               ? aFrame->GetParent()
+               : nsLayoutUtils::GetCrossDocParentFrame(aFrame);
+  };
+
+  for (nsIFrame* f = aFrame; f; f = GetNextFrame(f)) {
     if (aClipFrameCheck && aClipFrameCheck(f)) {
       return f;
     }
@@ -2640,6 +2648,33 @@ struct AutoNestedPaintCount {
 
 #endif
 
+static uint32_t FindIdxForMozPassPointerEvents(
+    const nsTArray<nsIFrame*>& aFrames) {
+  for (uint32_t i = 0; i < aFrames.Length(); ++i) {
+    if (!aFrames[i]->GetContent()->IsHTMLElement(nsGkAtoms::html)) {
+      return i;
+    }
+
+    // Skip continuous <html> frame.
+    while (i + 1 < aFrames.Length() &&
+           aFrames[i + 1]->GetContent()->IsHTMLElement(nsGkAtoms::html)) {
+      i += 1;
+    }
+
+    auto subdocFrame = nsLayoutUtils::GetCrossDocParentFrame(
+        aFrames[i]->PresShell()->GetRootFrame());
+    if (!subdocFrame) {
+      return i;
+    }
+
+    nsSubDocumentFrame* subdoc = do_QueryFrame(subdocFrame);
+    if (!subdoc || !subdoc->PassPointerEventsToChildren()) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 nsIFrame* nsLayoutUtils::GetFrameForPoint(
     RelativeTo aRelativeTo, nsPoint aPt, const FrameForPointOptions& aOptions) {
   AUTO_PROFILER_LABEL("nsLayoutUtils::GetFrameForPoint", LAYOUT);
@@ -2649,7 +2684,12 @@ nsIFrame* nsLayoutUtils::GetFrameForPoint(
   rv = GetFramesForArea(aRelativeTo, nsRect(aPt, nsSize(1, 1)), outFrames,
                         aOptions);
   NS_ENSURE_SUCCESS(rv, nullptr);
-  return outFrames.Length() ? outFrames.ElementAt(0) : nullptr;
+
+  // Truncate the transparent parts under mozpasspointerevents, so we can hit
+  // throught the frame under the frame with mozpasspointerevents
+  uint32_t idx = FindIdxForMozPassPointerEvents(outFrames);
+
+  return outFrames.Length() ? outFrames.ElementAt(idx) : nullptr;
 }
 
 nsresult nsLayoutUtils::GetFramesForArea(RelativeTo aRelativeTo,
@@ -2790,7 +2830,8 @@ nsIScrollableFrame* nsLayoutUtils::GetAsyncScrollableAncestorFrame(
     nsIFrame* aTarget) {
   uint32_t flags = nsLayoutUtils::SCROLLABLE_ALWAYS_MATCH_ROOT |
                    nsLayoutUtils::SCROLLABLE_ONLY_ASYNC_SCROLLABLE |
-                   nsLayoutUtils::SCROLLABLE_FIXEDPOS_FINDS_ROOT;
+                   nsLayoutUtils::SCROLLABLE_FIXEDPOS_FINDS_ROOT |
+                   nsLayoutUtils::SCROLLABLE_FOLLOW_OOF_TO_PLACEHOLDER;
   return nsLayoutUtils::GetNearestScrollableFrame(aTarget, flags);
 }
 
@@ -4130,7 +4171,8 @@ nsIFrame* nsLayoutUtils::GetParentOrPlaceholderFor(const nsIFrame* aFrame) {
   return aFrame->GetParent();
 }
 
-nsIFrame* nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(nsIFrame* aFrame) {
+nsIFrame* nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(
+    const nsIFrame* aFrame) {
   nsIFrame* f = GetParentOrPlaceholderFor(aFrame);
   if (f) return f;
   return GetCrossDocParentFrame(aFrame);

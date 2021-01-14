@@ -57,6 +57,8 @@
 #define TIMESTAMP(...)
 #endif
 
+#define SL_BOOLEAN_CAST(condition)  ((condition) ? SL_BOOLEAN_TRUE : SL_BOOLEAN_FALSE)
+
 #define ANDROID_VERSION_GINGERBREAD_MR1 10
 #define ANDROID_VERSION_JELLY_BEAN 18
 #define ANDROID_VERSION_LOLLIPOP 21
@@ -77,6 +79,11 @@ struct cubeb {
 #if defined(__ANDROID__)
   SLInterfaceID SL_IID_ANDROIDCONFIGURATION;
   SLInterfaceID SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+#endif
+#if defined(B2G_VOICE_PROCESSING)
+  SLInterfaceID SL_IID_ANDROIDACOUSTICECHOCANCELLATION;
+  SLInterfaceID SL_IID_ANDROIDAUTOMATICGAINCONTROL;
+  SLInterfaceID SL_IID_ANDROIDNOISESUPPRESSION;
 #endif
   SLInterfaceID SL_IID_VOLUME;
   SLInterfaceID SL_IID_RECORD;
@@ -121,6 +128,11 @@ struct cubeb_stream {
   SLRecordItf recorderItf;
   /* Buffer queue for input capture. */
   SLAndroidSimpleBufferQueueItf recorderBufferQueueItf;
+#if defined(B2G_VOICE_PROCESSING)
+  SLAndroidAcousticEchoCancellationItf acousticEchoCancellationItf;
+  SLAndroidAutomaticGainControlItf automaticGainControlItf;
+  SLAndroidNoiseSuppressionItf noiseSuppressionItf;
+#endif
   /* Store input buffers. */
   void ** input_buffer_array;
   /* The capacity of the array.
@@ -167,6 +179,11 @@ struct cubeb_stream {
   int64_t lastCompensativePosition;
   int voice_input;
   int voice_output;
+#if defined(B2G_VOICE_PROCESSING)
+  int enable_aec;
+  int enable_agc;
+  int enable_ns;
+#endif
 };
 
 /* Forward declaration. */
@@ -722,6 +739,11 @@ opensl_init(cubeb ** context, char const * context_name)
   ctx->SL_IID_ANDROIDCONFIGURATION = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_ANDROIDCONFIGURATION");
   ctx->SL_IID_ANDROIDSIMPLEBUFFERQUEUE = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_ANDROIDSIMPLEBUFFERQUEUE");
 #endif
+#if defined(B2G_VOICE_PROCESSING)
+  ctx->SL_IID_ANDROIDACOUSTICECHOCANCELLATION = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_ANDROIDACOUSTICECHOCANCELLATION");
+  ctx->SL_IID_ANDROIDAUTOMATICGAINCONTROL = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_ANDROIDAUTOMATICGAINCONTROL");
+  ctx->SL_IID_ANDROIDNOISESUPPRESSION = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_ANDROIDNOISESUPPRESSION");
+#endif
   ctx->SL_IID_PLAY = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_PLAY");
   ctx->SL_IID_RECORD = *(SLInterfaceID *)dlsym(ctx->lib, "SL_IID_RECORD");
 
@@ -927,11 +949,24 @@ opensl_configure_capture(cubeb_stream * stm, cubeb_stream_params * params)
   lDataSource.pLocator = &lDataLocatorIn;
   lDataSource.pFormat = NULL;
 
+#if defined(B2G_VOICE_PROCESSING)
+  // If platform voice processing is enabled, try to request interfaces of AEC/AGC/NS.
+  const SLInterfaceID lSoundRecorderIIDs[] = { stm->context->SL_IID_RECORD,
+                                               stm->context->SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
+                                               stm->context->SL_IID_ANDROIDCONFIGURATION,
+                                               stm->context->SL_IID_ANDROIDACOUSTICECHOCANCELLATION,
+                                               stm->context->SL_IID_ANDROIDAUTOMATICGAINCONTROL,
+                                               stm->context->SL_IID_ANDROIDNOISESUPPRESSION };
+
+  const SLboolean lSoundRecorderReqs[] = { SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE,
+                                           SL_BOOLEAN_FALSE, SL_BOOLEAN_FALSE, SL_BOOLEAN_FALSE };
+#else
   const SLInterfaceID lSoundRecorderIIDs[] = { stm->context->SL_IID_RECORD,
                                                stm->context->SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
                                                stm->context->SL_IID_ANDROIDCONFIGURATION };
 
   const SLboolean lSoundRecorderReqs[] = { SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE };
+#endif
   // create the audio recorder abstract object
   SLresult res = (*stm->context->eng)->CreateAudioRecorder(stm->context->eng,
                                                            &stm->recorderObj,
@@ -1035,6 +1070,50 @@ opensl_configure_capture(cubeb_stream * stm, cubeb_stream_params * params)
     LOG("Failed to get recorder (android) buffer queue interface. Error code: %lu", res);
     return CUBEB_ERROR;
   }
+
+#if defined(B2G_VOICE_PROCESSING)
+  // Configure AEC preprocessing
+  res = (*stm->recorderObj)->GetInterface(stm->recorderObj,
+                                          stm->context->SL_IID_ANDROIDACOUSTICECHOCANCELLATION,
+                                          &stm->acousticEchoCancellationItf);
+  if (res == SL_RESULT_SUCCESS) {
+    res = (*stm->acousticEchoCancellationItf)->SetEnabled(stm->acousticEchoCancellationItf,
+                                                          SL_BOOLEAN_CAST(stm->enable_aec));
+    if (res != SL_RESULT_SUCCESS) {
+      LOG("Failed to %s AEC. Error code: %lu", stm->enable_aec ? "enable" : "disable", res);
+    }
+  } else {
+    LOG("Failed to get AEC interface. Error code: %lu", res);
+  }
+
+  // Configure AGC preprocessing
+  res = (*stm->recorderObj)->GetInterface(stm->recorderObj,
+                                          stm->context->SL_IID_ANDROIDAUTOMATICGAINCONTROL,
+                                          &stm->automaticGainControlItf);
+  if (res == SL_RESULT_SUCCESS) {
+    res = (*stm->automaticGainControlItf)->SetEnabled(stm->automaticGainControlItf,
+                                                      SL_BOOLEAN_CAST(stm->enable_agc));
+    if (res != SL_RESULT_SUCCESS) {
+      LOG("Failed to %s AGC. Error code: %lu", stm->enable_agc ? "enable" : "disable", res);
+    }
+  } else {
+    LOG("Failed to get AGC interface. Error code: %lu", res);
+  }
+
+  // Configure NS preprocessing
+  res = (*stm->recorderObj)->GetInterface(stm->recorderObj,
+                                          stm->context->SL_IID_ANDROIDNOISESUPPRESSION,
+                                          &stm->noiseSuppressionItf);
+  if (res == SL_RESULT_SUCCESS) {
+    res = (*stm->noiseSuppressionItf)->SetEnabled(stm->noiseSuppressionItf,
+                                                  SL_BOOLEAN_CAST(stm->enable_ns));
+    if (res != SL_RESULT_SUCCESS) {
+      LOG("Failed to %s NS. Error code: %lu", stm->enable_ns ? "enable" : "disable", res);
+    }
+  } else {
+    LOG("Failed to get NS interface. Error code: %lu", res);
+  }
+#endif
 
   // register callback on record (input) buffer queue
   slAndroidSimpleBufferQueueCallback rec_callback = recorder_callback;
@@ -1418,6 +1497,11 @@ opensl_stream_init(cubeb * ctx, cubeb_stream ** stream, char const * stream_name
   stm->shutdown = 1;
   stm->voice_input = has_pref_set(input_stream_params, NULL, CUBEB_STREAM_PREF_VOICE);
   stm->voice_output = has_pref_set(NULL, output_stream_params, CUBEB_STREAM_PREF_VOICE);
+#if defined(B2G_VOICE_PROCESSING)
+  stm->enable_aec = has_pref_set(input_stream_params, NULL, CUBEB_STREAM_PREF_AEC);
+  stm->enable_agc = has_pref_set(input_stream_params, NULL, CUBEB_STREAM_PREF_AGC);
+  stm->enable_ns = has_pref_set(input_stream_params, NULL, CUBEB_STREAM_PREF_NS);
+#endif
 
   LOG("cubeb stream prefs: voice_input: %s voice_output: %s", stm->voice_input ? "true" : "false",
                                                               stm->voice_output ? "true" : "false");
@@ -1634,6 +1718,12 @@ opensl_destroy_recorder(cubeb_stream * stm)
       free(stm->input_buffer_array[i]);
     }
   }
+
+#if defined(B2G_VOICE_PROCESSING)
+  stm->acousticEchoCancellationItf = NULL;
+  stm->automaticGainControlItf = NULL;
+  stm->noiseSuppressionItf = NULL;
+#endif
 
   (*stm->recorderObj)->Destroy(stm->recorderObj);
   stm->recorderObj = NULL;

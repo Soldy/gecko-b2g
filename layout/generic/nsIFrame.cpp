@@ -70,6 +70,7 @@
 #include "nsCSSAnonBoxes.h"
 #include "nsCanvasFrame.h"
 
+#include "nsFieldSetFrame.h"
 #include "nsFrameTraversal.h"
 #include "nsRange.h"
 #include "nsITextControlFrame.h"
@@ -976,7 +977,7 @@ static void AddAndRemoveImageAssociations(
   }
 
   CompareLayers(aNewLayers, aOldLayers, [&](imgRequestProxy* aReq) {
-    aImageLoader.AssociateRequestToFrame(aReq, aFrame, 0);
+    aImageLoader.AssociateRequestToFrame(aReq, aFrame);
   });
 }
 
@@ -1342,7 +1343,7 @@ void nsIFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
       loader->DisassociateRequestFromFrame(oldBorderImage, this);
     }
     if (newBorderImage) {
-      loader->AssociateRequestToFrame(newBorderImage, this, 0);
+      loader->AssociateRequestToFrame(newBorderImage, this);
     }
   }
 
@@ -1364,8 +1365,10 @@ void nsIFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
       loader->DisassociateRequestFromFrame(oldShapeImage, this);
     }
     if (newShapeImage) {
-      loader->AssociateRequestToFrame(newShapeImage, this,
-                                      ImageLoader::REQUEST_REQUIRES_REFLOW);
+      loader->AssociateRequestToFrame(
+          newShapeImage, this,
+          ImageLoader::Flags::
+              RequiresReflowOnFirstFrameCompleteAndLoadEventBlocking);
     }
   }
 
@@ -5635,7 +5638,7 @@ bool nsIFrame::AssociateImage(const StyleImage& aImage) {
   mozilla::css::ImageLoader* loader =
       PresContext()->Document()->StyleImageLoader();
 
-  loader->AssociateRequestToFrame(req, this, 0);
+  loader->AssociateRequestToFrame(req, this);
   return true;
 }
 
@@ -6001,11 +6004,12 @@ AspectRatio nsIFrame::GetAspectRatio() const {
   // return here.
 
   const StyleAspectRatio& aspectRatio = StylePosition()->mAspectRatio;
-  // If aspect-ratio is infinite, it behaves as auto.
-  // https://github.com/w3c/csswg-drafts/issues/4572
+  // If aspect-ratio is zero or infinite, it's a degenerate ratio and behaves
+  // as auto.
+  // https://drafts.csswg.org/css-sizing-4/#valdef-aspect-ratio-ratio
   if (!aspectRatio.BehavesAsAuto()) {
     // Non-auto. Return the preferred aspect ratio from the aspect-ratio style.
-    return aspectRatio.ratio.AsRatio().ToLayoutRatio();
+    return aspectRatio.ratio.AsRatio().ToLayoutRatio(UseBoxSizing::Yes);
   }
 
   // The rest of the cases are when aspect-ratio has 'auto'.
@@ -6014,9 +6018,9 @@ AspectRatio nsIFrame::GetAspectRatio() const {
   }
 
   if (aspectRatio.HasRatio()) {
-    // If there is no finite ratio, this returns 0. Just the same as the auto
+    // If it's a degenerate ratio, this returns 0. Just the same as the auto
     // case.
-    return aspectRatio.ratio.AsRatio().ToLayoutRatio();
+    return aspectRatio.ratio.AsRatio().ToLayoutRatio(UseBoxSizing::No);
   }
 
   return AspectRatio();
@@ -10085,58 +10089,95 @@ void nsIFrame::GetFirstLeaf(nsIFrame** aFrame) {
   }
 }
 
-/* virtual */
-bool nsIFrame::IsFocusable(int32_t* aTabIndex, bool aWithMouse) {
-  int32_t tabIndex = -1;
-  if (aTabIndex) {
-    *aTabIndex = -1;  // Default for early return is not focusable
+bool nsIFrame::IsFocusableDueToScrollFrame() {
+  if (!IsScrollFrame()) {
+    if (nsFieldSetFrame* fieldset = do_QueryFrame(this)) {
+      // TODO: Do we have similar special-cases like this where we can have
+      // anonymous scrollable boxes hanging off a primary frame?
+      if (nsIFrame* inner = fieldset->GetInner()) {
+        return inner->IsFocusableDueToScrollFrame();
+      }
+    }
+    return false;
   }
-  bool isFocusable = false;
+  if (!mContent->IsHTMLElement()) {
+    return false;
+  }
+  if (mContent->IsRootOfNativeAnonymousSubtree()) {
+    return false;
+  }
+  if (!mContent->GetParent()) {
+    return false;
+  }
+  if (mContent->AsElement()->HasAttr(nsGkAtoms::tabindex)) {
+    return false;
+  }
+  // Elements with scrollable view are focusable with script & tabbable
+  // Otherwise you couldn't scroll them with keyboard, which is an accessibility
+  // issue (e.g. Section 508 rules) However, we don't make them to be focusable
+  // with the mouse, because the extra focus outlines are considered
+  // unnecessarily ugly.  When clicked on, the selection position within the
+  // element will be enough to make them keyboard scrollable.
+  nsIScrollableFrame* scrollFrame = do_QueryFrame(this);
+  if (!scrollFrame) {
+    return false;
+  }
+  if (scrollFrame->IsForTextControlWithNoScrollbars()) {
+    return false;
+  }
+  if (scrollFrame->GetScrollStyles().IsHiddenInBothDirections()) {
+    return false;
+  }
+  if (scrollFrame->GetScrollRange().IsEqualEdges(nsRect(0, 0, 0, 0))) {
+    return false;
+  }
+  return true;
+}
 
+nsIFrame::Focusable nsIFrame::IsFocusable(bool aWithMouse) {
   // cannot focus content in print preview mode. Only the root can be focused,
   // but that's handled elsewhere.
   if (PresContext()->Type() == nsPresContext::eContext_PrintPreview) {
-    return false;
+    return {};
   }
 
-  if (mContent && mContent->IsElement() && IsVisibleConsideringAncestors() &&
-      Style()->GetPseudoType() != PseudoStyleType::anonymousFlexItem &&
-      Style()->GetPseudoType() != PseudoStyleType::anonymousGridItem &&
-      StyleUI()->mInert != StyleInert::Inert) {
-    const nsStyleUI* ui = StyleUI();
-    if (ui->mUserFocus != StyleUserFocus::Ignore &&
-        ui->mUserFocus != StyleUserFocus::None) {
-      // Pass in default tabindex of -1 for nonfocusable and 0 for focusable
-      tabIndex = 0;
-    }
-    isFocusable = mContent->IsFocusable(&tabIndex, aWithMouse);
-    if (!isFocusable && !aWithMouse && IsScrollFrame() &&
-        mContent->IsHTMLElement() &&
-        !mContent->IsRootOfNativeAnonymousSubtree() && mContent->GetParent() &&
-        !mContent->AsElement()->HasAttr(kNameSpaceID_None,
-                                        nsGkAtoms::tabindex)) {
-      // Elements with scrollable view are focusable with script & tabbable
-      // Otherwise you couldn't scroll them with keyboard, which is
-      // an accessibility issue (e.g. Section 508 rules)
-      // However, we don't make them to be focusable with the mouse,
-      // because the extra focus outlines are considered unnecessarily ugly.
-      // When clicked on, the selection position within the element
-      // will be enough to make them keyboard scrollable.
-      nsIScrollableFrame* scrollFrame = do_QueryFrame(this);
-      if (scrollFrame && !scrollFrame->IsForTextControlWithNoScrollbars() &&
-          !scrollFrame->GetScrollStyles().IsHiddenInBothDirections() &&
-          !scrollFrame->GetScrollRange().IsEqualEdges(nsRect(0, 0, 0, 0))) {
-        // Scroll bars will be used for overflow
-        isFocusable = true;
-        tabIndex = 0;
-      }
-    }
+  if (!mContent || !mContent->IsElement()) {
+    return {};
   }
 
-  if (aTabIndex) {
-    *aTabIndex = tabIndex;
+  if (!IsVisibleConsideringAncestors()) {
+    return {};
   }
-  return isFocusable;
+
+  const nsStyleUI* ui = StyleUI();
+  if (ui->mInert == StyleInert::Inert) {
+    return {};
+  }
+
+  PseudoStyleType pseudo = Style()->GetPseudoType();
+  if (pseudo == PseudoStyleType::anonymousFlexItem ||
+      pseudo == PseudoStyleType::anonymousGridItem) {
+    return {};
+  }
+
+  int32_t tabIndex = -1;
+  if (ui->mUserFocus != StyleUserFocus::Ignore &&
+      ui->mUserFocus != StyleUserFocus::None) {
+    // Pass in default tabindex of -1 for nonfocusable and 0 for focusable
+    tabIndex = 0;
+  }
+
+  if (mContent->IsFocusable(&tabIndex, aWithMouse)) {
+    // If the content is focusable, then we're done.
+    return {true, tabIndex};
+  }
+
+  // If we're focusing with the mouse we never focus scroll areas.
+  if (!aWithMouse && IsFocusableDueToScrollFrame()) {
+    return {true, 0};
+  }
+
+  return {false, tabIndex};
 }
 
 /**

@@ -2652,6 +2652,12 @@ bool nsFrameLoader::TryRemoteBrowserInternal() {
     }
   }
 
+  if (mOwnerContent->AttrValueIs(kNameSpaceID_None,
+                                 nsGkAtoms::mozpasspointerevents,
+                                 nsGkAtoms::_true, eCaseMatters)) {
+    Unused << browserParent->SetUpdateHitRegion(true);
+  }
+
   ReallyLoadFrameScripts();
   InitializeBrowserAPI();
 

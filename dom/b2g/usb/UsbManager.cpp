@@ -10,6 +10,7 @@
 #include "mozilla/Hal.h"
 #include "mozilla/dom/UsbEvent.h"
 #include "mozilla/dom/UsbManagerBinding.h"
+#include "nsComponentManagerUtils.h"  // for do_CreateInstance
 
 /**
  * We have to use macros here because our leak analysis tool things we are
@@ -17,14 +18,22 @@
  */
 #define USB_STATUS_CHANGE_NAME u"usbstatuschange"_ns
 
+const uint32_t UPDATE_DELAY = 1000;
+
 namespace mozilla {
 namespace dom {
+
+NS_INTERFACE_MAP_BEGIN(UsbManager)
+  NS_INTERFACE_MAP_ENTRY(nsITimerCallback)
+NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
+
+NS_IMPL_ADDREF_INHERITED(UsbManager, DOMEventTargetHelper)
+NS_IMPL_RELEASE_INHERITED(UsbManager, DOMEventTargetHelper)
 
 UsbManager::UsbManager(nsPIDOMWindowInner* aWindow)
     : DOMEventTargetHelper(aWindow),
       mDeviceAttached(false),
-      mDeviceConfigured(false),
-      mDebounce(false) {}
+      mDeviceConfigured(false) {}
 
 void UsbManager::Init() {
   hal::RegisterUsbObserver(this);
@@ -64,29 +73,32 @@ void UsbManager::Notify(const hal::UsbStatus& aUsbStatus) {
     // Delay for debouncing USB disconnects.
     // We often get rapid connect/disconnect events
     // when enabling USB functions which need debouncing.
-    if (!mDeviceAttached && !mDebounce) {
-      MessageLoopForIO::current()->PostDelayedTask(
-          NewRunnableMethod("UsbManager::DebounceEvent", this,
-                            &UsbManager::DebounceEvent),
-          1000);
-      mDebounce = true;
+    if (!mDeviceAttached && !mDebouncingTimer) {
+      mDebouncingTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+      mDebouncingTimer->InitWithCallback(this, UPDATE_DELAY,
+                                         nsITimer::TYPE_ONE_SHOT);
       return;
     }
-    mDebounce = false;
+
+    // Remove ongoing debouncing event.
+    if (mDebouncingTimer) {
+      mDebouncingTimer->Cancel();
+      mDebouncingTimer = nullptr;
+    }
+
     DispatchTrustedEvent(event);
   }
 }
 
-void UsbManager::DebounceEvent() {
-  if (!mDebounce) return;
+NS_IMETHODIMP
+UsbManager::Notify(nsITimer* aTimer) {
   UsbEventInit init;
   init.mDeviceAttached = mDeviceAttached;
   init.mDeviceConfigured = mDeviceConfigured;
-
   RefPtr<UsbEvent> event =
       UsbEvent::Constructor(this, USB_STATUS_CHANGE_NAME, init);
-  mDebounce = false;
   DispatchTrustedEvent(event);
+  return NS_OK;
 }
 
 }  // namespace dom

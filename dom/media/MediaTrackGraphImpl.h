@@ -544,6 +544,31 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
     return AudioInputType::Unknown;
   }
 
+#ifdef B2G_VOICE_PROCESSING
+  void GetVoiceInputSettings(bool* aEnableAec, bool* aEnableAgc,
+                             bool* aEnableNs) override {
+    MOZ_ASSERT(OnGraphThreadOrNotRunning());
+
+    *aEnableAec = false;
+    *aEnableAgc = false;
+    *aEnableNs = false;
+
+    nsTArray<RefPtr<AudioDataListener>>* listeners =
+        mInputDeviceUsers.GetValue(mInputDeviceID);
+    if (!listeners) {
+      return;
+    }
+
+    for (const auto& listener : *listeners) {
+      bool aec, agc, ns;
+      listener->GetVoiceInputSettings(this, &aec, &agc, &ns);
+      *aEnableAec |= aec;
+      *aEnableAgc |= agc;
+      *aEnableNs |= ns;
+    }
+  }
+#endif
+
   CubebUtils::AudioDeviceID InputDeviceID() { return mInputDeviceID; }
 
   double MediaTimeToSeconds(GraphTime aTime) const {

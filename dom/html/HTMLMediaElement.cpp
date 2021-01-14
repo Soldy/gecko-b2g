@@ -2420,6 +2420,7 @@ void HTMLMediaElement::AbortExistingLoads() {
     }
     ChangeNetworkState(NETWORK_EMPTY);
     RemoveMediaTracks();
+    UpdateOutputTrackSources();
     ChangeReadyState(HAVE_NOTHING);
 
     // TODO: Apply the rules for text track cue rendering Bug 865407
@@ -2747,6 +2748,16 @@ void HTMLMediaElement::NotifyLoadError(const nsACString& aErrorDetails) {
   } else {
     NS_WARNING("Should know the source we were loading from!");
   }
+}
+
+void HTMLMediaElement::NotifyMediaTrackAdded(dom::MediaTrack* aTrack) {
+  // The set of tracks changed.
+  mWatchManager.ManualNotify(&HTMLMediaElement::UpdateOutputTrackSources);
+}
+
+void HTMLMediaElement::NotifyMediaTrackRemoved(dom::MediaTrack* aTrack) {
+  // The set of tracks changed.
+  mWatchManager.ManualNotify(&HTMLMediaElement::UpdateOutputTrackSources);
 }
 
 void HTMLMediaElement::NotifyMediaTrackEnabled(dom::MediaTrack* aTrack) {
@@ -3680,7 +3691,15 @@ void HTMLMediaElement::UpdateOutputTrackSources() {
   }
 
   if (mDecoder) {
-    mDecoder->SetOutputCaptured(mTracksCaptured.Ref());
+    if (!mTracksCaptured.Ref()) {
+      mDecoder->SetOutputCaptureState(MediaDecoder::OutputCaptureState::None);
+    } else if (!AudioTracks() || !VideoTracks() || !shouldHaveTrackSources) {
+      // We've been unlinked, or tracks are not yet known.
+      mDecoder->SetOutputCaptureState(MediaDecoder::OutputCaptureState::Halt);
+    } else {
+      mDecoder->SetOutputCaptureState(MediaDecoder::OutputCaptureState::Capture,
+                                      mTracksCaptured.Ref().get());
+    }
   }
 
   // Start with all MediaTracks
@@ -3787,6 +3806,9 @@ void HTMLMediaElement::UpdateOutputTrackSources() {
     mOutputStreams.RemoveElementAt(i);
     if (mOutputStreams.IsEmpty()) {
       mTracksCaptured = nullptr;
+      // mTracksCaptured is one of the Watchables triggering this method.
+      // Unsetting it here means we'll run through this method again very soon.
+      return;
     }
   }
 
