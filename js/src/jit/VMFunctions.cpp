@@ -1609,58 +1609,6 @@ JSString* StringReplace(JSContext* cx, HandleString string,
   return str_replace_string_raw(cx, string, pattern, repl);
 }
 
-bool RecompileImpl(JSContext* cx, bool force) {
-  MOZ_ASSERT(cx->currentlyRunningInJit());
-  JitActivationIterator activations(cx);
-  JSJitFrameIter frame(activations->asJit());
-
-  MOZ_ASSERT(frame.type() == FrameType::Exit);
-  ++frame;
-
-  RootedScript script(cx, frame.script());
-  MOZ_ASSERT(script->hasIonScript());
-
-  if (!IsIonEnabled(cx)) {
-    return true;
-  }
-
-  MethodStatus status = Recompile(cx, script, force);
-  if (status == Method_Error) {
-    return false;
-  }
-
-  return true;
-}
-
-bool IonForcedRecompile(JSContext* cx) {
-  return RecompileImpl(cx, /* force = */ true);
-}
-
-bool IonRecompile(JSContext* cx) {
-  return RecompileImpl(cx, /* force = */ false);
-}
-
-bool IonForcedInvalidation(JSContext* cx) {
-  MOZ_ASSERT(cx->currentlyRunningInJit());
-  JitActivationIterator activations(cx);
-  JSJitFrameIter frame(activations->asJit());
-
-  MOZ_ASSERT(frame.type() == FrameType::Exit);
-  ++frame;
-
-  RootedScript script(cx, frame.script());
-  MOZ_ASSERT(script->hasIonScript());
-
-  if (script->baselineScript()->hasPendingIonCompileTask()) {
-    LinkIonScript(cx, script);
-    return true;
-  }
-
-  Invalidate(cx, script, /* resetUses = */ false,
-             /* cancelOffThread = */ false);
-  return true;
-}
-
 bool SetDenseElement(JSContext* cx, HandleNativeObject obj, int32_t index,
                      HandleValue value, bool strict) {
   // This function is called from Ion code for StoreElementHole's OOL path.
@@ -2561,6 +2509,16 @@ template bool StringBigIntCompare<ComparisonKind::LessThan>(JSContext* cx,
                                                             bool* res);
 template bool StringBigIntCompare<ComparisonKind::GreaterThanOrEqual>(
     JSContext* cx, HandleString x, HandleBigInt y, bool* res);
+
+BigInt* BigIntAsIntN(JSContext* cx, HandleBigInt x, int32_t bits) {
+  MOZ_ASSERT(bits >= 0);
+  return BigInt::asIntN(cx, x, uint64_t(bits));
+}
+
+BigInt* BigIntAsUintN(JSContext* cx, HandleBigInt x, int32_t bits) {
+  MOZ_ASSERT(bits >= 0);
+  return BigInt::asUintN(cx, x, uint64_t(bits));
+}
 
 template <typename T>
 static int32_t AtomicsCompareExchange(TypedArrayObject* typedArray,

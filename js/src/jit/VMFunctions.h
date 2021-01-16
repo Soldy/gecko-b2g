@@ -509,10 +509,6 @@ JSObject* InitRestParameter(JSContext* cx, uint32_t length, Value* rest,
                                            InterpreterFrame* interpFrame,
                                            uint32_t numStackValues);
 
-[[nodiscard]] bool IonRecompile(JSContext* cx);
-[[nodiscard]] bool IonForcedRecompile(JSContext* cx);
-[[nodiscard]] bool IonForcedInvalidation(JSContext* cx);
-
 JSString* StringReplace(JSContext* cx, HandleString string,
                         HandleString pattern, HandleString repl);
 
@@ -639,6 +635,9 @@ bool BigIntStringCompare(JSContext* cx, HandleBigInt x, HandleString y,
 template <ComparisonKind Kind>
 bool StringBigIntCompare(JSContext* cx, HandleString x, HandleBigInt y,
                          bool* res);
+
+BigInt* BigIntAsIntN(JSContext* cx, HandleBigInt x, int32_t bits);
+BigInt* BigIntAsUintN(JSContext* cx, HandleBigInt x, int32_t bits);
 
 using AtomicsCompareExchangeFn = int32_t (*)(TypedArrayObject*, int32_t,
                                              int32_t, int32_t);

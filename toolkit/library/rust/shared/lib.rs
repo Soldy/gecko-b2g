@@ -93,6 +93,9 @@ extern crate gecko_logger;
 // Gecko <-> SIDL integration
 extern crate gecko_sidl;
 
+#[cfg(target_os = "linux")]
+extern crate rust_minidump_writer_linux;
+
 extern crate log;
 use log::info;
 

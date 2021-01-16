@@ -39,7 +39,6 @@
 #include "jit/InlineScriptTree.h"
 #include "jit/Invalidation.h"
 #include "jit/IonIC.h"
-#include "jit/IonOptimizationLevels.h"
 #include "jit/IonScript.h"
 #include "jit/JitcodeMap.h"
 #include "jit/JitFrames.h"
@@ -1388,177 +1387,79 @@ void CodeGenerator::testValueTruthyKernel(
     const ValueOperand& value, const LDefinition* scratch1,
     const LDefinition* scratch2, FloatRegister fr, Label* ifTruthy,
     Label* ifFalsy, OutOfLineTestObject* ool, MDefinition* valueMIR) {
-  // Count the number of possible type tags we might have, so we'll know when
-  // we've checked them all and hence can avoid emitting a tag check for the
-  // last one.  In particular, whenever tagCount is 1 that means we've tried
-  // all but one of them already so we know exactly what's left based on the
-  // mightBe* booleans.
-  bool mightBeUndefined = valueMIR->mightBeType(MIRType::Undefined);
-  bool mightBeNull = valueMIR->mightBeType(MIRType::Null);
-  bool mightBeBoolean = valueMIR->mightBeType(MIRType::Boolean);
-  bool mightBeInt32 = valueMIR->mightBeType(MIRType::Int32);
-  bool mightBeObject = valueMIR->mightBeType(MIRType::Object);
-  bool mightBeString = valueMIR->mightBeType(MIRType::String);
-  bool mightBeSymbol = valueMIR->mightBeType(MIRType::Symbol);
-  bool mightBeDouble = valueMIR->mightBeType(MIRType::Double);
-  bool mightBeBigInt = valueMIR->mightBeType(MIRType::BigInt);
-  int tagCount = int(mightBeUndefined) + int(mightBeNull) +
-                 int(mightBeBoolean) + int(mightBeInt32) + int(mightBeObject) +
-                 int(mightBeString) + int(mightBeSymbol) + int(mightBeDouble) +
-                 int(mightBeBigInt);
-
-  // TODO(no-TI): clean up this function.
-  MOZ_ASSERT(tagCount > 0);
-
-  // If we know we're null or undefined, we're definitely falsy, no
-  // need to even check the tag.
-  if (int(mightBeNull) + int(mightBeUndefined) == tagCount) {
-    masm.jump(ifFalsy);
-    return;
-  }
-
   ScratchTagScope tag(masm, value);
   masm.splitTagForTest(value, tag);
 
-  if (mightBeUndefined) {
-    MOZ_ASSERT(tagCount > 1);
-    masm.branchTestUndefined(Assembler::Equal, tag, ifFalsy);
-    --tagCount;
-  }
+  masm.branchTestUndefined(Assembler::Equal, tag, ifFalsy);
+  masm.branchTestNull(Assembler::Equal, tag, ifFalsy);
 
-  if (mightBeNull) {
-    MOZ_ASSERT(tagCount > 1);
-    masm.branchTestNull(Assembler::Equal, tag, ifFalsy);
-    --tagCount;
+  Label notBoolean;
+  masm.branchTestBoolean(Assembler::NotEqual, tag, &notBoolean);
+  {
+    ScratchTagScopeRelease _(&tag);
+    masm.branchTestBooleanTruthy(false, value, ifFalsy);
   }
+  masm.jump(ifTruthy);
+  masm.bind(&notBoolean);
 
-  if (mightBeBoolean) {
-    MOZ_ASSERT(tagCount != 0);
-    Label notBoolean;
-    if (tagCount != 1) {
-      masm.branchTestBoolean(Assembler::NotEqual, tag, &notBoolean);
-    }
+  Label notInt32;
+  masm.branchTestInt32(Assembler::NotEqual, tag, &notInt32);
+  {
+    ScratchTagScopeRelease _(&tag);
+    masm.branchTestInt32Truthy(false, value, ifFalsy);
+  }
+  masm.jump(ifTruthy);
+  masm.bind(&notInt32);
+
+  if (ool) {
+    Label notObject;
+    masm.branchTestObject(Assembler::NotEqual, tag, &notObject);
+
     {
       ScratchTagScopeRelease _(&tag);
-      masm.branchTestBooleanTruthy(false, value, ifFalsy);
+      Register objreg = masm.extractObject(value, ToRegister(scratch1));
+      testObjectEmulatesUndefined(objreg, ifFalsy, ifTruthy,
+                                  ToRegister(scratch2), ool);
     }
-    if (tagCount != 1) {
-      masm.jump(ifTruthy);
-    }
-    // Else just fall through to truthiness.
-    masm.bind(&notBoolean);
-    --tagCount;
-  }
 
-  if (mightBeInt32) {
-    MOZ_ASSERT(tagCount != 0);
-    Label notInt32;
-    if (tagCount != 1) {
-      masm.branchTestInt32(Assembler::NotEqual, tag, &notInt32);
-    }
-    {
-      ScratchTagScopeRelease _(&tag);
-      masm.branchTestInt32Truthy(false, value, ifFalsy);
-    }
-    if (tagCount != 1) {
-      masm.jump(ifTruthy);
-    }
-    // Else just fall through to truthiness.
-    masm.bind(&notInt32);
-    --tagCount;
-  }
-
-  if (mightBeObject) {
-    MOZ_ASSERT(tagCount != 0);
-    if (ool) {
-      Label notObject;
-
-      if (tagCount != 1) {
-        masm.branchTestObject(Assembler::NotEqual, tag, &notObject);
-      }
-
-      {
-        ScratchTagScopeRelease _(&tag);
-        Register objreg = masm.extractObject(value, ToRegister(scratch1));
-        testObjectEmulatesUndefined(objreg, ifFalsy, ifTruthy,
-                                    ToRegister(scratch2), ool);
-      }
-
-      masm.bind(&notObject);
-    } else {
-      if (tagCount != 1) {
-        masm.branchTestObject(Assembler::Equal, tag, ifTruthy);
-      }
-      // Else just fall through to truthiness.
-    }
-    --tagCount;
+    masm.bind(&notObject);
   } else {
-    MOZ_ASSERT(!ool,
-               "We better not have an unused OOL path, since the code "
-               "generator will try to "
-               "generate code for it but we never set up its labels, which "
-               "will cause null "
-               "derefs of those labels.");
+    masm.branchTestObject(Assembler::Equal, tag, ifTruthy);
   }
 
-  if (mightBeString) {
-    // Test if a string is non-empty.
-    MOZ_ASSERT(tagCount != 0);
-    Label notString;
-    if (tagCount != 1) {
-      masm.branchTestString(Assembler::NotEqual, tag, &notString);
-    }
-    {
-      ScratchTagScopeRelease _(&tag);
-      masm.branchTestStringTruthy(false, value, ifFalsy);
-    }
-    if (tagCount != 1) {
-      masm.jump(ifTruthy);
-    }
-    // Else just fall through to truthiness.
-    masm.bind(&notString);
-    --tagCount;
+  Label notString;
+  masm.branchTestString(Assembler::NotEqual, tag, &notString);
+  {
+    ScratchTagScopeRelease _(&tag);
+    masm.branchTestStringTruthy(false, value, ifFalsy);
   }
+  masm.jump(ifTruthy);
+  masm.bind(&notString);
 
-  if (mightBeBigInt) {
-    MOZ_ASSERT(tagCount != 0);
-    Label notBigInt;
-    if (tagCount != 1) {
-      masm.branchTestBigInt(Assembler::NotEqual, tag, &notBigInt);
-    }
-    {
-      ScratchTagScopeRelease _(&tag);
-      masm.branchTestBigIntTruthy(false, value, ifFalsy);
-    }
-    if (tagCount != 1) {
-      masm.jump(ifTruthy);
-    }
-    masm.bind(&notBigInt);
-    --tagCount;
+  Label notBigInt;
+  masm.branchTestBigInt(Assembler::NotEqual, tag, &notBigInt);
+  {
+    ScratchTagScopeRelease _(&tag);
+    masm.branchTestBigIntTruthy(false, value, ifFalsy);
   }
+  masm.jump(ifTruthy);
+  masm.bind(&notBigInt);
 
-  if (mightBeSymbol) {
-    // All symbols are truthy.
-    MOZ_ASSERT(tagCount != 0);
-    if (tagCount != 1) {
-      masm.branchTestSymbol(Assembler::Equal, tag, ifTruthy);
-    }
-    // Else fall through to ifTruthy.
-    --tagCount;
+  // All symbols are truthy.
+  masm.branchTestSymbol(Assembler::Equal, tag, ifTruthy);
+
+  // If we reach here the value is a double.
+#ifdef DEBUG
+  Label isDouble;
+  masm.branchTestDouble(Assembler::Equal, tag, &isDouble);
+  masm.assumeUnreachable("Unexpected Value type in testValueTruthyKernel");
+  masm.bind(&isDouble);
+#endif
+  {
+    ScratchTagScopeRelease _(&tag);
+    masm.unboxDouble(value, fr);
+    masm.branchTestDoubleTruthy(false, fr, ifFalsy);
   }
-
-  if (mightBeDouble) {
-    MOZ_ASSERT(tagCount == 1);
-    // If we reach here the value is a double.
-    {
-      ScratchTagScopeRelease _(&tag);
-      masm.unboxDouble(value, fr);
-      masm.branchTestDoubleTruthy(false, fr, ifFalsy);
-    }
-    --tagCount;
-  }
-
-  MOZ_ASSERT(tagCount == 0);
 
   // Fall through for truthy.
 }
@@ -12011,21 +11912,12 @@ bool CodeGenerator::link(JSContext* cx, const WarpSnapshot* snapshot) {
   JS::AutoAssertNoGC nogc(cx);
 
   RootedScript script(cx, gen->outerInfo().script());
-  OptimizationLevel optimizationLevel = gen->optimizationInfo().level();
+  MOZ_ASSERT(!script->hasIonScript());
 
   // Perform any read barriers which were skipped while compiling the
   // script, which may have happened off-thread.
   const JitRealm* jr = gen->realm->jitRealm();
   jr->performStubReadBarriers(realmStubsToReadBarrier_);
-
-  // We finished the new IonScript. Invalidate the current active IonScript,
-  // so we can replace it with this new (probably higher optimized) version.
-  if (script->hasIonScript()) {
-    MOZ_ASSERT(script->ionScript()->isRecompiling());
-    // Do a normal invalidate, except don't cancel offThread compilations,
-    // since that will cancel this compilation too.
-    Invalidate(cx, script, /* resetUses */ false, /* cancelOffThread*/ false);
-  }
 
   if (scriptCounts_ && !script->hasScriptCounts() &&
       !script->initScriptCounts(cx)) {
@@ -12083,7 +11975,7 @@ bool CodeGenerator::link(JSContext* cx, const WarpSnapshot* snapshot) {
       snapshots_.listSize(), snapshots_.RVATableSize(), recovers_.size(),
       bailouts_.length(), graph.numConstants(), numNurseryObjects,
       safepointIndices_.length(), osiIndices_.length(), icList_.length(),
-      runtimeData_.length(), safepoints_.size(), optimizationLevel);
+      runtimeData_.length(), safepoints_.size());
   if (!ionScript) {
     return false;
   }
@@ -12788,152 +12680,71 @@ void CodeGenerator::visitTypeOfV(LTypeOfV* lir) {
   const JSAtomState& names = gen->runtime->names();
   Label done;
 
-  MDefinition* input = lir->mir()->input();
-
-  bool testObject = input->mightBeType(MIRType::Object);
-  bool testNumber =
-      input->mightBeType(MIRType::Int32) || input->mightBeType(MIRType::Double);
-  bool testBoolean = input->mightBeType(MIRType::Boolean);
-  bool testUndefined = input->mightBeType(MIRType::Undefined);
-  bool testNull = input->mightBeType(MIRType::Null);
-  bool testString = input->mightBeType(MIRType::String);
-  bool testSymbol = input->mightBeType(MIRType::Symbol);
-  bool testBigInt = input->mightBeType(MIRType::BigInt);
-
-  unsigned numTests = unsigned(testObject) + unsigned(testNumber) +
-                      unsigned(testBoolean) + unsigned(testUndefined) +
-                      unsigned(testNull) + unsigned(testString) +
-                      unsigned(testSymbol) + unsigned(testBigInt);
-
-  // TODO(no-TI): clean this up.
-  MOZ_ASSERT(numTests > 0);
-
   OutOfLineTypeOfV* ool = nullptr;
-  if (testObject) {
-    if (lir->mir()->inputMaybeCallableOrEmulatesUndefined()) {
-      // The input may be a callable object (result is "function") or may
-      // emulate undefined (result is "undefined"). Use an OOL path.
-      ool = new (alloc()) OutOfLineTypeOfV(lir);
-      addOutOfLineCode(ool, lir->mir());
-
-      if (numTests > 1) {
-        masm.branchTestObject(Assembler::Equal, tag, ool->entry());
-      } else {
-        masm.jump(ool->entry());
-      }
-    } else {
-      // Input is not callable and does not emulate undefined, so if
-      // it's an object the result is always "object".
-      Label notObject;
-      if (numTests > 1) {
-        masm.branchTestObject(Assembler::NotEqual, tag, &notObject);
-      }
-      masm.movePtr(ImmGCPtr(names.object), output);
-      if (numTests > 1) {
-        masm.jump(&done);
-      }
-      masm.bind(&notObject);
-    }
-    numTests--;
-  }
-
-  if (testNumber) {
-    Label notNumber;
-    if (numTests > 1) {
-      masm.branchTestNumber(Assembler::NotEqual, tag, &notNumber);
-    }
-    masm.movePtr(ImmGCPtr(names.number), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notNumber);
-    numTests--;
-  }
-
-  if (testUndefined) {
-    Label notUndefined;
-    if (numTests > 1) {
-      masm.branchTestUndefined(Assembler::NotEqual, tag, &notUndefined);
-    }
-    masm.movePtr(ImmGCPtr(names.undefined), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notUndefined);
-    numTests--;
-  }
-
-  if (testNull) {
-    Label notNull;
-    if (numTests > 1) {
-      masm.branchTestNull(Assembler::NotEqual, tag, &notNull);
-    }
+  if (lir->mir()->inputMaybeCallableOrEmulatesUndefined()) {
+    // The input may be a callable object (result is "function") or may
+    // emulate undefined (result is "undefined"). Use an OOL path.
+    ool = new (alloc()) OutOfLineTypeOfV(lir);
+    addOutOfLineCode(ool, lir->mir());
+    masm.branchTestObject(Assembler::Equal, tag, ool->entry());
+  } else {
+    // Input is not callable and does not emulate undefined, so if
+    // it's an object the result is always "object".
+    Label notObject;
+    masm.branchTestObject(Assembler::NotEqual, tag, &notObject);
     masm.movePtr(ImmGCPtr(names.object), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notNull);
-    numTests--;
+    masm.jump(&done);
+    masm.bind(&notObject);
   }
 
-  if (testBoolean) {
-    Label notBoolean;
-    if (numTests > 1) {
-      masm.branchTestBoolean(Assembler::NotEqual, tag, &notBoolean);
-    }
-    masm.movePtr(ImmGCPtr(names.boolean), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notBoolean);
-    numTests--;
-  }
+  Label notNumber;
+  masm.branchTestNumber(Assembler::NotEqual, tag, &notNumber);
+  masm.movePtr(ImmGCPtr(names.number), output);
+  masm.jump(&done);
+  masm.bind(&notNumber);
 
-  if (testString) {
-    Label notString;
-    if (numTests > 1) {
-      masm.branchTestString(Assembler::NotEqual, tag, &notString);
-    }
-    masm.movePtr(ImmGCPtr(names.string), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notString);
-    numTests--;
-  }
+  Label notUndefined;
+  masm.branchTestUndefined(Assembler::NotEqual, tag, &notUndefined);
+  masm.movePtr(ImmGCPtr(names.undefined), output);
+  masm.jump(&done);
+  masm.bind(&notUndefined);
 
-  if (testSymbol) {
-    Label notSymbol;
-    if (numTests > 1) {
-      masm.branchTestSymbol(Assembler::NotEqual, tag, &notSymbol);
-    }
-    masm.movePtr(ImmGCPtr(names.symbol), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notSymbol);
-    numTests--;
-  }
+  Label notNull;
+  masm.branchTestNull(Assembler::NotEqual, tag, &notNull);
+  masm.movePtr(ImmGCPtr(names.object), output);
+  masm.jump(&done);
+  masm.bind(&notNull);
 
-  if (testBigInt) {
-    Label notBigInt;
-    if (numTests > 1) {
-      masm.branchTestBigInt(Assembler::NotEqual, tag, &notBigInt);
-    }
-    masm.movePtr(ImmGCPtr(names.bigint), output);
-    if (numTests > 1) {
-      masm.jump(&done);
-    }
-    masm.bind(&notBigInt);
-    numTests--;
-  }
+  Label notBoolean;
+  masm.branchTestBoolean(Assembler::NotEqual, tag, &notBoolean);
+  masm.movePtr(ImmGCPtr(names.boolean), output);
+  masm.jump(&done);
+  masm.bind(&notBoolean);
 
-  MOZ_ASSERT(numTests == 0);
+  Label notString;
+  masm.branchTestString(Assembler::NotEqual, tag, &notString);
+  masm.movePtr(ImmGCPtr(names.string), output);
+  masm.jump(&done);
+  masm.bind(&notString);
+
+  Label notSymbol;
+  masm.branchTestSymbol(Assembler::NotEqual, tag, &notSymbol);
+  masm.movePtr(ImmGCPtr(names.symbol), output);
+  masm.jump(&done);
+  masm.bind(&notSymbol);
+
+  // At this point it must be a BigInt.
+#ifdef DEBUG
+  Label isBigInt;
+  masm.branchTestBigInt(Assembler::Equal, tag, &isBigInt);
+  masm.assumeUnreachable("Unexpected Value type in visitTypeOfV");
+  masm.bind(&isBigInt);
+#endif
+  masm.movePtr(ImmGCPtr(names.bigint), output);
+  // Fall through to |done|.
 
   masm.bind(&done);
-  if (ool) {
-    masm.bind(ool->rejoin());
-  }
+  masm.bind(ool->rejoin());
 }
 
 void CodeGenerator::emitTypeOfObject(Register obj, Register output,
@@ -15006,51 +14817,6 @@ void CodeGenerator::visitIncrementWarmUpCounter(LIncrementWarmUpCounter* ins) {
   incrementWarmUpCounter(warmUpCount, ins->mir()->script(), tmp);
 }
 
-void CodeGenerator::visitRecompileCheck(LRecompileCheck* ins) {
-  Label done;
-  Register tmp = ToRegister(ins->scratch());
-
-  OutOfLineCode* ool = nullptr;
-  if (ins->mir()->checkCounter()) {
-    using Fn = bool (*)(JSContext*);
-    if (ins->mir()->forceInvalidation()) {
-      ool =
-          oolCallVM<Fn, IonForcedInvalidation>(ins, ArgList(), StoreNothing());
-    } else if (ins->mir()->forceRecompilation()) {
-      ool = oolCallVM<Fn, IonForcedRecompile>(ins, ArgList(), StoreNothing());
-    } else {
-      ool = oolCallVM<Fn, IonRecompile>(ins, ArgList(), StoreNothing());
-    }
-  }
-
-  AbsoluteAddress warmUpCount =
-      AbsoluteAddress(ins->mir()->script()->jitScript())
-          .offset(JitScript::offsetOfWarmUpCount());
-  if (ins->mir()->increaseWarmUpCounter()) {
-    incrementWarmUpCounter(warmUpCount, ins->mir()->script(), tmp);
-
-    // Check if warm-up counter is high enough.
-    if (ins->mir()->checkCounter()) {
-      masm.branch32(Assembler::BelowOrEqual, warmUpCount,
-                    Imm32(ins->mir()->recompileThreshold()), &done);
-    }
-  } else {
-    masm.branch32(Assembler::BelowOrEqual, warmUpCount,
-                  Imm32(ins->mir()->recompileThreshold()), &done);
-  }
-
-  // Check if not yet recompiling.
-  if (ins->mir()->checkCounter()) {
-    CodeOffset label = masm.movWithPatch(ImmWord(uintptr_t(-1)), tmp);
-    masm.propagateOOM(ionScriptLabels_.append(label));
-    masm.branch32(Assembler::Equal,
-                  Address(tmp, IonScript::offsetOfRecompiling()), Imm32(0),
-                  ool->entry());
-    masm.bind(ool->rejoin());
-    masm.bind(&done);
-  }
-}
-
 void CodeGenerator::visitLexicalCheck(LLexicalCheck* ins) {
   ValueOperand inputValue = ToValue(ins, LLexicalCheck::Input);
   Label bail;
@@ -15711,8 +15477,8 @@ void CodeGenerator::visitGuardIsExtensible(LGuardIsExtensible* lir) {
   bailoutFrom(&bail, lir->snapshot());
 }
 
-void CodeGenerator::visitGuardIndexIsNonNegative(
-    LGuardIndexIsNonNegative* lir) {
+void CodeGenerator::visitGuardInt32IsNonNegative(
+    LGuardInt32IsNonNegative* lir) {
   Register index = ToRegister(lir->index());
 
   bailoutCmp32(Assembler::LessThan, index, Imm32(0), lir->snapshot());
@@ -15837,6 +15603,159 @@ void CodeGenerator::visitCallObjectHasSparseElement(
   masm.adjustStack(sizeof(Value));
 
   bailoutFrom(&bail, lir->snapshot());
+}
+
+void CodeGenerator::visitBigIntAsIntN(LBigIntAsIntN* ins) {
+  Register bits = ToRegister(ins->bits());
+  Register input = ToRegister(ins->input());
+
+  pushArg(bits);
+  pushArg(input);
+
+  using Fn = BigInt* (*)(JSContext*, HandleBigInt, int32_t);
+  callVM<Fn, jit::BigIntAsIntN>(ins);
+}
+
+void CodeGenerator::visitBigIntAsIntN64(LBigIntAsIntN64* ins) {
+  Register input = ToRegister(ins->input());
+  Register temp = ToRegister(ins->temp());
+  Register64 temp64 = ToRegister64(ins->temp64());
+  Register output = ToRegister(ins->output());
+
+  Label done, create;
+
+  masm.movePtr(input, output);
+
+  // Load the BigInt value as an int64.
+  masm.loadBigInt64(input, temp64);
+
+  // Create a new BigInt when the input exceeds the int64 range.
+  masm.branch32(Assembler::Above, Address(input, BigInt::offsetOfLength()),
+                Imm32(64 / BigInt::DigitBits), &create);
+
+  // And create a new BigInt when the value and the BigInt have different signs.
+  Label nonNegative;
+  masm.branchIfBigIntIsNonNegative(input, &nonNegative);
+  masm.branchTest64(Assembler::NotSigned, temp64, temp64, temp, &create);
+  masm.jump(&done);
+
+  masm.bind(&nonNegative);
+  masm.branchTest64(Assembler::NotSigned, temp64, temp64, temp, &done);
+
+  masm.bind(&create);
+  emitCreateBigInt(ins, Scalar::BigInt64, temp64, output, temp);
+
+  masm.bind(&done);
+}
+
+void CodeGenerator::visitBigIntAsIntN32(LBigIntAsIntN32* ins) {
+  Register input = ToRegister(ins->input());
+  Register temp = ToRegister(ins->temp());
+  Register64 temp64 = ToRegister64(ins->temp64());
+  Register output = ToRegister(ins->output());
+
+  Label done, create;
+
+  masm.movePtr(input, output);
+
+  // Load the absolute value of the first digit.
+  masm.loadFirstBigIntDigitOrZero(input, temp);
+
+  // If the absolute value exceeds the int32 range, create a new BigInt.
+  masm.branchPtr(Assembler::Above, temp, Imm32(INT32_MAX), &create);
+
+  // Also create a new BigInt if we have more than one digit.
+  masm.branch32(Assembler::BelowOrEqual,
+                Address(input, BigInt::offsetOfLength()), Imm32(1), &done);
+
+  masm.bind(&create);
+
+  // |temp| stores the absolute value, negate it when the sign flag is set.
+  Label nonNegative;
+  masm.branchIfBigIntIsNonNegative(input, &nonNegative);
+  masm.negPtr(temp);
+  masm.bind(&nonNegative);
+
+  masm.move32To64SignExtend(temp, temp64);
+  emitCreateBigInt(ins, Scalar::BigInt64, temp64, output, temp);
+
+  masm.bind(&done);
+}
+
+void CodeGenerator::visitBigIntAsUintN(LBigIntAsUintN* ins) {
+  Register bits = ToRegister(ins->bits());
+  Register input = ToRegister(ins->input());
+
+  pushArg(bits);
+  pushArg(input);
+
+  using Fn = BigInt* (*)(JSContext*, HandleBigInt, int32_t);
+  callVM<Fn, jit::BigIntAsUintN>(ins);
+}
+
+void CodeGenerator::visitBigIntAsUintN64(LBigIntAsUintN64* ins) {
+  Register input = ToRegister(ins->input());
+  Register temp = ToRegister(ins->temp());
+  Register64 temp64 = ToRegister64(ins->temp64());
+  Register output = ToRegister(ins->output());
+
+  Label done, create;
+
+  masm.movePtr(input, output);
+
+  // Load the BigInt value as an uint64.
+  masm.loadBigInt64(input, temp64);
+
+  // Create a new BigInt when the input exceeds the uint64 range.
+  masm.branch32(Assembler::Above, Address(input, BigInt::offsetOfLength()),
+                Imm32(64 / BigInt::DigitBits), &create);
+
+  // And create a new BigInt when the input has the sign flag set.
+  masm.branchIfBigIntIsNonNegative(input, &done);
+
+  masm.bind(&create);
+  emitCreateBigInt(ins, Scalar::BigUint64, temp64, output, temp);
+
+  masm.bind(&done);
+}
+
+void CodeGenerator::visitBigIntAsUintN32(LBigIntAsUintN32* ins) {
+  Register input = ToRegister(ins->input());
+  Register temp = ToRegister(ins->temp());
+  Register64 temp64 = ToRegister64(ins->temp64());
+  Register output = ToRegister(ins->output());
+
+  Label done, create;
+
+  masm.movePtr(input, output);
+
+  // Load the absolute value of the first digit.
+  masm.loadFirstBigIntDigitOrZero(input, temp);
+
+  // If the absolute value exceeds the uint32 range, create a new BigInt.
+#if JS_PUNBOX64
+  masm.branchPtr(Assembler::Above, temp, ImmWord(UINT32_MAX), &create);
+#endif
+
+  // Also create a new BigInt if we have more than one digit.
+  masm.branch32(Assembler::Above, Address(input, BigInt::offsetOfLength()),
+                Imm32(1), &create);
+
+  // And create a new BigInt when the input has the sign flag set.
+  masm.branchIfBigIntIsNonNegative(input, &done);
+
+  masm.bind(&create);
+
+  // |temp| stores the absolute value, negate it when the sign flag is set.
+  Label nonNegative;
+  masm.branchIfBigIntIsNonNegative(input, &nonNegative);
+  masm.negPtr(temp);
+  masm.bind(&nonNegative);
+
+  masm.move32To64ZeroExtend(temp, temp64);
+  emitCreateBigInt(ins, Scalar::BigUint64, temp64, output, temp);
+
+  masm.bind(&done);
 }
 
 template <size_t NumDefs>

@@ -200,7 +200,7 @@ bool LocalStorageCache::ProcessUsageDelta(uint32_t aGetDataSetIndex,
   Data& data = mData[aGetDataSetIndex];
   uint64_t newOriginUsage = data.mOriginQuotaUsage + aDelta;
   if (aSource == ContentMutation && aDelta > 0 &&
-      newOriginUsage > LocalStorageManager::GetQuota()) {
+      newOriginUsage > LocalStorageManager::GetOriginQuota()) {
     return false;
   }
 
@@ -615,7 +615,7 @@ bool StorageUsage::CheckAndSetETLD1UsageDelta(
 
   int64_t newUsage = mUsage[aDataSetIndex] + aDelta;
   if (aSource == LocalStorageCache::ContentMutation && aDelta > 0 &&
-      newUsage > LocalStorageManager::GetQuota()) {
+      newUsage > LocalStorageManager::GetSiteQuota()) {
     return false;
   }
 

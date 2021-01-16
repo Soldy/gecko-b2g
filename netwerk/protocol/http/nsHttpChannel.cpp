@@ -1701,8 +1701,12 @@ nsresult nsHttpChannel::CallOnStartRequest() {
         request.mPromise->Resolve(std::move(child), __func__);
       }
     } else {
-      docListener->AttachStreamFilter(request.mChildProcessId)
-          ->ChainTo(request.mPromise.forget(), __func__);
+      if (docListener) {
+        docListener->AttachStreamFilter(request.mChildProcessId)
+            ->ChainTo(request.mPromise.forget(), __func__);
+      } else {
+        request.mPromise->Reject(false, __func__);
+      }
     }
     request.mPromise = nullptr;
   }
@@ -2504,6 +2508,11 @@ nsresult nsHttpChannel::ContinueProcessResponse3(nsresult rv) {
             ("Suspending the transaction, asynchronously prompting for "
              "credentials"));
         mTransactionPump->Suspend();
+
+#ifdef DEBUG
+        // This is for test purposes only. See bug 1683176 for details.
+        gHttpHandler->OnTransactionSuspendedDueToAuthentication(this);
+#endif
         rv = NS_OK;
       } else if (NS_FAILED(rv)) {
         LOG(("ProcessAuthentication failed [rv=%" PRIx32 "]\n",
@@ -8458,27 +8467,6 @@ nsHttpChannel::GetCacheTokenExpirationTime(uint32_t* _retval) {
   if (!mCacheEntry) return NS_ERROR_NOT_AVAILABLE;
 
   return mCacheEntry->GetExpirationTime(_retval);
-}
-
-NS_IMETHODIMP
-nsHttpChannel::GetCacheTokenCachedCharset(nsACString& _retval) {
-  nsresult rv;
-
-  if (!mCacheEntry) return NS_ERROR_NOT_AVAILABLE;
-
-  nsCString cachedCharset;
-  rv = mCacheEntry->GetMetaDataElement("charset", getter_Copies(cachedCharset));
-  if (NS_SUCCEEDED(rv)) _retval = cachedCharset;
-
-  return rv;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::SetCacheTokenCachedCharset(const nsACString& aCharset) {
-  if (!mCacheEntry) return NS_ERROR_NOT_AVAILABLE;
-
-  return mCacheEntry->SetMetaDataElement("charset",
-                                         PromiseFlatCString(aCharset).get());
 }
 
 NS_IMETHODIMP

@@ -50,6 +50,7 @@ class ImageContainer;
 class ImageContainerChild;
 class SharedPlanarYCbCrImage;
 class SharedSurfacesAnimation;
+class SurfaceDescriptor;
 class PlanarYCbCrImage;
 class TextureClient;
 class TextureClientRecycleAllocator;
@@ -147,7 +148,12 @@ class Image {
 
   virtual NVImage* AsNVImage() { return nullptr; }
 
+  virtual Maybe<SurfaceDescriptor> GetDesc();
+
  protected:
+  Maybe<SurfaceDescriptor> GetDescFromTexClient(
+      TextureClient* tcOverride = nullptr);
+
   Image(void* aImplData, ImageFormat aFormat)
       : mImplData(aImplData), mSerial(++sSerialCounter), mFormat(aFormat) {}
 

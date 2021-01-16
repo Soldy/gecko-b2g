@@ -5288,12 +5288,6 @@ void LIRGenerator::visitIncrementWarmUpCounter(MIncrementWarmUpCounter* ins) {
   add(lir, ins);
 }
 
-void LIRGenerator::visitRecompileCheck(MRecompileCheck* ins) {
-  LRecompileCheck* lir = new (alloc()) LRecompileCheck(temp());
-  add(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
 void LIRGenerator::visitLexicalCheck(MLexicalCheck* ins) {
   MDefinition* input = ins->input();
   MOZ_ASSERT(input->type() == MIRType::Value);
@@ -5591,11 +5585,11 @@ void LIRGenerator::visitGuardIsExtensible(MGuardIsExtensible* ins) {
   redefine(ins, object);
 }
 
-void LIRGenerator::visitGuardIndexIsNonNegative(MGuardIndexIsNonNegative* ins) {
+void LIRGenerator::visitGuardInt32IsNonNegative(MGuardInt32IsNonNegative* ins) {
   MDefinition* index = ins->index();
   MOZ_ASSERT(index->type() == MIRType::Int32);
 
-  auto* guard = new (alloc()) LGuardIndexIsNonNegative(useRegister(index));
+  auto* guard = new (alloc()) LGuardInt32IsNonNegative(useRegister(index));
   assignSnapshot(guard, ins->bailoutKind());
   add(guard, ins);
   redefine(ins, index);
@@ -5696,6 +5690,62 @@ void LIRGenerator::visitCallObjectHasSparseElement(
   defineReturn(lir, ins);
 }
 
+void LIRGenerator::visitBigIntAsIntN(MBigIntAsIntN* ins) {
+  MOZ_ASSERT(ins->bits()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->input()->type() == MIRType::BigInt);
+
+  if (ins->bits()->isConstant()) {
+    int32_t bits = ins->bits()->toConstant()->toInt32();
+    if (bits == 64) {
+      auto* lir = new (alloc())
+          LBigIntAsIntN64(useRegister(ins->input()), temp(), tempInt64());
+      define(lir, ins);
+      assignSafepoint(lir, ins);
+      return;
+    }
+    if (bits == 32) {
+      auto* lir = new (alloc())
+          LBigIntAsIntN32(useRegister(ins->input()), temp(), tempInt64());
+      define(lir, ins);
+      assignSafepoint(lir, ins);
+      return;
+    }
+  }
+
+  auto* lir = new (alloc()) LBigIntAsIntN(useRegisterAtStart(ins->bits()),
+                                          useRegisterAtStart(ins->input()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitBigIntAsUintN(MBigIntAsUintN* ins) {
+  MOZ_ASSERT(ins->bits()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->input()->type() == MIRType::BigInt);
+
+  if (ins->bits()->isConstant()) {
+    int32_t bits = ins->bits()->toConstant()->toInt32();
+    if (bits == 64) {
+      auto* lir = new (alloc())
+          LBigIntAsUintN64(useRegister(ins->input()), temp(), tempInt64());
+      define(lir, ins);
+      assignSafepoint(lir, ins);
+      return;
+    }
+    if (bits == 32) {
+      auto* lir = new (alloc())
+          LBigIntAsUintN32(useRegister(ins->input()), temp(), tempInt64());
+      define(lir, ins);
+      assignSafepoint(lir, ins);
+      return;
+    }
+  }
+
+  auto* lir = new (alloc()) LBigIntAsUintN(useRegisterAtStart(ins->bits()),
+                                           useRegisterAtStart(ins->input()));
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitConstant(MConstant* ins) {
   if (!IsFloatingPointType(ins->type()) && ins->canEmitAtUses()) {
     emitAtUses(ins);
@@ -5749,8 +5799,7 @@ void LIRGenerator::visitWasmFloatConstant(MWasmFloatConstant* ins) {
     case MIRType::Float32:
       define(new (alloc()) LFloat32(ins->toFloat32()), ins);
       break;
-#if defined(ENABLE_WASM_SIMD) && \
-    (defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64))
+#ifdef ENABLE_WASM_SIMD
     case MIRType::Simd128:
       define(new (alloc()) LSimd128(ins->toSimd128()), ins);
       break;

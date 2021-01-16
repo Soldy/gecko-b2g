@@ -222,7 +222,9 @@ ContentPermissionPrompt.prototype = {
     let perms = request.types.QueryInterface(Ci.nsIArray);
     for (let idx = 0; idx < perms.length; idx++) {
       let perm = perms.queryElementAt(idx, Ci.nsIContentPermissionType);
-      debug(`prompt request.types[${idx}]: ${JSON.stringify(perm)}`);
+      debug(
+        `prompt request.types[${idx}]: ${perm.type} ${request.principal.origin}`
+      );
       let tmp = {
         permission: perm.type,
         options: [],
@@ -230,11 +232,15 @@ ContentPermissionPrompt.prototype = {
       };
 
       // Append available options, if any.
-      let options = perm.options.QueryInterface(Ci.nsIArray);
-      for (let i = 0; i < options.length; i++) {
-        let option = options.queryElementAt(i, Ci.nsISupportsString).data;
-        debug(`options[${i}]: ${option}`);
-        tmp.options.push(option);
+      try {
+        let options = perm.options.QueryInterface(Ci.nsIArray);
+        for (let i = 0; i < options.length; i++) {
+          let option = options.queryElementAt(i, Ci.nsISupportsString).data;
+          debug(`options[${i}]: ${option}`);
+          tmp.options.push(option);
+        }
+      } catch (e) {
+        debug(`ignore options error and continue. ${e}`);
       }
       typesInfo.push(tmp);
     }

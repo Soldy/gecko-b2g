@@ -47,6 +47,8 @@ namespace jit {
   _(BaselineDebugPrologue, js::jit::DebugPrologue)                             \
   _(BaselineGetFunctionThis, js::jit::BaselineGetFunctionThis)                 \
   _(BigIntAdd, JS::BigInt::add)                                                \
+  _(BigIntAsIntN, js::jit::BigIntAsIntN)                                       \
+  _(BigIntAsUintN, js::jit::BigIntAsUintN)                                     \
   _(BigIntBitAnd, JS::BigInt::bitAnd)                                          \
   _(BigIntBitNot, JS::BigInt::bitNot)                                          \
   _(BigIntBitOr, JS::BigInt::bitOr)                                            \
@@ -153,8 +155,6 @@ namespace jit {
   _(IonCompileScriptForBaselineAtEntry,                                        \
     js::jit::IonCompileScriptForBaselineAtEntry)                               \
   _(IonCompileScriptForBaselineOSR, js::jit::IonCompileScriptForBaselineOSR)   \
-  _(IonForcedInvalidation, js::jit::IonForcedInvalidation)                     \
-  _(IonForcedRecompile, js::jit::IonForcedRecompile)                           \
   _(IonGetIteratorICUpdate, js::jit::IonGetIteratorIC::update)                 \
   _(IonGetNameICUpdate, js::jit::IonGetNameIC::update)                         \
   _(IonGetPropSuperICUpdate, js::jit::IonGetPropSuperIC::update)               \
@@ -163,7 +163,6 @@ namespace jit {
   _(IonInICUpdate, js::jit::IonInIC::update)                                   \
   _(IonInstanceOfICUpdate, js::jit::IonInstanceOfIC::update)                   \
   _(IonOptimizeSpreadCallICUpdate, js::jit::IonOptimizeSpreadCallIC::update)   \
-  _(IonRecompile, js::jit::IonRecompile)                                       \
   _(IonSetPropertyICUpdate, js::jit::IonSetPropertyIC::update)                 \
   _(IonToPropertyKeyICUpdate, js::jit::IonToPropertyKeyIC::update)             \
   _(IonUnaryArithICUpdate, js::jit::IonUnaryArithIC::update)                   \
