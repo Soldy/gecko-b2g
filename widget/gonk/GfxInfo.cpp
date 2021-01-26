@@ -18,6 +18,14 @@ nsresult GfxInfo::GetD2DEnabled(bool* aEnabled) { return NS_ERROR_FAILURE; }
 nsresult GfxInfo::GetDWriteEnabled(bool* aEnabled) { return NS_ERROR_FAILURE; }
 
 NS_IMETHODIMP
+GfxInfo::GetTestType(nsAString& aTestType) { return NS_ERROR_NOT_IMPLEMENTED; }
+
+NS_IMETHODIMP
+GfxInfo::GetDrmRenderDevice(nsACString& aDrmRenderDevice) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 GfxInfo::GetDWriteVersion(nsAString& aDwriteVersion) {
   return NS_ERROR_FAILURE;
 }

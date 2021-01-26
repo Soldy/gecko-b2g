@@ -96,7 +96,7 @@ using namespace mozilla::a11y;
 }
 
 - (BOOL)moxIgnoreChild:(mozAccessible*)child {
-  return NO;
+  return nsAccUtils::MustPrune(mGeckoAccessible);
 }
 
 - (id)childAt:(uint32_t)i {
@@ -111,7 +111,7 @@ using namespace mozilla::a11y;
 static const uint64_t kCachedStates =
     states::CHECKED | states::PRESSED | states::MIXED | states::EXPANDED |
     states::CURRENT | states::SELECTED | states::TRAVERSED | states::LINKED |
-    states::HASPOPUP | states::BUSY;
+    states::HASPOPUP | states::BUSY | states::MULTI_LINE;
 static const uint64_t kCacheInitialized = ((uint64_t)0x1) << 63;
 
 - (uint64_t)state {
@@ -598,25 +598,17 @@ struct RoleDescrComparator {
     if (flag == eNameFromSubtree) {
       return nil;
     }
-
-    if (![self providesLabelNotTitle]) {
-      Relation rel = acc->RelationByType(RelationType::LABELLED_BY);
-      if (rel.Next() && !rel.Next()) {
-        return nil;
-      }
-    }
   } else if (proxy) {
     uint32_t flag = proxy->Name(name);
     if (flag == eNameFromSubtree) {
       return nil;
     }
+  }
 
-    if (![self providesLabelNotTitle]) {
-      nsTArray<ProxyAccessible*> rels =
-          proxy->RelationByType(RelationType::LABELLED_BY);
-      if (rels.Length() == 1) {
-        return nil;
-      }
+  if (![self providesLabelNotTitle]) {
+    NSArray* relations = [self getRelationsByType:RelationType::LABELLED_BY];
+    if ([relations count] == 1) {
+      return nil;
     }
   }
 
@@ -748,24 +740,9 @@ struct RoleDescrComparator {
 - (id)moxTitleUIElement {
   MOZ_ASSERT(!mGeckoAccessible.IsNull());
 
-  if (Accessible* acc = mGeckoAccessible.AsAccessible()) {
-    Relation rel = acc->RelationByType(RelationType::LABELLED_BY);
-    Accessible* tempAcc = rel.Next();
-    if (tempAcc && !rel.Next()) {
-      mozAccessible* label = GetNativeFromGeckoAccessible(tempAcc);
-      return [label isAccessibilityElement] ? label : nil;
-    }
-
-    return nil;
-  }
-
-  ProxyAccessible* proxy = mGeckoAccessible.AsProxy();
-  nsTArray<ProxyAccessible*> rel =
-      proxy->RelationByType(RelationType::LABELLED_BY);
-  ProxyAccessible* tempProxy = rel.SafeElementAt(0);
-  if (tempProxy && rel.Length() <= 1) {
-    mozAccessible* label = GetNativeFromGeckoAccessible(tempProxy);
-    return [label isAccessibilityElement] ? label : nil;
+  NSArray* relations = [self getRelationsByType:RelationType::LABELLED_BY];
+  if ([relations count] == 1) {
+    return [relations firstObject];
   }
 
   return nil;
@@ -792,6 +769,14 @@ struct RoleDescrComparator {
 
 - (NSNumber*)moxElementBusy {
   return @([self stateWithMask:states::BUSY] != 0);
+}
+
+- (NSArray*)moxLinkedUIElements {
+  return [self getRelationsByType:RelationType::FLOWS_TO];
+}
+
+- (NSArray*)moxARIAControls {
+  return [self getRelationsByType:RelationType::CONTROLLER_FOR];
 }
 
 - (mozAccessible*)topWebArea {
@@ -986,6 +971,24 @@ struct RoleDescrComparator {
   }
 }
 
+- (NSArray<mozAccessible*>*)getRelationsByType:(RelationType)relationType {
+  if (Accessible* acc = mGeckoAccessible.AsAccessible()) {
+    NSMutableArray<mozAccessible*>* relations = [[NSMutableArray alloc] init];
+    Relation rel = acc->RelationByType(relationType);
+    while (Accessible* relAcc = rel.Next()) {
+      if (mozAccessible* relNative = GetNativeFromGeckoAccessible(relAcc)) {
+        [relations addObject:relNative];
+      }
+    }
+
+    return relations;
+  }
+
+  ProxyAccessible* proxy = mGeckoAccessible.AsProxy();
+  nsTArray<ProxyAccessible*> rel = proxy->RelationByType(relationType);
+  return utils::ConvertToNSArray(rel);
+}
+
 - (void)handleAccessibleTextChangeEvent:(NSString*)change
                                inserted:(BOOL)isInserted
                             inContainer:(const AccessibleOrProxy&)container
@@ -1018,18 +1021,11 @@ struct RoleDescrComparator {
       // We consider any caret move event to be a selected text change event.
       // So dispatching an event for EVENT_TEXT_SELECTION_CHANGED would be
       // reduntant.
-      id<MOXTextMarkerSupport> delegate = [self moxTextMarkerDelegate];
-      id selectedRange = [delegate moxSelectedTextMarkerRange];
-      BOOL isCollapsed =
-          [static_cast<MOXTextMarkerDelegate*>(delegate) selectionIsCollapsed];
-      NSDictionary* userInfo = @{
-        @"AXTextChangeElement" : self,
-        @"AXSelectedTextMarkerRange" :
-            (selectedRange ? selectedRange : [NSNull null]),
-        @"AXTextStateChangeType" : isCollapsed
-            ? @(AXTextStateChangeTypeSelectionMove)
-            : @(AXTextStateChangeTypeSelectionExtend)
-      };
+      MOXTextMarkerDelegate* delegate =
+          static_cast<MOXTextMarkerDelegate*>([self moxTextMarkerDelegate]);
+      NSMutableDictionary* userInfo =
+          [[delegate selectionChangeInfo] mutableCopy];
+      userInfo[@"AXTextChangeElement"] = self;
 
       mozAccessible* webArea = [self topWebArea];
       [webArea

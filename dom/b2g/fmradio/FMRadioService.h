@@ -130,6 +130,8 @@ class IFMRadioService {
   // Enable/Disable FMRadio
   virtual void EnableAudio(bool aAudioEnabled) = 0;
 
+  virtual void SetVolume(float aVolume) = 0;
+
   /**
    * Static method to return the singleton instance. If it's in the child
    * process, we will get an object of FMRadioChild.
@@ -185,6 +187,8 @@ class FMRadioService final : public IFMRadioService,
   virtual void RemoveObserver(FMRadioEventObserver* aObserver) override;
 
   virtual void EnableAudio(bool aAudioEnabled) override;
+
+  virtual void SetVolume(float aVolume) override;
 
   /* FMRadioObserver */
   void Notify(const hal::FMRadioOperationInformation& aInfo) override;

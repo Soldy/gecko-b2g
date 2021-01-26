@@ -138,6 +138,15 @@ interface nsITelephonyListener : nsISupports
   void notifyRttMessageReceived(in unsigned long clientId,
                                 in long callIndex,
                                 in AString message);
+
+  /**
+   * Called when device received srvcc state change event.
+   * @param clientId
+   *        Indicate the RIL client, 0 ~ (number of client - 1).
+   * @param state
+   *        One of the nsIRilIndicationResult#SRVCC_STATE_HANDOVER_* values.
+   */
+  void notifySrvccState(in unsigned long clientId, in long state);
 };
 
 /**

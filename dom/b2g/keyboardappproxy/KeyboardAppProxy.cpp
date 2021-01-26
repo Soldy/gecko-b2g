@@ -219,6 +219,24 @@ KeyboardAppProxy::ReplyKey(const nsACString& aEventType,
   return NS_OK;
 }
 
+NS_IMETHODIMP
+KeyboardAppProxy::OnTextChanged(const nsACString& aText) {
+  if (!mIsActive) {
+    return NS_OK;
+  }
+
+  LOG_IME(LogLevel::Info, "IME: OnTextChanged");
+  nsCOMPtr<nsIKeyboardEventForwarder> forwarder =
+      do_QueryReferent(mKeyboardEventForwarder);
+  if (!forwarder) {
+    LOG_IME(LogLevel::Debug, "KeyboardAppProxy::OnTextChanged no forwarder");
+    return NS_OK;
+  }
+
+  forwarder->OnTextChanged(aText);
+  return NS_OK;
+}
+
 /* static */ already_AddRefed<KeyboardAppProxy>
 KeyboardAppProxy::GetInstance() {
   MOZ_ASSERT(NS_IsMainThread());

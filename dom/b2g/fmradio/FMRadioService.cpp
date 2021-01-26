@@ -289,6 +289,18 @@ void FMRadioService::EnableAudio(bool aAudioEnabled) {
   }
 }
 
+void FMRadioService::SetVolume(float aVolume) {
+  MOZ_ASSERT(NS_IsMainThread(), "Wrong thread!");
+
+  nsCOMPtr<nsIAudioManager> audioManager =
+      do_GetService("@mozilla.org/telephony/audiomanager;1");
+  if (!audioManager) {
+    return;
+  }
+
+  audioManager->SetFmRadioContentVolume(aVolume);
+}
+
 /**
  * Round the frequency to match the range of frequency and the channel width. If
  * the given frequency is out of range, return 0. For example:

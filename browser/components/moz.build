@@ -28,7 +28,6 @@ with Files("controlcenter/**"):
 
 DIRS += [
     "about",
-    "aboutconfig",
     "aboutlogins",
     "attribution",
     "contextualidentity",
@@ -53,7 +52,6 @@ DIRS += [
     "search",
     "sessionstore",
     "shell",
-    "ssb",
     "syncedtabs",
     "uitour",
     "urlbar",

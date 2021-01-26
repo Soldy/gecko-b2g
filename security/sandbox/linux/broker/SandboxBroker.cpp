@@ -1056,7 +1056,7 @@ void SandboxBroker::AuditPermissive(int aOp, int aFlags, int aPerms,
 
 void SandboxBroker::AuditDenial(int aOp, int aFlags, int aPerms,
                                 const char* aPath) {
-  if (SandboxInfo::Get().Test(SandboxInfo::kVerbose)) {
+  if (SandboxInfo::Get().Test(SandboxInfo::kError)) {
     SANDBOX_LOG_ERROR(
         "SandboxBroker: denied op=%s rflags=%o perms=%d path=%s for pid=%d",
         OperationDescription[aOp], aFlags, aPerms, aPath, mChildPid);

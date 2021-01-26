@@ -67,6 +67,12 @@ interface nsIImsRegService : nsISupports {
    *         according to the device configuration.
    */
   nsIImsRegHandler getHandlerByServiceId(in unsigned long aServiceId);
+
+  /**
+   * To know whether IMS service is ready or not.
+   * @return is IMS remote service is ready or not.
+   */
+  bool isServiceReady();
 };
 
 %{C++

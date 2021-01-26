@@ -306,4 +306,6 @@ void OrientationObserver::UnlockScreenOrientation() {
   }
 
   mAllowedOrientations = sDefaultOrientations;
+
+  LockScreenOrientation(eScreenOrientation_Default);
 }

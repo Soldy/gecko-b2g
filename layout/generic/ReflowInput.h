@@ -30,7 +30,20 @@ class nsReflowStatus;
 
 namespace mozilla {
 enum class LayoutFrameType : uint8_t;
-}
+
+/**
+ * A set of StyleSizes used as an input parameter to various functions that
+ * compute sizes like nsIFrame::ComputeSize(). If any of the member fields has a
+ * value, the function may use the value instead of retrieving it from the
+ * frame's style.
+ *
+ * The logical sizes are assumed to be in the associated frame's writing-mode.
+ */
+struct StyleSizeOverrides {
+  Maybe<StyleSize> mStyleISize;
+  Maybe<StyleSize> mStyleBSize;
+};
+}  // namespace mozilla
 
 /**
  * @return aValue clamped to [aMinValue, aMaxValue].
@@ -176,14 +189,15 @@ struct SizeComputationInput {
    * sizes.
    */
   template <typename SizeOrMaxSize>
-  inline nscoord ComputeISizeValue(nscoord aContainingBlockISize,
-                                   nscoord aContentEdgeToBoxSizing,
+  inline nscoord ComputeISizeValue(const WritingMode aWM,
+                                   const LogicalSize& aContainingBlockSize,
+                                   const LogicalSize& aContentEdgeToBoxSizing,
                                    nscoord aBoxSizingToMarginEdge,
                                    const SizeOrMaxSize&) const;
   // same as previous, but using mComputedBorderPadding, mComputedPadding,
   // and mComputedMargin
   template <typename SizeOrMaxSize>
-  inline nscoord ComputeISizeValue(nscoord aContainingBlockISize,
+  inline nscoord ComputeISizeValue(const LogicalSize& aContainingBlockSize,
                                    mozilla::StyleBoxSizing aBoxSizing,
                                    const SizeOrMaxSize&) const;
 
@@ -349,10 +363,6 @@ struct ReflowInput : public SizeComputationInput {
                       : ht + ComputedPhysicalBorderPadding().TopBottom());
   }
 
-  bool ComputedBSizeIsSetByAspectRatio() const {
-    return mFlags.mBSizeIsSetByAspectRatio;
-  }
-
   // Our saved containing block dimensions.
   LogicalSize mContainingBlockSize{mWritingMode};
 
@@ -507,14 +517,17 @@ struct ReflowInput : public SizeComputationInput {
     // context.
     bool mMovedBlockFragments : 1;
 
-    // If the block-size is replacd by aspect-ratio and inline size (i.e.
-    // block axis is the ratio-dependent axis). We set this flag, so we could
-    // apply Automatic content-based minimum sizes after we know the content
-    // size of child fraems.
+    // Is the block-size computed by aspect-ratio and inline size (i.e. block
+    // axis is the ratio-dependent axis)? We set this flag so that we can check
+    // whether to apply automatic content-based minimum sizes once we know the
+    // children's block-size (after reflowing them).
     // https://drafts.csswg.org/css-sizing-4/#aspect-ratio-minimum
-    bool mBSizeIsSetByAspectRatio : 1;
+    bool mIsBSizeSetByAspectRatio : 1;
   };
   Flags mFlags;
+
+  mozilla::StyleSizeOverrides mStyleSizeOverrides;
+
   mozilla::ComputeSizeFlags mComputeSizeFlags;
 
   // This value keeps track of how deeply nested a given reflow input
@@ -615,6 +628,8 @@ struct ReflowInput : public SizeComputationInput {
    *        Init() instead.
    * @param aFlags A set of flags used for additional boolean parameters (see
    *        InitFlags above).
+   * @param aStyleSizeOverrides The style data used to override mFrame's when we
+   *        call nsIFrame::ComputeSize() internally.
    * @param aComputeSizeFlags A set of flags used when we call
    *        nsIFrame::ComputeSize() internally.
    */
@@ -624,6 +639,7 @@ struct ReflowInput : public SizeComputationInput {
               const mozilla::Maybe<mozilla::LogicalSize>& aContainingBlockSize =
                   mozilla::Nothing(),
               InitFlags aFlags = {},
+              const mozilla::StyleSizeOverrides& aSizeOverrides = {},
               mozilla::ComputeSizeFlags aComputeSizeFlags = {});
 
   /**
@@ -645,13 +661,6 @@ struct ReflowInput : public SizeComputationInput {
                 mozilla::Nothing(),
             const mozilla::Maybe<mozilla::LogicalMargin>& aPadding =
                 mozilla::Nothing());
-
-  /**
-   * Find the content isize of our containing block for the given writing mode,
-   * which need not be the same as the reflow input's mode.
-   */
-  nscoord GetContainingBlockContentISize(
-      mozilla::WritingMode aWritingMode) const;
 
   /**
    * Calculate the used line-height property. The return value will be >= 0.

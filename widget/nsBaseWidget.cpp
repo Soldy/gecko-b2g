@@ -899,8 +899,7 @@ void nsBaseWidget::ConfigureAPZCTreeManager() {
   // When APZ is enabled, we can actually enable raw touch events because we
   // have code that can deal with them properly. If APZ is not enabled, this
   // function doesn't get called.
-  if (StaticPrefs::dom_w3c_touch_events_enabled() ||
-      StaticPrefs::dom_w3c_pointer_events_enabled()) {
+  if (StaticPrefs::dom_w3c_touch_events_enabled()) {
     RegisterTouchWindow();
   }
 }
@@ -1101,7 +1100,24 @@ void nsBaseWidget::DispatchPanGestureInput(PanGestureInput& aInput) {
     ProcessUntransformedAPZEvent(&event, result);
   } else {
     WidgetWheelEvent event = aInput.ToWidgetEvent(this);
+    nsEventStatus status;
+    DispatchEvent(&event, status);
+  }
+}
 
+void nsBaseWidget::DispatchPinchGestureInput(PinchGestureInput& aInput) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mAPZC) {
+    MOZ_ASSERT(APZThreadUtils::IsControllerThread());
+    APZEventResult result = mAPZC->InputBridge()->ReceiveInputEvent(aInput);
+
+    if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+      return;
+    }
+    WidgetWheelEvent event = aInput.ToWidgetEvent(this);
+    ProcessUntransformedAPZEvent(&event, result);
+  } else {
+    WidgetWheelEvent event = aInput.ToWidgetEvent(this);
     nsEventStatus status;
     DispatchEvent(&event, status);
   }

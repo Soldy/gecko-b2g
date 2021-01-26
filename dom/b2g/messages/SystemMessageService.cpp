@@ -68,12 +68,15 @@ void BuildPermissionsTable() {
                                      "bluetooth-privileged"_ns);
   sSystemMessagePermissionsTable.Put(u"bluetooth-opp-update-progress"_ns,
                                      "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.Put(u"bluetooth-pairing-aborted"_ns,
+                                     "bluetooth-privileged"_ns);
   sSystemMessagePermissionsTable.Put(u"bluetooth-pairing-request"_ns,
                                      "bluetooth-privileged"_ns);
   sSystemMessagePermissionsTable.Put(u"bluetooth-pbap-request"_ns,
                                      "bluetooth-privileged"_ns);
   sSystemMessagePermissionsTable.Put(u"cellbroadcast-received"_ns,
                                      "cellbroadcast"_ns);
+  sSystemMessagePermissionsTable.Put(u"data-sms-received"_ns, "sms"_ns);
   sSystemMessagePermissionsTable.Put(u"icc-stkcommand"_ns,
                                      "settings:read,settings:write"_ns);
   sSystemMessagePermissionsTable.Put(u"media-button"_ns, EmptyCString());
@@ -91,6 +94,7 @@ void BuildPermissionsTable() {
                                      "telephony"_ns);
   sSystemMessagePermissionsTable.Put(u"ussd-received"_ns,
                                      "mobileconnection"_ns);
+  sSystemMessagePermissionsTable.Put(u"wappush-received"_ns, "wappush"_ns);
   /**
    * Note: Please do NOT directly add new entries at the bottom of this table,
    * try to insert them alphabetically.

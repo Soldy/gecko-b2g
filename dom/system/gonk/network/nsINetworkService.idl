@@ -632,9 +632,10 @@ interface nsINetworkService : nsISupports
    * @param callback
    *        Callback to notify the result of clat control.
    */
-   void startClatd(in AString interfaceName,
-                   in AString nat64Prefix,
-                   in nsIStartClatdCallback callback);
+  void startClatd(in AString interfaceName,
+                  in AString nat64Prefix,
+                  in nsIStartClatdCallback callback);
+
   /**
    * Stop clatd control.
    *
@@ -644,8 +645,24 @@ interface nsINetworkService : nsISupports
    * @param callback
    *        Callback to notify the result of clat control.
    */
-   void stopClatd(in AString interfaceName,
-                  in nsINativeCommandCallback callback);
+  void stopClatd(in AString interfaceName,
+                 in nsINativeCommandCallback callback);
+
+  /**
+   * Set NAT64 prefix discovery on the given interface.
+   *
+   * @param interfaceName
+   *        The name of the network interface that we want to set NAT64 discover.
+   *
+   * @param enable
+   *        Boolean to indicate we want enable or disable NAT64 discover.
+   *
+   * @param callback
+   *        Callback to notify the result of setting NAT64 discover.
+   */
+  void setupPrefix64Discovery(in AString interfaceName,
+                              in boolean enable,
+                              in nsINativeCommandCallback callback);
 
   /**
    * Set tcp buffer size base on choose network type.

@@ -57,11 +57,11 @@ const NETWORKTIMESERVICE_CID = Components.ID(
 );
 
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
-const kNetworkConnStateChangedTopic = "network-connection-state-changed";
+const kNetworkActiveChangedTopic = "network-active-changed";
 
 const OBSERVER_TOPICS_ARRAY = [
   NS_XPCOM_SHUTDOWN_OBSERVER_ID,
-  kNetworkConnStateChangedTopic,
+  kNetworkActiveChangedTopic,
 ];
 
 const kSettingsClockAutoUpdateEnabled = "time.clock.automatic-update.enabled";
@@ -71,12 +71,14 @@ const kSettingsTimezoneAutoUpdateEnabled =
   "time.timezone.automatic-update.enabled";
 const kSettingsTimezoneAutoUpdateAvailable =
   "time.timezone.automatic-update.available";
+const kSettingsDataDefaultServiceId = "ril.data.defaultServiceId";
 
 const SETTING_KEYS_ARRAY = [
   kSettingsClockAutoUpdateEnabled,
   kSettingsClockAutoUpdateAvailable,
   kSettingsTimezoneAutoUpdateEnabled,
   kSettingsTimezoneAutoUpdateAvailable,
+  kSettingsDataDefaultServiceId,
 ];
 
 const NETWORK_TYPE_WIFI = Ci.nsINetworkInfo.NETWORK_TYPE_WIFI;
@@ -107,6 +109,7 @@ function NetworkTimeService() {
   // TODO, default auto clock and timezone to true before setting get ready.
   this._clockAutoUpdateEnabled = /*false*/ true;
   this._timezoneAutoUpdateEnabled = /*false*/ true;
+  this._dataDefaultServiceId = -1;
 
   this._sntp = new Sntp(
     this.onSntpDataAvailable.bind(this),
@@ -123,7 +126,11 @@ function NetworkTimeService() {
     // Read the "time.timezone.automatic-update.enabled" setting to see if
     // we need to adjust the system timezone by NITZ.
     gSettingsManager.getBatch(
-      [kSettingsClockAutoUpdateEnabled, kSettingsTimezoneAutoUpdateEnabled],
+      [
+        kSettingsClockAutoUpdateEnabled,
+        kSettingsTimezoneAutoUpdateEnabled,
+        kSettingsDataDefaultServiceId,
+      ],
       {
         resolve: settings => {
           settings.forEach(info => {
@@ -173,6 +180,8 @@ NetworkTimeService.prototype = {
   _sntp: null,
 
   _suggestedTimeRequests: null,
+
+  _dataDefaultServiceId: null,
 
   debug(aMessage) {
     console.log("NetworkTimeService: " + aMessage);
@@ -283,6 +292,10 @@ NetworkTimeService.prototype = {
         }
         break;
 
+      case kSettingsDataDefaultServiceId:
+        this._dataDefaultServiceId = aResult;
+        break;
+
       default:
         break;
     }
@@ -295,7 +308,7 @@ NetworkTimeService.prototype = {
         this._deinitObservers();
         break;
 
-      case kNetworkConnStateChangedTopic:
+      case kNetworkActiveChangedTopic:
         let networkInfo = aSubject.QueryInterface(Ci.nsINetworkInfo);
         if (networkInfo.state != Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED) {
           return;
@@ -315,7 +328,7 @@ NetworkTimeService.prototype = {
           aSubject instanceof Ci.nsIRilNetworkInfo
         ) {
           networkInfo = aSubject.QueryInterface(Ci.nsIRilNetworkInfo);
-          if (networkInfo.serviceId != this.clientId) {
+          if (networkInfo.serviceId != this._dataDefaultServiceId) {
             return;
           }
         }

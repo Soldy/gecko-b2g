@@ -1492,7 +1492,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
   if (wrapper) {
     // Mark our realm as dead, so the JS engine won't hand out our
     // global after this point.
-    JS::RealmBehaviorsRef(js::GetNonCCWObjectRealm(wrapper)).setNonLive();
+    JS::SetRealmNonLive(js::GetNonCCWObjectRealm(wrapper));
   }
 
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigator)
@@ -3731,7 +3731,9 @@ void nsGlobalWindowInner::Prompt(const nsAString& aMessage,
 }
 
 void nsGlobalWindowInner::Focus(CallerType aCallerType, ErrorResult& aError) {
-  FORWARD_TO_OUTER_OR_THROW(FocusOuter, (aCallerType), aError, );
+  FORWARD_TO_OUTER_OR_THROW(
+      FocusOuter, (aCallerType, nsFocusManager::GenerateFocusActionId()),
+      aError, );
 }
 
 nsresult nsGlobalWindowInner::Focus(CallerType aCallerType) {

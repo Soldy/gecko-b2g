@@ -31,6 +31,9 @@ void NetdEventListener::sendBroadcast(NetdEvent evt, char* reason) {
     case DnsEvent:
       result.mTopic = NS_ConvertUTF8toUTF16("on-dns-event");
       break;
+    case Nat64PrefixEvent:
+      result.mTopic = NS_ConvertUTF8toUTF16("on-nat64prefix-event");
+      break;
     default:
       return;
   }
@@ -51,6 +54,16 @@ Status NetdEventListener::onDnsEvent(
                  returnCode, latencyMs, hostname.c_str(), uid, ipAddressesCount,
                  android::base::Join(ipAddresses, " ").c_str());
   sendBroadcast(DnsEvent, message);
+  return Status::ok();
+}
+
+Status NetdEventListener::onNat64PrefixEvent(int32_t netId, bool added,
+                                             const ::std::string& prefixString,
+                                             int32_t prefixLength) {
+  char message[BUF_SIZE];
+  SprintfLiteral(message, "%d %s %s %d", netId, added ? "add" : "remove",
+                 prefixString.c_str(), prefixLength);
+  sendBroadcast(Nat64PrefixEvent, message);
   return Status::ok();
 }
 
@@ -82,11 +95,5 @@ Status NetdEventListener::onTcpSocketStatsEvent(
     const ::std::vector<int32_t>& lostPackets,
     const ::std::vector<int32_t>& rttUs,
     const ::std::vector<int32_t>& sentAckDiffMs) {
-  return Status::ok();
-}
-
-Status NetdEventListener::onNat64PrefixEvent(int32_t netId, bool added,
-                                             const ::std::string& prefixString,
-                                             int32_t prefixLength) {
   return Status::ok();
 }

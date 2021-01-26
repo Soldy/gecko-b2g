@@ -78,6 +78,10 @@ void MacroAssembler::move32To64SignExtend(Register src, Register64 dest) {
   ma_asr(Imm32(31), dest.low, dest.high);
 }
 
+void MacroAssembler::move32SignExtendToPtr(Register src, Register dest) {
+  move32(src, dest);
+}
+
 void MacroAssembler::move32ZeroExtendToPtr(Register src, Register dest) {
   move32(src, dest);
 }
@@ -1497,12 +1501,14 @@ void MacroAssembler::branchNeg32(Condition cond, Register reg, Label* label) {
   j(cond, label);
 }
 
-void MacroAssembler::branchAddPtr(Condition cond, Register src, Register dest,
+template <typename T>
+void MacroAssembler::branchAddPtr(Condition cond, T src, Register dest,
                                   Label* label) {
   branchAdd32(cond, src, dest, label);
 }
 
-void MacroAssembler::branchSubPtr(Condition cond, Register src, Register dest,
+template <typename T>
+void MacroAssembler::branchSubPtr(Condition cond, T src, Register dest,
                                   Label* label) {
   branchSub32(cond, src, dest, label);
 }
@@ -2009,6 +2015,17 @@ void MacroAssembler::cmp32Move32(Condition cond, Register lhs,
   cmp32Move32(cond, lhs, scratch, src, dest);
 }
 
+void MacroAssembler::cmpPtrMovePtr(Condition cond, Register lhs, Register rhs,
+                                   Register src, Register dest) {
+  cmp32Move32(cond, lhs, rhs, src, dest);
+}
+
+void MacroAssembler::cmpPtrMovePtr(Condition cond, Register lhs,
+                                   const Address& rhs, Register src,
+                                   Register dest) {
+  cmp32Move32(cond, lhs, rhs, src, dest);
+}
+
 void MacroAssembler::cmp32Load32(Condition cond, Register lhs,
                                  const Address& rhs, const Address& src,
                                  Register dest) {
@@ -2080,6 +2097,19 @@ void MacroAssembler::spectreBoundsCheck32(Register index, const Address& length,
   if (JitOptions.spectreIndexMasking) {
     ma_mov(Imm32(0), index, Assembler::BelowOrEqual);
   }
+}
+
+void MacroAssembler::spectreBoundsCheckPtr(Register index, Register length,
+                                           Register maybeScratch,
+                                           Label* failure) {
+  spectreBoundsCheck32(index, length, maybeScratch, failure);
+}
+
+void MacroAssembler::spectreBoundsCheckPtr(Register index,
+                                           const Address& length,
+                                           Register maybeScratch,
+                                           Label* failure) {
+  spectreBoundsCheck32(index, length, maybeScratch, failure);
 }
 
 // ========================================================================

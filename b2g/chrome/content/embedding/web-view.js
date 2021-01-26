@@ -23,6 +23,18 @@
     "nsIKeyboardAppProxy"
   );
 
+  XPCOMUtils.defineLazyGetter(Services, "DataControlService", function() {
+    try {
+      return Cc["@kaiostech.com/datacontrolservice;1"].getService(
+        Ci.nsIDataControlService
+      );
+    } catch (e) {
+      return {
+        updateVisible(pid, val) {},
+      };
+    }
+  });
+
   // Enable logs when according to the pref value, and listen to changes.
   let webViewLogEnabled = Services.prefs.getBoolPref(
     "webview.log.enabled",
@@ -84,7 +96,7 @@
 
     onLocationChange(webProgress, request, location, flags) {
       // Only act on top-level changes.
-      if (!webProgress.isTopLevel) {
+      if (!webProgress.isTopLevel && !this.webview.isCreatedByProxy) {
         return;
       }
 
@@ -110,7 +122,7 @@
     // eslint-disable-next-line complexity
     onStateChange(webProgress, request, stateFlags, status) {
       // Only act on top-level changes.
-      if (!webProgress.isTopLevel) {
+      if (!webProgress.isTopLevel && !this.webview.isCreatedByProxy) {
         return;
       }
 
@@ -326,6 +338,19 @@
   class WebView extends HTMLElement {
     constructor() {
       super();
+      this._constructorInternal();
+    }
+
+    // We also export functions for content world.
+    // If isCreatedByProxy is set, it mean that 'this' comes from
+    // what is the LocalClass in b2g/compoments/actos/web-view.js.
+    _constructorInternal(isCreatedByProxy = false) {
+      this.isCreatedByProxy = isCreatedByProxy;
+      if (this.isCreatedByProxy) {
+        // Apply the pollyfill here for 'this' as a proxy object.
+        WebView.__doPollyfill(this);
+      }
+
       this.log("constructor");
 
       this.browser = null;
@@ -350,13 +375,17 @@
     }
 
     static get observedAttributes() {
-      return [
+      const attrs = [
         "src",
         "remote",
         "ignoreuserfocus",
         "transparent",
         "mozpasspointerevents",
       ];
+
+      // If we are in chrome, it does no effect.
+      // If we are in content, it will copy data between scopes.
+      return Cu.cloneInto(attrs, this);
     }
 
     attributeChangedCallback(name, old_value, new_value) {
@@ -394,6 +423,22 @@
       this.log(`creating xul:browser`);
       // Creates a xul:browser with default attributes.
       this.browser = document.createXULElement("browser");
+
+      // For chrome, the Browser API is defined and extended the <browser> by
+      // customElements.define("browser", MozBrowser) inbrowser-custom-element.js.
+      // For content, it does not allow us to extend an existed tag, so we add the API back by ourself.
+      if (this.isCreatedByProxy) {
+        WebView.__doPollyfillForBrowser(this.browser);
+      }
+
+      // Wait both for connectedCallback and openWindowInfo are available then
+      // setup the browser.
+      if (this._openWindowInfo !== undefined) {
+        this.setupBrowser();
+      }
+    }
+
+    setupBrowser() {
       // Identify this `<browser>` element uniquely to Marionette, devtools, etc.
       this.browser.permanentKey = new (Cu.getGlobalForObject(
         Services
@@ -422,11 +467,14 @@
       this.browser.delayConnectedCallback = () => {
         return false;
       };
+      this.log(`setupBrowser remote=${this.browser.getAttribute("remote")}`);
+      this.browser.openWindowInfo = this._openWindowInfo;
 
       this.browser.addEventListener("processready", evt => {
         evt.stopPropagation();
         this._pid = parseInt(evt.target.getAttribute("processid")) || -1;
         this.dispatchCustomEvent("processready", { processid: this._pid });
+        this.updateDCSState(true);
       });
 
       this.appendChild(this.browser);
@@ -463,6 +511,7 @@
                     reason: "content-kill",
                   });
                 }
+                self.updateDCSState(false);
               }, 250);
               break;
             }
@@ -492,11 +541,26 @@
       src && this.browser.setAttribute("src", src);
     }
 
+    set openWindowInfo(val) {
+      this.log(`set openWindowInfo`);
+      this._openWindowInfo = val;
+      // Wait both for connectedCallback and openWindowInfo are available then
+      // setup the browser. Check permanentKey to avoid initializing twice.
+      if (this.browser && this.browser.permanentKey === undefined) {
+        this.setupBrowser();
+      }
+    }
+
+    get openWindowInfo() {
+      return this._openWindowInfo;
+    }
+
     disconnectedCallback() {
       kRelayedEvents.forEach(name => {
         this.browser.removeEventListener(name, this);
       });
 
+      this.updateDCSState(false);
       this.browser.removeProgressListener(this.progressListener);
       this.progressListener = null;
 
@@ -638,6 +702,7 @@
         let current = this.browser.docShellIsActive;
         this.browser.docShellIsActive = val;
         if (current !== val) {
+          this.updateDCSState(val);
           this.log(`change docShellIsActive from ${current} to ${val}`);
           this.dispatchCustomEvent("visibilitychange", { visible: val });
           // "visibilitychange" event is dispatched on webview itself.
@@ -740,6 +805,10 @@
 
     scrollToBottom(smooth = true) {
       this.browser?.webViewScrollTo("bottom", smooth);
+    }
+
+    updateDCSState(val) {
+      Services.DataControlService.updateVisible(this._pid, val);
     }
 
     activateKeyForwarding() {

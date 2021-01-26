@@ -75,6 +75,10 @@ struct ReplaceSurroundingTextRequest {
   int32_t length;
 };
 
+struct HandleTextChangedRequest {
+  nsString text;
+};
+
 struct OptionDetail {
   bool group;
   bool inGroup;
@@ -196,6 +200,7 @@ union InputMethodRequest {
   GetTextRequest;
   SetValueRequest;
   ReplaceSurroundingTextRequest;
+  HandleTextChangedRequest;
 };
 
 union InputMethodResponse

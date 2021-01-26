@@ -120,8 +120,6 @@
 
 #include "nsPIDOMWindow.h"
 #include "nsFocusManager.h"
-#include "nsIObjectFrame.h"
-#include "nsIObjectLoadingContent.h"
 #include "nsNetUtil.h"
 #include "nsThreadUtils.h"
 #include "nsStyleSheetService.h"
@@ -574,7 +572,6 @@ class MOZ_STACK_CLASS AutoPointerEventTargetUpdater final {
     MOZ_ASSERT(!aFrame->GetContent() ||
                aShell->GetDocument() == aFrame->GetContent()->OwnerDoc());
 
-    MOZ_ASSERT(StaticPrefs::dom_w3c_pointer_events_enabled());
     mShell = aShell;
     mWeakFrame = aFrame;
     mTargetContent = aTargetContent;
@@ -1294,6 +1291,7 @@ void PresShell::Destroy() {
         }
       }
     }
+    mPresContext->ClearOneShotPostRefreshObservers();
   }
 
 #ifdef MOZ_REFLOW_PERF
@@ -1450,6 +1448,7 @@ void PresShell::Destroy() {
   // Revoke any pending events.  We need to do this and cancel pending reflows
   // before we destroy the frame manager, since apparently frame destruction
   // sometimes spins the event queue when plug-ins are involved(!).
+  // XXXmats is this still needed now that plugins are gone?
   StopObservingRefreshDriver();
 
   if (rd->GetPresContext() == GetPresContext()) {
@@ -3450,12 +3449,13 @@ static void ScrollToShowRect(nsIScrollableFrame* aFrameAsScrollable,
   }
   ScrollStyles ss = aFrameAsScrollable->GetScrollStyles();
   nsRect allowedRange(scrollPt, nsSize(0, 0));
-  uint32_t directions = aFrameAsScrollable->GetAvailableScrollingDirections();
+  ScrollDirections directions =
+      aFrameAsScrollable->GetAvailableScrollingDirections();
 
   if (((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
        ss.mVertical != StyleOverflow::Hidden) &&
       (!aVertical.mOnlyIfPerceivedScrollableDirection ||
-       (directions & nsIScrollableFrame::VERTICAL))) {
+       (directions.contains(ScrollDirection::eVertical)))) {
     if (ComputeNeedToScroll(aVertical.mWhenToScroll, lineSize.height, aRect.y,
                             aRect.YMost(), visibleRect.y + scrollPadding.top,
                             visibleRect.YMost() - scrollPadding.bottom)) {
@@ -3471,7 +3471,7 @@ static void ScrollToShowRect(nsIScrollableFrame* aFrameAsScrollable,
   if (((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
        ss.mHorizontal != StyleOverflow::Hidden) &&
       (!aHorizontal.mOnlyIfPerceivedScrollableDirection ||
-       (directions & nsIScrollableFrame::HORIZONTAL))) {
+       (directions.contains(ScrollDirection::eHorizontal)))) {
     if (ComputeNeedToScroll(aHorizontal.mWhenToScroll, lineSize.width, aRect.x,
                             aRect.XMost(), visibleRect.x + scrollPadding.left,
                             visibleRect.XMost() - scrollPadding.right)) {
@@ -7293,10 +7293,6 @@ bool PresShell::EventHandler::DispatchPrecedingPointerEvent(
   MOZ_ASSERT(aEventTargetData);
   MOZ_ASSERT(aEventStatus);
 
-  if (!StaticPrefs::dom_w3c_pointer_events_enabled()) {
-    return true;
-  }
-
   // Dispatch pointer events from the mouse or touch events. Regarding
   // pointer events from mouse, we should dispatch those pointer events to
   // the same target as the source mouse events. We pass the frame found
@@ -8319,16 +8315,6 @@ nsresult PresShell::EventHandler::DispatchEvent(
 
   nsContentUtils::SetIsHandlingKeyBoardEvent(wasHandlingKeyBoardEvent);
 
-  if (aEvent->mMessage == ePointerUp || aEvent->mMessage == ePointerCancel) {
-    // Implicitly releasing capture for given pointer.
-    // ePointerLostCapture should be send after ePointerUp or
-    // ePointerCancel.
-    WidgetPointerEvent* pointerEvent = aEvent->AsPointerEvent();
-    MOZ_ASSERT(pointerEvent);
-    PointerEventHandler::ReleasePointerCaptureById(pointerEvent->pointerId);
-    PointerEventHandler::CheckPointerCaptureState(pointerEvent);
-  }
-
   if (mPresShell->IsDestroying()) {
     return NS_OK;
   }
@@ -9299,19 +9285,6 @@ void PresShell::WillPaint() {
       ChangesToFlush(FlushType::InterruptibleLayout, false));
 }
 
-void PresShell::WillPaintWindow() {
-  nsRootPresContext* rootPresContext = mPresContext->GetRootPresContext();
-  if (rootPresContext != mPresContext) {
-    // This could be a popup's presshell. We don't allow plugins in popups
-    // so there's nothing to do here.
-    return;
-  }
-
-#ifndef XP_MACOSX
-  rootPresContext->ApplyPluginGeometryUpdates();
-#endif
-}
-
 void PresShell::DidPaintWindow() {
   nsRootPresContext* rootPresContext = mPresContext->GetRootPresContext();
   if (rootPresContext != mPresContext) {
@@ -9387,12 +9360,6 @@ bool PresShell::IsDisplayportSuppressed() {
   return sDisplayPortSuppressionRespected && mActiveSuppressDisplayport > 0;
 }
 
-static void FreezeElement(nsISupports* aSupports) {
-  if (nsCOMPtr<nsIObjectLoadingContent> olc = do_QueryInterface(aSupports)) {
-    olc->StopPluginInstance();
-  }
-}
-
 static CallState FreezeSubDocument(Document& aDocument) {
   if (PresShell* presShell = aDocument.GetPresShell()) {
     presShell->Freeze();
@@ -9404,8 +9371,6 @@ void PresShell::Freeze() {
   mUpdateApproximateFrameVisibilityEvent.Revoke();
 
   MaybeReleaseCapturingContent();
-
-  mDocument->EnumerateActivityObservers(FreezeElement);
 
   if (mCaret) {
     SetCaretEnabled(false);
@@ -9462,12 +9427,6 @@ void PresShell::Thaw() {
       presContext->RefreshDriver()->GetPresContext() == presContext) {
     presContext->RefreshDriver()->Thaw();
   }
-
-  mDocument->EnumerateActivityObservers([](nsISupports* aSupports) {
-    if (nsCOMPtr<nsIObjectLoadingContent> olc = do_QueryInterface(aSupports)) {
-      olc->AsyncStartPluginInstance();
-    }
-  });
 
   if (mDocument) {
     mDocument->EnumerateSubDocuments([](Document& aSubDoc) {
@@ -10963,17 +10922,6 @@ void PresShell::QueryIsActive() {
   }
 }
 
-static void SetPluginIsActive(nsISupports* aSupports, bool aIsActive) {
-  nsCOMPtr<nsIContent> content(do_QueryInterface(aSupports));
-  if (!content) {
-    return;
-  }
-
-  if (nsIObjectFrame* objectFrame = do_QueryFrame(content->GetPrimaryFrame())) {
-    objectFrame->SetIsDocumentActive(aIsActive);
-  }
-}
-
 nsresult PresShell::SetIsActive(bool aIsActive) {
   MOZ_ASSERT(mDocument, "should only be called with a document");
 
@@ -10998,12 +10946,6 @@ nsresult PresShell::SetIsActive(bool aIsActive) {
       return CallState::Continue;
     };
     mDocument->EnumerateExternalResources(recurse);
-  }
-  {
-    auto visitPlugin = [aIsActive](nsISupports* aSupports) {
-      SetPluginIsActive(aSupports, aIsActive);
-    };
-    mDocument->EnumerateActivityObservers(visitPlugin);
   }
   nsresult rv = UpdateImageLockingState();
 #ifdef ACCESSIBILITY

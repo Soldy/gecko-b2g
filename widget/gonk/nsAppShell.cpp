@@ -1280,7 +1280,7 @@ void nsAppShell::NotifyNativeEvent() { write(signalfds[1], "w", 1); }
   gAppShell->mReader->requestRefreshConfiguration(
       InputReaderConfiguration::CHANGE_DISPLAY_INFO);
 
-  hal::ScreenConfiguration config;
-  hal::GetCurrentScreenConfiguration(&config);
+  RefPtr<nsScreenGonk> screen = ScreenHelperGonk::GetPrimaryScreen();
+  hal::ScreenConfiguration config = screen->GetConfiguration();
   hal::NotifyScreenConfigurationChange(config);
 }

@@ -1325,6 +1325,22 @@ bool NetworkUtils::getIpv6Prefix(const char* aIpv6Addr, char* aIpv6Prefix) {
   return true;
 }
 
+void NetworkUtils::setupPrefix64Discovery(CommandChain* aChain,
+                                          CommandCallback aCallback,
+                                          NetworkResultOptions& aResult) {
+  bool enable = GET_FIELD(mEnable);
+  int netId = GET_FIELD(mNetId);
+  Status status;
+  if (enable) {
+    status = gDnsResolver->startPrefix64Discovery(netId);
+  } else {
+    status = gDnsResolver->stopPrefix64Discovery(netId);
+  }
+  NU_DBG("setupPrefix64Discovery %s on %d %s", enable ? "enable" : "disable",
+         netId, status.isOk() ? "success" : "failed");
+  next(aChain, !status.isOk(), aResult);
+}
+
 #undef GET_CHAR
 #undef GET_FIELD
 
@@ -1530,6 +1546,7 @@ void NetworkUtils::ExecuteCommand(NetworkParams aOptions) {
       BUILD_ENTRY(removeUpStream),
       BUILD_ENTRY(setUSBTethering),
       BUILD_ENTRY(setWifiTethering),
+      BUILD_ENTRY(setupPrefix64Discovery),
 #undef BUILD_ENTRY
   };
 
@@ -2502,6 +2519,21 @@ CommandResult NetworkUtils::removeUpStream(NetworkParams& aOptions) {
       defaultAsyncSuccessHandler,
   };
 
+  runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
+  return CommandResult(CommandResult::Pending());
+}
+
+/**
+ * Setup NAT64 prefix discovery on the given network.
+ */
+CommandResult NetworkUtils::setupPrefix64Discovery(NetworkParams& aOptions) {
+  static CommandFunc COMMAND_CHAIN[] = {setupPrefix64Discovery,
+                                        defaultAsyncSuccessHandler};
+  NetIdManager::NetIdInfo netIdInfo;
+  if (!mNetIdManager.lookup(aOptions.mIfname, &netIdInfo)) {
+    return CommandResult(-1);
+  }
+  aOptions.mNetId = netIdInfo.mNetId;
   runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
   return CommandResult(CommandResult::Pending());
 }

@@ -156,6 +156,7 @@ var PrintUtils = {
         userContextId: browsingContext.originAttributes.userContextId,
         initialBrowsingContextGroupId: browsingContext.group.id,
         skipLoad: true,
+        initiallyActive: true,
       });
       browser.addEventListener("DOMWindowClose", function(e) {
         // Ignore close events from printing, see the code creating browsers in
@@ -235,8 +236,7 @@ var PrintUtils = {
         "PrintingSelection"
       );
       hasSelection = await sourceActor.sendQuery(
-        "PrintingSelection:HasSelection",
-        {}
+        "PrintingSelection:HasSelection"
       );
     }
 

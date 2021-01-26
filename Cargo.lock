@@ -211,14 +211,10 @@ dependencies = [
 [[package]]
 name = "autocfg"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b671c8fb71b457dd4ae18c4ba1e59aa81793daacc361d82fcd410cef0d491875"
 
 [[package]]
 name = "autocfg"
 version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "baldrdash"
@@ -571,7 +567,7 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 [[package]]
 name = "chardetng"
 version = "0.1.9"
-source = "git+https://github.com/hsivonen/chardetng?rev=7d5e0608d3e012bdfea3bd199111e3546607dd31#7d5e0608d3e012bdfea3bd199111e3546607dd31"
+source = "git+https://github.com/hsivonen/chardetng?rev=fd4ed671ef495af4dcda4c4cba3ef8d426db8af1#fd4ed671ef495af4dcda4c4cba3ef8d426db8af1"
 dependencies = [
  "encoding_rs",
  "memchr",
@@ -579,9 +575,8 @@ dependencies = [
 
 [[package]]
 name = "chardetng_c"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0458f9fd705d9040356a137c5872a0f9ce1d27222d69de6aeeecf00e5e520076"
+version = "0.1.2"
+source = "git+https://github.com/hsivonen/chardetng_c?rev=ed8a4c6f900a90d4dbc1d64b856e61490a1c3570#ed8a4c6f900a90d4dbc1d64b856e61490a1c3570"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1246,13 +1241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dump_syms_rust_demangle"
-version = "0.1.0"
-dependencies = [
- "rustc-demangle",
-]
-
-[[package]]
 name = "dwrote"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1592,7 +1580,6 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "chrono",
- "crossbeam-channel",
  "glean",
  "glean-core",
  "inherent",
@@ -1602,7 +1589,6 @@ dependencies = [
  "serde",
  "tempfile",
  "thin-vec",
- "thiserror",
  "uuid",
  "xpcom",
 ]
@@ -2128,9 +2114,9 @@ dependencies = [
 
 [[package]]
 name = "glean"
-version = "33.10.1"
+version = "33.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "924d55e1e291dd3e8eda58a9d6bb377f8a3c1af66f3822dc5ea2794121d22c59"
+checksum = "71de6b7b89292c8b80a4706600aa6d3ceeaac43fb7c91f7bd10c63bc4079252a"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -2147,9 +2133,9 @@ dependencies = [
 
 [[package]]
 name = "glean-core"
-version = "33.10.1"
+version = "33.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1436548135bfde7750e46548a1b717a8be3c00ae22c1ca77f1ca0c8a5e35b58"
+checksum = "c1d724cc540f6ee8b8f4a7e2cdf357dd409fe585e453e2e6750c10bd92d5b64f"
 dependencies = [
  "bincode",
  "chrono",
@@ -3423,8 +3409,8 @@ dependencies = [
 
 [[package]]
 name = "neqo-common"
-version = "0.4.19"
-source = "git+https://github.com/mozilla/neqo?tag=v0.4.19#7bed96666f977cfaef4288ebb792273e0ca0f41c"
+version = "0.4.21"
+source = "git+https://github.com/mozilla/neqo?tag=v0.4.21#0e6040cd6385c038f8b7f604bcb09ad74d29e0d6"
 dependencies = [
  "chrono",
  "env_logger 0.8.2",
@@ -3435,8 +3421,8 @@ dependencies = [
 
 [[package]]
 name = "neqo-crypto"
-version = "0.4.19"
-source = "git+https://github.com/mozilla/neqo?tag=v0.4.19#7bed96666f977cfaef4288ebb792273e0ca0f41c"
+version = "0.4.21"
+source = "git+https://github.com/mozilla/neqo?tag=v0.4.21#0e6040cd6385c038f8b7f604bcb09ad74d29e0d6"
 dependencies = [
  "bindgen",
  "log",
@@ -3448,8 +3434,8 @@ dependencies = [
 
 [[package]]
 name = "neqo-http3"
-version = "0.4.19"
-source = "git+https://github.com/mozilla/neqo?tag=v0.4.19#7bed96666f977cfaef4288ebb792273e0ca0f41c"
+version = "0.4.21"
+source = "git+https://github.com/mozilla/neqo?tag=v0.4.21#0e6040cd6385c038f8b7f604bcb09ad74d29e0d6"
 dependencies = [
  "log",
  "neqo-common",
@@ -3462,8 +3448,8 @@ dependencies = [
 
 [[package]]
 name = "neqo-qpack"
-version = "0.4.19"
-source = "git+https://github.com/mozilla/neqo?tag=v0.4.19#7bed96666f977cfaef4288ebb792273e0ca0f41c"
+version = "0.4.21"
+source = "git+https://github.com/mozilla/neqo?tag=v0.4.21#0e6040cd6385c038f8b7f604bcb09ad74d29e0d6"
 dependencies = [
  "lazy_static",
  "log",
@@ -3476,8 +3462,8 @@ dependencies = [
 
 [[package]]
 name = "neqo-transport"
-version = "0.4.19"
-source = "git+https://github.com/mozilla/neqo?tag=v0.4.19#7bed96666f977cfaef4288ebb792273e0ca0f41c"
+version = "0.4.21"
+source = "git+https://github.com/mozilla/neqo?tag=v0.4.21#0e6040cd6385c038f8b7f604bcb09ad74d29e0d6"
 dependencies = [
  "indexmap",
  "lazy_static",
@@ -5780,18 +5766,18 @@ source = "git+https://github.com/mozilla-spidermonkey/wasm-tools?rev=1b7763faa48
 
 [[package]]
 name = "wast"
-version = "30.0.0"
+version = "32.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b79907b22f740634810e882d8d1d9d0f9563095a8ab94e786e370242bff5cd2"
+checksum = "c24a3ee360d01d60ed0a0f960ab76a6acce64348cdb0bf8699c2a866fad57c7c"
 dependencies = [
  "leb128",
 ]
 
 [[package]]
 name = "wat"
-version = "1.0.31"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8279a02835bf12e61ed2b3c3cbc6ecf9918762fd97e036917c11a09ec20ca44"
+checksum = "5e8f7f34773fa6318e8897283abf7941c1f250faae4e1a52f82df09c3bad7cce"
 dependencies = [
  "wast",
 ]
@@ -5962,9 +5948,9 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sdp"
-version = "0.3.6"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22ca3fe7f015c28dcfbea0b0e05fbcb1a26ed902f80509dd0a4bf40556e73f58"
+checksum = "98db6ff463a94d727ee7c1188bab33146468add6dfb94df30a1f4a3495a700d9"
 dependencies = [
  "log",
  "url",

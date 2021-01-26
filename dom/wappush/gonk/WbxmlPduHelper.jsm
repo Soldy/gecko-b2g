@@ -4,30 +4,28 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
-
 var WSP = {};
-Cu.import("resource://gre/modules/WspPduHelper.jsm", WSP);
+ChromeUtils.import("resource://gre/modules/WspPduHelper.jsm", WSP);
 
 /**
  * Token flags
  *
  * @see WAP-192-WBXML-20010725-A, clause 5.8.2
  */
-const TAG_TOKEN_ATTR_MASK     = 0x80;
-const TAG_TOKEN_CONTENT_MASK  = 0x40;
-const TAG_TOKEN_VALUE_MASK    = 0x3F;
+const TAG_TOKEN_ATTR_MASK = 0x80;
+const TAG_TOKEN_CONTENT_MASK = 0x40;
+const TAG_TOKEN_VALUE_MASK = 0x3f;
 
 /**
  * Global tokens
  *
  * @see WAP-192-WBXML-20010725-A, clause 7.1
  */
-const CODE_PAGE_SWITCH_TOKEN  = 0x00;
-const TAG_END_TOKEN           = 0x01;
-const INLINE_STRING_TOKEN     = 0x03;
-const STRING_TABLE_TOKEN      = 0x83;
-const OPAQUE_TOKEN            = 0xC3;
+const CODE_PAGE_SWITCH_TOKEN = 0x00;
+const TAG_END_TOKEN = 0x01;
+const INLINE_STRING_TOKEN = 0x03;
+const STRING_TABLE_TOKEN = 0x83;
+const OPAQUE_TOKEN = 0xc3;
 
 // Set to true to enable debug message on all WBXML decoders.
 this.DEBUG_ALL = false;
@@ -53,6 +51,9 @@ this.WbxmlCodePageSwitch = {
       decodeInfo.currentTokenList.tag = decodeInfo.tokenList.tag[codePage];
 
       if (!decodeInfo.currentTokenList.tag) {
+        if (DEBUG) {
+          debug("Invalid tag code page: " + codePage + ".");
+        }
         throw new Error("Invalid tag code page: " + codePage + ".");
       }
 
@@ -63,14 +64,22 @@ this.WbxmlCodePageSwitch = {
       decodeInfo.currentTokenList.attr = decodeInfo.tokenList.attr[codePage];
       decodeInfo.currentTokenList.value = decodeInfo.tokenList.value[codePage];
 
-      if (!decodeInfo.currentTokenList.attr ||
-          !decodeInfo.currentTokenList.value) {
+      if (
+        !decodeInfo.currentTokenList.attr ||
+        !decodeInfo.currentTokenList.value
+      ) {
+        if (DEBUG) {
+          debug("Invalid tag code page: " + codePage + ".");
+        }
         throw new Error("Invalid attr code page: " + codePage + ".");
       }
 
       return "";
     }
 
+    if (DEBUG) {
+      debug("Invalid tag code page: " + codePage + ".");
+    }
     throw new Error("Invalid decoder state: " + decodeInfo.currentState + ".");
   },
 };
@@ -110,24 +119,39 @@ this.escapeReservedCharacters = function escape_reserved_characters(str) {
 
   for (var i = 0; i < str.length; i++) {
     switch (str[i]) {
-      case '&' : dst += "&amp;" ; break;
-      case '<' : dst += "&lt;"  ; break;
-      case '>' : dst += "&gt;"  ; break;
-      case '"' : dst += "&quot;"; break;
-      case '\'': dst += "&apos;"; break;
-      default  : dst += str[i];
+      case "&":
+        dst += "&amp;";
+        break;
+      case "<":
+        dst += "&lt;";
+        break;
+      case ">":
+        dst += "&gt;";
+        break;
+      case '"':
+        dst += "&quot;";
+        break;
+      case "'":
+        dst += "&apos;";
+        break;
+      default:
+        dst += str[i];
     }
   }
 
   return dst;
-}
+};
 
 /**
  * Handle string table in WBXML message.
  *
  * @see WAP-192-WBXML-20010725-A, clause 5.7
  */
-this.readStringTable = function decode_wbxml_read_string_table(start, stringTable, charset) {
+this.readStringTable = function decode_wbxml_read_string_table(
+  start,
+  stringTable,
+  charset
+) {
   let end = start;
 
   // Find end of string
@@ -140,17 +164,23 @@ this.readStringTable = function decode_wbxml_read_string_table(start, stringTabl
   }
 
   // Read string table
-  return WSP.PduHelper.decodeStringContent(stringTable.slice(start, end),
-                                           charset);
+  return WSP.PduHelper.decodeStringContent(
+    stringTable.slice(start, end),
+    charset
+  );
 };
 
 this.WbxmlStringTable = {
   decode: function decode_wbxml_string_table(data, decodeInfo) {
     let start = WSP.Octet.decode(data);
-    let str = readStringTable(start, decodeInfo.stringTable, decodeInfo.charset);
+    let str = readStringTable(
+      start,
+      decodeInfo.stringTable,
+      decodeInfo.charset
+    );
 
     return escapeReservedCharacters(str);
-  }
+  },
 };
 
 /**
@@ -194,12 +224,14 @@ this.WbxmlOpaque = {
   decode: function decode_wbxml_inline_opaque(data) {
     // Inline OPAQUE must be decoded based on application definition,
     // so it's illegal to run into OPAQUE type in general decoder.
+    if (DEBUG) {
+      debug("OPQAUE decoder is not defined.");
+    }
     throw new Error("OPQAUE decoder is not defined.");
   },
 };
 
 this.PduHelper = {
-
   /**
    * Parse WBXML encoded message into plain text.
    *
@@ -213,22 +245,21 @@ this.PduHelper = {
    * @return Decoded WBXML message string.
    */
   parseWbxml: function parseWbxml_wbxml(data, decodeInfo, appToken) {
-
     // Parse token definition to my structure.
     decodeInfo.tokenList = {
       tag: appToken.tagTokenList,
       attr: appToken.attrTokenList,
-      value: appToken.valueTokenList
+      value: appToken.valueTokenList,
     };
-    decodeInfo.tagStack = [];   // tag decode stack
+    decodeInfo.tagStack = []; // tag decode stack
     decodeInfo.currentTokenList = {
       tag: decodeInfo.tokenList.tag[0],
       attr: decodeInfo.tokenList.attr[0],
-      value: decodeInfo.tokenList.value[0]
+      value: decodeInfo.tokenList.value[0],
     };
-    decodeInfo.currentState = "tag";  // Current decoding state, "tag" or "attr"
-                                      // Used to read corresponding code page
-                                      // initial state : "tag"
+    decodeInfo.currentState = "tag"; // Current decoding state, "tag" or "attr"
+    // Used to read corresponding code page
+    // initial state : "tag"
 
     // Merge global tag tokens into single list, so we don't have
     // to search two lists every time.
@@ -249,13 +280,14 @@ this.PduHelper = {
       decodeInfo.currentState = "tag";
 
       let tagToken = WSP.Octet.decode(data);
+
       let tagTokenValue = tagToken & TAG_TOKEN_VALUE_MASK;
 
       // Try global tag first, tagToken of string table is 0x83, and will be 0x03
       // in tagTokenValue, which is collision with inline string.
       // So tagToken need to be searched before tagTokenValue.
-      let tagInfo = globalTagTokenList[tagToken] ||
-                    globalTagTokenList[tagTokenValue];
+      let tagInfo =
+        globalTagTokenList[tagToken] || globalTagTokenList[tagTokenValue];
       if (tagInfo) {
         content += tagInfo.coder.decode(data, decodeInfo);
         continue;
@@ -264,7 +296,10 @@ this.PduHelper = {
       // Check if application tag token is valid
       tagInfo = decodeInfo.currentTokenList.tag[tagTokenValue];
       if (!tagInfo) {
-        throw new Error("Unsupported WBXML token: " + tagTokenValue + ".");
+        if (DEBUG) {
+          debug("Unsupported WBXML tag token: " + tagTokenValue + ".");
+        }
+        throw new Error("Unsupported WBXML tag token: " + tagTokenValue + ".");
       }
 
       content += "<" + tagInfo.name;
@@ -292,8 +327,9 @@ this.PduHelper = {
           // Check if attribute token is valid
           attrInfo = decodeInfo.currentTokenList.attr[attrToken];
           if (attrInfo) {
-            content += attrSeperator + " " + attrInfo.name + "=\"" + attrInfo.value;
-            attrSeperator = "\"";
+            content +=
+              attrSeperator + " " + attrInfo.name + '="' + attrInfo.value;
+            attrSeperator = '"';
             continue;
           }
 
@@ -302,7 +338,9 @@ this.PduHelper = {
             content += attrInfo.value;
             continue;
           }
-
+          if (DEBUG) {
+            debug("Unsupported WBXML token: " + tagTokenValue + ".");
+          }
           throw new Error("Unsupported WBXML token: " + attrToken + ".");
         }
 
@@ -317,7 +355,9 @@ this.PduHelper = {
 
       content += "/>";
     }
-
+    if (DEBUG) {
+      debug("parseWbxml content: " + JSON.stringify(content));
+    }
     return content;
   },
 
@@ -373,12 +413,17 @@ this.PduHelper = {
     headerRaw.charset = WSP.UintVar.decode(data);
 
     let stringTableLen = WSP.UintVar.decode(data);
-    msg.stringTable =
-        WSP.Octet.decodeMultiple(data, data.offset + stringTableLen);
+    msg.stringTable = WSP.Octet.decodeMultiple(
+      data,
+      data.offset + stringTableLen
+    );
 
     // Transform raw header into user-friendly form
     let entry = WSP.WSP_WELL_KNOWN_CHARSETS[headerRaw.charset];
     if (!entry) {
+      if (DEBUG) {
+        debug("Charset is not supported.");
+      }
       throw new Error("Charset is not supported.");
     }
     msg.charset = entry.name;
@@ -386,23 +431,30 @@ this.PduHelper = {
     if (headerRaw.publicId !== 0) {
       msg.publicId = WBXML_PUBLIC_ID[headerRaw.publicId];
     } else {
-      msg.publicId = readStringTable(headerRaw.publicIdStr, msg.stringTable,
-                                     WSP.WSP_WELL_KNOWN_CHARSETS[msg.charset].converter);
+      msg.publicId = readStringTable(
+        headerRaw.publicIdStr,
+        msg.stringTable,
+        WSP.WSP_WELL_KNOWN_CHARSETS[msg.charset].name
+      );
     }
     if (msg.publicId != appToken.publicId) {
+      if (DEBUG) {
+        debug("Public ID does not match.");
+      }
       throw new Error("Public ID does not match.");
     }
 
-    msg.version = ((headerRaw.version >> 4) + 1) + "." + (headerRaw.version & 0x0F);
+    msg.version =
+      (headerRaw.version >> 4) + 1 + "." + (headerRaw.version & 0x0f);
 
     let decodeInfo = {
-      charset: WSP.WSP_WELL_KNOWN_CHARSETS[msg.charset].converter,  // document character set
-      stringTable: msg.stringTable                                  // document string table
+      charset: WSP.WSP_WELL_KNOWN_CHARSETS[msg.charset].name, // document character set
+      stringTable: msg.stringTable, // document string table
     };
     msg.content = this.parseWbxml(data, decodeInfo, appToken);
 
     return msg;
-  }
+  },
 };
 
 /**
@@ -410,21 +462,21 @@ this.PduHelper = {
  *
  * @see WAP-192-WBXML-20010725-A, clause 7.1
  */
-const WBXML_GLOBAL_TOKENS = (function () {
+const WBXML_GLOBAL_TOKENS = (function() {
   let names = {};
   function add(number, coder) {
     let entry = {
-      number: number,
-      coder: coder,
+      number,
+      coder,
     };
     names[number] = entry;
   }
 
   add(CODE_PAGE_SWITCH_TOKEN, WbxmlCodePageSwitch);
-  add(TAG_END_TOKEN,          WbxmlEnd);
-  add(INLINE_STRING_TOKEN,    WbxmlInlineString);
-  add(STRING_TABLE_TOKEN,     WbxmlStringTable);
-  add(OPAQUE_TOKEN,           WbxmlOpaque);
+  add(TAG_END_TOKEN, WbxmlEnd);
+  add(INLINE_STRING_TOKEN, WbxmlInlineString);
+  add(STRING_TABLE_TOKEN, WbxmlStringTable);
+  add(OPAQUE_TOKEN, WbxmlOpaque);
 
   return names;
 })();
@@ -434,69 +486,75 @@ const WBXML_GLOBAL_TOKENS = (function () {
  *
  * @see http://technical.openmobilealliance.org/tech/omna/omna-wbxml-public-docid.aspx
  */
-const WBXML_PUBLIC_ID = (function () {
+const WBXML_PUBLIC_ID = (function() {
   let ids = {};
   function add(id, text) {
     ids[id] = text;
   }
 
   // Well Known Values
-  add(0x01,     "UNKNOWN");
-  add(0x02,     "-//WAPFORUM//DTD WML 1.0//EN");
-  add(0x03,     "-//WAPFORUM//DTD WTA 1.0//EN");
-  add(0x04,     "-//WAPFORUM//DTD WML 1.1//EN");
-  add(0x05,     "-//WAPFORUM//DTD SI 1.0//EN");
-  add(0x06,     "-//WAPFORUM//DTD SL 1.0//EN");
-  add(0x07,     "-//WAPFORUM//DTD CO 1.0//EN");
-  add(0x08,     "-//WAPFORUM//DTD CHANNEL 1.1//EN");
-  add(0x09,     "-//WAPFORUM//DTD WML 1.2//EN");
-  add(0x0A,     "-//WAPFORUM//DTD WML 1.3//EN");
-  add(0x0B,     "-//WAPFORUM//DTD PROV 1.0//EN");
-  add(0x0C,     "-//WAPFORUM//DTD WTA-WML 1.2//EN");
-  add(0x0D,     "-//WAPFORUM//DTD EMN 1.0//EN");
-  add(0x0E,     "-//OMA//DTD DRMREL 1.0//EN");
-  add(0x0F,     "-//WIRELESSVILLAGE//DTD CSP 1.0//EN");
-  add(0x10,     "-//WIRELESSVILLAGE//DTD CSP 1.1//EN");
-  add(0x11,     "-//OMA//DTD WV-CSP 1.2//EN");
-  add(0x12,     "-//OMA//DTD IMPS-CSP 1.3//EN");
-  add(0x13,     "-//OMA//DRM 2.1//EN");
-  add(0x14,     "-//OMA//SRM 1.0//EN");
-  add(0x15,     "-//OMA//DCD 1.0//EN");
-  add(0x16,     "-//OMA//DTD DS-DataObjectEmail 1.2//EN");
-  add(0x17,     "-//OMA//DTD DS-DataObjectFolder 1.2//EN");
-  add(0x18,     "-//OMA//DTD DS-DataObjectFile 1.2//EN");
+  add(0x01, "UNKNOWN");
+  add(0x02, "-//WAPFORUM//DTD WML 1.0//EN");
+  add(0x03, "-//WAPFORUM//DTD WTA 1.0//EN");
+  add(0x04, "-//WAPFORUM//DTD WML 1.1//EN");
+  add(0x05, "-//WAPFORUM//DTD SI 1.0//EN");
+  add(0x06, "-//WAPFORUM//DTD SL 1.0//EN");
+  add(0x07, "-//WAPFORUM//DTD CO 1.0//EN");
+  add(0x08, "-//WAPFORUM//DTD CHANNEL 1.1//EN");
+  add(0x09, "-//WAPFORUM//DTD WML 1.2//EN");
+  add(0x0a, "-//WAPFORUM//DTD WML 1.3//EN");
+  add(0x0b, "-//WAPFORUM//DTD PROV 1.0//EN");
+  add(0x0c, "-//WAPFORUM//DTD WTA-WML 1.2//EN");
+  add(0x0d, "-//WAPFORUM//DTD EMN 1.0//EN");
+  add(0x0e, "-//OMA//DTD DRMREL 1.0//EN");
+  add(0x0f, "-//WIRELESSVILLAGE//DTD CSP 1.0//EN");
+  add(0x10, "-//WIRELESSVILLAGE//DTD CSP 1.1//EN");
+  add(0x11, "-//OMA//DTD WV-CSP 1.2//EN");
+  add(0x12, "-//OMA//DTD IMPS-CSP 1.3//EN");
+  add(0x13, "-//OMA//DRM 2.1//EN");
+  add(0x14, "-//OMA//SRM 1.0//EN");
+  add(0x15, "-//OMA//DCD 1.0//EN");
+  add(0x16, "-//OMA//DTD DS-DataObjectEmail 1.2//EN");
+  add(0x17, "-//OMA//DTD DS-DataObjectFolder 1.2//EN");
+  add(0x18, "-//OMA//DTD DS-DataObjectFile 1.2//EN");
 
   // Registered Values
-  add(0x0FD1,   "-//SYNCML//DTD SyncML 1.0//EN");
-  add(0x0FD2,   "-//SYNCML//DTD DevInf 1.0//EN");
-  add(0x0FD3,   "-//SYNCML//DTD SyncML 1.1//EN");
-  add(0x0FD4,   "-//SYNCML//DTD DevInf 1.1//EN");
-  add(0x1100,   "-//PHONE.COM//DTD ALERT 1.0//EN");
-  add(0x1101,   "-//PHONE.COM//DTD CACHE-OPERATION 1.0//EN");
-  add(0x1102,   "-//PHONE.COM//DTD SIGNAL 1.0//EN");
-  add(0x1103,   "-//PHONE.COM//DTD LIST 1.0//EN");
-  add(0x1104,   "-//PHONE.COM//DTD LISTCMD 1.0//EN");
-  add(0x1105,   "-//PHONE.COM//DTD CHANNEL 1.0//EN");
-  add(0x1106,   "-//PHONE.COM//DTD MMC 1.0//EN");
-  add(0x1107,   "-//PHONE.COM//DTD BEARER-CHOICE 1.0//EN");
-  add(0x1108,   "-//PHONE.COM//DTD WML 1.1//EN");
-  add(0x1109,   "-//PHONE.COM//DTD CHANNEL 1.1//EN");
-  add(0x110A,   "-//PHONE.COM//DTD LIST 1.1//EN");
-  add(0x110B,   "-//PHONE.COM//DTD LISTCMD 1.1//EN");
-  add(0x110C,   "-//PHONE.COM//DTD MMC 1.1//EN");
-  add(0x110D,   "-//PHONE.COM//DTD WML 1.3//EN");
-  add(0x110E,   "-//PHONE.COM//DTD MMC 2.0//EN");
-  add(0x1200,   "-//3GPP2.COM//DTD IOTA 1.0//EN");
-  add(0x1201,   "-//SYNCML//DTD SyncML 1.2//EN");
-  add(0x1202,   "-//SYNCML//DTD MetaInf 1.2//EN");
-  add(0x1203,   "-//SYNCML//DTD DevInf 1.2//EN");
-  add(0x1204,   "-//NOKIA//DTD LANDMARKS 1.0//EN");
-  add(0x1205,   "-//SyncML//Schema SyncML 2.0//EN");
-  add(0x1206,   "-//SyncML//Schema DevInf 2.0//EN");
-  add(0x1207,   "-//OMA//DTD DRMREL 1.0//EN");
+  add(0x0fd1, "-//SYNCML//DTD SyncML 1.0//EN");
+  add(0x0fd2, "-//SYNCML//DTD DevInf 1.0//EN");
+  add(0x0fd3, "-//SYNCML//DTD SyncML 1.1//EN");
+  add(0x0fd4, "-//SYNCML//DTD DevInf 1.1//EN");
+  add(0x1100, "-//PHONE.COM//DTD ALERT 1.0//EN");
+  add(0x1101, "-//PHONE.COM//DTD CACHE-OPERATION 1.0//EN");
+  add(0x1102, "-//PHONE.COM//DTD SIGNAL 1.0//EN");
+  add(0x1103, "-//PHONE.COM//DTD LIST 1.0//EN");
+  add(0x1104, "-//PHONE.COM//DTD LISTCMD 1.0//EN");
+  add(0x1105, "-//PHONE.COM//DTD CHANNEL 1.0//EN");
+  add(0x1106, "-//PHONE.COM//DTD MMC 1.0//EN");
+  add(0x1107, "-//PHONE.COM//DTD BEARER-CHOICE 1.0//EN");
+  add(0x1108, "-//PHONE.COM//DTD WML 1.1//EN");
+  add(0x1109, "-//PHONE.COM//DTD CHANNEL 1.1//EN");
+  add(0x110a, "-//PHONE.COM//DTD LIST 1.1//EN");
+  add(0x110b, "-//PHONE.COM//DTD LISTCMD 1.1//EN");
+  add(0x110c, "-//PHONE.COM//DTD MMC 1.1//EN");
+  add(0x110d, "-//PHONE.COM//DTD WML 1.3//EN");
+  add(0x110e, "-//PHONE.COM//DTD MMC 2.0//EN");
+  add(0x1200, "-//3GPP2.COM//DTD IOTA 1.0//EN");
+  add(0x1201, "-//SYNCML//DTD SyncML 1.2//EN");
+  add(0x1202, "-//SYNCML//DTD MetaInf 1.2//EN");
+  add(0x1203, "-//SYNCML//DTD DevInf 1.2//EN");
+  add(0x1204, "-//NOKIA//DTD LANDMARKS 1.0//EN");
+  add(0x1205, "-//SyncML//Schema SyncML 2.0//EN");
+  add(0x1206, "-//SyncML//Schema DevInf 2.0//EN");
+  add(0x1207, "-//OMA//DTD DRMREL 1.0//EN");
 
   return ids;
 })();
+
+function debug(s) {
+  if (DEBUG) {
+    dump("-*- WapxmlPduHelper: " + s + "\n");
+  }
+}
 
 this.EXPORTED_SYMBOLS = [
   // Parser

@@ -158,6 +158,9 @@ class MockGfxInfo final : public nsIGfxInfo {
   NS_IMETHOD GetDesktopEnvironment(nsAString& aDesktopEnvironment) override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
+  NS_IMETHOD GetTestType(nsAString& aTestType) override {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
   NS_IMETHOD GetAdapterDescription(nsAString& aAdapterDescription) override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
@@ -221,6 +224,9 @@ class MockGfxInfo final : public nsIGfxInfo {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   NS_IMETHOD GetDisplayHeight(nsTArray<uint32_t>& aDisplayHeight) override {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+  NS_IMETHOD GetDrmRenderDevice(nsACString& aDrmRenderDevice) override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   NS_IMETHOD ControlGPUProcessForXPCShell(bool aEnable,

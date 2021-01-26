@@ -555,6 +555,8 @@ linux-tsan-tests:
     - mochitest-browser-chrome
     - mochitest-media
     - mochitest-plain
+    - web-platform-tests
+    - web-platform-tests-reftest
     - xpcshell
 
 gonk-b2g-x86_64-tests:

@@ -30,7 +30,11 @@ void ChildSHistory::SetBrowsingContext(BrowsingContext* aBrowsingContext) {
 
 void ChildSHistory::SetIsInProcess(bool aIsInProcess) {
   if (!aIsInProcess) {
-    mHistory = nullptr;
+    MOZ_ASSERT_IF(mozilla::SessionHistoryInParent(), !mHistory);
+    if (!mozilla::SessionHistoryInParent()) {
+      RemovePendingHistoryNavigations();
+      mHistory = nullptr;
+    }
 
     return;
   }
@@ -166,16 +170,6 @@ void ChildSHistory::Go(int32_t aOffset, bool aRequireUserInteraction,
     }
   }
 
-  if (mozilla::SessionHistoryInParent() && !mPendingEpoch) {
-    mPendingEpoch = true;
-    RefPtr<ChildSHistory> self(this);
-    NS_DispatchToCurrentThread(
-        NS_NewRunnableFunction("UpdateEpochRunnable", [self] {
-          self->mHistoryEpoch++;
-          self->mPendingEpoch = false;
-        }));
-  }
-
   GotoIndex(index.value(), aOffset, aRequireUserInteraction, aRv);
 }
 
@@ -204,6 +198,16 @@ void ChildSHistory::GotoIndex(int32_t aIndex, int32_t aOffset,
           ("ChildSHistory::GotoIndex(%d, %d), epoch %" PRIu64, aIndex, aOffset,
            mHistoryEpoch));
   if (mozilla::SessionHistoryInParent()) {
+    if (!mPendingEpoch) {
+      mPendingEpoch = true;
+      RefPtr<ChildSHistory> self(this);
+      NS_DispatchToCurrentThread(
+          NS_NewRunnableFunction("UpdateEpochRunnable", [self] {
+            self->mHistoryEpoch++;
+            self->mPendingEpoch = false;
+          }));
+    }
+
     nsCOMPtr<nsISHistory> shistory = mHistory;
     mBrowsingContext->HistoryGo(
         aOffset, mHistoryEpoch, aRequireUserInteraction,

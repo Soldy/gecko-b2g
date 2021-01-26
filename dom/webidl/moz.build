@@ -1360,6 +1360,11 @@ if CONFIG["MOZ_B2G_FM"]:
         "FMRadio.webidl",
     ]
 
+if CONFIG["ENABLE_RSU"]:
+    WEBIDL_FILES += [
+        "RemoteSimUnlock.webidl",
+    ]
+
 if CONFIG["ENABLE_TOUCHPAL"]:
     WEBIDL_FILES += ["IMEConnect.webidl"]
 

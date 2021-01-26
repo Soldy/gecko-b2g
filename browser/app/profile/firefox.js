@@ -38,10 +38,10 @@ pref("extensions.postDownloadThirdPartyPrompt", true);
 
 // Preferences for AMO integration
 pref("extensions.getAddons.cache.enabled", true);
-pref("extensions.getAddons.get.url", "https://services.addons.mozilla.org/api/v3/addons/search/?guid=%IDS%&lang=%LOCALE%");
+pref("extensions.getAddons.get.url", "https://services.addons.mozilla.org/api/v4/addons/search/?guid=%IDS%&lang=%LOCALE%");
 pref("extensions.getAddons.search.browseURL", "https://addons.mozilla.org/%LOCALE%/firefox/search?q=%TERMS%&platform=%OS%&appver=%VERSION%");
 pref("extensions.getAddons.link.url", "https://addons.mozilla.org/%LOCALE%/firefox/");
-pref("extensions.getAddons.langpacks.url", "https://services.addons.mozilla.org/api/v3/addons/language-tools/?app=firefox&type=language&appversion=%VERSION%");
+pref("extensions.getAddons.langpacks.url", "https://services.addons.mozilla.org/api/v4/addons/language-tools/?app=firefox&type=language&appversion=%VERSION%");
 pref("extensions.getAddons.discovery.api_url", "https://services.addons.mozilla.org/api/v4/discovery/?lang=%LOCALE%&edition=%DISTRIBUTION%");
 
 // Use bloomfilters for the addons blocklist, instead of JSON only.
@@ -67,10 +67,6 @@ pref("extensions.startupScanScopes", 0);
 
 pref("extensions.geckoProfiler.acceptedExtensionIds", "geckoprofiler@mozilla.com,quantum-foxfooding@mozilla.com,raptor@mozilla.org");
 
-
-// Add-on content security policies.
-pref("extensions.webextensions.base-content-security-policy", "script-src 'self' https://* moz-extension: blob: filesystem: 'unsafe-eval' 'unsafe-inline'; object-src 'self' https://* moz-extension: blob: filesystem:;");
-pref("extensions.webextensions.default-content-security-policy", "script-src 'self'; object-src 'self';");
 
 pref("extensions.webextensions.remote", true);
 pref("extensions.webextensions.background-delayed-startup", true);
@@ -381,12 +377,12 @@ pref("browser.urlbar.extension.timeout", 400);
 // 0 - never resolve; 1 - use heuristics (default); 2 - always resolve
 pref("browser.urlbar.dnsResolveSingleWordsAfterSearch", 1);
 
-// Whether IME composition should close the results panel.
+// Whether the results panel should be kept open during IME composition.
 // The default value is true because some IME open a picker panel, and we end
 // up with two panels on top of each other. Since for now we can't detect that
 // we leave this choice to the user, hopefully in the future this can be flipped
 // for everyone.
-pref("browser.urlbar.imeCompositionClosesPanel", true);
+pref("browser.urlbar.keepPanelOpenDuringImeComposition", false);
 
 pref("browser.altClickSave", false);
 
@@ -572,9 +568,9 @@ pref("browser.tabs.remote.separatePrivilegedContentProcess", true);
 pref("browser.tabs.remote.separatePrivilegedMozillaWebContentProcess", true);
 
 #ifdef NIGHTLY_BUILD
-pref("browser.tabs.tooltipsShowPid", true);
+pref("browser.tabs.tooltipsShowPidAndActiveness", true);
 #else
-pref("browser.tabs.tooltipsShowPid", false);
+pref("browser.tabs.tooltipsShowPidAndActiveness", false);
 #endif
 
 // allow_eval_* is enabled on Firefox Desktop only at this
@@ -2030,9 +2026,6 @@ pref("app.normandy.onsync_skew_sec", 600);
   pref("app.shield.optoutstudies.enabled", false);
 #endif
 
-// Web apps support
-pref("browser.ssb.enabled", false);
-
 // Multi-lingual preferences
 #if defined(RELEASE_OR_BETA) && !defined(MOZ_DEV_EDITION)
   pref("intl.multilingual.enabled", true);
@@ -2067,6 +2060,8 @@ pref("browser.engagement.downloads-button.has-used", false);
 pref("browser.engagement.fxa-toolbar-menu-button.has-used", false);
 pref("browser.engagement.home-button.has-used", false);
 pref("browser.engagement.sidebar-button.has-used", false);
+pref("browser.engagement.library-button.has-used", false);
+pref("browser.engagement.ctrlTab.has-used", false);
 
 pref("browser.aboutConfig.showWarning", true);
 

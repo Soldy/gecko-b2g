@@ -1553,6 +1553,11 @@ nsCSPContext::PermitsAncestry(nsILoadInfo* aLoadInfo,
     }
 
     if (currentPrincipal) {
+      // Break the chain, we hit the "browser" boundary.
+      if (nsContentUtils::IsSitePermAllow(currentPrincipal, "web-view"_ns)) {
+        break;
+      }
+
       nsCOMPtr<nsIURI> currentURI;
       auto* currentBasePrincipal = BasePrincipal::Cast(currentPrincipal);
       currentBasePrincipal->GetURI(getter_AddRefs(currentURI));

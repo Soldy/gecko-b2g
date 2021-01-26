@@ -81,6 +81,7 @@ Since the `WebEmbedder` object extends `EventTarget` you can attach event listen
 - `captive-portal-login-request`: this event is dispatched when captive portal detection redirect to a login page. Its `detail` is an object as { type, id, url }, type contains a string of this event, id contains a string of number which has increment 1 when each time the event is sent, and url contains a string of login page url.
 - `captive-portal-login-result`: this event is dispatched when captive portal login process is finished. Its `detail` is an object as { result, id }, result contains a boolean ture if login successfully, otherwise false. The id corresponds to the id from `captive-portal-login-request`, same id means that they are request/result pair.
 - `caret-state-changed`: this event is dispatched when the accessible-caret changes. See [`CaretStateChangedEvent.webidl`](https://searchfox.org/mozilla-central/source/dom/webidl/CaretStateChangedEvent.webidl) for `detail`. 
+- `sw-registration-done`: this event is dispatched when all service workers defined in webmanifests has done processing registrations during system bootup.
 
 ## WindowProvider delegate
 

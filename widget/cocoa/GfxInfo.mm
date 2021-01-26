@@ -210,6 +210,10 @@ GfxInfo::GetWindowProtocol(nsAString& aWindowProtocol) { return NS_ERROR_NOT_IMP
 NS_IMETHODIMP
 GfxInfo::GetDesktopEnvironment(nsAString& aDesktopEnvironment) { return NS_ERROR_NOT_IMPLEMENTED; }
 
+/* readonly attribute DOMString testType; */
+NS_IMETHODIMP
+GfxInfo::GetTestType(nsAString& aTestType) { return NS_ERROR_NOT_IMPLEMENTED; }
+
 /* readonly attribute DOMString adapterDescription; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDescription(nsAString& aAdapterDescription) {
@@ -388,6 +392,9 @@ GfxInfo::GetDisplayHeight(nsTArray<uint32_t>& aDisplayHeight) {
   }
   return NS_OK;
 }
+
+NS_IMETHODIMP
+GfxInfo::GetDrmRenderDevice(nsACString& aDrmRenderDevice) { return NS_ERROR_NOT_IMPLEMENTED; }
 
 /* readonly attribute boolean isGPU2Active; */
 NS_IMETHODIMP

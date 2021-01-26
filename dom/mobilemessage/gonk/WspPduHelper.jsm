@@ -2240,7 +2240,9 @@ this.ApplicationIdValue = {
     let begin = data.offset;
     try {
       return UriValue.decode(data);
-    } catch (e) {}
+    } catch (e) {
+      debug("Failed to decode, message: " + e.message);
+    }
 
     data.offset = begin;
 
@@ -2278,10 +2280,13 @@ this.PduHelper = {
     }
     // Set converter to default one if (entry && entry.name) is null.
     // @see OMA-TS-MMS-CONF-V1_3-20050526-D 7.1.9
+    let dataArray = new Uint8Array(data);
     let utfLabel = (entry && entry.name) || "utf-8";
     try {
-      return new TextDecoder(utfLabel).decode(data);
-    } catch (e) {}
+      return new TextDecoder(utfLabel).decode(dataArray);
+    } catch (e) {
+      debug("Failed to decodeStringContent, message: " + e.message);
+    }
     return null;
   },
 
@@ -2303,7 +2308,9 @@ this.PduHelper = {
     let utfLabel = (entry && entry.name) || "utf-8";
     try {
       return new TextEncoder(utfLabel).encode(strContent);
-    } catch (e) {}
+    } catch (e) {
+      debug("Failed to decodeStringContent, message: " + e.message);
+    }
     return null;
   },
 
@@ -2421,7 +2428,7 @@ this.PduHelper = {
             // If the content is a "text/plain" type, we have to make sure
             // the encoding of the blob content should always be "utf-8".
             let tmpStr = this.decodeStringContent(octetArray, charset);
-            let encoder = new TextEncoder("UTF-8");
+            let encoder = new TextEncoder("utf-8");
             content = new Blob([encoder.encode(tmpStr)], { type: mimeType });
 
             // Make up the missing encoding info.

@@ -246,6 +246,8 @@ void FMRadioChild::EnableAudio(bool aAudioEnabled) {
   SendEnableAudio(aAudioEnabled);
 }
 
+void FMRadioChild::SetVolume(float aVolume) { SendSetVolume(aVolume); }
+
 // static
 FMRadioChild* FMRadioChild::Singleton() {
   MOZ_ASSERT(!XRE_IsParentProcess());

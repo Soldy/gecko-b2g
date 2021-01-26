@@ -967,6 +967,17 @@ NetworkService.prototype = {
     });
   },
 
+  setupPrefix64Discovery(aInterfaceName, aEnable, aCallback) {
+    let options = {
+      cmd: "setupPrefix64Discovery",
+      ifname: aInterfaceName,
+      enable: aEnable,
+    };
+    this.controlMessage(options, function(aResult) {
+      aCallback.nativeCommandResult(!aResult.error);
+    });
+  },
+
   setTcpBufferSize(aTcpBufferSizes, aCallback) {
     debug("setTcpBufferSize = " + aTcpBufferSizes);
     let params = {

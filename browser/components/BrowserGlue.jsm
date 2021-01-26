@@ -121,8 +121,8 @@ const PREF_PDFJS_ISDEFAULT_CACHE_STATE = "pdfjs.enabledCache.state";
 /**
  * Fission-compatible JSProcess implementations.
  * Each actor options object takes the form of a ProcessActorOptions dictionary.
- * Detailed documentation of these options is in dom/docs/Fission.rst,
- * available at https://firefox-source-docs.mozilla.org/dom/Fission.html#jsprocessactor
+ * Detailed documentation of these options is in dom/docs/ipc/jsactors.rst,
+ * available at https://firefox-source-docs.mozilla.org/dom/ipc/jsactors.html
  */
 let JSPROCESSACTORS = {
   // Miscellaneous stuff that needs to be initialized per process.
@@ -172,8 +172,8 @@ let JSPROCESSACTORS = {
 
 /**
  * Fission-compatible JSWindowActor implementations.
- * Detailed documentation of these is in dom/docs/Fission.rst,
- * available at https://firefox-source-docs.mozilla.org/dom/Fission.html#jswindowactor
+ * Detailed documentation of these options is in dom/docs/ipc/jsactors.rst,
+ * available at https://firefox-source-docs.mozilla.org/dom/ipc/jsactors.html
  */
 let JSWINDOWACTORS = {
   AboutLogins: {
@@ -403,17 +403,18 @@ let JSWINDOWACTORS = {
     },
     child: {
       moduleURI: "resource:///actors/ContentSearchChild.jsm",
-      matches: [
-        "about:home",
-        "about:newtab",
-        "about:welcome",
-        "about:privatebrowsing",
-        "chrome://mochitests/content/*",
-      ],
       events: {
         ContentSearchClient: { capture: true, wantUntrusted: true },
       },
     },
+    matches: [
+      "about:home",
+      "about:welcome",
+      "about:newtab",
+      "about:privatebrowsing",
+      "about:test-about-content-search-ui",
+    ],
+    remoteTypes: ["privilegedabout"],
   },
 
   ContextMenu: {
@@ -686,17 +687,6 @@ let JSWINDOWACTORS = {
   SwitchDocumentDirection: {
     child: {
       moduleURI: "resource:///actors/SwitchDocumentDirectionChild.jsm",
-    },
-
-    allFrames: true,
-  },
-
-  SiteSpecificBrowser: {
-    parent: {
-      moduleURI: "resource:///actors/SiteSpecificBrowserParent.jsm",
-    },
-    child: {
-      moduleURI: "resource:///actors/SiteSpecificBrowserChild.jsm",
     },
 
     allFrames: true,
@@ -1135,7 +1125,11 @@ BrowserGlue.prototype = {
           Cu.reportError(ex);
         }
         let win = BrowserWindowTracker.getTopWindow();
-        BrowserSearchTelemetry.recordSearch(win.gBrowser, engine, "urlbar");
+        BrowserSearchTelemetry.recordSearch(
+          win.gBrowser.selectedBrowser,
+          engine,
+          "urlbar"
+        );
         break;
       case "browser-search-engine-modified":
         // Ensure we cleanup the hiddenOneOffs pref when removing
@@ -2424,6 +2418,14 @@ BrowserGlue.prototype = {
         },
       },
 
+      {
+        task: () => {
+          // We postponed loading bookmarks toolbar content until startup
+          // has finished, so we can start loading it now:
+          PlacesUIUtils.unblockToolbars();
+        },
+      },
+
       // Begin listening for incoming push messages.
       {
         task: () => {
@@ -3282,7 +3284,7 @@ BrowserGlue.prototype = {
   _migrateUI: function BG__migrateUI() {
     // Use an increasing number to keep track of the current migration state.
     // Completely unrelated to the current Firefox release number.
-    const UI_VERSION = 104;
+    const UI_VERSION = 105;
     const BROWSER_DOCURL = AppConstants.BROWSER_CHROME_URL;
 
     if (!Services.prefs.prefHasUserValue("browser.migration.version")) {
@@ -3823,6 +3825,17 @@ BrowserGlue.prototype = {
         "browser.bookmarks.defaultLocation",
         "unfiled"
       );
+    }
+
+    // Renamed and flipped the logic of a pref to make its purpose more clear.
+    if (currentUIVersion < 105) {
+      const oldPrefName = "browser.urlbar.imeCompositionClosesPanel";
+      const oldPrefValue = Services.prefs.getBoolPref(oldPrefName, true);
+      Services.prefs.setBoolPref(
+        "browser.urlbar.keepPanelOpenDuringImeComposition",
+        !oldPrefValue
+      );
+      Services.prefs.clearUserPref(oldPrefName);
     }
 
     // Update the migration version.
@@ -4643,10 +4656,10 @@ var DefaultBrowserCheck = {
         "browser.shell.didSkipDefaultBrowserCheckOnFirstRun"
       );
 
-    const usePromptLimit = !AppConstants.RELEASE_OR_BETA;
-    let promptCount = usePromptLimit
-      ? Services.prefs.getIntPref("browser.shell.defaultBrowserCheckCount")
-      : 0;
+    let promptCount = Services.prefs.getIntPref(
+      "browser.shell.defaultBrowserCheckCount",
+      0
+    );
 
     // If SessionStartup's state is not initialized, checking sessionType will set
     // its internal state to "do not restore".
@@ -4682,9 +4695,7 @@ var DefaultBrowserCheck = {
           );
         }
         willPrompt = false;
-      }
-
-      if (usePromptLimit) {
+      } else {
         promptCount++;
         if (isStartupCheck) {
           Services.prefs.setIntPref(
@@ -4692,7 +4703,7 @@ var DefaultBrowserCheck = {
             promptCount
           );
         }
-        if (promptCount > 3) {
+        if (!AppConstants.RELEASE_OR_BETA && promptCount > 3) {
           willPrompt = false;
         }
       }

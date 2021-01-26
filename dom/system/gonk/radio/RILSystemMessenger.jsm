@@ -203,6 +203,27 @@ RILSystemMessenger.prototype = {
     });
   },
 
+  notifyDataSms(
+    aServiceId,
+    aIccId,
+    aSender,
+    aReceiver,
+    aOriginatorPort,
+    aDestinationPort,
+    aDatas
+  ) {
+    this.broadcastMessage("data-sms-received", {
+      serviceId: aServiceId,
+      iccId: aIccId,
+      type: "sms",
+      sender: aSender,
+      receiver: aReceiver,
+      originatorPort: aDestinationPort,
+      destinationPort: aDestinationPort,
+      data: aDatas,
+    });
+  },
+
   _convertCbGsmGeographicalScope(aGeographicalScope) {
     return RIL.CB_GSM_GEOGRAPHICAL_SCOPE_NAMES[aGeographicalScope] || null;
   },

@@ -72,15 +72,6 @@ DirectoryProvider.prototype = {
   },
 
   getFileOnGonk(prop, persistent) {
-    if (prop == "ProfD") {
-      let dir = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      dir.initWithPath(LOCAL_DIR + "/tests/profile");
-      if (dir.exists()) {
-        persistent.value = true;
-        return dir;
-      }
-    }
-
     if (prop == UPDATE_ARCHIVE_DIR) {
       // getUpdateDir will set persistent to false since it may toggle between
       // /data/local/ and /mnt/sdcard based on free space and/or availability

@@ -82,3 +82,11 @@ chrome.jar:
   content/homescreen/style                    (content/default-apps/homescreen/style/*)
 
   content/keyboard/index.html                 (content/default-apps/keyboard/index.html)
+
+toolkit.jar:
+  content/browser/index.html                  (content/default-apps/browser/index.html)
+  content/browser/js                          (content/default-apps/browser/js/*)
+  content/browser/style                       (content/default-apps/browser/style/*)
+
+# To access without system principal for test.
+% resource default-app-browser chrome://b2g/content/browser/ contentaccessible=yes

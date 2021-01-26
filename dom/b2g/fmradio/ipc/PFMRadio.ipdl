@@ -127,6 +127,11 @@ parent:
   async EnableAudio(bool audioEnabled);
 
   /**
+   * Set FM Radio's content volume
+   */
+  async SetVolume(float aVolume);
+
+  /**
    * Set RDS group mask
    */
   async SetRDSGroupMask(uint32_t groupMask);

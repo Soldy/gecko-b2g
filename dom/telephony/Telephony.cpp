@@ -1028,6 +1028,11 @@ Telephony::NotifyRttMessageReceived(uint32_t aClientId, int32_t aCallIndex,
   return NS_OK;
 }
 
+NS_IMETHODIMP
+Telephony::NotifySrvccState(uint32_t aClientId, int32_t aState) {
+  return NS_OK;
+}
+
 nsresult Telephony::DispatchCallEvent(const nsAString& aType,
                                       TelephonyCall* aCall) {
   // If it is an incoming event, the call should not be null.

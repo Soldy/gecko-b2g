@@ -73,7 +73,11 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(B2G)
 #ifdef HAS_KOOST_MODULES
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mAuthorizationManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mEngmodeManager)
+#ifdef ENABLE_RSU
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRSU)
 #endif
+#endif
+
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mListeners)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mUsbManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPowerSupplyManager)
@@ -712,6 +716,33 @@ bool B2G::HasEngmodeManagerSupport(JSContext* /* unused */, JSObject* aGlobal) {
   nsCOMPtr<nsPIDOMWindowInner> innerWindow = xpc::WindowOrNull(aGlobal);
   return B2G::CheckPermission("engmode"_ns, innerWindow);
 }
+
+#ifdef ENABLE_RSU
+RemoteSimUnlock*
+B2G::GetRsu(ErrorResult& aRv)
+{
+  if (mRSU) {
+    return mRSU;
+  }
+  if (!mOwner) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return nullptr;
+  }
+  mRSU = new RemoteSimUnlock(mOwner);
+  return mRSU;
+}
+
+/* static */
+bool B2G::HasRSUSupport(JSContext* /* unused */, JSObject* aGlobal) {
+  nsCOMPtr<nsPIDOMWindowInner> innerWindow = xpc::WindowOrNull(aGlobal);
+  if (NS_IsMainThread()) {
+    return innerWindow ? CheckPermission("rsu"_ns, innerWindow)
+                       : false;
+  } else {
+    return CheckPermissionOnWorkerThread("rsu"_ns);
+  }
+}
+#endif
 #endif
 
 /* static */

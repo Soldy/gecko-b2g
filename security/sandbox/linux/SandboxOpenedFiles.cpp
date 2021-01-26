@@ -59,7 +59,7 @@ int SandboxOpenedFile::GetDesc(int aFlags) const {
     fd = TakeDesc();
   }
   if (fd < 0 && !mExpectError) {
-    SANDBOX_LOG_ERROR("unexpected multiple open of file %s", Path());
+    SANDBOX_LOG_ERROR("OpenedFiles denied to multiple open of file %s", Path());
   }
   return fd;
 }
@@ -77,7 +77,9 @@ int SandboxOpenedFiles::GetDesc(const char* aPath, int aFlags) const {
       return file.GetDesc(aFlags);
     }
   }
-  SANDBOX_LOG_ERROR("attempt to open unexpected file %s", aPath);
+  if (SandboxInfo::Get().Test(SandboxInfo::kVerbose)) {
+    SANDBOX_LOG_ERROR("OpenedFiles denied to open file %s", aPath);
+  }
   return -1;
 }
 

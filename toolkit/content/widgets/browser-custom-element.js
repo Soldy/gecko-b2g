@@ -541,7 +541,7 @@
     }
 
     get webProgress() {
-      if (this.browsingContext && this.browsingContext.isContent) {
+      if (this.browsingContext?.webProgress) {
         return this.browsingContext.webProgress;
       }
 

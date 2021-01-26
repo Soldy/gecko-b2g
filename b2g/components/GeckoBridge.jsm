@@ -36,6 +36,7 @@ const kWatchedPrefs = [
   "device.parental-control",
   "device.qwerty",
   "device.readout",
+  "device.rsu",
   "device.rtt",
   "device.sim-hotswap",
   "device.storage.size",

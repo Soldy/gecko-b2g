@@ -174,7 +174,7 @@ void AccumulateCacheHitTelemetry(CacheDisposition hitOrMiss,
       key.AssignLiteral("JAVASCRIPT");
     } else if (StringBeginsWith(contentType, "text/css"_ns) ||
                (loadInfo && loadInfo->GetExternalContentPolicyType() ==
-                                nsIContentPolicy::TYPE_STYLESHEET)) {
+                                ExtContentPolicy::TYPE_STYLESHEET)) {
       key.AssignLiteral("STYLESHEET");
     } else if (StringBeginsWith(contentType, "application/wasm"_ns)) {
       key.AssignLiteral("WASM");
@@ -404,7 +404,7 @@ void nsHttpChannel::ReleaseMainThreadOnlyReferences() {
 nsresult nsHttpChannel::Init(nsIURI* uri, uint32_t caps, nsProxyInfo* proxyInfo,
                              uint32_t proxyResolveFlags, nsIURI* proxyURI,
                              uint64_t channelId,
-                             nsContentPolicyType aContentPolicyType) {
+                             ExtContentPolicyType aContentPolicyType) {
   nsresult rv = HttpBaseChannel::Init(uri, caps, proxyInfo, proxyResolveFlags,
                                       proxyURI, channelId, aContentPolicyType);
   if (NS_FAILED(rv)) return rv;
@@ -535,10 +535,10 @@ nsresult nsHttpChannel::OnBeforeConnect() {
   // header for *all* navigational requests instead of all requests as
   // defined in the spec, see:
   // https://www.w3.org/TR/upgrade-insecure-requests/#preference
-  nsContentPolicyType type = mLoadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType type = mLoadInfo->GetExternalContentPolicyType();
 
-  if (type == nsIContentPolicy::TYPE_DOCUMENT ||
-      type == nsIContentPolicy::TYPE_SUBDOCUMENT) {
+  if (type == ExtContentPolicy::TYPE_DOCUMENT ||
+      type == ExtContentPolicy::TYPE_SUBDOCUMENT) {
     rv = SetRequestHeader("Upgrade-Insecure-Requests"_ns, "1"_ns, false);
     NS_ENSURE_SUCCESS(rv, rv);
   }
@@ -621,11 +621,13 @@ nsresult nsHttpChannel::MaybeUseHTTPSRRForUpgrade(bool aShouldUpgrade,
     return ContinueOnBeforeConnect(aShouldUpgrade, aStatus);
   }
 
-  if (mHTTPSSVCRecord) {
-    LOG(("nsHttpChannel::MaybeUseHTTPSRRForUpgrade [%p] already got HTTPS RR",
-         this));
+  if (mHTTPSSVCRecord.isSome()) {
+    LOG((
+        "nsHttpChannel::MaybeUseHTTPSRRForUpgrade [%p] mHTTPSSVCRecord is some",
+        this));
     StoreWaitHTTPSSVCRecord(false);
-    return ContinueOnBeforeConnect(true, aStatus);
+    bool hasHTTPSRR = (mHTTPSSVCRecord.ref() != nullptr);
+    return ContinueOnBeforeConnect(hasHTTPSRR, aStatus);
   }
 
   LOG(("nsHttpChannel::MaybeUseHTTPSRRForUpgrade [%p] wait for HTTPS RR",
@@ -689,29 +691,6 @@ nsresult nsHttpChannel::ContinueOnBeforeConnect(bool aShouldUpgrade,
   mConnectionInfo->SetTRRMode(nsIRequest::GetTRRMode());
   mConnectionInfo->SetIPv4Disabled(mCaps & NS_HTTP_DISABLE_IPV4);
   mConnectionInfo->SetIPv6Disabled(mCaps & NS_HTTP_DISABLE_IPV6);
-
-  if (mHTTPSSVCRecord) {
-    MOZ_ASSERT(mURI->SchemeIs("https"));
-
-    LOG((" Using connection info with HTTPSSVC record"));
-    nsCOMPtr<nsIDNSHTTPSSVCRecord> rec;
-    mHTTPSSVCRecord.swap(rec);
-
-    bool http3Allowed = !mUpgradeProtocolCallback && !mProxyInfo &&
-                        !(mCaps & NS_HTTP_BE_CONSERVATIVE) &&
-                        !LoadBeConservative();
-
-    nsCOMPtr<nsISVCBRecord> record;
-    if (NS_SUCCEEDED(rec->GetServiceModeRecord(mCaps & NS_HTTP_DISALLOW_SPDY,
-                                               !http3Allowed,
-                                               getter_AddRefs(record)))) {
-      MOZ_ASSERT(record);
-
-      RefPtr<nsHttpConnectionInfo> newConnInfo =
-          mConnectionInfo->CloneAndAdoptHTTPSSVCRecord(record);
-      mConnectionInfo = std::move(newConnInfo);
-    }
-  }
 
   // notify "http-on-before-connect" observers
   gHttpHandler->OnBeforeConnect(this);
@@ -1478,7 +1457,7 @@ HttpTrafficCategory nsHttpChannel::CreateTrafficCategory() {
   {
     if ((mClassOfService & nsIClassOfService::Leader) &&
         mLoadInfo->GetExternalContentPolicyType() ==
-            nsIContentPolicy::TYPE_SCRIPT) {
+            ExtContentPolicy::TYPE_SCRIPT) {
       cos = HttpTrafficAnalyzer::ClassOfService::eLeader;
     } else if (mLoadFlags & nsIRequest::LOAD_BACKGROUND) {
       cos = HttpTrafficAnalyzer::ClassOfService::eBackground;
@@ -1529,7 +1508,7 @@ void nsHttpChannel::SetCachedContentType() {
     contentType = nsICacheEntry::CONTENT_TYPE_JAVASCRIPT;
   } else if (StringBeginsWith(contentTypeStr, "text/css"_ns) ||
              (mLoadInfo->GetExternalContentPolicyType() ==
-              nsIContentPolicy::TYPE_STYLESHEET)) {
+              ExtContentPolicy::TYPE_STYLESHEET)) {
     contentType = nsICacheEntry::CONTENT_TYPE_STYLESHEET;
   } else if (StringBeginsWith(contentTypeStr, "application/wasm"_ns)) {
     contentType = nsICacheEntry::CONTENT_TYPE_WASM;
@@ -2843,9 +2822,12 @@ nsresult nsHttpChannel::ProxyFailover() {
   return AsyncDoReplaceWithProxy(pi);
 }
 
-void nsHttpChannel::SetHTTPSSVCRecord(nsIDNSHTTPSSVCRecord* aRecord) {
+void nsHttpChannel::SetHTTPSSVCRecord(
+    already_AddRefed<nsIDNSHTTPSSVCRecord>&& aRecord) {
   LOG(("nsHttpChannel::SetHTTPSSVCRecord [this=%p]\n", this));
-  mHTTPSSVCRecord = aRecord;
+  nsCOMPtr<nsIDNSHTTPSSVCRecord> record = aRecord;
+  MOZ_ASSERT(!mHTTPSSVCRecord);
+  mHTTPSSVCRecord.emplace(std::move(record));
 }
 
 void nsHttpChannel::HandleAsyncRedirectChannelToHttps() {
@@ -2933,10 +2915,9 @@ nsresult nsHttpChannel::StartRedirectChannelToURI(nsIURI* upgradedURI,
 
   if (mHTTPSSVCRecord) {
     RefPtr<nsHttpChannel> httpChan = do_QueryObject(newChannel);
-    if (httpChan) {
-      nsCOMPtr<nsIDNSHTTPSSVCRecord> rec;
-      mHTTPSSVCRecord.swap(rec);
-      httpChan->SetHTTPSSVCRecord(rec);
+    nsCOMPtr<nsIDNSHTTPSSVCRecord> rec = mHTTPSSVCRecord.ref();
+    if (httpChan && rec) {
+      httpChan->SetHTTPSSVCRecord(rec.forget());
     }
   }
 
@@ -6613,9 +6594,10 @@ nsresult nsHttpChannel::BeginConnect() {
                       !(mCaps & NS_HTTP_BE_CONSERVATIVE) &&
                       !LoadBeConservative() && LoadAllowHttp3();
 
-  // No need to lookup HTTPSSVC record if we already have one.
+  // No need to lookup HTTPSSVC record if mHTTPSSVCRecord already contains a
+  // value.
   StoreUseHTTPSSVC(StaticPrefs::network_dns_upgrade_with_https_rr() &&
-                   !mHTTPSSVCRecord);
+                   mHTTPSSVCRecord.isNothing());
 
   RefPtr<AltSvcMapping> mapping;
   if (!mConnectionInfo && LoadAllowAltSvc() &&  // per channel
@@ -6681,7 +6663,8 @@ nsresult nsHttpChannel::BeginConnect() {
 
   // Need to re-ask the handler, since mConnectionInfo may not be the connInfo
   // we used earlier
-  if (gHttpHandler->IsHttp2Excluded(mConnectionInfo)) {
+  if (!mConnectionInfo->IsHttp3() &&
+      gHttpHandler->IsHttp2Excluded(mConnectionInfo)) {
     StoreAllowSpdy(0);
     mCaps |= NS_HTTP_DISALLOW_SPDY;
     mConnectionInfo->SetNoSpdy(true);
@@ -6847,12 +6830,20 @@ nsresult nsHttpChannel::MaybeStartDNSPrefetch() {
       mDNSBlockingThenable = mDNSBlockingPromise.Ensure(__func__);
     }
 
+    // When LoadUseHTTPSSVC() is true, we should really "fetch" the HTTPS RR,
+    // not "prefetch", since DNS prefetch can be disabled by the pref.
     if (LoadUseHTTPSSVC() ||
         gHttpHandler->UseHTTPSRRForSpeculativeConnection()) {
+      OriginAttributes originAttributes;
+      StoragePrincipalHelper::GetOriginAttributesForHTTPSRR(this,
+                                                            originAttributes);
+
+      RefPtr<nsDNSPrefetch> resolver =
+          new nsDNSPrefetch(mURI, originAttributes, nsIRequest::GetTRRMode());
       nsWeakPtr weakPtrThis(
           do_GetWeakReference(static_cast<nsIHttpChannel*>(this)));
-      rv = mDNSPrefetch->FetchHTTPSSVC(
-          mCaps & NS_HTTP_REFRESH_DNS,
+      nsresult rv = resolver->FetchHTTPSSVC(
+          mCaps & NS_HTTP_REFRESH_DNS, !LoadUseHTTPSSVC(),
           [weakPtrThis](nsIDNSHTTPSSVCRecord* aRecord) {
             nsCOMPtr<nsIHttpChannel> channel = do_QueryReferent(weakPtrThis);
             RefPtr<nsHttpChannel> httpChannelImpl = do_QueryObject(channel);
@@ -7353,6 +7344,13 @@ nsHttpChannel::OnStartRequest(nsIRequest* request) {
   Telemetry::Accumulate(Telemetry::HTTP_CHANNEL_ONSTART_SUCCESS,
                         NS_SUCCEEDED(mStatus));
 
+  if (mTransaction) {
+    Telemetry::Accumulate(
+        Telemetry::HTTP3_CHANNEL_ONSTART_SUCCESS,
+        (mTransaction->IsHttp3Used()) ? "http3"_ns : "no_http3"_ns,
+        NS_SUCCEEDED(mStatus));
+  }
+
   if (gTRRService && gTRRService->IsConfirmed()) {
     Telemetry::Accumulate(Telemetry::HTTP_CHANNEL_ONSTART_SUCCESS_TRR,
                           TRRService::AutoDetectedKey(), NS_SUCCEEDED(mStatus));
@@ -7592,6 +7590,17 @@ nsresult nsHttpChannel::ContinueOnStartRequest4(nsresult result) {
   LOG(("nsHttpChannel::ContinueOnStartRequest4 [this=%p]", this));
 
   if (LoadFallingBack()) return NS_OK;
+
+  if (NS_SUCCEEDED(mStatus) && mResponseHead && mAuthProvider) {
+    uint32_t httpStatus = mResponseHead->Status();
+    if (httpStatus != 401 && httpStatus != 407) {
+      nsresult rv = mAuthProvider->CheckForSuperfluousAuth();
+      if (NS_FAILED(rv)) {
+        LOG(("  CheckForSuperfluousAuth failed (%08x)",
+             static_cast<uint32_t>(rv)));
+      }
+    }
+  }
 
   return CallOnStartRequest();
 }
@@ -9019,25 +9028,27 @@ void nsHttpChannel::OnHTTPSRRAvailable(nsIDNSHTTPSSVCRecord* aRecord) {
 
   LOG(("nsHttpChannel::OnHTTPSRRAvailable [this=%p, aRecord=%p]\n", this,
        aRecord));
-  // This record will be used in the new redirect channel.
+
   MOZ_ASSERT(!mHTTPSSVCRecord);
-  mHTTPSSVCRecord = aRecord;
+  nsCOMPtr<nsIDNSHTTPSSVCRecord> record = aRecord;
+  mHTTPSSVCRecord.emplace(std::move(record));
+  const nsCOMPtr<nsIDNSHTTPSSVCRecord>& httprr = mHTTPSSVCRecord.ref();
 
   if (LoadWaitHTTPSSVCRecord()) {
     MOZ_ASSERT(mURI->SchemeIs("http"));
 
     StoreWaitHTTPSSVCRecord(false);
-    nsresult rv = ContinueOnBeforeConnect(!!mHTTPSSVCRecord, mStatus);
+    nsresult rv = ContinueOnBeforeConnect(!!httprr, mStatus);
     if (NS_FAILED(rv)) {
       CloseCacheEntry(false);
       Unused << AsyncAbort(rv);
     }
   } else {
     // This channel is not canceled and the transaction is not created.
-    if (mHTTPSSVCRecord && NS_SUCCEEDED(mStatus) && !mTransaction &&
+    if (httprr && NS_SUCCEEDED(mStatus) && !mTransaction &&
         (mFirstResponseSource != RESPONSE_FROM_CACHE)) {
       bool hasIPAddress = false;
-      Unused << mHTTPSSVCRecord->GetHasIPAddresses(&hasIPAddress);
+      Unused << httprr->GetHasIPAddresses(&hasIPAddress);
       Telemetry::Accumulate(Telemetry::DNS_HTTPSSVC_RECORD_RECEIVING_STAGE,
                             hasIPAddress
                                 ? HTTPSSVC_WITH_IPHINT_RECEIVED_STAGE_0
@@ -9937,7 +9948,7 @@ nsresult nsHttpChannel::RedirectToInterceptedChannel() {
       InterceptedHttpChannel::CreateForInterception(
           mChannelCreationTime, mChannelCreationTimestamp, mAsyncOpenTime);
 
-  nsContentPolicyType type = mLoadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType type = mLoadInfo->GetExternalContentPolicyType();
 
   nsresult rv = intercepted->Init(
       mURI, mCaps, static_cast<nsProxyInfo*>(mProxyInfo.get()),

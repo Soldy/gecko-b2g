@@ -157,6 +157,7 @@ void GfxInfo::GetData() {
   nsCString glRenderer;
   nsCString glVersion;
   nsCString textureFromPixmap;
+  nsCString testType;
 
   // Available if GLX_MESA_query_renderer is supported.
   nsCString mesaVendor;
@@ -166,6 +167,8 @@ void GfxInfo::GetData() {
   nsCString driDriver;
   nsCString screenInfo;
   nsCString adapterRam;
+
+  nsCString drmRenderDevice;
 
   AutoTArray<nsCString, 2> pciVendors;
   AutoTArray<nsCString, 2> pciDevices;
@@ -207,6 +210,10 @@ void GfxInfo::GetData() {
       stringToFill = pciVendors.AppendElement();
     } else if (!strcmp(line, "PCI_DEVICE_ID")) {
       stringToFill = pciDevices.AppendElement();
+    } else if (!strcmp(line, "DRM_RENDERDEVICE")) {
+      stringToFill = &drmRenderDevice;
+    } else if (!strcmp(line, "TEST_TYPE")) {
+      stringToFill = &testType;
     } else if (!strcmp(line, "WARNING")) {
       logString = true;
     } else if (!strcmp(line, "ERROR")) {
@@ -264,6 +271,9 @@ void GfxInfo::GetData() {
   if (mGLMajorVersion == 0) {
     NS_WARNING("Failed to parse GL version!");
   }
+
+  mDrmRenderDevice = std::move(drmRenderDevice);
+  mTestType = std::move(testType);
 
   // Mesa always exposes itself in the GL_VERSION string, but not always the
   // GL_VENDOR string.
@@ -576,7 +586,7 @@ void GfxInfo::GetData() {
     }
   }
 
-  if (error || errorLog) {
+  if (error || errorLog || mTestType.IsEmpty()) {
     if (!mAdapterDescription.IsEmpty()) {
       mAdapterDescription.AppendLiteral(" (See failure log)");
     } else {
@@ -954,6 +964,13 @@ GfxInfo::GetDesktopEnvironment(nsAString& aDesktopEnvironment) {
 }
 
 NS_IMETHODIMP
+GfxInfo::GetTestType(nsAString& aTestType) {
+  GetData();
+  AppendASCIItoUTF16(mTestType, aTestType);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 GfxInfo::GetAdapterDescription(nsAString& aAdapterDescription) {
   GetData();
   AppendASCIItoUTF16(mAdapterDescription, aAdapterDescription);
@@ -1093,6 +1110,13 @@ NS_IMETHODIMP
 GfxInfo::GetIsGPU2Active(bool* aIsGPU2Active) {
   // This is never the case, as the active GPU should be the primary GPU.
   *aIsGPU2Active = false;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GfxInfo::GetDrmRenderDevice(nsACString& aDrmRenderDevice) {
+  GetData();
+  aDrmRenderDevice.Assign(mDrmRenderDevice);
   return NS_OK;
 }
 

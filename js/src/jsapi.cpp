@@ -19,6 +19,7 @@
 #ifdef __linux__
 #  include <dlfcn.h>
 #endif
+#include <iterator>
 #include <stdarg.h>
 #include <string.h>
 
@@ -1230,8 +1231,7 @@ JS_PUBLIC_API JSProtoKey JS_IdToProtoKey(JSContext* cx, HandleId id) {
     return JSProto_Null;
   }
 
-  static_assert(mozilla::ArrayLength(standard_class_names) ==
-                JSProto_LIMIT + 1);
+  static_assert(std::size(standard_class_names) == JSProto_LIMIT + 1);
   return static_cast<JSProtoKey>(stdnm - standard_class_names);
 }
 
@@ -1502,8 +1502,7 @@ JS_PUBLIC_API void JS_SetGCParametersBasedOnAvailableMemory(JSContext* cx,
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_ALLOCATION_THRESHOLD, 1},
-      {JSGC_MODE, JSGC_MODE_ZONE_INCREMENTAL}};
+      {JSGC_ALLOCATION_THRESHOLD, 1}};
 
   static const JSGCConfig nominal[] = {
       {JSGC_SLICE_TIME_BUDGET_MS, 30},
@@ -1516,8 +1515,7 @@ JS_PUBLIC_API void JS_SetGCParametersBasedOnAvailableMemory(JSContext* cx,
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_ALLOCATION_THRESHOLD, 30},
-      {JSGC_MODE, JSGC_MODE_ZONE}};
+      {JSGC_ALLOCATION_THRESHOLD, 30}};
 
   const auto& configSet = availMem > 512 ? nominal : minimal;
   for (const auto& config : configSet) {
@@ -1830,13 +1828,15 @@ JS::RealmCreationOptions& JS::RealmCreationOptions::setCoopAndCoepEnabled(
   return *this;
 }
 
-JS::RealmBehaviors& JS::RealmBehaviorsRef(JS::Realm* realm) {
+const JS::RealmBehaviors& JS::RealmBehaviorsRef(JS::Realm* realm) {
   return realm->behaviors();
 }
 
-JS::RealmBehaviors& JS::RealmBehaviorsRef(JSContext* cx) {
+const JS::RealmBehaviors& JS::RealmBehaviorsRef(JSContext* cx) {
   return cx->realm()->behaviors();
 }
+
+void JS::SetRealmNonLive(Realm* realm) { realm->setNonLive(); }
 
 JS_PUBLIC_API JSObject* JS_NewGlobalObject(JSContext* cx, const JSClass* clasp,
                                            JSPrincipals* principals,

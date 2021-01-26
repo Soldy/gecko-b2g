@@ -130,7 +130,7 @@ class WebExecutorTest {
         assertThat("Headers should match", body.getJSONObject("headers").getString("Header1"), equalTo("Value"))
         assertThat("Headers should match", body.getJSONObject("headers").getString("Header2"), equalTo("Value1, Value2"))
         assertThat("Headers should match", body.getJSONObject("headers").getString("Content-Type"), equalTo("text/plain"))
-        assertThat("Referrer should match", body.getJSONObject("headers").getString("Referer"), equalTo(referrer))
+        assertThat("Referrer should match", body.getJSONObject("headers").getString("Referer"), equalTo("http://foo/"))
         assertThat("Data should match", body.getString("data"), equalTo(bodyString));
     }
 
@@ -418,5 +418,49 @@ class WebExecutorTest {
         assertThat("Stream should still have 0 bytes available", stream.available(), equalTo(0));
 
         stream.close()
+    }
+
+    @Test
+    fun unsupportedUriScheme() {
+        val illegal = mapOf(
+            "" to "",
+            "a" to "a",
+            "ab" to "ab",
+            "abc" to "abc",
+            "htt" to "htt",
+            "123456789" to "123456789",
+            "1234567890" to "1234567890",
+            "12345678901" to "1234567890",
+            "file://test" to "file://tes",
+            "moz-extension://what" to "moz-extens"
+        )
+
+        for ((uri, truncated) in illegal) {
+            try {
+                fetch(WebRequest(uri))
+                throw IllegalStateException("fetch() should have thrown")
+            } catch (e: IllegalArgumentException) {
+                assertThat("Message should match",
+                        e.message,
+                        equalTo("Unsupported URI scheme: $truncated"))
+            }
+        }
+
+        val legal = listOf(
+            "http://$TEST_ENDPOINT\n",
+            "http://$TEST_ENDPOINT/🥲",
+            "http://$TEST_ENDPOINT/abc"
+        )
+
+        for (uri in legal) {
+            try {
+                fetch(WebRequest(uri))
+                throw IllegalStateException("fetch() should have thrown")
+            } catch (e: WebRequestError) {
+                assertThat("Request should pass initial validation.",
+                        true,
+                        equalTo(true))
+            }
+        }
     }
 }

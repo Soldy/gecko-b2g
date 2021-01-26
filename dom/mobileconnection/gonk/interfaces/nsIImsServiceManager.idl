@@ -31,6 +31,7 @@ interface nsIImsServiceManager : nsISupports
 
   nsIImsMMTelFeature createMmTelFeature(in unsigned long aSlotId, in nsIImsFeatureStatusListener aListener);
 
+  bool isBinderReady();
 };
 
 %{C++

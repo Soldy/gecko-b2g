@@ -44,6 +44,7 @@ const NS_PREFBRANCH_PREFCHANGE_TOPIC_ID = "nsPref:changed";
 const kPrefDefaultServiceId = "dom.telephony.defaultServiceId";
 const kPrefTwoDigitShortCodes = "ussd.exceptioncode";
 const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
+const kPrefAlwaysTryImsForEcc = "ril.alwaysTryImsForEcc";
 
 const nsITelephonyAudioService = Ci.nsITelephonyAudioService;
 const nsITelephonyService = Ci.nsITelephonyService;
@@ -317,9 +318,11 @@ MMI_KS_SERVICE_CLASS_MAPPING[
   Ci.nsIMobileConnection.ICC_SERVICE_CLASS_PAD
 ] = MMI_KS_SERVICE_CLASS_PAD;
 
+var ALWAYS_TRY_IMS_FOR_EMERGENCY = false;
+
 var DEBUG;
 function debug(s) {
-  console.log("TelephonyService: " + s + "\n");
+  dump("TelephonyService: " + s + "\n");
 }
 
 /* global gRadioInterfaceLayer */
@@ -596,7 +599,7 @@ function TelephonyService() {
   gAudioService.registerListener(this);
   this._applyTtyMode();
 
-  this._updateDebugFlag();
+  this._initConstByPrefs();
   // this.defaultServiceId = this._getDefaultServiceId();
   this.defaultServiceId = 0;
 
@@ -821,12 +824,27 @@ TelephonyService.prototype = {
     }
   },
 
+  _initConstByPrefs() {
+    this._updateDebugFlag();
+    this._updateAlwaysTryImsForEcc();
+  },
+
   _updateDebugFlag() {
     try {
       DEBUG =
         RIL_DEBUG.DEBUG_RIL ||
         Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
     } catch (e) {}
+  },
+
+  _updateAlwaysTryImsForEcc() {
+    try {
+      ALWAYS_TRY_IMS_FOR_EMERGENCY =
+        Services.prefs.getBoolPref(kPrefAlwaysTryImsForEcc) ||
+        ALWAYS_TRY_IMS_FOR_EMERGENCY;
+    } catch (e) {
+      ALWAYS_TRY_IMS_FOR_EMERGENCY = true;
+    }
   },
 
   _getDefaultServiceId() {
@@ -975,12 +993,15 @@ TelephonyService.prototype = {
   },
 
   // All calls in the conference is regarded as one conference call.
-  _numCallsOnLine(aClientId) {
+  _numCallsOnLine(aClientId, aRadioTech = -1) {
     let numCalls = 0;
     let hasConference = false;
 
     for (let cid in this._currentCalls[aClientId]) {
       let call = this._currentCalls[aClientId][cid];
+      if (aRadioTech !== -1 && call.radioTech !== aRadioTech) {
+        continue;
+      }
       if (call.isConference) {
         hasConference = true;
       } else {
@@ -1365,7 +1386,10 @@ TelephonyService.prototype = {
     }
     this._isDialing = true;
 
-    if (this._isImsClient(aClientId)) {
+    if (
+      this._isImsClient(aClientId) ||
+      this._useImsForEmergency(aOptions.isEmergency, aClientId)
+    ) {
       this._dialImsCall(aClientId, aOptions, aCallback);
       return;
     }
@@ -3385,8 +3409,7 @@ TelephonyService.prototype = {
           ")"
       );
     }
-    /*this._notifyAllListeners("srvccStateNotification",
-                             [aClientId, aState]);*/
+    this._notifyAllListeners("notifySrvccState", [aClientId, aState]);
   },
 
   notifyUssdReceived(aClientId, aMessage, aSessionEnded) {
@@ -3506,6 +3529,8 @@ TelephonyService.prototype = {
           this.defaultServiceId = this._getDefaultServiceId();
         } else if (aData === kPrefTwoDigitShortCodes) {
           this._updateTwoDigitShortCodes();
+        } else if (aData == kPrefAlwaysTryImsForEcc) {
+          this._updateAlwaysTryImsForEcc();
         }
         break;
 
@@ -3591,8 +3616,10 @@ TelephonyService.prototype = {
   _initImsPhones() {
     this._imsPhones = [];
     for (let index = 0; index < this._numClients; index++) {
-      let imsPhone = gImsPhoneService.getPhoneByServiceId(index);
-      this._imsPhones.push(imsPhone);
+      if (this._isImsClient(index)) {
+        let imsPhone = gImsPhoneService.getPhoneByServiceId(index);
+        this._imsPhones.push(imsPhone);
+      }
     }
   },
 
@@ -3745,6 +3772,27 @@ TelephonyService.prototype = {
 
   _isTwoDigitShortCode(aNumber) {
     return this._twoDigitShortCodes.includes(aNumber);
+  },
+
+  _useImsForEmergency(aIsEmergency, aClientId) {
+    if (!aIsEmergency) {
+      return false;
+    }
+
+    // This is a workaround for CS + PS call issue.
+    // We are not capable to handle CS + PS calls in same slot imultaneously.
+    // TBD. to create CS, PS call trackers spearately and a call manager to
+    // manage call trackers.
+    if (
+      this._numCallsOnLine(aClientId, Ci.nsITelephonyCallInfo.RADIO_TECH_CS)
+    ) {
+      if (DEBUG) {
+        debug("don't use IMS for ECC due to CS call is ongoing");
+      }
+      return false;
+    }
+
+    return ALWAYS_TRY_IMS_FOR_EMERGENCY && gImsRegService.isServiceReady();
   },
 };
 

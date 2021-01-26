@@ -158,6 +158,7 @@ def Libxul(name, output_category=None):
             "android.system.wifi.keystore@1.0",
             "binder_b2g_connectivity_interface-cpp",
             "binder_b2g_telephony_interface-cpp",
+            "binder_b2g_remotesimunlock_interface-cpp",
             "dnsresolver_aidl_interface-V2-cpp",
             "netd_aidl_interface-V2-cpp",
             "netd_event_listener_interface-V1-cpp",

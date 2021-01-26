@@ -23,8 +23,13 @@
 using namespace mozilla;
 USING_BLUETOOTH_NAMESPACE
 // AVRC_ID op code follows bluedroid avrc_defs.h
+#define AVRC_ID_PLAY 0x44
+#define AVRC_ID_STOP 0x45
+#define AVRC_ID_PAUSE 0x46
 #define AVRC_ID_REWIND 0x48
 #define AVRC_ID_FAST_FOR 0x49
+#define AVRC_ID_FORWARD 0x4B
+#define AVRC_ID_BACKWARD 0x4C
 #define AVRC_KEY_PRESS_STATE 1
 #define AVRC_KEY_RELEASE_STATE 0
 // bluedroid bt_rc.h
@@ -812,12 +817,31 @@ void BluetoothAvrcpManager::PassthroughCmdNotification(uint8_t aId,
                                                        uint8_t aKeyState) {
   MOZ_ASSERT(NS_IsMainThread());
 
-  // Fast-forward and rewind key events won't be generated from bluedroid
-  // stack after ANDROID_VERSION > 18, but via passthrough callback.
   nsAutoString name;
   NS_ENSURE_TRUE_VOID(aKeyState == AVRC_KEY_PRESS_STATE ||
                       aKeyState == AVRC_KEY_RELEASE_STATE);
   switch (aId) {
+    case AVRC_ID_PLAY:
+      if (aKeyState == AVRC_KEY_PRESS_STATE) {
+        name.AssignLiteral("media-play-button-press");
+      } else {
+        name.AssignLiteral("media-play-button-release");
+      }
+      break;
+    case AVRC_ID_STOP:
+      if (aKeyState == AVRC_KEY_PRESS_STATE) {
+        name.AssignLiteral("media-stop-button-press");
+      } else {
+        name.AssignLiteral("media-stop-button-release");
+      }
+      break;
+    case AVRC_ID_PAUSE:
+      if (aKeyState == AVRC_KEY_PRESS_STATE) {
+        name.AssignLiteral("media-pause-button-press");
+      } else {
+        name.AssignLiteral("media-pause-button-release");
+      }
+      break;
     case AVRC_ID_FAST_FOR:
       if (aKeyState == AVRC_KEY_PRESS_STATE) {
         name.AssignLiteral("media-fast-forward-button-press");
@@ -830,6 +854,20 @@ void BluetoothAvrcpManager::PassthroughCmdNotification(uint8_t aId,
         name.AssignLiteral("media-rewind-button-press");
       } else {
         name.AssignLiteral("media-rewind-button-release");
+      }
+      break;
+    case AVRC_ID_FORWARD:
+      if (aKeyState == AVRC_KEY_PRESS_STATE) {
+        name.AssignLiteral("media-next-track-button-press");
+      } else {
+        name.AssignLiteral("media-next-track-button-release");
+      }
+      break;
+    case AVRC_ID_BACKWARD:
+      if (aKeyState == AVRC_KEY_PRESS_STATE) {
+        name.AssignLiteral("media-previous-track-press");
+      } else {
+        name.AssignLiteral("media-previous-track-release");
       }
       break;
     default:

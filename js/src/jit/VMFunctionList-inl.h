@@ -109,7 +109,6 @@ namespace jit {
   _(DelPropOperationNonStrict, js::DelPropOperation<false>)                    \
   _(DelPropOperationStrict, js::DelPropOperation<true>)                        \
   _(DeleteNameOperation, js::DeleteNameOperation)                              \
-  _(DirectEvalStringFromIon, js::DirectEvalStringFromIon)                      \
   _(DoCallFallback, js::jit::DoCallFallback)                                   \
   _(DoConcatStringObject, js::jit::DoConcatStringObject)                       \
   _(DoSpreadCallFallback, js::jit::DoSpreadCallFallback)                       \
@@ -132,8 +131,6 @@ namespace jit {
   _(GetSparseElementHelper, js::GetSparseElementHelper)                        \
   _(GlobalDeclInstantiationFromIon, js::jit::GlobalDeclInstantiationFromIon)   \
   _(GlobalOrEvalDeclInstantiation, js::GlobalOrEvalDeclInstantiation)          \
-  _(GreaterThan, js::GreaterThan)                                              \
-  _(GreaterThanOrEqual, js::GreaterThanOrEqual)                                \
   _(HandleDebugTrap, js::jit::HandleDebugTrap)                                 \
   _(ImplicitThisOperation, js::ImplicitThisOperation)                          \
   _(ImportMetaOperation, js::ImportMetaOperation)                              \
@@ -172,11 +169,7 @@ namespace jit {
   _(Lambda, js::Lambda)                                                        \
   _(LambdaArrow, js::LambdaArrow)                                              \
   _(LeaveWith, js::jit::LeaveWith)                                             \
-  _(LessThan, js::LessThan)                                                    \
-  _(LessThanOrEqual, js::LessThanOrEqual)                                      \
   _(LexicalEnvironmentObjectCreate, js::LexicalEnvironmentObject::create)      \
-  _(LooselyEqual, js::jit::LooselyEqual<js::jit::EqualityKind::Equal>)         \
-  _(LooselyNotEqual, js::jit::LooselyEqual<js::jit::EqualityKind::NotEqual>)   \
   _(MakeDefaultConstructor, js::MakeDefaultConstructor)                        \
   _(MutatePrototype, js::jit::MutatePrototype)                                 \
   _(NamedLambdaObjectCreateTemplateObject,                                     \
@@ -199,7 +192,6 @@ namespace jit {
     js::NewTypedArrayWithTemplateAndLength)                                    \
   _(NormalSuspend, js::jit::NormalSuspend)                                     \
   _(NumberToString, js::NumberToString<CanGC>)                                 \
-  _(ObjectClassToString, js::ObjectClassToString)                              \
   _(ObjectCreateWithTemplate, js::ObjectCreateWithTemplate)                    \
   _(ObjectWithProtoOperation, js::ObjectWithProtoOperation)                    \
   _(OnDebuggerStatement, js::jit::OnDebuggerStatement)                         \
@@ -218,7 +210,6 @@ namespace jit {
   _(RegExpMatcherRaw, js::RegExpMatcherRaw)                                    \
   _(RegExpSearcherRaw, js::RegExpSearcherRaw)                                  \
   _(RegExpTesterRaw, js::RegExpTesterRaw)                                      \
-  _(SameValue, js::SameValue)                                                  \
   _(SetArrayLength, js::jit::SetArrayLength)                                   \
   _(SetDenseElement, js::jit::SetDenseElement)                                 \
   _(SetFunctionName, js::SetFunctionName)                                      \
@@ -226,8 +217,6 @@ namespace jit {
   _(SetObjectElementWithReceiver, js::SetObjectElementWithReceiver)            \
   _(SetPropertySuper, js::SetPropertySuper)                                    \
   _(StartDynamicModuleImport, js::StartDynamicModuleImport)                    \
-  _(StrictlyEqual, js::jit::StrictlyEqual<js::jit::EqualityKind::Equal>)       \
-  _(StrictlyNotEqual, js::jit::StrictlyEqual<js::jit::EqualityKind::NotEqual>) \
   _(StringBigIntGreaterThanOrEqual,                                            \
     js::jit::StringBigIntCompare<js::jit::ComparisonKind::GreaterThanOrEqual>) \
   _(StringBigIntLessThan,                                                      \
@@ -258,7 +247,6 @@ namespace jit {
   _(ThrowRuntimeLexicalError, js::jit::ThrowRuntimeLexicalError)               \
   _(ThrowUninitializedThis, js::ThrowUninitializedThis)                        \
   _(ToBigInt, js::ToBigInt)                                                    \
-  _(ToObjectSlow, js::ToObjectSlow)                                            \
   _(ToStringSlow, js::ToStringSlow<CanGC>)
 
 // The list below is for tail calls. The third argument specifies the number of

@@ -313,7 +313,7 @@ class _ToolbarPanelHub {
       );
     }
 
-    const wrapperEl = RemoteL10n.createElement(doc, "button");
+    const wrapperEl = RemoteL10n.createElement(doc, "div");
     wrapperEl.doCommand = () => this._dispatchUserAction(win, message);
     wrapperEl.classList.add("whatsNew-message-body");
     messageEl.appendChild(wrapperEl);
@@ -529,7 +529,6 @@ class _ToolbarPanelHub {
     ) {
       this._sendPing({
         message_id: message.id,
-        bucket_id: message.id,
         event,
         event_context: options.value,
       });

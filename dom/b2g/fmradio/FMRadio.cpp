@@ -403,7 +403,7 @@ void FMRadio::DisableAudioChannelAgent() {
 }
 
 NS_IMETHODIMP FMRadio::WindowVolumeChanged(float aVolume, bool aMuted) {
-  // TODO: what about the volume?
+  IFMRadioService::Singleton()->SetVolume(aMuted ? 0.0f : aVolume);
   return NS_OK;
 }
 

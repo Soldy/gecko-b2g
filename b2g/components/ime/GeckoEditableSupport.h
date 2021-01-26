@@ -49,9 +49,7 @@ class GeckoEditableSupport final : public TextEventDispatcherListener,
 
   // TextEventDispatcherListener methods
   NS_IMETHOD NotifyIME(TextEventDispatcher* aTextEventDispatcher,
-                       const IMENotification& aNotification) override {
-    return NS_OK;
-  }
+                       const IMENotification& aNotification) override;
 
   NS_IMETHOD_(IMENotificationRequests) GetIMENotificationRequests() override {
     return IMENotificationRequests(
@@ -72,6 +70,7 @@ class GeckoEditableSupport final : public TextEventDispatcherListener,
   void HandleFocus();
   void HandleBlur();
   nsresult GetInputContextBag(dom::nsInputContext* aInputContext);
+  void HandleTextChanged();
 
  private:
   void EnsureServiceChild();

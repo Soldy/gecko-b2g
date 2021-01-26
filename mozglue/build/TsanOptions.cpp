@@ -102,6 +102,8 @@ extern "C" const char* __tsan_default_suppressions() {
          "deadlock:third_party/rust/rkv/src/env.rs\n"
          // Bug 1680655 - permanent
          "deadlock:EncryptedClientHelloServer\n"
+         // Bug 1682861 - permanent
+         "deadlock:nsDOMWindowUtils::CompareCanvases\n"
 
 
 
@@ -181,10 +183,10 @@ extern "C" const char* __tsan_default_suppressions() {
          //
          // Probably a false-positive from crossbeam's deque not being
          // understood by tsan.
-         "race:crossbeam_deque::Worker*::resize\n"
-         "race:crossbeam_deque::Worker*::push\n"
-         "race:crossbeam_deque::Buffer*::write\n"
-         "race:crossbeam_deque::Buffer*::read\n"
+         "race:crossbeam_deque*::resize\n"
+         "race:crossbeam_deque*::push\n"
+         "race:crossbeam_deque*::write\n"
+         "race:crossbeam_deque*::read\n"
 
 
 
@@ -217,9 +219,6 @@ extern "C" const char* __tsan_default_suppressions() {
          "race:nsSocketTransport::OnMsgInputClosed\n"
          "race:nsSocketTransport::OpenOutputStream\n"
 
-         // Bug 1607138
-         "race:gXPCOMThreadsShutDown\n"
-
          // Bug 1615017
          "race:CacheFileMetadata::SetHash\n"
          "race:CacheFileMetadata::OnDataWritten\n"
@@ -249,11 +248,6 @@ extern "C" const char* __tsan_default_suppressions() {
 
          // Bug 1652530
          "mutex:XErrorTrap\n"
-
-         // Bug 1671572
-         "race:IdentifyTextureHost\n"
-         "race:GetCompositorBackendType\n"
-         "race:SupportsTextureDirectMapping\n"
 
          // Bug 1671601
          "race:CamerasParent::ActorDestroy\n"
@@ -292,17 +286,16 @@ extern "C" const char* __tsan_default_suppressions() {
          "race:nsTimerImpl::Shutdown\n"
          "race:nsTimerImpl::CancelImpl\n"
 
-         // Bug 1645696
-         "race:nsHttpHandler::PrefsChanged\n"
-         "race:nsHttpConnection::Activate\n"
-
          // Bug 1682951
          "race:storage::Connection::Release\n"
 
-         // Bug 1682948
-         "race:CacheEntry::OpenOutputStream\n"
-         "race:CacheEntry::GetSecurityInfo\n"
-         "race:CacheEntry::GetIsForcedValid\n"
+         // Bug 1682928
+         "race:EventSourceImpl::OnStopRequest\n"
+         "race:UpdateDontKeepAlive\n"
+
+         // Bug 1683357
+         "race:image::ImageSurfaceCache::SuggestedSizeInternal\n"
+         "race:image::RasterImage::SetMetadata\n"
 
       // End of suppressions.
       ;  // Please keep this semicolon.

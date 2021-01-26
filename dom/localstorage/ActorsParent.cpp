@@ -71,6 +71,7 @@
 #include "mozilla/dom/StorageDBUpdater.h"
 #include "mozilla/dom/StorageUtils.h"
 #include "mozilla/dom/ipc/IdType.h"
+#include "mozilla/dom/quota/CachingDatabaseConnection.h"
 #include "mozilla/dom/quota/CheckedUnsafePtr.h"
 #include "mozilla/dom/quota/Client.h"
 #include "mozilla/dom/quota/OriginScope.h"
@@ -337,9 +338,9 @@ const uint32_t kShadowMaxWALSize = 512 * 1024;
 
 const uint32_t kShadowJournalSizeLimit = kShadowMaxWALSize * 3;
 
-bool IsOnConnectionThread();
+bool IsOnGlobalConnectionThread();
 
-void AssertIsOnConnectionThread();
+void AssertIsOnGlobalConnectionThread();
 
 /*******************************************************************************
  * SQLite functions
@@ -356,39 +357,30 @@ nsCString GetArchivedOriginHashKey(const nsACString& aOriginSuffix,
 }
 
 nsresult CreateTables(mozIStorageConnection* aConnection) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(aConnection);
 
   // Table `database`
-  nsresult rv = aConnection->ExecuteSimpleSQL(
-      nsLiteralCString("CREATE TABLE database"
-                       "( origin TEXT NOT NULL"
-                       ", usage INTEGER NOT NULL DEFAULT 0"
-                       ", last_vacuum_time INTEGER NOT NULL DEFAULT 0"
-                       ", last_analyze_time INTEGER NOT NULL DEFAULT 0"
-                       ", last_vacuum_size INTEGER NOT NULL DEFAULT 0"
-                       ");"));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL(
+      "CREATE TABLE database"
+      "( origin TEXT NOT NULL"
+      ", usage INTEGER NOT NULL DEFAULT 0"
+      ", last_vacuum_time INTEGER NOT NULL DEFAULT 0"
+      ", last_analyze_time INTEGER NOT NULL DEFAULT 0"
+      ", last_vacuum_size INTEGER NOT NULL DEFAULT 0"
+      ");"_ns));
 
   // Table `data`
-  rv = aConnection->ExecuteSimpleSQL(
-      nsLiteralCString("CREATE TABLE data"
-                       "( key TEXT PRIMARY KEY"
-                       ", value TEXT NOT NULL"
-                       ", utf16Length INTEGER NOT NULL DEFAULT 0"
-                       ", compressed INTEGER NOT NULL DEFAULT 0"
-                       ", lastAccessTime INTEGER NOT NULL DEFAULT 0"
-                       ");"));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL(
+      "CREATE TABLE data"
+      "( key TEXT PRIMARY KEY"
+      ", value TEXT NOT NULL"
+      ", utf16Length INTEGER NOT NULL DEFAULT 0"
+      ", compressed INTEGER NOT NULL DEFAULT 0"
+      ", lastAccessTime INTEGER NOT NULL DEFAULT 0"
+      ");"_ns));
 
-  rv = aConnection->SetSchemaVersion(kSQLiteSchemaVersion);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->SetSchemaVersion(kSQLiteSchemaVersion));
 
   return NS_OK;
 }
@@ -397,24 +389,15 @@ nsresult UpgradeSchemaFrom1_0To2_0(mozIStorageConnection* aConnection) {
   AssertIsOnIOThread();
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->ExecuteSimpleSQL(nsLiteralCString(
-      "ALTER TABLE database ADD COLUMN usage INTEGER NOT NULL DEFAULT 0;"));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL(
+      "ALTER TABLE database ADD COLUMN usage INTEGER NOT NULL DEFAULT 0;"_ns));
 
-  rv = aConnection->ExecuteSimpleSQL(nsLiteralCString(
+  LS_TRY(aConnection->ExecuteSimpleSQL(
       "UPDATE database "
       "SET usage = (SELECT total(utf16Length(key) + utf16Length(value)) "
-      "FROM data);"));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+      "FROM data);"_ns));
 
-  rv = aConnection->SetSchemaVersion(MakeSchemaVersion(2, 0));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->SetSchemaVersion(MakeSchemaVersion(2, 0)));
 
   return NS_OK;
 }
@@ -423,22 +406,13 @@ nsresult UpgradeSchemaFrom2_0To3_0(mozIStorageConnection* aConnection) {
   AssertIsOnIOThread();
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->ExecuteSimpleSQL(nsLiteralCString(
-      "ALTER TABLE data ADD COLUMN utf16Length INTEGER NOT NULL DEFAULT 0;"));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL(
+      "ALTER TABLE data ADD COLUMN utf16Length INTEGER NOT NULL DEFAULT 0;"_ns));
 
-  rv = aConnection->ExecuteSimpleSQL(
-      "UPDATE data SET utf16Length = utf16Length(value);"_ns);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL(
+      "UPDATE data SET utf16Length = utf16Length(value);"_ns));
 
-  rv = aConnection->SetSchemaVersion(MakeSchemaVersion(3, 0));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->SetSchemaVersion(MakeSchemaVersion(3, 0)));
 
   return NS_OK;
 }
@@ -447,10 +421,7 @@ nsresult UpgradeSchemaFrom3_0To4_0(mozIStorageConnection* aConnection) {
   AssertIsOnIOThread();
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->SetSchemaVersion(MakeSchemaVersion(4, 0));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->SetSchemaVersion(MakeSchemaVersion(4, 0)));
 
   return NS_OK;
 }
@@ -459,31 +430,26 @@ nsresult SetDefaultPragmas(mozIStorageConnection* aConnection) {
   MOZ_ASSERT(!NS_IsMainThread());
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->ExecuteSimpleSQL("PRAGMA synchronous = FULL;"_ns);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL("PRAGMA synchronous = FULL;"_ns));
 
 #ifndef LS_MOBILE
   if (kSQLiteGrowthIncrement) {
     // This is just an optimization so ignore the failure if the disk is
     // currently too full.
-    rv = aConnection->SetGrowthIncrement(kSQLiteGrowthIncrement, ""_ns);
-    if (rv != NS_ERROR_FILE_TOO_BIG && NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(
+        ToResult(aConnection->SetGrowthIncrement(kSQLiteGrowthIncrement, ""_ns))
+            .orElse(ErrToDefaultOkOrErr<NS_ERROR_FILE_TOO_BIG, Ok>));
   }
 #endif  // LS_MOBILE
 
   return NS_OK;
 }
 
-// In case of success, returns a pair of the connection and a boolean that
-// indicates whether a usage file existed and has been removed.
-Result<std::pair<nsCOMPtr<mozIStorageConnection>, bool>, nsresult>
-CreateStorageConnection(nsIFile& aDBFile, nsIFile& aUsageFile,
-                        const nsACString& aOrigin) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+template <typename CorruptedFileHandler>
+Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateStorageConnection(
+    nsIFile& aDBFile, nsIFile& aUsageFile, const nsACString& aOrigin,
+    CorruptedFileHandler&& aCorruptedFileHandler) {
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
 
   // XXX Common logic should be refactored out of this method and
   // cache::DBAction::OpenDBConnection, and maybe other similar functions.
@@ -493,47 +459,39 @@ CreateStorageConnection(nsIFile& aDBFile, nsIFile& aUsageFile,
       ToResultGet<nsCOMPtr<mozIStorageService>>(
           MOZ_SELECT_OVERLOAD(do_GetService), MOZ_STORAGE_SERVICE_CONTRACTID));
 
-  // XXX removedUsageFile could be const
   LS_TRY_UNWRAP(
-      (auto [connection, removedUsageFile]),
+      auto connection,
       MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>,
                                  storageService, OpenDatabase, &aDBFile)
-          .map([](auto connection) { return std::pair(connection, false); })
-          .orElse(
-              [&aUsageFile, &aDBFile, &storageService](const nsresult rv)
-                  -> Result<std::pair<nsCOMPtr<mozIStorageConnection>, bool>,
-                            nsresult> {
-                if (rv == NS_ERROR_FILE_CORRUPTED) {
-                  // Remove the usage file first (it might not exist at all due
-                  // to corrupted state, which is ignored here).
-                  LS_TRY(
-                      ToResult(aUsageFile.Remove(false))
-                          .orElse(
-                              [](const nsresult rv) -> Result<Ok, nsresult> {
-                                if (rv == NS_ERROR_FILE_NOT_FOUND ||
-                                    rv == NS_ERROR_FILE_TARGET_DOES_NOT_EXIST) {
-                                  return Ok{};
-                                }
+          .orElse([&aUsageFile, &aDBFile, &aCorruptedFileHandler,
+                   &storageService](const nsresult rv)
+                      -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
+            if (rv == NS_ERROR_FILE_CORRUPTED) {
+              // Remove the usage file first (it might not exist at all due
+              // to corrupted state, which is ignored here).
+              LS_TRY(ToResult(aUsageFile.Remove(false))
+                         .orElse([](const nsresult rv) -> Result<Ok, nsresult> {
+                           if (rv == NS_ERROR_FILE_NOT_FOUND ||
+                               rv == NS_ERROR_FILE_TARGET_DOES_NOT_EXIST) {
+                             return Ok{};
+                           }
 
-                                return Err(rv);
-                              }));
+                           return Err(rv);
+                         }));
 
-                  // Nuke the database file.
-                  LS_TRY(aDBFile.Remove(false));
+              // Call the corrupted file handler before trying to remove the
+              // database file, which might fail.
+              std::forward<CorruptedFileHandler>(aCorruptedFileHandler)();
 
-                  LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(
-                                    nsCOMPtr<mozIStorageConnection>,
-                                    storageService, OpenDatabase, &aDBFile)
-                                    .map([](auto connection) {
-                                      return std::pair(
-                                          connection,
-                                          // Let the caller know that the usage
-                                          // file has been removed.
-                                          true);
-                                    }));
-                }
-                return Err(rv);
-              }));
+              // Nuke the database file.
+              LS_TRY(aDBFile.Remove(false));
+
+              LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(
+                  nsCOMPtr<mozIStorageConnection>, storageService, OpenDatabase,
+                  &aDBFile));
+            }
+            return Err(rv);
+          }));
 
   LS_TRY(SetDefaultPragmas(connection));
 
@@ -649,131 +607,96 @@ CreateStorageConnection(nsIFile& aDBFile, nsIFile& aUsageFile,
     }
   }
 
-  return std::pair{std::move(connection), removedUsageFile};
+  return connection;
 }
 
-nsresult GetStorageConnection(const nsAString& aDatabaseFilePath,
-                              mozIStorageConnection** aConnection) {
-  AssertIsOnConnectionThread();
+Result<nsCOMPtr<mozIStorageConnection>, nsresult> GetStorageConnection(
+    const nsAString& aDatabaseFilePath) {
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(!aDatabaseFilePath.IsEmpty());
   MOZ_ASSERT(StringEndsWith(aDatabaseFilePath, u".sqlite"_ns));
-  MOZ_ASSERT(aConnection);
 
-  auto databaseFileOrErr = QM_NewLocalFile(aDatabaseFilePath);
-  if (NS_WARN_IF(databaseFileOrErr.isErr())) {
-    return databaseFileOrErr.unwrapErr();
-  }
+  LS_TRY_INSPECT(const auto& databaseFile, QM_NewLocalFile(aDatabaseFilePath));
 
-  nsCOMPtr<nsIFile> databaseFile = databaseFileOrErr.unwrap();
+  LS_TRY_INSPECT(const bool& exists,
+                 MOZ_TO_RESULT_INVOKE(databaseFile, Exists));
 
-  bool exists;
-  nsresult rv = databaseFile->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(OkIf(exists), Err(NS_ERROR_FAILURE));
 
-  if (NS_WARN_IF(!exists)) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY_INSPECT(const auto& ss, ToResultGet<nsCOMPtr<mozIStorageService>>(
+                                     MOZ_SELECT_OVERLOAD(do_GetService),
+                                     MOZ_STORAGE_SERVICE_CONTRACTID));
 
-  nsCOMPtr<mozIStorageService> ss =
-      do_GetService(MOZ_STORAGE_SERVICE_CONTRACTID, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_UNWRAP(auto connection,
+                MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>, ss,
+                                           OpenDatabase, databaseFile));
 
-  nsCOMPtr<mozIStorageConnection> connection;
-  rv = ss->OpenDatabase(databaseFile, getter_AddRefs(connection));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(SetDefaultPragmas(connection));
 
-  rv = SetDefaultPragmas(connection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  connection.forget(aConnection);
-  return NS_OK;
+  return connection;
 }
 
-nsresult GetArchiveFile(const nsAString& aStoragePath, nsIFile** aArchiveFile) {
+Result<nsCOMPtr<nsIFile>, nsresult> GetArchiveFile(
+    const nsAString& aStoragePath) {
   AssertIsOnIOThread();
   MOZ_ASSERT(!aStoragePath.IsEmpty());
-  MOZ_ASSERT(aArchiveFile);
 
-  auto archiveFileOrErr = QM_NewLocalFile(aStoragePath);
-  if (NS_WARN_IF(archiveFileOrErr.isErr())) {
-    return archiveFileOrErr.unwrapErr();
-  }
+  LS_TRY_UNWRAP(auto archiveFile, QM_NewLocalFile(aStoragePath));
 
-  nsCOMPtr<nsIFile> archiveFile = archiveFileOrErr.unwrap();
+  LS_TRY(archiveFile->Append(nsLiteralString(LS_ARCHIVE_FILE_NAME)));
 
-  nsresult rv = archiveFile->Append(nsLiteralString(LS_ARCHIVE_FILE_NAME));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  archiveFile.forget(aArchiveFile);
-  return NS_OK;
+  return archiveFile;
 }
 
-nsresult CreateArchiveStorageConnection(const nsAString& aStoragePath,
-                                        mozIStorageConnection** aConnection) {
+Result<nsCOMPtr<mozIStorageConnection>, nsresult>
+CreateArchiveStorageConnection(const nsAString& aStoragePath) {
   AssertIsOnIOThread();
   MOZ_ASSERT(!aStoragePath.IsEmpty());
-  MOZ_ASSERT(aConnection);
 
-  nsCOMPtr<nsIFile> archiveFile;
-  nsresult rv = GetArchiveFile(aStoragePath, getter_AddRefs(archiveFile));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& archiveFile, GetArchiveFile(aStoragePath));
 
   // QuotaManager ensures this file always exists.
   DebugOnly<bool> exists;
   MOZ_ASSERT(NS_SUCCEEDED(archiveFile->Exists(&exists)));
   MOZ_ASSERT(exists);
 
-  bool isDirectory;
-  rv = archiveFile->IsDirectory(&isDirectory);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const bool& isDirectory,
+                 MOZ_TO_RESULT_INVOKE(archiveFile, IsDirectory));
 
   if (isDirectory) {
     LS_WARNING("ls-archive is not a file!");
-    *aConnection = nullptr;
-    return NS_OK;
+    return nsCOMPtr<mozIStorageConnection>{};
   }
 
-  nsCOMPtr<mozIStorageService> ss =
-      do_GetService(MOZ_STORAGE_SERVICE_CONTRACTID, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+  LS_TRY_INSPECT(const auto& ss, ToResultGet<nsCOMPtr<mozIStorageService>>(
+                                     MOZ_SELECT_OVERLOAD(do_GetService),
+                                     MOZ_STORAGE_SERVICE_CONTRACTID));
+
+  LS_TRY_UNWRAP(
+      auto connection,
+      MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>, ss,
+                                 OpenUnsharedDatabase, archiveFile)
+          .orElse([](const nsresult rv)
+                      -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
+            if (rv == NS_ERROR_FILE_CORRUPTED) {
+              // Don't throw an error, leave a corrupted ls-archive database as
+              // it is.
+              return nsCOMPtr<mozIStorageConnection>{};
+            }
+
+            return Err(rv);
+          }));
+
+  if (connection) {
+    const nsresult rv = StorageDBUpdater::Update(connection);
+    if (NS_FAILED(rv)) {
+      // Don't throw an error, leave a non-updateable ls-archive database as
+      // it is.
+      return nsCOMPtr<mozIStorageConnection>{};
+    }
   }
 
-  nsCOMPtr<mozIStorageConnection> connection;
-  rv = ss->OpenUnsharedDatabase(archiveFile, getter_AddRefs(connection));
-  if (rv == NS_ERROR_FILE_CORRUPTED) {
-    // Don't throw an error, leave a corrupted ls-archive database as it is.
-    *aConnection = nullptr;
-    return NS_OK;
-  }
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = StorageDBUpdater::Update(connection);
-  if (NS_FAILED(rv)) {
-    // Don't throw an error, leave a non-updateable ls-archive database as
-    // it is.
-    *aConnection = nullptr;
-    return NS_OK;
-  }
-
-  connection.forget(aConnection);
-  return NS_OK;
+  return connection;
 }
 
 nsresult AttachArchiveDatabase(const nsAString& aStoragePath,
@@ -781,45 +704,28 @@ nsresult AttachArchiveDatabase(const nsAString& aStoragePath,
   AssertIsOnIOThread();
   MOZ_ASSERT(!aStoragePath.IsEmpty());
   MOZ_ASSERT(aConnection);
-  nsCOMPtr<nsIFile> archiveFile;
 
-  nsresult rv = GetArchiveFile(aStoragePath, getter_AddRefs(archiveFile));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& archiveFile, GetArchiveFile(aStoragePath));
 
 #ifdef DEBUG
-  bool exists;
-  rv = archiveFile->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  {
+    LS_TRY_INSPECT(const bool& exists,
+                   MOZ_TO_RESULT_INVOKE(archiveFile, Exists));
 
-  MOZ_ASSERT(exists);
+    MOZ_ASSERT(exists);
+  }
 #endif
 
-  nsString path;
-  rv = archiveFile->GetPath(path);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& path,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsString, archiveFile, GetPath));
 
-  nsCOMPtr<mozIStorageStatement> stmt;
-  rv = aConnection->CreateStatement("ATTACH DATABASE :path AS archive;"_ns,
-                                    getter_AddRefs(stmt));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& stmt,
+                 MOZ_TO_RESULT_INVOKE_TYPED(
+                     nsCOMPtr<mozIStorageStatement>, aConnection,
+                     CreateStatement, "ATTACH DATABASE :path AS archive;"_ns));
 
-  rv = stmt->BindStringByName("path"_ns, path);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(stmt->BindStringByName("path"_ns, path));
+  LS_TRY(stmt->Execute());
 
   return NS_OK;
 }
@@ -828,37 +734,24 @@ nsresult DetachArchiveDatabase(mozIStorageConnection* aConnection) {
   AssertIsOnIOThread();
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->ExecuteSimpleSQL("DETACH DATABASE archive"_ns);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL("DETACH DATABASE archive"_ns));
 
   return NS_OK;
 }
 
-nsresult GetShadowFile(const nsAString& aBasePath, nsIFile** aArchiveFile) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+Result<nsCOMPtr<nsIFile>, nsresult> GetShadowFile(const nsAString& aBasePath) {
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(!aBasePath.IsEmpty());
-  MOZ_ASSERT(aArchiveFile);
 
-  auto archiveFileOrErr = QM_NewLocalFile(aBasePath);
-  if (NS_WARN_IF(archiveFileOrErr.isErr())) {
-    return archiveFileOrErr.unwrapErr();
-  }
+  LS_TRY_UNWRAP(auto archiveFile, QM_NewLocalFile(aBasePath));
 
-  nsCOMPtr<nsIFile> archiveFile = archiveFileOrErr.unwrap();
+  LS_TRY(archiveFile->Append(nsLiteralString(WEB_APPS_STORE_FILE_NAME)));
 
-  nsresult rv = archiveFile->Append(nsLiteralString(WEB_APPS_STORE_FILE_NAME));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  archiveFile.forget(aArchiveFile);
-  return NS_OK;
+  return archiveFile;
 }
 
 nsresult SetShadowJournalMode(mozIStorageConnection* aConnection) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(aConnection);
 
   // Try enabling WAL mode. This can fail in various circumstances so we have to
@@ -870,11 +763,9 @@ nsresult SetShadowJournalMode(mozIStorageConnection* aConnection) {
                  CreateAndExecuteSingleStepStatement(
                      *aConnection, journalModeQueryStart + journalModeWAL));
 
-  nsCString journalMode;
-  nsresult rv = stmt->GetUTF8String(0, journalMode);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(
+      const auto& journalMode,
+      MOZ_TO_RESULT_INVOKE_TYPED(nsAutoCString, *stmt, GetUTF8String, 0));
 
   if (journalMode.Equals(journalModeWAL)) {
     // WAL mode successfully enabled. Set limits on its size here.
@@ -884,212 +775,142 @@ nsresult SetShadowJournalMode(mozIStorageConnection* aConnection) {
     LS_TRY_INSPECT(const auto& stmt, CreateAndExecuteSingleStepStatement(
                                          *aConnection, "PRAGMA page_size;"_ns));
 
-    int32_t pageSize;
-    rv = stmt->GetInt32(0, &pageSize);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY_INSPECT(const int32_t& pageSize,
+                   MOZ_TO_RESULT_INVOKE(*stmt, GetInt32, 0));
 
     MOZ_ASSERT(pageSize >= 512 && pageSize <= 65536);
 
-    const nsAutoCString pageCount =
-        IntToCString(static_cast<int32_t>(kShadowMaxWALSize / pageSize));
-
-    rv = aConnection->ExecuteSimpleSQL("PRAGMA wal_autocheckpoint = "_ns +
-                                       pageCount);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(aConnection->ExecuteSimpleSQL(
+        "PRAGMA wal_autocheckpoint = "_ns +
+        IntToCString(static_cast<int32_t>(kShadowMaxWALSize / pageSize))));
 
     // Set the maximum WAL log size to reduce footprint on mobile (large empty
     // WAL files will be truncated)
-    const nsAutoCString sizeLimit = IntToCString(kShadowJournalSizeLimit);
-
-    rv = aConnection->ExecuteSimpleSQL("PRAGMA journal_size_limit = "_ns +
-                                       sizeLimit);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(
+        aConnection->ExecuteSimpleSQL("PRAGMA journal_size_limit = "_ns +
+                                      IntToCString(kShadowJournalSizeLimit)));
   } else {
-    rv = aConnection->ExecuteSimpleSQL(journalModeQueryStart + "truncate"_ns);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(
+        aConnection->ExecuteSimpleSQL(journalModeQueryStart + "truncate"_ns));
   }
 
   return NS_OK;
 }
 
-nsresult CreateShadowStorageConnection(const nsAString& aBasePath,
-                                       mozIStorageConnection** aConnection) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateShadowStorageConnection(
+    const nsAString& aBasePath) {
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(!aBasePath.IsEmpty());
-  MOZ_ASSERT(aConnection);
 
-  nsCOMPtr<nsIFile> shadowFile;
-  nsresult rv = GetShadowFile(aBasePath, getter_AddRefs(shadowFile));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& shadowFile, GetShadowFile(aBasePath));
 
-  nsCOMPtr<mozIStorageService> ss =
-      do_GetService(MOZ_STORAGE_SERVICE_CONTRACTID, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& ss, ToResultGet<nsCOMPtr<mozIStorageService>>(
+                                     MOZ_SELECT_OVERLOAD(do_GetService),
+                                     MOZ_STORAGE_SERVICE_CONTRACTID));
 
-  nsCOMPtr<mozIStorageConnection> connection;
-  rv = ss->OpenUnsharedDatabase(shadowFile, getter_AddRefs(connection));
-  if (rv == NS_ERROR_FILE_CORRUPTED) {
-    rv = shadowFile->Remove(false);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+  LS_TRY_UNWRAP(
+      auto connection,
+      MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>, ss,
+                                 OpenUnsharedDatabase, shadowFile)
+          .orElse([&shadowFile, &ss](const nsresult rv)
+                      -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
+            if (rv == NS_ERROR_FILE_CORRUPTED) {
+              LS_TRY(shadowFile->Remove(false));
 
-    rv = ss->OpenUnsharedDatabase(shadowFile, getter_AddRefs(connection));
-  }
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+              LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(
+                  nsCOMPtr<mozIStorageConnection>, ss, OpenUnsharedDatabase,
+                  shadowFile));
+            }
 
-  rv = SetShadowJournalMode(connection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+            return Err(rv);
+          }));
 
-  rv = StorageDBUpdater::Update(connection);
-  if (NS_FAILED(rv)) {
-    rv = connection->Close();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+  LS_TRY(SetShadowJournalMode(connection));
 
-    rv = shadowFile->Remove(false);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+  LS_TRY(ToResult(StorageDBUpdater::Update(connection))
+             .orElse([&connection, &shadowFile,
+                      &ss](const nsresult) -> Result<Ok, nsresult> {
+               LS_TRY(connection->Close());
+               LS_TRY(shadowFile->Remove(false));
 
-    rv = ss->OpenUnsharedDatabase(shadowFile, getter_AddRefs(connection));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+               LS_TRY_UNWRAP(connection,
+                             MOZ_TO_RESULT_INVOKE_TYPED(
+                                 nsCOMPtr<mozIStorageConnection>, ss,
+                                 OpenUnsharedDatabase, shadowFile));
 
-    rv = SetShadowJournalMode(connection);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+               LS_TRY(SetShadowJournalMode(connection));
 
-    rv = StorageDBUpdater::Update(connection);
-  }
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+               LS_TRY(StorageDBUpdater::Update(connection));
 
-  connection.forget(aConnection);
-  return NS_OK;
+               return Ok{};
+             }));
+
+  return connection;
 }
 
-nsresult GetShadowStorageConnection(const nsAString& aBasePath,
-                                    mozIStorageConnection** aConnection) {
+Result<nsCOMPtr<mozIStorageConnection>, nsresult> GetShadowStorageConnection(
+    const nsAString& aBasePath) {
   AssertIsOnIOThread();
   MOZ_ASSERT(!aBasePath.IsEmpty());
-  MOZ_ASSERT(aConnection);
 
-  nsCOMPtr<nsIFile> shadowFile;
-  nsresult rv = GetShadowFile(aBasePath, getter_AddRefs(shadowFile));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& shadowFile, GetShadowFile(aBasePath));
 
-  bool exists;
-  rv = shadowFile->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const bool& exists, MOZ_TO_RESULT_INVOKE(shadowFile, Exists));
 
-  if (NS_WARN_IF(!exists)) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY(OkIf(exists), Err(NS_ERROR_FAILURE));
 
-  nsCOMPtr<mozIStorageService> ss =
-      do_GetService(MOZ_STORAGE_SERVICE_CONTRACTID, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& ss, ToResultGet<nsCOMPtr<mozIStorageService>>(
+                                     MOZ_SELECT_OVERLOAD(do_GetService),
+                                     MOZ_STORAGE_SERVICE_CONTRACTID));
 
-  nsCOMPtr<mozIStorageConnection> connection;
-  rv = ss->OpenUnsharedDatabase(shadowFile, getter_AddRefs(connection));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  connection.forget(aConnection);
-  return NS_OK;
+  LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>, ss,
+                                           OpenUnsharedDatabase, shadowFile));
 }
 
 nsresult AttachShadowDatabase(const nsAString& aBasePath,
                               mozIStorageConnection* aConnection) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(!aBasePath.IsEmpty());
   MOZ_ASSERT(aConnection);
 
-  nsCOMPtr<nsIFile> shadowFile;
-  nsresult rv = GetShadowFile(aBasePath, getter_AddRefs(shadowFile));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& shadowFile, GetShadowFile(aBasePath));
 
 #ifdef DEBUG
-  bool exists;
-  rv = shadowFile->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  {
+    LS_TRY_INSPECT(const bool& exists,
+                   MOZ_TO_RESULT_INVOKE(shadowFile, Exists));
 
-  MOZ_ASSERT(exists);
+    MOZ_ASSERT(exists);
+  }
 #endif
 
-  nsString path;
-  rv = shadowFile->GetPath(path);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& path,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsString, shadowFile, GetPath));
 
-  nsCOMPtr<mozIStorageStatement> stmt;
-  rv = aConnection->CreateStatement("ATTACH DATABASE :path AS shadow;"_ns,
-                                    getter_AddRefs(stmt));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& stmt,
+                 MOZ_TO_RESULT_INVOKE_TYPED(
+                     nsCOMPtr<mozIStorageStatement>, aConnection,
+                     CreateStatement, "ATTACH DATABASE :path AS shadow;"_ns));
 
-  rv = stmt->BindStringByName("path"_ns, path);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(stmt->BindStringByName("path"_ns, path));
 
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(stmt->Execute());
 
   return NS_OK;
 }
 
 nsresult DetachShadowDatabase(mozIStorageConnection* aConnection) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
 
-  nsresult rv = aConnection->ExecuteSimpleSQL("DETACH DATABASE shadow"_ns);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteSimpleSQL("DETACH DATABASE shadow"_ns));
 
   return NS_OK;
 }
 
 Result<nsCOMPtr<nsIFile>, nsresult> GetUsageFile(
     const nsAString& aDirectoryPath) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(!aDirectoryPath.IsEmpty());
 
   LS_TRY_UNWRAP(auto usageFile, QM_NewLocalFile(aDirectoryPath));
@@ -1101,7 +922,7 @@ Result<nsCOMPtr<nsIFile>, nsresult> GetUsageFile(
 
 Result<nsCOMPtr<nsIFile>, nsresult> GetUsageJournalFile(
     const nsAString& aDirectoryPath) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(!aDirectoryPath.IsEmpty());
 
   LS_TRY_UNWRAP(auto usageJournalFile, QM_NewLocalFile(aDirectoryPath));
@@ -1119,7 +940,7 @@ Result<bool, nsresult> ExistsAsFile(nsIFile& aFile) {
   // This is an optimization to check both properties in one OS case, rather
   // than calling Exists first, and then IsDirectory. IsDirectory also checks if
   // the path exists.
-  QM_TRY_INSPECT(
+  LS_TRY_INSPECT(
       const auto& res,
       MOZ_TO_RESULT_INVOKE(aFile, IsDirectory)
           .map([](const bool isDirectory) {
@@ -1135,14 +956,14 @@ Result<bool, nsresult> ExistsAsFile(nsIFile& aFile) {
                 return ExistsAsFileResult::DoesNotExist;
               }));
 
-  QM_TRY(OkIf(res != ExistsAsFileResult::IsDirectory), Err(NS_ERROR_FAILURE));
+  LS_TRY(OkIf(res != ExistsAsFileResult::IsDirectory), Err(NS_ERROR_FAILURE));
 
   return res == ExistsAsFileResult::IsFile;
 }
 
 nsresult UpdateUsageFile(nsIFile* aUsageFile, nsIFile* aUsageJournalFile,
                          int64_t aUsage) {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(aUsageFile);
   MOZ_ASSERT(aUsageJournalFile);
   MOZ_ASSERT(aUsage >= 0);
@@ -1218,8 +1039,9 @@ class DatastoreWriteOptimizer final : public LSWriteOptimizer<LSValue> {
  */
 class ConnectionWriteOptimizer final : public LSWriteOptimizer<LSValue> {
  public:
-  nsresult Perform(Connection* aConnection, bool aShadowWrites,
-                   int64_t& aOutUsage);
+  // Returns the usage as the success value.
+  Result<int64_t, nsresult> Perform(Connection* aConnection,
+                                    bool aShadowWrites);
 
  private:
   /**
@@ -1350,13 +1172,9 @@ class ConnectionDatastoreOperationBase : public DatastoreOperationBase {
   NS_DECL_NSIRUNNABLE
 };
 
-class Connection final {
+class Connection final : public CachingDatabaseConnection {
   friend class ConnectionThread;
 
- public:
-  class CachedStatement;
-
- private:
   class InitTemporaryOriginHelper;
 
   class FlushOp;
@@ -1365,10 +1183,7 @@ class Connection final {
   RefPtr<ConnectionThread> mConnectionThread;
   RefPtr<QuotaClient> mQuotaClient;
   nsCOMPtr<nsITimer> mFlushTimer;
-  nsCOMPtr<mozIStorageConnection> mStorageConnection;
   UniquePtr<ArchivedOriginScope> mArchivedOriginScope;
-  nsInterfaceHashtable<nsCStringHashKey, mozIStorageStatement>
-      mCachedStatements;
   ConnectionWriteOptimizer mWriteOptimizer;
   const QuotaInfo mQuotaInfo;
   nsString mDirectoryPath;
@@ -1444,15 +1259,12 @@ class Connection final {
   nsresult EnsureStorageConnection();
 
   mozIStorageConnection* StorageConnection() const {
-    AssertIsOnConnectionThread();
+    AssertIsOnGlobalConnectionThread();
 
-    return mStorageConnection;
+    return &MutableStorageConnection();
   }
 
   void CloseStorageConnection();
-
-  nsresult GetCachedStatement(const nsACString& aQuery,
-                              CachedStatement* aCachedStatement);
 
   nsresult BeginWriteTransaction();
 
@@ -1473,30 +1285,6 @@ class Connection final {
   void Flush();
 
   static void FlushTimerCallback(nsITimer* aTimer, void* aClosure);
-};
-
-class Connection::CachedStatement final {
-  friend class Connection;
-
-  nsCOMPtr<mozIStorageStatement> mStatement;
-  Maybe<mozStorageStatementScoper> mScoper;
-
- public:
-  CachedStatement();
-  ~CachedStatement();
-
-  operator mozIStorageStatement*() const;
-
-  mozIStorageStatement* operator->() const MOZ_NO_ADDREF_RELEASE_ON_RETURN;
-
- private:
-  // Only called by Connection.
-  void Assign(Connection* aConnection,
-              already_AddRefed<mozIStorageStatement> aStatement);
-
-  // No funny business allowed.
-  CachedStatement(const CachedStatement&) = delete;
-  CachedStatement& operator=(const CachedStatement&) = delete;
 };
 
 /**
@@ -1523,10 +1311,10 @@ class Connection::InitTemporaryOriginHelper final : public Runnable {
         mQuotaInfo(aQuotaInfo),
         mIOThreadResultCode(NS_OK),
         mWaiting(true) {
-    AssertIsOnConnectionThread();
+    AssertIsOnGlobalConnectionThread();
   }
 
-  nsresult BlockAndReturnOriginDirectoryPath(nsAString& aOriginDirectoryPath);
+  Result<nsString, nsresult> BlockAndReturnOriginDirectoryPath();
 
  private:
   ~InitTemporaryOriginHelper() = default;
@@ -1758,7 +1546,7 @@ class Datastore final
                                    const LSValue& aOldValue,
                                    const LSValue& aNewValue);
 
-  void NoteChangedObserverArray(const nsTArray<Observer*>& aObservers);
+  void NoteChangedObserverArray(const nsTArray<NotNull<Observer*>>& aObservers);
 
   void Stringify(nsACString& aResult) const;
 
@@ -2706,7 +2494,7 @@ class ArchivedOriginScope {
     return mData.as<Pattern>().GetPattern();
   }
 
-  void GetBindingClause(nsACString& aBindingClause) const;
+  nsLiteralCString GetBindingClause() const;
 
   nsresult BindToStatement(mozIStorageStatement* aStatement) const;
 
@@ -2762,7 +2550,7 @@ class QuotaClient final : public mozilla::dom::quota::Client {
   }
 
   mozilla::Mutex& ShadowDatabaseMutex() {
-    MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+    MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
 
     return mShadowDatabaseMutex;
   }
@@ -2818,9 +2606,8 @@ class QuotaClient final : public mozilla::dom::quota::Client {
   void ForceKillActors() override;
   void FinalizeShutdown() override;
 
-  nsresult CreateArchivedOriginScope(
-      const OriginScope& aOriginScope,
-      UniquePtr<ArchivedOriginScope>& aArchivedOriginScope);
+  Result<UniquePtr<ArchivedOriginScope>, nsresult> CreateArchivedOriginScope(
+      const OriginScope& aOriginScope);
 
   nsresult PerformDelete(mozIStorageConnection* aConnection,
                          const nsACString& aSchemaName,
@@ -2956,7 +2743,7 @@ typedef nsRefPtrHashtable<nsUint64HashKey, Observer> PreparedObserverHashtable;
 
 StaticAutoPtr<PreparedObserverHashtable> gPreparedObsevers;
 
-typedef nsClassHashtable<nsCStringHashKey, nsTArray<Observer*>>
+typedef nsClassHashtable<nsCStringHashKey, nsTArray<NotNull<Observer*>>>
     ObserverHashtable;
 
 StaticAutoPtr<ObserverHashtable> gObservers;
@@ -2974,12 +2761,12 @@ StaticAutoPtr<ArchivedOriginHashtable> gArchivedOrigins;
 // Can only be touched on the Quota Manager I/O thread.
 bool gInitializedShadowStorage = false;
 
-bool IsOnConnectionThread() {
+bool IsOnGlobalConnectionThread() {
   MOZ_ASSERT(gConnectionThread);
   return gConnectionThread->IsOnConnectionThread();
 }
 
-void AssertIsOnConnectionThread() {
+void AssertIsOnGlobalConnectionThread() {
   MOZ_ASSERT(gConnectionThread);
   gConnectionThread->AssertIsOnConnectionThread();
 }
@@ -3008,31 +2795,22 @@ nsresult LoadArchivedOrigins() {
   MOZ_ASSERT(quotaManager);
 
   // Ensure that the webappsstore.sqlite is moved to new place.
-  nsresult rv = quotaManager->EnsureStorageIsInitialized();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(quotaManager->EnsureStorageIsInitialized());
 
-  nsCOMPtr<mozIStorageConnection> connection;
-  rv = CreateArchiveStorageConnection(quotaManager->GetStoragePath(),
-                                      getter_AddRefs(connection));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& connection, CreateArchiveStorageConnection(
+                                             quotaManager->GetStoragePath()));
 
   if (!connection) {
     gArchivedOrigins = new ArchivedOriginHashtable();
     return NS_OK;
   }
 
-  nsCOMPtr<mozIStorageStatement> stmt;
-  rv = connection->CreateStatement(
-      nsLiteralCString("SELECT DISTINCT originAttributes, originKey "
-                       "FROM webappsstore2;"),
-      getter_AddRefs(stmt));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(
+      const auto& stmt,
+      MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageStatement>, connection,
+                                 CreateStatement,
+                                 "SELECT DISTINCT originAttributes, originKey "
+                                 "FROM webappsstore2;"_ns));
 
   auto archivedOrigins = MakeUnique<ArchivedOriginHashtable>();
 
@@ -3262,18 +3040,16 @@ bool VerifyOriginKey(const nsACString& aOriginKey,
                      const PrincipalInfo& aPrincipalInfo) {
   AssertIsOnBackgroundThread();
 
-  nsCString originAttrSuffix;
-  nsCString originKey;
-  nsresult rv = GenerateOriginKey2(aPrincipalInfo, originAttrSuffix, originKey);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
-  }
+  LS_TRY_INSPECT((const auto& [originAttrSuffix, originKey]),
+                 GenerateOriginKey2(aPrincipalInfo), false);
 
-  if (NS_WARN_IF(originKey != aOriginKey)) {
-    LS_WARNING("originKey (%s) doesn't match passed one (%s)!", originKey.get(),
-               nsCString(aOriginKey).get());
-    return false;
-  }
+  Unused << originAttrSuffix;
+
+  LS_TRY(OkIf(originKey == aOriginKey), false,
+         ([&originKey = originKey, &aOriginKey](const auto) {
+           LS_WARNING("originKey (%s) doesn't match passed one (%s)!",
+                      originKey.get(), nsCString(aOriginKey).get());
+         }));
 
   return true;
 }
@@ -3428,7 +3204,6 @@ bool RecvPBackgroundLSObserverConstructor(PBackgroundLSObserverParent* aActor,
 
   RefPtr<Observer> observer;
   gPreparedObsevers->Remove(aObserverId, observer.StartAssignment());
-  MOZ_ASSERT(observer);
 
   if (!gPreparedObsevers->Count()) {
     gPreparedObsevers = nullptr;
@@ -3438,12 +3213,14 @@ bool RecvPBackgroundLSObserverConstructor(PBackgroundLSObserverParent* aActor,
     gObservers = new ObserverHashtable();
   }
 
-  nsTArray<Observer*>* array;
-  if (!gObservers->Get(observer->Origin(), &array)) {
-    array = new nsTArray<Observer*>();
-    gObservers->Put(observer->Origin(), array);
+  const auto notNullObserver = WrapNotNull(observer.get());
+
+  nsTArray<NotNull<Observer*>>* array;
+  if (!gObservers->Get(notNullObserver->Origin(), &array)) {
+    array = new nsTArray<NotNull<Observer*>>();
+    gObservers->Put(notNullObserver->Origin(), array);
   }
-  array->AppendElement(observer);
+  array->AppendElement(notNullObserver);
 
   if (RefPtr<Datastore> datastore = GetDatastore(observer->Origin())) {
     datastore->NoteChangedObserverArray(*array);
@@ -3702,7 +3479,7 @@ void DatastoreWriteOptimizer::ApplyAndReset(
     }
   }
 
-  nsTArray<WriteInfo*> writeInfos;
+  nsTArray<NotNull<WriteInfo*>> writeInfos;
   GetSortedWriteInfos(writeInfos);
 
   for (WriteInfo* writeInfo : writeInfos) {
@@ -3722,50 +3499,40 @@ void DatastoreWriteOptimizer::ApplyAndReset(
  * ConnectionWriteOptimizer
  ******************************************************************************/
 
-nsresult ConnectionWriteOptimizer::Perform(Connection* aConnection,
-                                           bool aShadowWrites,
-                                           int64_t& aOutUsage) {
-  AssertIsOnConnectionThread();
+Result<int64_t, nsresult> ConnectionWriteOptimizer::Perform(
+    Connection* aConnection, bool aShadowWrites) {
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
 
   // The order of elements is not stored in the database, so write infos don't
   // need to be sorted before being processed.
 
-  nsresult rv;
-
   if (mTruncateInfo) {
-    rv = PerformTruncate(aConnection, aShadowWrites);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(PerformTruncate(aConnection, aShadowWrites));
   }
 
   for (auto iter = mWriteInfos.ConstIter(); !iter.Done(); iter.Next()) {
-    WriteInfo* writeInfo = iter.Data().get();
+    const WriteInfo* const writeInfo = iter.Data().get();
 
     switch (writeInfo->GetType()) {
       case WriteInfo::InsertItem:
       case WriteInfo::UpdateItem: {
-        auto insertItemInfo = static_cast<InsertItemInfo*>(writeInfo);
+        const auto* const insertItemInfo =
+            static_cast<const InsertItemInfo*>(writeInfo);
 
-        rv = PerformInsertOrUpdate(aConnection, aShadowWrites,
-                                   insertItemInfo->GetKey(),
-                                   insertItemInfo->GetValue());
-        if (NS_WARN_IF(NS_FAILED(rv))) {
-          return rv;
-        }
+        LS_TRY(PerformInsertOrUpdate(aConnection, aShadowWrites,
+                                     insertItemInfo->GetKey(),
+                                     insertItemInfo->GetValue()));
 
         break;
       }
 
       case WriteInfo::DeleteItem: {
-        auto deleteItemInfo = static_cast<DeleteItemInfo*>(writeInfo);
+        const auto* const deleteItemInfo =
+            static_cast<const DeleteItemInfo*>(writeInfo);
 
-        rv =
-            PerformDelete(aConnection, aShadowWrites, deleteItemInfo->GetKey());
-        if (NS_WARN_IF(NS_FAILED(rv))) {
-          return rv;
-        }
+        LS_TRY(PerformDelete(aConnection, aShadowWrites,
+                             deleteItemInfo->GetKey()));
 
         break;
       }
@@ -3775,139 +3542,73 @@ nsresult ConnectionWriteOptimizer::Perform(Connection* aConnection,
     }
   }
 
-  Connection::CachedStatement stmt;
-  rv = aConnection->GetCachedStatement(
-      nsLiteralCString("UPDATE database "
-                       "SET usage = usage + :delta"),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "UPDATE database "
+      "SET usage = usage + :delta"_ns,
+      [this](auto& stmt) -> Result<Ok, nsresult> {
+        LS_TRY(stmt.BindInt64ByName("delta"_ns, mTotalDelta));
 
-  rv = stmt->BindInt64ByName("delta"_ns, mTotalDelta);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& stmt, CreateAndExecuteSingleStepStatement<
+                                       SingleStepResult::ReturnNullIfNoResult>(
+                                       aConnection->MutableStorageConnection(),
+                                       "SELECT usage FROM database"_ns));
 
-  {
-    LS_TRY_INSPECT(const auto& stmt,
-                   CreateAndExecuteSingleStepStatement<
-                       SingleStepResult::ReturnNullIfNoResult>(
-                       *aConnection->StorageConnection(),
-                       "SELECT usage FROM database"_ns));
+  LS_TRY(OkIf(stmt), Err(NS_ERROR_FAILURE));
 
-    LS_TRY(OkIf(stmt), NS_ERROR_FAILURE);
-
-    int64_t usage;
-    rv = stmt->GetInt64(0, &usage);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    aOutUsage = usage;
-  }
-
-  return NS_OK;
+  LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE(*stmt, GetInt64, 0));
 }
 
 nsresult ConnectionWriteOptimizer::PerformInsertOrUpdate(
     Connection* aConnection, bool aShadowWrites, const nsAString& aKey,
     const LSValue& aValue) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
 
-  Connection::CachedStatement stmt;
-  nsresult rv = aConnection->GetCachedStatement(
-      nsLiteralCString(
-          "INSERT OR REPLACE INTO data (key, value, utf16Length, compressed) "
-          "VALUES(:key, :value, :utf16Length, :compressed)"),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "INSERT OR REPLACE INTO data (key, value, utf16Length, compressed) "
+      "VALUES(:key, :value, :utf16Length, :compressed)"_ns,
+      [&aKey, &aValue](auto& stmt) -> Result<Ok, nsresult> {
+        LS_TRY(stmt.BindStringByName("key"_ns, aKey));
+        LS_TRY(stmt.BindUTF8StringByName("value"_ns, aValue));
+        LS_TRY(stmt.BindInt32ByName("utf16Length"_ns, aValue.UTF16Length()));
+        LS_TRY(stmt.BindInt32ByName("compressed"_ns, aValue.IsCompressed()));
 
-  rv = stmt->BindStringByName("key"_ns, aKey);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->BindUTF8StringByName("value"_ns, aValue);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->BindInt32ByName("utf16Length"_ns, aValue.UTF16Length());
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->BindInt32ByName("compressed"_ns, aValue.IsCompressed());
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
   if (!aShadowWrites) {
     return NS_OK;
   }
 
-  rv = aConnection->GetCachedStatement(
-      nsLiteralCString(
-          "INSERT OR REPLACE INTO shadow.webappsstore2 "
-          "(originAttributes, originKey, scope, key, value) "
-          "VALUES (:originAttributes, :originKey, :scope, :key, :value) "),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "INSERT OR REPLACE INTO shadow.webappsstore2 "
+      "(originAttributes, originKey, scope, key, value) "
+      "VALUES (:originAttributes, :originKey, :scope, :key, :value) "_ns,
+      [&aConnection, &aKey, &aValue](auto& stmt) -> Result<Ok, nsresult> {
+        const ArchivedOriginScope* const archivedOriginScope =
+            aConnection->GetArchivedOriginScope();
 
-  ArchivedOriginScope* archivedOriginScope =
-      aConnection->GetArchivedOriginScope();
+        LS_TRY(archivedOriginScope->BindToStatement(&stmt));
 
-  rv = archivedOriginScope->BindToStatement(stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        LS_TRY(stmt.BindUTF8StringByName(
+            "scope"_ns, Scheme0Scope(archivedOriginScope->OriginSuffix(),
+                                     archivedOriginScope->OriginNoSuffix())));
 
-  nsCString scope = Scheme0Scope(archivedOriginScope->OriginSuffix(),
-                                 archivedOriginScope->OriginNoSuffix());
+        LS_TRY(stmt.BindStringByName("key"_ns, aKey));
 
-  rv = stmt->BindUTF8StringByName("scope"_ns, scope);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        if (aValue.IsCompressed()) {
+          nsCString value;
+          LS_TRY(OkIf(SnappyUncompress(aValue, value)), Err(NS_ERROR_FAILURE));
+          LS_TRY(stmt.BindUTF8StringByName("value"_ns, value));
+        } else {
+          LS_TRY(stmt.BindUTF8StringByName("value"_ns, aValue));
+        }
 
-  rv = stmt->BindStringByName("key"_ns, aKey);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  if (aValue.IsCompressed()) {
-    nsCString value;
-    if (NS_WARN_IF(!SnappyUncompress(aValue, value))) {
-      return NS_ERROR_FAILURE;
-    }
-    rv = stmt->BindUTF8StringByName("value"_ns, value);
-  } else {
-    rv = stmt->BindUTF8StringByName("value"_ns, aValue);
-  }
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
   return NS_OK;
 }
@@ -3915,98 +3616,58 @@ nsresult ConnectionWriteOptimizer::PerformInsertOrUpdate(
 nsresult ConnectionWriteOptimizer::PerformDelete(Connection* aConnection,
                                                  bool aShadowWrites,
                                                  const nsAString& aKey) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
 
-  Connection::CachedStatement stmt;
-  nsresult rv =
-      aConnection->GetCachedStatement(nsLiteralCString("DELETE FROM data "
-                                                       "WHERE key = :key;"),
-                                      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "DELETE FROM data "
+      "WHERE key = :key;"_ns,
+      [&aKey](auto& stmt) -> Result<Ok, nsresult> {
+        LS_TRY(stmt.BindStringByName("key"_ns, aKey));
 
-  rv = stmt->BindStringByName("key"_ns, aKey);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
   if (!aShadowWrites) {
     return NS_OK;
   }
 
-  rv = aConnection->GetCachedStatement(
-      nsLiteralCString("DELETE FROM shadow.webappsstore2 "
-                       "WHERE originAttributes = :originAttributes "
-                       "AND originKey = :originKey "
-                       "AND key = :key;"),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "DELETE FROM shadow.webappsstore2 "
+      "WHERE originAttributes = :originAttributes "
+      "AND originKey = :originKey "
+      "AND key = :key;"_ns,
+      [&aConnection, &aKey](auto& stmt) -> Result<Ok, nsresult> {
+        LS_TRY(aConnection->GetArchivedOriginScope()->BindToStatement(&stmt));
 
-  rv = aConnection->GetArchivedOriginScope()->BindToStatement(stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        LS_TRY(stmt.BindStringByName("key"_ns, aKey));
 
-  rv = stmt->BindStringByName("key"_ns, aKey);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
   return NS_OK;
 }
 
 nsresult ConnectionWriteOptimizer::PerformTruncate(Connection* aConnection,
                                                    bool aShadowWrites) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
 
-  Connection::CachedStatement stmt;
-  nsresult rv = aConnection->GetCachedStatement("DELETE FROM data;"_ns, &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement("DELETE FROM data;"_ns));
 
   if (!aShadowWrites) {
     return NS_OK;
   }
 
-  rv = aConnection->GetCachedStatement(
-      nsLiteralCString("DELETE FROM shadow.webappsstore2 "
-                       "WHERE originAttributes = :originAttributes "
-                       "AND originKey = :originKey;"),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->ExecuteCachedStatement(
+      "DELETE FROM shadow.webappsstore2 "
+      "WHERE originAttributes = :originAttributes "
+      "AND originKey = :originKey;"_ns,
+      [&aConnection](auto& stmt) -> Result<Ok, nsresult> {
+        LS_TRY(aConnection->GetArchivedOriginScope()->BindToStatement(&stmt));
 
-  rv = aConnection->GetArchivedOriginScope()->BindToStatement(stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+        return Ok{};
+      }));
 
   return NS_OK;
 }
@@ -4049,7 +3710,7 @@ void ConnectionDatastoreOperationBase::OnFailure(nsresult aResultCode) {
 }
 
 void ConnectionDatastoreOperationBase::RunOnConnectionThread() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
   MOZ_ASSERT(NS_SUCCEEDED(ResultCode()));
 
@@ -4065,7 +3726,7 @@ void ConnectionDatastoreOperationBase::RunOnConnectionThread() {
       if (NS_WARN_IF(NS_FAILED(rv))) {
         SetFailureCode(rv);
       } else {
-        MOZ_ASSERT(mConnection->StorageConnection());
+        MOZ_ASSERT(mConnection->HasStorageConnection());
       }
     }
 
@@ -4099,7 +3760,7 @@ void ConnectionDatastoreOperationBase::RunOnOwningThread() {
 
 NS_IMETHODIMP
 ConnectionDatastoreOperationBase::Run() {
-  if (IsOnConnectionThread()) {
+  if (IsOnGlobalConnectionThread()) {
     RunOnConnectionThread();
   } else {
     RunOnOwningThread();
@@ -4136,8 +3797,6 @@ Connection::Connection(ConnectionThread* aConnectionThread,
 
 Connection::~Connection() {
   AssertIsOnOwningThread();
-  MOZ_ASSERT(!mStorageConnection);
-  MOZ_ASSERT(!mCachedStatements.Count());
   MOZ_ASSERT(!mFlushScheduled);
   MOZ_ASSERT(!mInUpdateBatch);
   MOZ_ASSERT(mFinished);
@@ -4218,51 +3877,33 @@ void Connection::EndUpdateBatch() {
 }
 
 nsresult Connection::EnsureStorageConnection() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
 
-  if (mStorageConnection) {
+  if (HasStorageConnection()) {
     return NS_OK;
   }
-
-  nsresult rv;
 
   QuotaManager* quotaManager = QuotaManager::Get();
   MOZ_ASSERT(quotaManager);
 
   if (!mDatabaseWasNotAvailable || mHasCreatedDatabase) {
-    LS_TRY_UNWRAP(auto directoryEntry, quotaManager->GetDirectoryForOrigin(
-                                           PERSISTENCE_TYPE_DEFAULT, Origin()));
+    LS_TRY_INSPECT(const auto& directoryEntry,
+                   quotaManager->GetDirectoryForOrigin(PERSISTENCE_TYPE_DEFAULT,
+                                                       Origin()));
 
-    rv = directoryEntry->Append(
-        NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(directoryEntry->Append(
+        NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME)));
 
-    rv = directoryEntry->GetPath(mDirectoryPath);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(directoryEntry->GetPath(mDirectoryPath));
+    LS_TRY(directoryEntry->Append(kDataFileName));
 
-    rv = directoryEntry->Append(kDataFileName);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY_INSPECT(
+        const auto& databaseFilePath,
+        MOZ_TO_RESULT_INVOKE_TYPED(nsString, directoryEntry, GetPath));
 
-    nsString databaseFilePath;
-    rv = directoryEntry->GetPath(databaseFilePath);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    nsCOMPtr<mozIStorageConnection> storageConnection;
-    rv = GetStorageConnection(databaseFilePath,
-                              getter_AddRefs(storageConnection));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    mStorageConnection = storageConnection;
+    LS_TRY_UNWRAP(auto storageConnection,
+                  GetStorageConnection(databaseFilePath));
+    LazyInit(WrapMovingNotNull(std::move(storageConnection)));
 
     return NS_OK;
   }
@@ -4270,54 +3911,33 @@ nsresult Connection::EnsureStorageConnection() {
   RefPtr<InitTemporaryOriginHelper> helper =
       new InitTemporaryOriginHelper(mQuotaInfo);
 
-  nsString originDirectoryPath;
-  rv = helper->BlockAndReturnOriginDirectoryPath(originDirectoryPath);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& originDirectoryPath,
+                 helper->BlockAndReturnOriginDirectoryPath());
 
-  auto directoryEntryOrErr = QM_NewLocalFile(originDirectoryPath);
-  if (NS_WARN_IF(directoryEntryOrErr.isErr())) {
-    return directoryEntryOrErr.unwrapErr();
-  }
+  LS_TRY_INSPECT(const auto& directoryEntry,
+                 QM_NewLocalFile(originDirectoryPath));
 
-  nsCOMPtr<nsIFile> directoryEntry = directoryEntryOrErr.unwrap();
+  LS_TRY(directoryEntry->Append(
+      NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME)));
 
-  rv =
-      directoryEntry->Append(NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->GetPath(mDirectoryPath));
 
-  rv = directoryEntry->GetPath(mDirectoryPath);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  bool exists;
-  rv = directoryEntry->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const bool& exists,
+                 MOZ_TO_RESULT_INVOKE(directoryEntry, Exists));
 
   if (!exists) {
-    rv = directoryEntry->Create(nsIFile::DIRECTORY_TYPE, 0755);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(directoryEntry->Create(nsIFile::DIRECTORY_TYPE, 0755));
   }
 
-  rv = directoryEntry->Append(kDataFileName);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->Append(kDataFileName));
 
 #ifdef DEBUG
-  rv = directoryEntry->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+  {
+    LS_TRY_INSPECT(const bool& exists,
+                   MOZ_TO_RESULT_INVOKE(directoryEntry, Exists));
+
+    MOZ_ASSERT(!exists);
   }
-  MOZ_ASSERT(!exists);
 #endif
 
   LS_TRY_INSPECT(const auto& usageFile, GetUsageFile(mDirectoryPath));
@@ -4336,12 +3956,9 @@ nsresult Connection::EnsureStorageConnection() {
     }
   });
 
-  bool removedUsageFile;
-
-  LS_TRY_UNWRAP(std::tie(storageConnection, removedUsageFile),
-                CreateStorageConnection(*directoryEntry, *usageFile, Origin()));
-
-  MOZ_ASSERT(!removedUsageFile);
+  LS_TRY_UNWRAP(storageConnection,
+                CreateStorageConnection(*directoryEntry, *usageFile, Origin(),
+                                        [] { MOZ_ASSERT_UNREACHABLE(); }));
 
   MOZ_ASSERT(mQuotaClient);
 
@@ -4349,11 +3966,8 @@ nsresult Connection::EnsureStorageConnection() {
 
   nsCOMPtr<mozIStorageConnection> shadowConnection;
   if (!gInitializedShadowStorage) {
-    rv = CreateShadowStorageConnection(quotaManager->GetBasePath(),
-                                       getter_AddRefs(shadowConnection));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY_UNWRAP(shadowConnection,
+                  CreateShadowStorageConnection(quotaManager->GetBasePath()));
 
     gInitializedShadowStorage = true;
   }
@@ -4364,99 +3978,40 @@ nsresult Connection::EnsureStorageConnection() {
     mHasCreatedDatabase = true;
   }
 
-  mStorageConnection = storageConnection;
+  LazyInit(WrapMovingNotNull(std::move(storageConnection)));
 
   return NS_OK;
 }
 
 void Connection::CloseStorageConnection() {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(mStorageConnection);
+  AssertIsOnGlobalConnectionThread();
 
-  mCachedStatements.Clear();
-
-  MOZ_ALWAYS_SUCCEEDS(mStorageConnection->Close());
-  mStorageConnection = nullptr;
-}
-
-nsresult Connection::GetCachedStatement(const nsACString& aQuery,
-                                        CachedStatement* aCachedStatement) {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(!aQuery.IsEmpty());
-  MOZ_ASSERT(aCachedStatement);
-  MOZ_ASSERT(mStorageConnection);
-
-  nsCOMPtr<mozIStorageStatement> stmt;
-
-  if (!mCachedStatements.Get(aQuery, getter_AddRefs(stmt))) {
-    nsresult rv =
-        mStorageConnection->CreateStatement(aQuery, getter_AddRefs(stmt));
-    if (NS_FAILED(rv)) {
-#ifdef DEBUG
-      nsCString msg;
-      MOZ_ALWAYS_SUCCEEDS(mStorageConnection->GetLastErrorString(msg));
-
-      nsAutoCString error = "The statement '"_ns + aQuery +
-                            "' failed to compile with the error message '"_ns +
-                            msg + "'."_ns;
-
-      NS_WARNING(error.get());
-#endif
-      return rv;
-    }
-
-    mCachedStatements.Put(aQuery, stmt);
-  }
-
-  aCachedStatement->Assign(this, stmt.forget());
-  return NS_OK;
+  CachingDatabaseConnection::Close();
 }
 
 nsresult Connection::BeginWriteTransaction() {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(mStorageConnection);
+  AssertIsOnGlobalConnectionThread();
+  MOZ_ASSERT(HasStorageConnection());
 
-  CachedStatement stmt;
-  nsresult rv = GetCachedStatement("BEGIN IMMEDIATE;"_ns, &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(ExecuteCachedStatement("BEGIN IMMEDIATE;"_ns));
 
   return NS_OK;
 }
 
 nsresult Connection::CommitWriteTransaction() {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(mStorageConnection);
+  AssertIsOnGlobalConnectionThread();
+  MOZ_ASSERT(HasStorageConnection());
 
-  CachedStatement stmt;
-  nsresult rv = GetCachedStatement("COMMIT;"_ns, &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(ExecuteCachedStatement("COMMIT;"_ns));
 
   return NS_OK;
 }
 
 nsresult Connection::RollbackWriteTransaction() {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(mStorageConnection);
+  AssertIsOnGlobalConnectionThread();
+  MOZ_ASSERT(HasStorageConnection());
 
-  CachedStatement stmt;
-  nsresult rv = GetCachedStatement("ROLLBACK;"_ns, &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& stmt, BorrowCachedStatement("ROLLBACK;"_ns));
 
   // This may fail if SQLite already rolled back the transaction so ignore any
   // errors.
@@ -4506,49 +4061,9 @@ void Connection::FlushTimerCallback(nsITimer* aTimer, void* aClosure) {
   self->Flush();
 }
 
-Connection::CachedStatement::CachedStatement() {
-  AssertIsOnConnectionThread();
-
-  MOZ_COUNT_CTOR(Connection::CachedStatement);
-}
-
-Connection::CachedStatement::~CachedStatement() {
-  AssertIsOnConnectionThread();
-
-  MOZ_COUNT_DTOR(Connection::CachedStatement);
-}
-
-Connection::CachedStatement::operator mozIStorageStatement*() const {
-  AssertIsOnConnectionThread();
-
-  return mStatement;
-}
-
-mozIStorageStatement* Connection::CachedStatement::operator->() const {
-  AssertIsOnConnectionThread();
-  MOZ_ASSERT(mStatement);
-
-  return mStatement;
-}
-
-void Connection::CachedStatement::Assign(
-    Connection* aConnection,
-    already_AddRefed<mozIStorageStatement> aStatement) {
-  AssertIsOnConnectionThread();
-
-  mScoper.reset();
-
-  mStatement = aStatement;
-
-  if (mStatement) {
-    mScoper.emplace(mStatement);
-  }
-}
-
-nsresult
-Connection::InitTemporaryOriginHelper::BlockAndReturnOriginDirectoryPath(
-    nsAString& aOriginDirectoryPath) {
-  AssertIsOnConnectionThread();
+Result<nsString, nsresult>
+Connection::InitTemporaryOriginHelper::BlockAndReturnOriginDirectoryPath() {
+  AssertIsOnGlobalConnectionThread();
 
   QuotaManager* quotaManager = QuotaManager::Get();
   MOZ_ASSERT(quotaManager);
@@ -4561,12 +4076,9 @@ Connection::InitTemporaryOriginHelper::BlockAndReturnOriginDirectoryPath(
     lock.Wait();
   }
 
-  if (NS_WARN_IF(NS_FAILED(mIOThreadResultCode))) {
-    return mIOThreadResultCode;
-  }
+  LS_TRY(mIOThreadResultCode);
 
-  aOriginDirectoryPath = mOriginDirectoryPath;
-  return NS_OK;
+  return mOriginDirectoryPath;
 }
 
 nsresult Connection::InitTemporaryOriginHelper::RunOnIOThread() {
@@ -4581,10 +4093,7 @@ nsresult Connection::InitTemporaryOriginHelper::RunOnIOThread() {
                          PERSISTENCE_TYPE_DEFAULT, mQuotaInfo)
                      .map([](const auto& res) { return res.first; }));
 
-  nsresult rv = directoryEntry->GetPath(mOriginDirectoryPath);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->GetPath(mOriginDirectoryPath));
 
   return NS_OK;
 }
@@ -4614,21 +4123,15 @@ Connection::FlushOp::FlushOp(Connection* aConnection,
       mShadowWrites(gShadowWrites) {}
 
 nsresult Connection::FlushOp::DoDatastoreWork() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
 
   AutoWriteTransaction autoWriteTransaction(mShadowWrites);
 
-  nsresult rv = autoWriteTransaction.Start(mConnection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(autoWriteTransaction.Start(mConnection));
 
-  int64_t usage;
-  rv = mWriteOptimizer.Perform(mConnection, mShadowWrites, usage);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const int64_t& usage,
+                 mWriteOptimizer.Perform(mConnection, mShadowWrites));
 
   LS_TRY_INSPECT(const auto& usageFile,
                  GetUsageFile(mConnection->DirectoryPath()));
@@ -4636,20 +4139,11 @@ nsresult Connection::FlushOp::DoDatastoreWork() {
   LS_TRY_INSPECT(const auto& usageJournalFile,
                  GetUsageJournalFile(mConnection->DirectoryPath()));
 
-  rv = UpdateUsageFile(usageFile, usageJournalFile, usage);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(UpdateUsageFile(usageFile, usageJournalFile, usage));
 
-  rv = autoWriteTransaction.Commit();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(autoWriteTransaction.Commit());
 
-  rv = usageJournalFile->Remove(false);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(usageJournalFile->Remove(false));
 
   return NS_OK;
 }
@@ -4665,10 +4159,10 @@ void Connection::FlushOp::Cleanup() {
 }
 
 nsresult Connection::CloseOp::DoDatastoreWork() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
 
-  if (mConnection->StorageConnection()) {
+  if (mConnection->HasStorageConnection()) {
     mConnection->CloseStorageConnection();
   }
 
@@ -5377,7 +4871,7 @@ bool Datastore::HasOtherProcessObservers(Database* aDatabase) {
     return false;
   }
 
-  nsTArray<Observer*>* array;
+  nsTArray<NotNull<Observer*>>* array;
   if (!gObservers->Get(mGroupAndOrigin.mOrigin, &array)) {
     return false;
   }
@@ -5407,7 +4901,7 @@ void Datastore::NotifyOtherProcessObservers(Database* aDatabase,
     return;
   }
 
-  nsTArray<Observer*>* array;
+  nsTArray<NotNull<Observer*>>* array;
   if (!gObservers->Get(mGroupAndOrigin.mOrigin, &array)) {
     return;
   }
@@ -5426,7 +4920,7 @@ void Datastore::NotifyOtherProcessObservers(Database* aDatabase,
 }
 
 void Datastore::NoteChangedObserverArray(
-    const nsTArray<Observer*>& aObservers) {
+    const nsTArray<NotNull<Observer*>>& aObservers) {
   AssertIsOnBackgroundThread();
 
   for (auto iter = mActiveDatabases.ConstIter(); !iter.Done(); iter.Next()) {
@@ -6421,7 +5915,7 @@ void Observer::ActorDestroy(ActorDestroyReason aWhy) {
 
   MOZ_ASSERT(gObservers);
 
-  nsTArray<Observer*>* array;
+  nsTArray<NotNull<Observer*>>* array;
   gObservers->Get(mOrigin, &array);
   MOZ_ASSERT(array);
 
@@ -6631,10 +6125,7 @@ nsresult LSRequestBase::StartRequest() {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv = Start();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(Start());
 
   return NS_OK;
 }
@@ -7081,10 +6572,7 @@ nsresult PrepareDatastoreOp::CheckExistingOperations() {
     }
   }
 
-  nsresult rv = CheckClosingDatastoreInternal();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(CheckClosingDatastoreInternal());
 
   return NS_OK;
 }
@@ -7099,10 +6587,7 @@ nsresult PrepareDatastoreOp::CheckClosingDatastore() {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv = CheckClosingDatastoreInternal();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(CheckClosingDatastoreInternal());
 
   return NS_OK;
 }
@@ -7123,10 +6608,7 @@ nsresult PrepareDatastoreOp::CheckClosingDatastoreInternal() {
     return NS_OK;
   }
 
-  nsresult rv = BeginDatastorePreparationInternal();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(BeginDatastorePreparationInternal());
 
   return NS_OK;
 }
@@ -7141,10 +6623,7 @@ nsresult PrepareDatastoreOp::BeginDatastorePreparation() {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv = BeginDatastorePreparationInternal();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(BeginDatastorePreparationInternal());
 
   return NS_OK;
 }
@@ -7191,14 +6670,9 @@ nsresult PrepareDatastoreOp::QuotaManagerOpen() {
     return NS_ERROR_FAILURE;
   }
 
-  if (NS_WARN_IF(!QuotaManager::Get())) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY(OkIf(QuotaManager::Get()), NS_ERROR_FAILURE);
 
-  nsresult rv = OpenDirectory();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(OpenDirectory());
 
   return NS_OK;
 }
@@ -7270,17 +6744,11 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
   MOZ_ASSERT(quotaManager);
 
   // This must be called before EnsureTemporaryStorageIsInitialized.
-  nsresult rv = quotaManager->EnsureStorageIsInitialized();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(quotaManager->EnsureStorageIsInitialized());
 
   // This ensures that usages for existings origin directories are cached in
   // memory.
-  rv = quotaManager->EnsureTemporaryStorageIsInitialized();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(quotaManager->EnsureTemporaryStorageIsInitialized());
 
   const UsageInfo usageInfo = quotaManager->GetUsageForClient(
       PERSISTENCE_TYPE_DEFAULT, mQuotaInfo, mozilla::dom::quota::Client::LS);
@@ -7289,10 +6757,7 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
   MOZ_ASSERT(usageInfo.FileUsage().isNothing());
 
   if (!gArchivedOrigins) {
-    rv = LoadArchivedOrigins();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(LoadArchivedOrigins());
     MOZ_ASSERT(gArchivedOrigins);
   }
 
@@ -7332,48 +6797,30 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
         return directoryEntry;
       }()));
 
-  rv =
-      directoryEntry->Append(NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->Append(
+      NS_LITERAL_STRING_FROM_CSTRING(LS_DIRECTORY_NAME)));
 
-  nsString directoryPath;
-  rv = directoryEntry->GetPath(directoryPath);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& directoryPath,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsString, directoryEntry, GetPath));
 
   // The ls directory doesn't need to be created when we don't have data for
   // migration. It will be created on the connection thread in
   // Connection::EnsureStorageConnection.
-  rv = EnsureDirectoryEntry(directoryEntry,
-                            /* aCreateIfNotExists */ hasDataForMigration,
-                            /* aIsDirectory */ true);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(EnsureDirectoryEntry(directoryEntry,
+                              /* aCreateIfNotExists */ hasDataForMigration,
+                              /* aIsDirectory */ true));
 
-  rv = directoryEntry->Append(kDataFileName);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->Append(kDataFileName));
 
-  rv = directoryEntry->GetPath(mDatabaseFilePath);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(directoryEntry->GetPath(mDatabaseFilePath));
 
   // The database doesn't need to be created when we don't have data for
   // migration. It will be created on the connection thread in
   // Connection::EnsureStorageConnection.
   bool alreadyExisted;
-  rv = EnsureDirectoryEntry(directoryEntry,
-                            /* aCreateIfNotExists */ hasDataForMigration,
-                            /* aIsDirectory */ false, &alreadyExisted);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(EnsureDirectoryEntry(directoryEntry,
+                              /* aCreateIfNotExists */ hasDataForMigration,
+                              /* aIsDirectory */ false, &alreadyExisted));
 
   if (alreadyExisted) {
     // The database does exist.
@@ -7394,9 +6841,11 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
     }
   }
 
-  // We initialized mDatabaseFilePath and mUsage, GetQuotaObject can be called
-  // from now on.
-  RefPtr<QuotaObject> quotaObject;
+  // We initialized mDatabaseFilePath and mUsage, GetQuotaObject can now be
+  // called.
+  const RefPtr<QuotaObject> quotaObject = GetQuotaObject();
+
+  LS_TRY(OkIf(quotaObject), Err(NS_ERROR_FAILURE));
 
   LS_TRY_INSPECT(const auto& usageFile, GetUsageFile(directoryPath));
 
@@ -7404,50 +6853,28 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
                  GetUsageJournalFile(directoryPath));
 
   LS_TRY_INSPECT(
-      (const auto& [connection, removedUsageFile]),
-      CreateStorageConnection(*directoryEntry, *usageFile, Origin()));
+      const auto& connection,
+      (CreateStorageConnection(
+          *directoryEntry, *usageFile, Origin(), [&quotaObject, this] {
+            // This is called when the usage file was removed or we notice that
+            // the usage file doesn't exist anymore. Adjust the usage
+            // accordingly.
 
-  // removedUsageFile must be checked before rv since we may need to reset usage
-  // even when CreateStorageConnection failed.
-  if (removedUsageFile) {
-    if (!quotaObject) {
-      quotaObject = GetQuotaObject();
-      if (!quotaObject) {
-        return NS_ERROR_FAILURE;
-      }
-    }
+            MOZ_ALWAYS_TRUE(
+                quotaObject->MaybeUpdateSize(0, /* aTruncate */ true));
 
-    MOZ_ALWAYS_TRUE(quotaObject->MaybeUpdateSize(0, /* aTruncate */ true));
+            mUsage = 0;
+          })));
 
-    mUsage = 0;
-  }
-
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = VerifyDatabaseInformation(connection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(VerifyDatabaseInformation(connection));
 
   if (hasDataForMigration) {
     MOZ_ASSERT(mUsage == 0);
 
-    rv = AttachArchiveDatabase(quotaManager->GetStoragePath(), connection);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(AttachArchiveDatabase(quotaManager->GetStoragePath(), connection));
 
     LS_TRY_INSPECT(const int64_t& newUsage,
                    GetUsage(*connection, mArchivedOriginScope.get()));
-
-    if (!quotaObject) {
-      quotaObject = GetQuotaObject();
-      if (!quotaObject) {
-        return NS_ERROR_FAILURE;
-      }
-    }
 
     if (!quotaObject->MaybeUpdateSize(newUsage, /* aTruncate */ true)) {
       return NS_ERROR_FILE_NO_DEVICE_SPACE;
@@ -7460,112 +6887,67 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
     mozStorageTransaction transaction(
         connection, false, mozIStorageConnection::TRANSACTION_IMMEDIATE);
 
-    nsCOMPtr<mozIStorageFunction> function = new CompressFunction();
+    {
+      nsCOMPtr<mozIStorageFunction> function = new CompressFunction();
 
-    rv = connection->CreateFunction("compress"_ns, 1, function);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
+      LS_TRY(connection->CreateFunction("compress"_ns, 1, function));
+
+      function = new CompressibleFunction();
+
+      LS_TRY(connection->CreateFunction("compressible"_ns, 1, function));
+
+      LS_TRY_INSPECT(
+          const auto& stmt,
+          MOZ_TO_RESULT_INVOKE_TYPED(
+              nsCOMPtr<mozIStorageStatement>, connection, CreateStatement,
+              "INSERT INTO data (key, value, utf16Length, compressed) "
+              "SELECT key, compress(value), utf16Length(value), "
+              "compressible(value) "
+              "FROM webappsstore2 "
+              "WHERE originKey = :originKey "
+              "AND originAttributes = :originAttributes;"_ns));
+
+      LS_TRY(mArchivedOriginScope->BindToStatement(stmt));
+
+      LS_TRY(stmt->Execute());
+
+      LS_TRY(connection->RemoveFunction("compress"_ns));
+
+      LS_TRY(connection->RemoveFunction("compressible"_ns));
     }
 
-    function = new CompressibleFunction();
+    {
+      LS_TRY_INSPECT(
+          const auto& stmt,
+          MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageStatement>, connection,
+                                     CreateStatement,
+                                     "UPDATE database SET usage = :usage;"_ns));
 
-    rv = connection->CreateFunction("compressible"_ns, 1, function);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
+      LS_TRY(stmt->BindInt64ByName("usage"_ns, newUsage));
+
+      LS_TRY(stmt->Execute());
     }
 
-    nsCOMPtr<mozIStorageStatement> stmt;
-    rv = connection->CreateStatement(
-        nsLiteralCString(
-            "INSERT INTO data (key, value, utf16Length, compressed) "
-            "SELECT key, compress(value), utf16Length(value), "
-            "compressible(value) "
-            "FROM webappsstore2 "
-            "WHERE originKey = :originKey "
-            "AND originAttributes = :originAttributes;"
+    {
+      LS_TRY_INSPECT(
+          const auto& stmt,
+          MOZ_TO_RESULT_INVOKE_TYPED(
+              nsCOMPtr<mozIStorageStatement>, connection, CreateStatement,
+              "DELETE FROM webappsstore2 "
+              "WHERE originKey = :originKey "
+              "AND originAttributes = :originAttributes;"_ns));
 
-            ),
-        getter_AddRefs(stmt));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
+      LS_TRY(mArchivedOriginScope->BindToStatement(stmt));
+      LS_TRY(stmt->Execute());
     }
 
-    rv = mArchivedOriginScope->BindToStatement(stmt);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = stmt->Execute();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = connection->RemoveFunction("compress"_ns);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = connection->RemoveFunction("compressible"_ns);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = connection->CreateStatement("UPDATE database SET usage = :usage;"_ns,
-                                     getter_AddRefs(stmt));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = stmt->BindInt64ByName("usage"_ns, newUsage);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = stmt->Execute();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = connection->CreateStatement(
-        nsLiteralCString("DELETE FROM webappsstore2 "
-                         "WHERE originKey = :originKey "
-                         "AND originAttributes = :originAttributes;"),
-        getter_AddRefs(stmt));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = mArchivedOriginScope->BindToStatement(stmt);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = stmt->Execute();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = UpdateUsageFile(usageFile, usageJournalFile, newUsage);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = transaction.Commit();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(UpdateUsageFile(usageFile, usageJournalFile, newUsage));
+    LS_TRY(transaction.Commit());
 
     autoUpdateSize.release();
 
-    rv = usageJournalFile->Remove(false);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    rv = DetachArchiveDatabase(connection);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(usageJournalFile->Remove(false));
+    LS_TRY(DetachArchiveDatabase(connection));
 
     MOZ_ASSERT(gArchivedOrigins);
     MOZ_ASSERT(mArchivedOriginScope->HasMatches(gArchivedOrigins));
@@ -7576,11 +6958,8 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
 
   nsCOMPtr<mozIStorageConnection> shadowConnection;
   if (!gInitializedShadowStorage) {
-    rv = CreateShadowStorageConnection(quotaManager->GetBasePath(),
-                                       getter_AddRefs(shadowConnection));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY_UNWRAP(shadowConnection,
+                  CreateShadowStorageConnection(quotaManager->GetBasePath()));
 
     gInitializedShadowStorage = true;
   }
@@ -7597,10 +6976,7 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
   // thread.
   mNestedState = NestedState::BeginLoadData;
 
-  rv = OwningEventTarget()->Dispatch(this, NS_DISPATCH_NORMAL);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(OwningEventTarget()->Dispatch(this, NS_DISPATCH_NORMAL));
 
   return NS_OK;
 }
@@ -7627,11 +7003,7 @@ nsresult PrepareDatastoreOp::EnsureDirectoryEntry(nsIFile* aEntry,
   AssertIsOnIOThread();
   MOZ_ASSERT(aEntry);
 
-  bool exists;
-  nsresult rv = aEntry->Exists(&exists);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const bool& exists, MOZ_TO_RESULT_INVOKE(aEntry, Exists));
 
   if (!exists) {
     if (!aCreateIfNotExists) {
@@ -7642,10 +7014,7 @@ nsresult PrepareDatastoreOp::EnsureDirectoryEntry(nsIFile* aEntry,
     }
 
     if (aIsDirectory) {
-      rv = aEntry->Create(nsIFile::DIRECTORY_TYPE, 0755);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(aEntry->Create(nsIFile::DIRECTORY_TYPE, 0755));
     }
   }
 #ifdef DEBUG
@@ -7674,15 +7043,11 @@ nsresult PrepareDatastoreOp::VerifyDatabaseInformation(
 
   LS_TRY(OkIf(stmt), NS_ERROR_FILE_CORRUPTED);
 
-  nsCString origin;
-  nsresult rv = stmt->GetUTF8String(0, origin);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& origin,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsCString, stmt, GetUTF8String, 0));
 
-  if (NS_WARN_IF(!QuotaManager::AreOriginsEqualOnDisk(Origin(), origin))) {
-    return NS_ERROR_FILE_CORRUPTED;
-  }
+  LS_TRY(OkIf(QuotaManager::AreOriginsEqualOnDisk(Origin(), origin)),
+         NS_ERROR_FILE_CORRUPTED);
 
   return NS_OK;
 }
@@ -7768,10 +7133,7 @@ nsresult PrepareDatastoreOp::FinishNestingOnNonOwningThread() {
   mState = State::SendingReadyMessage;
   mNestedState = NestedState::AfterNesting;
 
-  nsresult rv = OwningEventTarget()->Dispatch(this, NS_DISPATCH_NORMAL);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(OwningEventTarget()->Dispatch(this, NS_DISPATCH_NORMAL));
 
   return NS_OK;
 }
@@ -8071,7 +7433,7 @@ void PrepareDatastoreOp::DirectoryLockFailed() {
 }
 
 nsresult PrepareDatastoreOp::LoadDataOp::DoDatastoreWork() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
   MOZ_ASSERT(mPrepareDatastoreOp);
   MOZ_ASSERT(mPrepareDatastoreOp->mState == State::Nesting);
@@ -8083,14 +7445,10 @@ nsresult PrepareDatastoreOp::LoadDataOp::DoDatastoreWork() {
     return NS_ERROR_FAILURE;
   }
 
-  Connection::CachedStatement stmt;
-  nsresult rv = mConnection->GetCachedStatement(
-      nsLiteralCString("SELECT key, value, utf16Length, compressed "
-                       "FROM data;"),
-      &stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& stmt,
+                 mConnection->BorrowCachedStatement(
+                     "SELECT key, value, utf16Length, compressed "
+                     "FROM data;"_ns));
 
   LS_TRY(quota::CollectWhileHasResult(
       *stmt, [this](auto& stmt) -> mozilla::Result<Ok, nsresult> {
@@ -8173,22 +7531,15 @@ PrepareDatastoreOp::CompressFunction::OnFunctionCall(
   }
 #endif
 
-  nsCString value;
-  nsresult rv = aFunctionArguments->GetUTF8String(0, value);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& value,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsCString, aFunctionArguments,
+                                            GetUTF8String, 0));
 
   nsCString compressed;
-  if (NS_WARN_IF(!SnappyCompress(value, compressed))) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY(OkIf(SnappyCompress(value, compressed)), NS_ERROR_FAILURE);
 
-  if (!compressed.IsVoid()) {
-    value = compressed;
-  }
-
-  nsCOMPtr<nsIVariant> result = new storage::UTF8TextVariant(value);
+  nsCOMPtr<nsIVariant> result =
+      new storage::UTF8TextVariant(compressed.IsVoid() ? value : compressed);
 
   result.forget(aResult);
   return NS_OK;
@@ -8215,18 +7566,14 @@ PrepareDatastoreOp::CompressibleFunction::OnFunctionCall(
   }
 #endif
 
-  nsCString value;
-  nsresult rv = aFunctionArguments->GetUTF8String(0, value);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& value,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsCString, aFunctionArguments,
+                                            GetUTF8String, 0));
 
   nsCString compressed;
-  if (NS_WARN_IF(!SnappyCompress(value, compressed))) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY(OkIf(SnappyCompress(value, compressed)), NS_ERROR_FAILURE);
 
-  bool compressible = !compressed.IsVoid();
+  const bool compressible = !compressed.IsVoid();
 
   nsCOMPtr<nsIVariant> result = new storage::IntegerVariant(compressible);
 
@@ -8365,10 +7712,7 @@ nsresult LSSimpleRequestBase::StartRequest() {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv = Start();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(Start());
 
   return NS_OK;
 }
@@ -8523,37 +7867,22 @@ UniquePtr<ArchivedOriginScope> ArchivedOriginScope::CreateFromNull() {
   return WrapUnique(new ArchivedOriginScope(Null()));
 }
 
-void ArchivedOriginScope::GetBindingClause(nsACString& aBindingClause) const {
-  struct Matcher {
-    nsACString* mBindingClause;
-
-    explicit Matcher(nsACString* aBindingClause)
-        : mBindingClause(aBindingClause) {}
-
-    void operator()(const Origin& aOrigin) {
-      *mBindingClause = nsLiteralCString(
-          " WHERE originKey = :originKey "
-          "AND originAttributes = :originAttributes");
-    }
-
-    void operator()(const Prefix& aPrefix) {
-      *mBindingClause = " WHERE originKey = :originKey"_ns;
-    }
-
-    void operator()(const Pattern& aPattern) {
-      *mBindingClause = nsLiteralCString(
-          " WHERE originAttributes MATCH :originAttributesPattern");
-    }
-
-    void operator()(const Null& aNull) { mBindingClause->Truncate(); }
-  };
-
-  mData.match(Matcher(&aBindingClause));
+nsLiteralCString ArchivedOriginScope::GetBindingClause() const {
+  return mData.match(
+      [](const Origin&) {
+        return " WHERE originKey = :originKey "
+               "AND originAttributes = :originAttributes"_ns;
+      },
+      [](const Pattern&) {
+        return " WHERE originAttributes MATCH :originAttributesPattern"_ns;
+      },
+      [](const Prefix&) { return " WHERE originKey = :originKey"_ns; },
+      [](const Null&) { return ""_ns; });
 }
 
 nsresult ArchivedOriginScope::BindToStatement(
     mozIStorageStatement* aStmt) const {
-  MOZ_ASSERT(IsOnIOThread() || IsOnConnectionThread());
+  MOZ_ASSERT(IsOnIOThread() || IsOnGlobalConnectionThread());
   MOZ_ASSERT(aStmt);
 
   struct Matcher {
@@ -8562,37 +7891,25 @@ nsresult ArchivedOriginScope::BindToStatement(
     explicit Matcher(mozIStorageStatement* aStmt) : mStmt(aStmt) {}
 
     nsresult operator()(const Origin& aOrigin) {
-      nsresult rv =
-          mStmt->BindUTF8StringByName("originKey"_ns, aOrigin.OriginNoSuffix());
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(mStmt->BindUTF8StringByName("originKey"_ns,
+                                         aOrigin.OriginNoSuffix()));
 
-      rv = mStmt->BindUTF8StringByName("originAttributes"_ns,
-                                       aOrigin.OriginSuffix());
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(mStmt->BindUTF8StringByName("originAttributes"_ns,
+                                         aOrigin.OriginSuffix()));
 
       return NS_OK;
     }
 
     nsresult operator()(const Prefix& aPrefix) {
-      nsresult rv =
-          mStmt->BindUTF8StringByName("originKey"_ns, aPrefix.OriginNoSuffix());
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(mStmt->BindUTF8StringByName("originKey"_ns,
+                                         aPrefix.OriginNoSuffix()));
 
       return NS_OK;
     }
 
     nsresult operator()(const Pattern& aPattern) {
-      nsresult rv = mStmt->BindUTF8StringByName("originAttributesPattern"_ns,
-                                                "pattern1"_ns);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(mStmt->BindUTF8StringByName("originAttributesPattern"_ns,
+                                         "pattern1"_ns));
 
       return NS_OK;
     }
@@ -8600,10 +7917,7 @@ nsresult ArchivedOriginScope::BindToStatement(
     nsresult operator()(const Null& aNull) { return NS_OK; }
   };
 
-  nsresult rv = mData.match(Matcher(aStmt));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(mData.match(Matcher(aStmt)));
 
   return NS_OK;
 }
@@ -8808,11 +8122,9 @@ Result<UsageInfo, nsresult> QuotaClient::InitOrigin(
                            &aGroupAndOrigin](
                               const nsresult) -> Result<UsageInfo, nsresult> {
                     LS_TRY_INSPECT(
-                        (const auto& [connection, usageFileRemoved]),
-                        CreateStorageConnection(*file, *usageFile,
-                                                aGroupAndOrigin.mOrigin));
-
-                    Unused << usageFileRemoved;
+                        const auto& connection,
+                        CreateStorageConnection(
+                            *file, *usageFile, aGroupAndOrigin.mOrigin, [] {}));
 
                     LS_TRY_INSPECT(
                         const int64_t& usage,
@@ -8921,137 +8233,99 @@ nsresult QuotaClient::AboutToClearOrigins(
     return NS_OK;
   }
 
-  bool shadowWrites = gShadowWrites;
+  const bool shadowWrites = gShadowWrites;
 
-  UniquePtr<ArchivedOriginScope> archivedOriginScope;
-  nsresult rv = CreateArchivedOriginScope(aOriginScope, archivedOriginScope);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& archivedOriginScope,
+                 CreateArchivedOriginScope(aOriginScope));
 
   if (!gArchivedOrigins) {
-    rv = LoadArchivedOrigins();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(LoadArchivedOrigins());
     MOZ_ASSERT(gArchivedOrigins);
   }
 
-  bool hasDataForRemoval = archivedOriginScope->HasMatches(gArchivedOrigins);
+  const bool hasDataForRemoval =
+      archivedOriginScope->HasMatches(gArchivedOrigins);
 
   QuotaManager* quotaManager = QuotaManager::Get();
   MOZ_ASSERT(quotaManager);
 
-  nsString basePath = quotaManager->GetBasePath();
+  const nsString& basePath = quotaManager->GetBasePath();
 
   {
     MutexAutoLock shadowDatabaseLock(mShadowDatabaseMutex);
 
-    nsCOMPtr<mozIStorageConnection> connection;
-    if (gInitializedShadowStorage) {
-      rv = GetShadowStorageConnection(basePath, getter_AddRefs(connection));
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
-    } else {
-      rv = CreateShadowStorageConnection(basePath, getter_AddRefs(connection));
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+    LS_TRY_INSPECT(
+        const auto& connection,
+        ([&basePath]() -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
+          if (gInitializedShadowStorage) {
+            LS_TRY_RETURN(GetShadowStorageConnection(basePath));
+          }
 
-      gInitializedShadowStorage = true;
-    }
+          LS_TRY_UNWRAP(auto connection,
+                        CreateShadowStorageConnection(basePath));
+
+          gInitializedShadowStorage = true;
+
+          return connection;
+        }()));
 
     if (hasDataForRemoval) {
-      rv = AttachArchiveDatabase(quotaManager->GetStoragePath(), connection);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(AttachArchiveDatabase(quotaManager->GetStoragePath(), connection));
     }
 
     if (archivedOriginScope->IsPattern()) {
       nsCOMPtr<mozIStorageFunction> function(
           new MatchFunction(archivedOriginScope->GetPattern()));
 
-      rv = connection->CreateFunction("match"_ns, 2, function);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(connection->CreateFunction("match"_ns, 2, function));
     }
 
-    nsCOMPtr<mozIStorageStatement> stmt;
-    rv = connection->CreateStatement("BEGIN IMMEDIATE;"_ns,
-                                     getter_AddRefs(stmt));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    {
+      LS_TRY_INSPECT(
+          const auto& stmt,
+          MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageStatement>, connection,
+                                     CreateStatement, "BEGIN IMMEDIATE;"_ns));
 
-    rv = stmt->Execute();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
+      LS_TRY(stmt->Execute());
     }
 
     if (shadowWrites) {
-      rv = PerformDelete(connection, "main"_ns, archivedOriginScope.get());
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(PerformDelete(connection, "main"_ns, archivedOriginScope.get()));
     }
 
     if (hasDataForRemoval) {
-      rv = PerformDelete(connection, "archive"_ns, archivedOriginScope.get());
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(
+          PerformDelete(connection, "archive"_ns, archivedOriginScope.get()));
     }
 
-    rv = connection->CreateStatement("COMMIT;"_ns, getter_AddRefs(stmt));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    {
+      LS_TRY_INSPECT(
+          const auto& stmt,
+          MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageStatement>, connection,
+                                     CreateStatement, "COMMIT;"_ns));
 
-    rv = stmt->Execute();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
+      LS_TRY(stmt->Execute());
     }
-
-    stmt = nullptr;
 
     if (archivedOriginScope->IsPattern()) {
-      rv = connection->RemoveFunction("match"_ns);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(connection->RemoveFunction("match"_ns));
     }
 
     if (hasDataForRemoval) {
-      rv = DetachArchiveDatabase(connection);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return rv;
-      }
+      LS_TRY(DetachArchiveDatabase(connection));
 
       MOZ_ASSERT(gArchivedOrigins);
       MOZ_ASSERT(archivedOriginScope->HasMatches(gArchivedOrigins));
       archivedOriginScope->RemoveMatches(gArchivedOrigins);
     }
 
-    rv = connection->Close();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(connection->Close());
   }
 
   if (aOriginScope.IsNull()) {
-    nsCOMPtr<nsIFile> shadowFile;
-    rv = GetShadowFile(basePath, getter_AddRefs(shadowFile));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY_INSPECT(const auto& shadowFile, GetShadowFile(basePath));
 
-    rv = shadowFile->Remove(false);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(shadowFile->Remove(false));
 
     gInitializedShadowStorage = false;
   }
@@ -9290,73 +8564,39 @@ void QuotaClient::FinalizeShutdown() {
   }
 }
 
-nsresult QuotaClient::CreateArchivedOriginScope(
-    const OriginScope& aOriginScope,
-    UniquePtr<ArchivedOriginScope>& aArchivedOriginScope) {
+Result<UniquePtr<ArchivedOriginScope>, nsresult>
+QuotaClient::CreateArchivedOriginScope(const OriginScope& aOriginScope) {
   AssertIsOnIOThread();
 
-  nsresult rv;
-
-  UniquePtr<ArchivedOriginScope> archivedOriginScope;
-
   if (aOriginScope.IsOrigin()) {
-    nsCString spec;
-    OriginAttributes attrs;
-    if (NS_WARN_IF(!QuotaManager::ParseOrigin(aOriginScope.GetOrigin(), spec,
-                                              &attrs))) {
-      return NS_ERROR_FAILURE;
-    }
+    LS_TRY_INSPECT(const auto& principalInfo,
+                   QuotaManager::ParseOrigin(aOriginScope.GetOrigin()));
 
-    ContentPrincipalInfo contentPrincipalInfo;
-    contentPrincipalInfo.attrs() = attrs;
-    contentPrincipalInfo.spec() = spec;
+    LS_TRY_INSPECT((const auto& [originAttrSuffix, originKey]),
+                   GenerateOriginKey2(principalInfo));
 
-    PrincipalInfo storagePrincipalInfo(contentPrincipalInfo);
-
-    nsCString originAttrSuffix;
-    nsCString originKey;
-    rv = GenerateOriginKey2(storagePrincipalInfo, originAttrSuffix, originKey);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    archivedOriginScope =
-        ArchivedOriginScope::CreateFromOrigin(originAttrSuffix, originKey);
-  } else if (aOriginScope.IsPrefix()) {
-    nsCString spec;
-    OriginAttributes attrs;
-    if (NS_WARN_IF(!QuotaManager::ParseOrigin(aOriginScope.GetOriginNoSuffix(),
-                                              spec, &attrs))) {
-      return NS_ERROR_FAILURE;
-    }
-
-    ContentPrincipalInfo contentPrincipalInfo;
-    contentPrincipalInfo.attrs() = attrs;
-    contentPrincipalInfo.spec() = spec;
-
-    PrincipalInfo storagePrincipalInfo(contentPrincipalInfo);
-
-    nsCString originAttrSuffix;
-    nsCString originKey;
-    rv = GenerateOriginKey2(storagePrincipalInfo, originAttrSuffix, originKey);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
-    archivedOriginScope = ArchivedOriginScope::CreateFromPrefix(originKey);
-  } else if (aOriginScope.IsPattern()) {
-    archivedOriginScope =
-        ArchivedOriginScope::CreateFromPattern(aOriginScope.GetPattern());
-  } else {
-    MOZ_ASSERT(aOriginScope.IsNull());
-
-    archivedOriginScope = ArchivedOriginScope::CreateFromNull();
+    return ArchivedOriginScope::CreateFromOrigin(originAttrSuffix, originKey);
   }
 
-  MOZ_ASSERT(archivedOriginScope);
+  if (aOriginScope.IsPrefix()) {
+    LS_TRY_INSPECT(const auto& principalInfo,
+                   QuotaManager::ParseOrigin(aOriginScope.GetOriginNoSuffix()));
 
-  aArchivedOriginScope = std::move(archivedOriginScope);
-  return NS_OK;
+    LS_TRY_INSPECT((const auto& [originAttrSuffix, originKey]),
+                   GenerateOriginKey2(principalInfo));
+
+    Unused << originAttrSuffix;
+
+    return ArchivedOriginScope::CreateFromPrefix(originKey);
+  }
+
+  if (aOriginScope.IsPattern()) {
+    return ArchivedOriginScope::CreateFromPattern(aOriginScope.GetPattern());
+  }
+
+  MOZ_ASSERT(aOriginScope.IsNull());
+
+  return ArchivedOriginScope::CreateFromNull();
 }
 
 nsresult QuotaClient::PerformDelete(
@@ -9366,29 +8606,16 @@ nsresult QuotaClient::PerformDelete(
   MOZ_ASSERT(aConnection);
   MOZ_ASSERT(aArchivedOriginScope);
 
-  nsresult rv;
+  LS_TRY_INSPECT(
+      const auto& stmt,
+      MOZ_TO_RESULT_INVOKE_TYPED(
+          nsCOMPtr<mozIStorageStatement>, aConnection, CreateStatement,
+          "DELETE FROM "_ns + aSchemaName + ".webappsstore2"_ns +
+              aArchivedOriginScope->GetBindingClause() + ";"_ns));
 
-  nsCString bindingClause;
-  aArchivedOriginScope->GetBindingClause(bindingClause);
+  LS_TRY(aArchivedOriginScope->BindToStatement(stmt));
 
-  nsCOMPtr<mozIStorageStatement> stmt;
-  rv = aConnection->CreateStatement("DELETE FROM "_ns + aSchemaName +
-                                        ".webappsstore2"_ns + bindingClause +
-                                        ";"_ns,
-                                    getter_AddRefs(stmt));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = aArchivedOriginScope->BindToStatement(stmt);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-
-  rv = stmt->Execute();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(stmt->Execute());
 
   return NS_OK;
 }
@@ -9399,10 +8626,7 @@ nsresult QuotaClient::Observer::Initialize() {
 
   RefPtr<Observer> observer = new Observer();
 
-  nsresult rv = observer->Init();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(observer->Init());
 
   return NS_OK;
 }
@@ -9456,27 +8680,19 @@ QuotaClient::Observer::Observe(nsISupports* aSubject, const char* aTopic,
                                const char16_t* aData) {
   MOZ_ASSERT(NS_IsMainThread());
 
-  nsresult rv;
-
   if (!strcmp(aTopic, kPrivateBrowsingObserverTopic)) {
-    PBackgroundChild* backgroundActor =
+    PBackgroundChild* const backgroundActor =
         BackgroundChild::GetOrCreateForCurrentThread();
-    if (NS_WARN_IF(!backgroundActor)) {
-      return NS_ERROR_FAILURE;
-    }
+    LS_TRY(OkIf(backgroundActor), NS_ERROR_FAILURE);
 
-    if (NS_WARN_IF(!backgroundActor->SendLSClearPrivateBrowsing())) {
-      return NS_ERROR_FAILURE;
-    }
+    LS_TRY(OkIf(backgroundActor->SendLSClearPrivateBrowsing()),
+           NS_ERROR_FAILURE);
 
     return NS_OK;
   }
 
   if (!strcmp(aTopic, NS_XPCOM_SHUTDOWN_OBSERVER_ID)) {
-    rv = Shutdown();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(Shutdown());
 
     return NS_OK;
   }
@@ -9494,24 +8710,17 @@ QuotaClient::MatchFunction::OnFunctionCall(
   MOZ_ASSERT(aFunctionArguments);
   MOZ_ASSERT(aResult);
 
-  nsCString suffix;
-  nsresult rv = aFunctionArguments->GetUTF8String(1, suffix);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY_INSPECT(const auto& suffix,
+                 MOZ_TO_RESULT_INVOKE_TYPED(nsAutoCString, aFunctionArguments,
+                                            GetUTF8String, 1));
 
   OriginAttributes oa;
-  if (NS_WARN_IF(!oa.PopulateFromSuffix(suffix))) {
-    return NS_ERROR_FAILURE;
-  }
+  LS_TRY(OkIf(oa.PopulateFromSuffix(suffix)), NS_ERROR_FAILURE);
 
-  bool result = mPattern.Matches(oa);
+  const bool result = mPattern.Matches(oa);
 
   RefPtr<nsVariant> outVar(new nsVariant());
-  rv = outVar->SetAsBool(result);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(outVar->SetAsBool(result));
 
   outVar.forget(aResult);
   return NS_OK;
@@ -9523,13 +8732,13 @@ QuotaClient::MatchFunction::OnFunctionCall(
 
 AutoWriteTransaction::AutoWriteTransaction(bool aShadowWrites)
     : mConnection(nullptr), mShadowWrites(aShadowWrites) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
 
   MOZ_COUNT_CTOR(mozilla::dom::AutoWriteTransaction);
 }
 
 AutoWriteTransaction::~AutoWriteTransaction() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
 
   MOZ_COUNT_DTOR(mozilla::dom::AutoWriteTransaction);
 
@@ -9545,23 +8754,15 @@ AutoWriteTransaction::~AutoWriteTransaction() {
 }
 
 nsresult AutoWriteTransaction::Start(Connection* aConnection) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
   MOZ_ASSERT(!mConnection);
 
-  nsresult rv;
-
   if (mShadowWrites) {
-    rv = LockAndAttachShadowDatabase(aConnection);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(LockAndAttachShadowDatabase(aConnection));
   }
 
-  rv = aConnection->BeginWriteTransaction();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(aConnection->BeginWriteTransaction());
 
   mConnection = aConnection;
 
@@ -9569,19 +8770,13 @@ nsresult AutoWriteTransaction::Start(Connection* aConnection) {
 }
 
 nsresult AutoWriteTransaction::Commit() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
 
-  nsresult rv = mConnection->CommitWriteTransaction();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(mConnection->CommitWriteTransaction());
 
   if (mShadowWrites) {
-    rv = DetachShadowDatabaseAndUnlock();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
+    LS_TRY(DetachShadowDatabaseAndUnlock());
   }
 
   mConnection = nullptr;
@@ -9591,7 +8786,7 @@ nsresult AutoWriteTransaction::Commit() {
 
 nsresult AutoWriteTransaction::LockAndAttachShadowDatabase(
     Connection* aConnection) {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(aConnection);
   MOZ_ASSERT(!mConnection);
   MOZ_ASSERT(mShadowDatabaseLock.isNothing());
@@ -9600,24 +8795,17 @@ nsresult AutoWriteTransaction::LockAndAttachShadowDatabase(
   QuotaManager* quotaManager = QuotaManager::Get();
   MOZ_ASSERT(quotaManager);
 
-  nsCOMPtr<mozIStorageConnection> storageConnection =
-      aConnection->StorageConnection();
-  MOZ_ASSERT(storageConnection);
-
   mShadowDatabaseLock.emplace(
       aConnection->GetQuotaClient()->ShadowDatabaseMutex());
 
-  nsresult rv =
-      AttachShadowDatabase(quotaManager->GetBasePath(), storageConnection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(AttachShadowDatabase(quotaManager->GetBasePath(),
+                              &aConnection->MutableStorageConnection()));
 
   return NS_OK;
 }
 
 nsresult AutoWriteTransaction::DetachShadowDatabaseAndUnlock() {
-  AssertIsOnConnectionThread();
+  AssertIsOnGlobalConnectionThread();
   MOZ_ASSERT(mConnection);
   MOZ_ASSERT(mShadowDatabaseLock.isSome());
   MOZ_ASSERT(mShadowWrites);
@@ -9626,10 +8814,7 @@ nsresult AutoWriteTransaction::DetachShadowDatabaseAndUnlock() {
       mConnection->StorageConnection();
   MOZ_ASSERT(storageConnection);
 
-  nsresult rv = DetachShadowDatabase(storageConnection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  LS_TRY(DetachShadowDatabase(storageConnection));
 
   mShadowDatabaseLock.reset();
 

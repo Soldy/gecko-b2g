@@ -192,26 +192,23 @@ class PromptParent extends JSWindowActorParent {
 
       this.unregisterPrompt(id);
 
-      PromptUtils.fireDialogEvent(window, "DOMModalDialogClosed", browser, {
-        wasPermitUnload: args.inPermitUnload,
-        areLeaving: args.ok,
-      });
+      PromptUtils.fireDialogEvent(
+        window,
+        "DOMModalDialogClosed",
+        browser,
+        this.getClosingEventDetail(args)
+      );
       resolver(args);
       browser.maybeLeaveModalState();
     };
 
     try {
       browser.enterModalState();
-      let eventDetail = {
-        tabPrompt: true,
-        promptPrincipal: args.promptPrincipal,
-        inPermitUnload: args.inPermitUnload,
-      };
       PromptUtils.fireDialogEvent(
         window,
         "DOMWillOpenModalDialog",
         browser,
-        eventDetail
+        this.getOpenEventDetail(args)
       );
 
       args.promptActive = true;
@@ -273,10 +270,16 @@ class PromptParent extends JSWindowActorParent {
     try {
       if (browser) {
         browser.enterModalState();
-        PromptUtils.fireDialogEvent(win, "DOMWillOpenModalDialog", browser);
+        PromptUtils.fireDialogEvent(
+          win,
+          "DOMWillOpenModalDialog",
+          browser,
+          this.getOpenEventDetail(args)
+        );
       }
 
       args.promptAborted = false;
+      args.openedWithTabDialog = true;
 
       let bag = PromptUtils.objectToPropBag(args);
 
@@ -316,9 +319,39 @@ class PromptParent extends JSWindowActorParent {
     } finally {
       if (browser) {
         browser.maybeLeaveModalState();
-        PromptUtils.fireDialogEvent(win, "DOMModalDialogClosed", browser);
+        PromptUtils.fireDialogEvent(
+          win,
+          "DOMModalDialogClosed",
+          browser,
+          this.getClosingEventDetail(args)
+        );
       }
     }
     return args;
+  }
+
+  getClosingEventDetail(args) {
+    let details =
+      args.modalType === Services.prompt.MODAL_TYPE_CONTENT
+        ? {
+            wasPermitUnload: args.inPermitUnload,
+            areLeaving: args.ok,
+          }
+        : null;
+
+    return details;
+  }
+
+  getOpenEventDetail(args) {
+    let details =
+      args.modalType === Services.prompt.MODAL_TYPE_CONTENT
+        ? {
+            inPermitUnload: args.inPermitUnload,
+            promptPrincipal: args.promptPrincipal,
+            tabPrompt: true,
+          }
+        : null;
+
+    return details;
   }
 }

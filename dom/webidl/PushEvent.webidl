@@ -7,7 +7,7 @@
  * https://w3c.github.io/push-api/
  */
 
-[Pref="dom.push.enabled",
+[Pref="dom.push.enabled", Func="nsContentUtils::PushVisible",
  Exposed=ServiceWorker]
 interface PushEvent : ExtendableEvent {
   [Throws]

@@ -247,6 +247,16 @@ ProcessGlobal.prototype = {
         },
         allFrames: true,
       },
+
+      WebViewForContent: {
+        child: {
+          moduleURI: "resource://gre/actors/WebViewForContentChild.jsm",
+          events: {
+            DOMContentLoaded: {},
+          },
+        },
+        allFrames: true,
+      },
     };
 
     ActorManagerParent.addJSWindowActors(JSWINDOWACTORS);

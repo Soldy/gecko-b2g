@@ -14,9 +14,11 @@ System messages are messages from the system, they are sent by the system based 
 | bluetooth-opp-transfer-complete           | bluetooth-privileged |
 | bluetooth-opp-transfer-start              | bluetooth-privileged |
 | bluetooth-opp-update-progress             | bluetooth-privileged |
+| bluetooth-pairing-aborted                 | bluetooth-privileged |
 | bluetooth-pairing-request                 | bluetooth-privileged |
 | bluetooth-pbap-request                    | bluetooth-privileged |
 | cellbroadcast-received                    | cellbroadcast        |
+| data-sms-received                         | sms                  |
 | icc-stkcommand                            | settings:read, settings:write |
 | media-button                              |                      |
 | sms-delivery-error                        | sms                  |
@@ -29,6 +31,7 @@ System messages are messages from the system, they are sent by the system based 
 | telephony-new-call                        | telephony            |
 | telephony-tty-mode-changed                | telephony            |
 | ussd-received                             | mobileconnection     |
+| wappush-received                          | wappush              |
 
 ## For front-end and application developers
 

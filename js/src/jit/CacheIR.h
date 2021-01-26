@@ -833,7 +833,6 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter {
   }
 
   void guardGroupForLayout(ObjOperandId obj, ObjectGroup* group) {
-    // NOTE: Comment in guardGroupForTypeBarrier also applies.
     MOZ_ASSERT(IsTypedObjectClass(group->clasp()));
     guardGroup(obj, group);
   }
@@ -1731,6 +1730,7 @@ class MOZ_RAII CallIRGenerator : public IRGenerator {
   AttachDecision tryAttachAssertRecoveredOnBailout(HandleFunction callee);
   AttachDecision tryAttachObjectIs(HandleFunction callee);
   AttachDecision tryAttachObjectIsPrototypeOf(HandleFunction callee);
+  AttachDecision tryAttachObjectToString(HandleFunction callee);
   AttachDecision tryAttachBigIntAsIntN(HandleFunction callee);
   AttachDecision tryAttachBigIntAsUintN(HandleFunction callee);
 

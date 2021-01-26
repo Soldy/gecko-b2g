@@ -28,6 +28,7 @@ this.defaultPermissions = [
   "vibration",
   "networkstats-perm",
   "lock-orientation",
+  "push",
 ];
 
 /**
@@ -268,6 +269,11 @@ this.PermissionsTable = {
     signed: DENY_ACTION,
     core: ALLOW_ACTION,
   },
+  rsu: {
+    pwa: DENY_ACTION,
+    signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+  },
   settings: {
     pwa: DENY_ACTION,
     signed: DENY_ACTION,
@@ -329,6 +335,16 @@ this.PermissionsTable = {
   "wifi-manage": {
     pwa: DENY_ACTION,
     signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+  },
+  wappush: {
+    pwa: DENY_ACTION,
+    signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+  },
+  "web-view": {
+    pwa: DENY_ACTION,
+    signed: ALLOW_ACTION,
     core: ALLOW_ACTION,
   },
   "webapps-manage": {

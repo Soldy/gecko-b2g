@@ -851,6 +851,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void move16To64SignExtend(Register src, Register64 dest) PER_ARCH;
   inline void move32To64SignExtend(Register src, Register64 dest) PER_ARCH;
 
+  inline void move32SignExtendToPtr(Register src, Register dest) PER_ARCH;
   inline void move32ZeroExtendToPtr(Register src, Register dest) PER_ARCH;
 
   // Copy a constant, typed-register, or a ValueOperand into a ValueOperand
@@ -1355,7 +1356,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
       DEFINED_ON(arm, arm64, mips_shared, x86, x64);
 
   // Given a pointer to a GC Cell, retrieve the StoreBuffer pointer from its
-  // chunk trailer, or nullptr if it is in the tenured heap.
+  // chunk header, or nullptr if it is in the tenured heap.
   void loadStoreBuffer(Register ptr, Register buffer) PER_ARCH;
 
   void branchPtrInNurseryChunk(Condition cond, Register ptr, Register temp,
@@ -1431,10 +1432,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void branchNeg32(Condition cond, Register reg,
                           Label* label) PER_SHARED_ARCH;
 
-  inline void branchAddPtr(Condition cond, Register src, Register dest,
+  template <typename T>
+  inline void branchAddPtr(Condition cond, T src, Register dest,
                            Label* label) PER_SHARED_ARCH;
 
-  inline void branchSubPtr(Condition cond, Register src, Register dest,
+  template <typename T>
+  inline void branchSubPtr(Condition cond, T src, Register dest,
                            Label* label) PER_SHARED_ARCH;
 
   inline void branchMulPtr(Condition cond, Register src, Register dest,
@@ -1607,11 +1610,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void branchTestProxyHandlerFamily(Condition cond, Register proxy,
                                            Register scratch,
                                            const void* handlerp, Label* label);
-
-  // Emit type case branch on tag matching if the type tag in the definition
-  // might actually be that type.
-  void maybeBranchTestType(MIRType type, MDefinition* maybeDef, Register tag,
-                           Label* label);
 
   inline void branchTestNeedsIncrementalBarrier(Condition cond, Label* label);
   inline void branchTestNeedsIncrementalBarrierAnyZone(Condition cond,
@@ -1860,6 +1858,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
                           Register src, Register dest)
       DEFINED_ON(arm, arm64, mips_shared, x86_shared);
 
+  inline void cmpPtrMovePtr(Condition cond, Register lhs, Register rhs,
+                            Register src, Register dest) PER_ARCH;
+
+  inline void cmpPtrMovePtr(Condition cond, Register lhs, const Address& rhs,
+                            Register src, Register dest) PER_ARCH;
+
   inline void cmp32Load32(Condition cond, Register lhs, const Address& rhs,
                           const Address& src, Register dest)
       DEFINED_ON(arm, arm64, mips_shared, x86_shared);
@@ -1906,6 +1910,13 @@ class MacroAssembler : public MacroAssemblerSpecific {
       DEFINED_ON(arm, arm64, mips_shared, x86, x64);
   inline void spectreBoundsCheck32(Register index, const Address& length,
                                    Register maybeScratch, Label* failure)
+      DEFINED_ON(arm, arm64, mips_shared, x86, x64);
+
+  inline void spectreBoundsCheckPtr(Register index, Register length,
+                                    Register maybeScratch, Label* failure)
+      DEFINED_ON(arm, arm64, mips_shared, x86, x64);
+  inline void spectreBoundsCheckPtr(Register index, const Address& length,
+                                    Register maybeScratch, Label* failure)
       DEFINED_ON(arm, arm64, mips_shared, x86, x64);
 
   // ========================================================================
@@ -2229,6 +2240,50 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   inline void mulInt64x2(FloatRegister rhs, FloatRegister lhsDest,
                          FloatRegister temp) DEFINED_ON(x86_shared);
+
+  // Note for the extMul opcodes, the NxM designation is for the input lanes;
+  // the output lanes are twice as wide.
+  inline void extMulLowInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt8x16(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulLowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt16x8(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulLowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt32x4(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void q15MulrSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Integer Negate
 
@@ -2583,6 +2638,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void bitmaskInt32x4(FloatRegister src, Register dest,
                              FloatRegister temp) DEFINED_ON(arm64);
 
+  inline void bitmaskInt64x2(FloatRegister src, Register dest)
+      DEFINED_ON(x86_shared);
+
+  inline void bitmaskInt64x2(FloatRegister src, Register dest,
+                             FloatRegister temp) DEFINED_ON(arm64);
+
   // Comparisons (integer and floating-point)
 
   inline void compareInt8x16(Assembler::Condition cond, FloatRegister rhs,
@@ -2850,6 +2911,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
       DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenLowInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void widenHighInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedWidenHighInt32x4(FloatRegister src, FloatRegister dest)
       DEFINED_ON(x86_shared, arm64);
 
   // Compare-based minimum/maximum
@@ -3600,8 +3667,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
   //     data-dependency which prevents any futher executions until the load is
   //     resolved.
 
-  void spectreMaskIndex(Register index, Register length, Register output);
-  void spectreMaskIndex(Register index, const Address& length, Register output);
+  void spectreMaskIndex32(Register index, Register length, Register output);
+  void spectreMaskIndex32(Register index, const Address& length,
+                          Register output);
+  void spectreMaskIndexPtr(Register index, Register length, Register output);
+  void spectreMaskIndexPtr(Register index, const Address& length,
+                           Register output);
 
   // The length must be a power of two. Performs a bounds check and Spectre
   // index masking.
@@ -4356,20 +4427,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // passed the unboxed string in |stringReg| and should convert it to a
   // double store into |temp|.
   void convertValueToInt(
-      ValueOperand value, MDefinition* input, Label* handleStringEntry,
-      Label* handleStringRejoin, Label* truncateDoubleSlow, Register stringReg,
-      FloatRegister temp, Register output, Label* fail,
-      IntConversionBehavior behavior,
+      ValueOperand value, Label* handleStringEntry, Label* handleStringRejoin,
+      Label* truncateDoubleSlow, Register stringReg, FloatRegister temp,
+      Register output, Label* fail, IntConversionBehavior behavior,
       IntConversionInputKind conversion = IntConversionInputKind::Any);
 
   // This carries over the MToNumberInt32 operation on the ValueOperand
   // input; see comment at the top of this class.
   void convertValueToInt32(
-      ValueOperand value, MDefinition* input, FloatRegister temp,
-      Register output, Label* fail, bool negativeZeroCheck,
+      ValueOperand value, FloatRegister temp, Register output, Label* fail,
+      bool negativeZeroCheck,
       IntConversionInputKind conversion = IntConversionInputKind::Any) {
     convertValueToInt(
-        value, input, nullptr, nullptr, nullptr, InvalidReg, temp, output, fail,
+        value, nullptr, nullptr, nullptr, InvalidReg, temp, output, fail,
         negativeZeroCheck ? IntConversionBehavior::NegativeZeroCheck
                           : IntConversionBehavior::Normal,
         conversion);
@@ -4377,38 +4447,37 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   // This carries over the MTruncateToInt32 operation on the ValueOperand
   // input; see the comment at the top of this class.
-  void truncateValueToInt32(ValueOperand value, MDefinition* input,
-                            Label* handleStringEntry, Label* handleStringRejoin,
+  void truncateValueToInt32(ValueOperand value, Label* handleStringEntry,
+                            Label* handleStringRejoin,
                             Label* truncateDoubleSlow, Register stringReg,
                             FloatRegister temp, Register output, Label* fail) {
-    convertValueToInt(value, input, handleStringEntry, handleStringRejoin,
+    convertValueToInt(value, handleStringEntry, handleStringRejoin,
                       truncateDoubleSlow, stringReg, temp, output, fail,
                       IntConversionBehavior::Truncate);
   }
 
   void truncateValueToInt32(ValueOperand value, FloatRegister temp,
                             Register output, Label* fail) {
-    truncateValueToInt32(value, nullptr, nullptr, nullptr, nullptr, InvalidReg,
-                         temp, output, fail);
+    truncateValueToInt32(value, nullptr, nullptr, nullptr, InvalidReg, temp,
+                         output, fail);
   }
 
   // Truncates, i.e. removes any fractional parts, but doesn't wrap around to
   // the int32 range.
-  void truncateNoWrapValueToInt32(ValueOperand value, MDefinition* input,
-                                  FloatRegister temp, Register output,
-                                  Label* truncateDoubleSlow, Label* fail) {
-    convertValueToInt(value, input, nullptr, nullptr, truncateDoubleSlow,
-                      InvalidReg, temp, output, fail,
+  void truncateNoWrapValueToInt32(ValueOperand value, FloatRegister temp,
+                                  Register output, Label* truncateDoubleSlow,
+                                  Label* fail) {
+    convertValueToInt(value, nullptr, nullptr, truncateDoubleSlow, InvalidReg,
+                      temp, output, fail,
                       IntConversionBehavior::TruncateNoWrap);
   }
 
   // Convenience functions for clamping values to uint8.
-  void clampValueToUint8(ValueOperand value, MDefinition* input,
-                         Label* handleStringEntry, Label* handleStringRejoin,
-                         Register stringReg, FloatRegister temp,
-                         Register output, Label* fail) {
-    convertValueToInt(value, input, handleStringEntry, handleStringRejoin,
-                      nullptr, stringReg, temp, output, fail,
+  void clampValueToUint8(ValueOperand value, Label* handleStringEntry,
+                         Label* handleStringRejoin, Register stringReg,
+                         FloatRegister temp, Register output, Label* fail) {
+    convertValueToInt(value, handleStringEntry, handleStringRejoin, nullptr,
+                      stringReg, temp, output, fail,
                       IntConversionBehavior::ClampToUint8);
   }
 

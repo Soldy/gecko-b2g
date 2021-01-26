@@ -253,7 +253,7 @@ this.WifiCommand = function(aControlMessage, aInterface, aSdkVersion) {
     );
   };
 
-  command.connect = function(config, callback) {
+  command.startToConnect = function(config, callback) {
     doCommandWithParams(WIFI_CMD_CONNECT, "config", config, callback);
   };
 

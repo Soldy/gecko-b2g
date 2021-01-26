@@ -286,43 +286,23 @@ var ins = wasmEvalText(`
   (module
     (memory (export "mem") 1 1)
     (func (export "anytrue_i8x16") (result i32)
-      (i8x16.any_true (v128.load (i32.const 16))))
+      (v128.any_true (v128.load (i32.const 16))))
     (func (export "true_anytrue_i8x16") (result i32)
-      (i8x16.any_true (v128.const i8x16 0 0 8 0 0 0 0 0 0 0 0 0 0 0 0 0)))
+      (v128.any_true (v128.const i8x16 0 0 8 0 0 0 0 0 0 0 0 0 0 0 0 0)))
     (func (export "false_anytrue_i8x16") (result i32)
-      (i8x16.any_true (v128.const i8x16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)))
-    (func (export "anytrue_i16x8") (result i32)
-      (i16x8.any_true (v128.load (i32.const 16))))
-    (func (export "true_anytrue_i16x8") (result i32)
-      (i16x8.any_true (v128.const i16x8 0 0 0 0 0 7 0 0)))
-    (func (export "false_anytrue_i16x8") (result i32)
-      (i16x8.any_true (v128.const i16x8 0 0 0 0 0 0 0 0)))
-    (func (export "anytrue_i32x4") (result i32)
-      (i32x4.any_true (v128.load (i32.const 16))))
-    (func (export "true_anytrue_i32x4") (result i32)
-      (i32x4.any_true (v128.const i32x4 0 0 128 0)))
-    (func (export "false_anytrue_i32x4") (result i32)
-      (i32x4.any_true (v128.const i32x4 0 0 0 0))))`);
+      (v128.any_true (v128.const i8x16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0))))`);
 
 var mem = new Uint8Array(ins.exports.mem.buffer);
 set(mem, 16, iota(16).map((_) => 0));
 assertEq(ins.exports.anytrue_i8x16(), 0);
-assertEq(ins.exports.anytrue_i16x8(), 0);
-assertEq(ins.exports.anytrue_i32x4(), 0);
 
 for ( let dope of [1, 7, 32, 195 ] ) {
     set(mem, 16, iota(16).map((x) => x == 7 ? dope : 0));
     assertEq(ins.exports.anytrue_i8x16(), 1);
-    assertEq(ins.exports.anytrue_i16x8(), 1);
-    assertEq(ins.exports.anytrue_i32x4(), 1);
 }
 
 assertEq(ins.exports.true_anytrue_i8x16(), 1);
 assertEq(ins.exports.false_anytrue_i8x16(), 0);
-assertEq(ins.exports.true_anytrue_i16x8(), 1);
-assertEq(ins.exports.false_anytrue_i16x8(), 0);
-assertEq(ins.exports.true_anytrue_i32x4(), 1);
-assertEq(ins.exports.false_anytrue_i32x4(), 0);
 
 // AllTrue.  Ion constant folds, so test that too.
 
@@ -876,10 +856,10 @@ assertSame(get(mem16u, 0, 8), iota(8).map((n) => zero_extend(as[n], 8)));
 ins.exports.widen_high_i8x16_u();
 assertSame(get(mem16u, 0, 8), iota(8).map((n) => zero_extend(as[n+8], 8)));
 
-var mem32 = new Int16Array(ins.exports.mem.buffer);
-var mem32u = new Uint16Array(ins.exports.mem.buffer);
+var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32u = new Uint32Array(ins.exports.mem.buffer);
 
-var as = [0, 1, 192, 3, 205, 5, 6, 133].map((x) => x << 16);
+var as = [0, 1, 192, 3, 205, 5, 6, 133].map((x) => x << 8);
 
 set(mem16, 8, as);
 

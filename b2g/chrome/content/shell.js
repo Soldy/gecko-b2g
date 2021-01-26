@@ -249,6 +249,9 @@ var shell = {
   // and <script defer>s are loaded and run.
   notifyContentWindowLoaded() {
     debug("notifyContentWindowLoaded");
+    if (isGonk) {
+      libcutils.property_set("shell.ready", "1");
+    }
     if (this.contentBrowser.getAttribute("kind") == "touch") {
       this.contentBrowser.classList.add("fullscreen");
       this.contentBrowser.removeAttribute("style");

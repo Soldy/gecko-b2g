@@ -9,7 +9,7 @@ const { setTimeout, clearTimeout } = ChromeUtils.import(
   "resource://gre/modules/Timer.jsm"
 );
 
-const serviceWorkerManagegr = Cc[
+const serviceWorkerManager = Cc[
   "@mozilla.org/serviceworkers/manager;1"
 ].getService(Ci.nsIServiceWorkerManager);
 
@@ -171,9 +171,9 @@ this.ServiceWorkerAssistant = {
         "nsIServiceWorkerUnregisterCallback",
       ]),
     };
-    let scope = serviceWorkerManagegr.getScopeForUrl(principal, aManifestURL);
+    let scope = serviceWorkerManager.getScopeForUrl(principal, aManifestURL);
     debug(` getScopeForUrl scope: ${scope}`);
-    serviceWorkerManagegr.propagateUnregister(
+    serviceWorkerManager.propagateUnregister(
       principal,
       unregisterCallback,
       scope
@@ -205,11 +205,11 @@ this.ServiceWorkerAssistant = {
 
   _doRegisterServiceWorker(aPrincipal, aScope, aScript, aUpdateViaCache) {
     debug(`_doRegisterServiceWorker: ${aScript}`);
-    let promise = serviceWorkerManagegr
+    let promise = serviceWorkerManager
       .register(aPrincipal, aScope, aScript, aUpdateViaCache)
       .then(
         swRegInfo => {
-          debug(`register ${aScript} success! ${JSON.stringify(swRegInfo)}`);
+          debug(`register ${aScript} success!`);
         },
         err => {
           debug(`register ${aScript} failed for error ${err}`);

@@ -153,7 +153,7 @@
                  is="support-link"
                  support-page="add-on-badges"
                  utmcontent="promoted-addon-badge"
-                 data-l10n-id="addon-badge-line2"
+                 data-l10n-id="addon-badge-line3"
                  hidden>
               </a>
               <a class="addon-badge addon-badge-verified"
@@ -205,7 +205,6 @@
 
     <template name="addon-description-in-disco-card">
       <div>
-        <strong class="disco-description-intro"></strong>
         <span class="disco-description-main"></span>
       </div>
       <div class="disco-description-statistics">
@@ -235,7 +234,7 @@
           </div>
           <div class="addon-detail-row addon-detail-row-updates">
             <label data-l10n-id="addon-detail-updates-label"></label>
-            <div>
+            <div class="addon-detail-actions">
               <button class="button-link" data-l10n-id="addon-detail-update-check-label" action="update-check" hidden></button>
               <label>
                 <input type="radio" name="autoupdate" value="1" data-telemetry-value="default">
@@ -253,7 +252,7 @@
           </div>
           <div class="addon-detail-row addon-detail-row-has-help addon-detail-row-private-browsing" hidden>
             <label data-l10n-id="detail-private-browsing-label"></label>
-            <div>
+            <div class="addon-detail-actions">
               <label>
                 <input type="radio" name="private-browsing" value="1" data-telemetry-value="on">
                 <span data-l10n-id="addon-detail-private-browsing-allow"></span>

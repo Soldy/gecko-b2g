@@ -150,6 +150,7 @@ enum EImeId {
   eImeGeorgian = 0x45,
   eImeXhosa = 0x46,
   eImeUzbek = 0x47,
+  eImeKorean = 0x48,
   eImeEnd
 };
 
@@ -224,7 +225,8 @@ const string SYS_DICT_FILE[eImeEnd] = {"",
                                        "kazakh.rom",
                                        "georgian.rom",
                                        "xhosa.rom",
-                                       "uzbek_cyrillic.rom"};
+                                       "uzbek_cyrillic.rom",
+                                       "korean.rom"};
 
 const string KEYLAYOUT_FILE[eImeEnd] = {"",
                                         "french.keys",
@@ -297,9 +299,33 @@ const string KEYLAYOUT_FILE[eImeEnd] = {"",
                                         "kazakh.keys",
                                         "georgian.keys",
                                         "xhosa.keys",
-                                        "uzbek_cyrillic.keys"};
+                                        "uzbek_cyrillic.keys",
+                                        "korean.keys"};
 
 const string WESTERN_USR_DICT_FILE = "western.usr";
+
+struct CharToVowel {
+  char16_t c1;
+  char16_t c2;
+  char16_t v1;
+  char16_t v2;
+};
+
+static const CharToVowel sKoreanVowels[] = {
+    {.c1 = 0x318d, .c2 = 0x3163, .v1 = 0x3153, .v2 = 0x0000},
+    {.c1 = 0xff1a, .c2 = 0x3163, .v1 = 0x3155, .v2 = 0x0000},
+    {.c1 = 0x318d, .c2 = 0x3161, .v1 = 0x3157, .v2 = 0x0000},
+    {.c1 = 0xff1a, .c2 = 0x3161, .v1 = 0x315b, .v2 = 0x0000},
+    {.c1 = 0x318d, .c2 = 0x318d, .v1 = 0xff1a, .v2 = 0x0000},
+    {.c1 = 0x3163, .c2 = 0x318d, .v1 = 0x314f, .v2 = 0x0000},
+    {.c1 = 0x314f, .c2 = 0x318d, .v1 = 0x3151, .v2 = 0x0000},
+    {.c1 = 0x3161, .c2 = 0x318d, .v1 = 0x315c, .v2 = 0x0000},
+    {.c1 = 0x315c, .c2 = 0x318d, .v1 = 0x3160, .v2 = 0x0000},
+    {.c1 = 0x3153, .c2 = 0x3163, .v1 = 0x3154, .v2 = 0x0000},
+    {.c1 = 0x3155, .c2 = 0x3163, .v1 = 0x3156, .v2 = 0x0000},
+    {.c1 = 0x314f, .c2 = 0x3163, .v1 = 0x3150, .v2 = 0x0000},
+    {.c1 = 0x3151, .c2 = 0x3163, .v1 = 0x3152, .v2 = 0x0000},
+    {.c1 = 0x3160, .c2 = 0x3163, .v1 = 0x315c, .v2 = 0x3153}};
 
 enum ESelectionBarId {
   eSelectionBarStart = 0,
@@ -373,6 +399,8 @@ class IMEConnect final : public nsISupports, public nsWrapperCache {
                                 const Sequence<nsString>& aContext,
                                 nsAString& aRetval);
   static void GetNextWordCandidates(const nsAString& aWord, nsAString& aRetval);
+  static void GetComposingWords(const nsAString& aLetters,
+                                const long aIndicator, nsAString& aRetval);
   static void ImportDictionary(Blob& aBlob, ErrorResult& aRv);
   static uint32_t SetLanguage(const uint32_t aLid);
 
@@ -384,6 +412,8 @@ class IMEConnect final : public nsISupports, public nsWrapperCache {
   static int DeinitSysDictionary();
   static void FetchCandidates();
   static void PackCandidates();
+  static bool KoreanCharToVowel(char16_t c1, char16_t c2, char16_t* v1,
+                                char16_t* v2);
 
   // callback function for input code expanding (aka ambiguous input)
   static ctint32 GetInputCodeExpandResult(

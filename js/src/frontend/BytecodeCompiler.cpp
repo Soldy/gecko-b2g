@@ -597,12 +597,6 @@ AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx,
 }
 #endif
 
-static bool CanLazilyParse(const CompilationStencil& stencil) {
-  return !stencil.input.options.discardSource &&
-         !stencil.input.options.sourceIsLazy &&
-         !stencil.input.options.forceFullParse();
-}
-
 template <typename Unit>
 bool frontend::SourceAwareCompiler<Unit>::createSourceAndParser(
     JSContext* cx, CompilationStencil& stencil) {
@@ -610,7 +604,7 @@ bool frontend::SourceAwareCompiler<Unit>::createSourceAndParser(
     return false;
   }
 
-  if (CanLazilyParse(stencil)) {
+  if (CanLazilyParse(stencil.input.options)) {
     syntaxParser.emplace(cx, stencil.input.options, sourceBuffer_.units(),
                          sourceBuffer_.length(),
                          /* foldConstants = */ false, stencil,
@@ -1227,11 +1221,6 @@ void CompilationInput::trace(JSTracer* trc) {
 void CompilationAtomCache::trace(JSTracer* trc) { atoms_.trace(trc); }
 
 void CompilationStencil::trace(JSTracer* trc) { input.trace(trc); }
-
-void CompilationStencilSet::trace(JSTracer* trc) {
-  CompilationStencil::trace(trc);
-  delazificationAtomCache.trace(trc);
-}
 
 void CompilationGCOutput::trace(JSTracer* trc) {
   TraceNullableRoot(trc, &script, "compilation-gc-output-script");

@@ -291,6 +291,10 @@
 #  include "mozilla/dom/PFMRadioChild.h"
 #endif
 
+#ifdef ENABLE_RSU
+#include "mozilla/dom/RSUChild.h"
+#endif
+
 #include "ClearOnShutdown.h"
 #include "DomainPolicy.h"
 #include "GMPServiceChild.h"
@@ -2263,6 +2267,22 @@ bool ContentChild::DeallocPFMRadioChild(PFMRadioChild* aActor) {
 }
 #endif
 
+#ifdef ENABLE_RSU
+PRSUChild*
+ContentChild::AllocPRSUChild()
+{
+  MOZ_CRASH("No one should be allocating PRSUChild actors");
+  return nullptr;
+}
+
+bool
+ContentChild::DeallocPRSUChild(PRSUChild* aActor)
+{
+  delete aActor;
+  return true;
+}
+#endif
+
 PBenchmarkStorageChild* ContentChild::AllocPBenchmarkStorageChild() {
   return BenchmarkStorageChild::Instance();
 }
@@ -4105,7 +4125,8 @@ mozilla::ipc::IPCResult ContentChild::RecvWindowClose(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvWindowFocus(
-    const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType) {
+    const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
+    uint64_t aActionId) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(BrowsingContext::GetLog(), LogLevel::Debug,
             ("ChildIPC: Trying to send a message to dead or detached context"));
@@ -4119,7 +4140,7 @@ mozilla::ipc::IPCResult ContentChild::RecvWindowFocus(
         ("ChildIPC: Trying to send a message to a context without a window"));
     return IPC_OK();
   }
-  nsGlobalWindowOuter::Cast(window)->FocusOuter(aCallerType);
+  nsGlobalWindowOuter::Cast(window)->FocusOuter(aCallerType, aActionId);
   return IPC_OK();
 }
 

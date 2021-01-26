@@ -1188,11 +1188,16 @@ JSObject* PushEvent::WrapObjectInternal(JSContext* aCx,
 SystemMessageData::SystemMessageData(nsIGlobalObject* aOwner,
                                      const nsAString& aName,
                                      const JS::Value& aData)
-    : mOwner(aOwner), mName(aName), mData(aData) {}
+    : mOwner(aOwner), mName(aName), mData(aData) {
+  mozilla::HoldJSObjects(this);
+}
 
-SystemMessageData::~SystemMessageData() {}
+SystemMessageData::~SystemMessageData() {
+  mData.setUndefined();
+  DropJSObjects(this);
+}
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(SystemMessageData)
+NS_IMPL_CYCLE_COLLECTION_MULTI_ZONE_JSHOLDER_CLASS(SystemMessageData)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(SystemMessageData)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
@@ -1206,7 +1211,7 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(SystemMessageData)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
-  tmp->mData.setNull();
+  tmp->mData.setUndefined();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(SystemMessageData)
@@ -1230,6 +1235,9 @@ void SystemMessageData::Json(JSContext* aCx,
     return;
   }
   aRetval.set(mData);
+  if (!JS_WrapValue(aCx, aRetval)) {
+    aRv.Throw(NS_ERROR_FAILURE);
+  }
 }
 
 already_AddRefed<mozilla::dom::WebActivityRequestHandler>

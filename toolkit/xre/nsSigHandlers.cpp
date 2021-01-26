@@ -40,6 +40,8 @@
 // Note: some tests manipulate this value.
 unsigned int _gdb_sleep_duration = 300;
 
+static struct sigaction SIGFPE_osa;
+
 #  if defined(LINUX) && !defined(ANDROID) && defined(DEBUG) && \
       (defined(__i386) || defined(__x86_64) || defined(PPC))
 #    define CRAWL_STACK_ON_SIGSEGV
@@ -221,6 +223,15 @@ static void fpehandler(int signum, siginfo_t* si, void* context) {
   *mxcsr &= ~SSE_STATUS_FLAGS;  /* clear all pending SSE exceptions */
 #      endif
 #    endif
+
+  // Call previous signal handlers if exists
+  struct sigaction* osa = nullptr;
+  osa = &SIGFPE_osa;
+  if (osa->sa_flags & SA_SIGINFO && osa->sa_sigaction) {
+      osa->sa_sigaction(signum, si, context);
+  } else if (osa->sa_handler) {
+      osa->sa_handler(signum);
+  }
 }
 #  endif
 
@@ -254,11 +265,11 @@ void InstallSignalHandlers(const char* aProgname) {
 #  ifdef SA_SIGINFO
   /* Install a handler for floating point exceptions and disable them if they
    * occur. */
-  struct sigaction sa, osa;
+  struct sigaction sa;
   sa.sa_flags = SA_ONSTACK | SA_RESTART | SA_SIGINFO;
   sa.sa_sigaction = fpehandler;
   sigemptyset(&sa.sa_mask);
-  sigaction(SIGFPE, &sa, &osa);
+  sigaction(SIGFPE, &sa, &SIGFPE_osa);
 #  endif
 
   if (!XRE_IsParentProcess()) {

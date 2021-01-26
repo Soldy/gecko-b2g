@@ -311,6 +311,7 @@ class NetworkUtils final {
   CommandResult setWifiTethering(NetworkParams& aOptions);
   CommandResult updateUpStream(NetworkParams& aOptions);
   CommandResult removeUpStream(NetworkParams& aOptions);
+  CommandResult setupPrefix64Discovery(NetworkParams& aOptions);
 
   /**
    * function pointer array holds all netd commands should be executed
@@ -375,6 +376,7 @@ class NetworkUtils final {
   static void usbTetheringSuccess(PARAMS);
   static void wifiTetheringSuccess(PARAMS);
   static void updateUpStreamSuccess(PARAMS);
+  static void setupPrefix64Discovery(PARAMS);
 #undef PARAMS
 
   /**

@@ -1247,9 +1247,9 @@ class Document : public nsINode,
   Document* GetSubDocumentFor(nsIContent* aContent) const;
 
   /**
-   * Find the content node for which aDocument is a sub document.
+   * Get the content node for which this document is a sub document.
    */
-  Element* FindContentForSubDocument(Document* aDocument) const;
+  Element* GetEmbedderElement() const;
 
   /**
    * Return the doctype for this document.
@@ -3205,7 +3205,11 @@ class Document : public nsINode,
 
   // This method may fire a DOM event; if it does so it will happen
   // synchronously.
-  void UpdateVisibilityState();
+  //
+  // Whether the event fires is controlled by the argument.
+  enum class DispatchVisibilityChange { No, Yes };
+  void UpdateVisibilityState(
+      DispatchVisibilityChange = DispatchVisibilityChange::Yes);
 
   // Posts an event to call UpdateVisibilityState.
   void PostVisibilityUpdateEvent();
@@ -3514,6 +3518,13 @@ class Document : public nsINode,
     return mStyleSheetChangeEventsEnabled;
   }
 
+  void SetShadowRootAttachedEventEnabled(bool aValue) {
+    mShadowRootAttachedEventEnabled = aValue;
+  }
+  bool ShadowRootAttachedEventEnabled() const {
+    return mShadowRootAttachedEventEnabled;
+  }
+
   already_AddRefed<Promise> BlockParsing(Promise& aPromise,
                                          const BlockParsingOptions& aOptions,
                                          ErrorResult& aRv);
@@ -3556,12 +3567,14 @@ class Document : public nsINode,
    * Defined inline in nsHTMLDocument.h
    */
   inline nsHTMLDocument* AsHTMLDocument();
+  inline const nsHTMLDocument* AsHTMLDocument() const;
 
   /**
    * Asserts IsSVGDocument, and can't return null.
    * Defined inline in SVGDocument.h
    */
   inline SVGDocument* AsSVGDocument();
+  inline const SVGDocument* AsSVGDocument() const;
 
   /*
    * Given a node, get a weak reference to it and append that reference to
@@ -4517,6 +4530,9 @@ class Document : public nsINode,
 
   // Whether style sheet change events will be dispatched for this document
   bool mStyleSheetChangeEventsEnabled : 1;
+
+  // Whether shadowrootattached events will be dispatched for this document.
+  bool mShadowRootAttachedEventEnabled : 1;
 
   // Whether the document was created by a srcdoc iframe.
   bool mIsSrcdocDocument : 1;

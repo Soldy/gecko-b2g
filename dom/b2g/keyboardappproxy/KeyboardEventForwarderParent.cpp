@@ -45,5 +45,11 @@ KeyboardEventForwarderParent::OnKeyboardEventReceived(
   return NS_OK;
 }
 
+NS_IMETHODIMP
+KeyboardEventForwarderParent::OnTextChanged(const nsACString& aText) {
+  Unused << SendTextChanged(nsAutoCString(aText));
+  return NS_OK;
+}
+
 }  // namespace dom
 }  // namespace mozilla

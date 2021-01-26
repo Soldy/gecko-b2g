@@ -42,6 +42,8 @@ class SandboxInfo {
     // Env var MOZ_PERMISSIVE_CONTENT_SANDBOX
     kPermissive = 1 << 7,
     // (1 << 8) was kUnexpectedThreads
+    // Env var MOZ_SANDBOX_ERROR.
+    kError = 1 << 8,
   };
 
   bool Test(Flags aFlag) const { return (mFlags & aFlag) == aFlag; }

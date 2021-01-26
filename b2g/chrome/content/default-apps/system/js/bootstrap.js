@@ -14,3 +14,18 @@ document.addEventListener(
   },
   { once: true }
 );
+
+(function() {
+  const { Services } = ChromeUtils.import(
+    "resource://gre/modules/Services.jsm"
+  );
+
+  // Grant "web-view" permission for default-app.
+  Services.perms.addFromPrincipal(
+    Services.scriptSecurityManager.createContentPrincipalFromOrigin(
+      "resource://default-app-browser/index.html"
+    ),
+    "web-view",
+    Ci.nsIPermissionManager.ALLOW_ACTION
+  );
+})();

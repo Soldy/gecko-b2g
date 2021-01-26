@@ -48,6 +48,9 @@
 #ifdef HAS_KOOST_MODULES
 #  include "mozilla/dom/AuthorizationManager.h"
 #  include "mozilla/dom/EngmodeManagerBinding.h"
+#ifdef ENABLE_RSU
+#  include "mozilla/dom/RemoteSimUnlock.h"
+#endif
 #endif
 
 #include "mozilla/dom/usb/UsbManager.h"
@@ -157,6 +160,11 @@ class B2G final : public nsIDOMMozWakeLockListener, public nsWrapperCache {
   EngmodeManager* GetEngmodeManager(ErrorResult& aRv);
   static bool HasEngmodeManagerSupport(JSContext* /* unused */,
                                        JSObject* aGlobal);
+#ifdef ENABLE_RSU
+  RemoteSimUnlock* GetRsu(ErrorResult& aRv);
+  static bool HasRSUSupport(JSContext* /* unused */,
+                            JSObject* aGlobal);
+#endif
 #endif
 
   UsbManager* GetUsbManager(ErrorResult& aRv);
@@ -240,6 +248,9 @@ class B2G final : public nsIDOMMozWakeLockListener, public nsWrapperCache {
 #ifdef HAS_KOOST_MODULES
   RefPtr<AuthorizationManager> mAuthorizationManager;
   RefPtr<EngmodeManager> mEngmodeManager;
+#ifdef ENABLE_RSU
+  RefPtr<RemoteSimUnlock> mRSU;
+#endif
 #endif
   RefPtr<UsbManager> mUsbManager;
   RefPtr<PowerSupplyManager> mPowerSupplyManager;

@@ -1070,9 +1070,6 @@ pref("toolkit.telemetry.enabled", false);
 // Set adaptor as default recognition service
 pref("media.webspeech.service.default", "adaptor");
 
-// Force fullscreen video in landscape mode if its width larger than height.
-pref("media.video.fullscreen.force-landscape", true);
-
 // This defines the performance interfaces, do not turn it off.
 pref('dom.enable_user_timing', true);
 #ifdef TARGET_VARIANT_ENG
@@ -1223,14 +1220,9 @@ pref("captivedetect.canonicalContent", "success");
 pref("externalAPI.websocket.protocols", "kaios-services");
 pref("externalAPI.websocket.url", "ws://localhost/");
 
-// B2G IMS feature
-#ifdef B2G_IMS
-pref("b2g.ims.enabled", true);
-#endif
-
 //MVS featrue
 #if B2G_CCUSTOM_MODULES == C001
 pref("device.mvs", true);
 #endif
 
-pref("dom.popup_allowed_events", "change click dblclick auxclick mouseup pointerup notificationclick reset submit touchend contextmenu keydown");
+pref("dom.popup_allowed_events", "change click dblclick auxclick mouseup pointerup notificationclick reset submit touchend contextmenu keydown keyup");

@@ -62,6 +62,13 @@ XPCOMUtils.defineLazyServiceGetter(
   "nsINetworkManager"
 );
 
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gPCOService",
+  "@kaiostech.com/pcoservice;1",
+  "nsIPCOService"
+);
+
 XPCOMUtils.defineLazyGetter(this, "RIL", function() {
   return ChromeUtils.import("resource://gre/modules/ril_consts.js");
 });
@@ -117,7 +124,6 @@ const NETWORK_STATE_DISCONNECTING =
 const NETWORK_STATE_DISCONNECTED = Ci.nsINetworkInfo.NETWORK_STATE_DISCONNECTED;
 
 const INT32_MAX = 2147483647;
-//const kPcoValueChangeObserverTopic = "pco-value-change";
 const kApnSettingKey = "ril.data.apnSettings.sim";
 
 //ref RIL.GECKO_RADIO_TECH
@@ -1076,6 +1082,10 @@ DataCallHandler.prototype = {
   },
 
   updatePcoData(aCid, aBearerProtom, aPcoId, aContents, aCount) {
+    if (!gPCOService) {
+      this.debug("Error. No PCO Service. return.");
+      return;
+    }
     if (DEBUG) {
       this.debug(
         "updatePcoData aCid=" +
@@ -1132,24 +1142,24 @@ DataCallHandler.prototype = {
       this.debug("PCO_DATA - couldn't infer cid.");
       return;
     }
-    // Sending out the PCO information for each apn type.
+
+    let pcoValueList = [];
     for (let i = 0; i < pcoDataCalls.length; i++) {
       let pcoDataCall = pcoDataCalls[i];
       for (let i = 0; i < pcoDataCall.requestedNetworkIfaces.length; i++) {
-        try {
-          /*gSystemMessenger.broadcastMessage(kPcoValueChangeObserverTopic, {
-            apnType: pcoDataCall.requestedNetworkIfaces[i].info.type,
-            bearerProto: aBearerProtom,
-            pcoId: aPcoId,
-            contents: aContents,
-          });*/
-        } catch (e) {
-          if (DEBUG) {
-            this.debug("Failed to broadcastPcoChangeMessage: " + e);
-          }
-        }
+        let pcoValue = {
+          clientId: this.clientId,
+          iccId: this.newIccid,
+          apnType: pcoDataCall.requestedNetworkIfaces[i].info.type,
+          bearerProto: aBearerProtom,
+          pcoId: aPcoId,
+          contents: aContents,
+        };
+        pcoValueList.push(pcoValue);
       }
     }
+    // Passing the pco value to pco server.
+    gPCOService.updatePcoData(pcoValueList);
   },
 
   updateRILNetworkInterface() {

@@ -654,3 +654,9 @@ TelephonyIPCService::NotifyRttMessageReceived(uint32_t aClientId,
   }
   return NS_OK;
 }
+
+NS_IMETHODIMP
+TelephonyIPCService::NotifySrvccState(uint32_t aClientId, int32_t aState) {
+  // no action.
+  return NS_OK;
+}

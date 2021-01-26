@@ -8,6 +8,7 @@
 #include "mozilla/dom/WebActivityRequestHandlerBinding.h"
 #include "mozilla/dom/WebActivityBinding.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "js/JSON.h"
 #include "nsIActivityRequestHandlerProxy.h"
 
@@ -104,7 +105,7 @@ class PostErrorRunnable final : public ActivityRequestHandlerProxyRunnable {
 
 }  // anonymous namespace
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(WebActivityRequestHandler)
+NS_IMPL_CYCLE_COLLECTION_MULTI_ZONE_JSHOLDER_CLASS(WebActivityRequestHandler)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(WebActivityRequestHandler)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -116,7 +117,7 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(WebActivityRequestHandler)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
-  tmp->mMessage.setNull();
+  tmp->mMessage.setUndefined();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(WebActivityRequestHandler, AddRef)
@@ -127,10 +128,13 @@ WebActivityRequestHandler::WebActivityRequestHandler(const JS::Value& aMessage,
                                                      bool aReturnValue)
     : mActivityId(aId), mReturnValue(aReturnValue), mMessage(aMessage) {
   MOZ_COUNT_CTOR(WebActivityRequestHandler);
+  mozilla::HoldJSObjects(this);
 }
 
 WebActivityRequestHandler::~WebActivityRequestHandler() {
   MOZ_COUNT_DTOR(WebActivityRequestHandler);
+  mMessage.setUndefined();
+  DropJSObjects(this);
 }
 
 JSObject* WebActivityRequestHandler::WrapObject(

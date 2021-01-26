@@ -61,6 +61,8 @@ class FMRadioChild final : public IFMRadioService, public PFMRadioChild {
 
   virtual void EnableAudio(bool aAudioEnabled) override;
 
+  virtual void SetVolume(float aVolume) override;
+
   /* PFMRadioChild */
   mozilla::ipc::IPCResult RecvNotifyFrequencyChanged(const double& aFrequency);
 

@@ -2047,6 +2047,7 @@ def wasm_sandboxing_libraries():
     return (
         "graphite",
         "ogg",
+        "hunspell",
     )
 
 
@@ -2383,17 +2384,6 @@ def forkserver_flag(value, target):
 set_config("MOZ_ENABLE_FORKSERVER", forkserver_flag)
 set_define("MOZ_ENABLE_FORKSERVER", forkserver_flag, forkserver_flag)
 
-# new cert storage implementation
-# ==============================================================
-option(
-    "--disable-new-cert-storage",
-    env="MOZ_NEW_CERT_STORAGE",
-    help="{Enable|Disable} new certificate storage",
-)
-
-set_config("MOZ_NEW_CERT_STORAGE", True, when="--enable-new-cert-storage")
-set_define("MOZ_NEW_CERT_STORAGE", True, when="--enable-new-cert-storage")
-
 # Crash Reporter
 # ==============================================================
 
@@ -2496,3 +2486,33 @@ option(
 )
 
 set_define("MOZ_USE_NATIVE_POPUP_WINDOWS", True, when="MOZ_USE_NATIVE_POPUP_WINDOWS")
+
+
+# Crash reporter options
+# ==============================================================
+@depends(target)
+def oxidized_breakpad(target):
+    if target.kernel == "Linux" and target.os != "Android":
+        return target.cpu in ("x86", "x86_64")
+    return False
+
+
+set_config("MOZ_OXIDIZED_BREAKPAD", True, when=oxidized_breakpad)
+set_define("MOZ_OXIDIZED_BREAKPAD", True, when=oxidized_breakpad)
+
+
+# Enable or disable running in background task mode: headless for
+# periodic, short-lived, maintenance tasks.
+# ==============================================================================
+
+
+option(
+    "--enable-backgroundtasks",
+    default=milestone.is_nightly,
+    help="{Enable|Disable} running in background task mode",
+)
+
+
+set_config(
+    "MOZ_BACKGROUNDTASKS", depends_if("--enable-backgroundtasks")(lambda _: True)
+)

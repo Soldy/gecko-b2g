@@ -244,6 +244,12 @@ extern bool gBluetoothDebugFlag;
 #define PAIRING_REQ_TYPE_CONSENT "pairingconsentreq"
 
 /**
+ * System message to notify apps that the current pairing is aborted either by
+ * remote device or local bluetooth adapter.
+ */
+#define SYS_MSG_BT_PAIRING_ABORTED u"bluetooth-pairing-aborted"_ns
+
+/**
  * System message to launch bluetooth app if no pairing listener is ready to
  * receive pairing requests.
  */

@@ -23,6 +23,8 @@ interface IMEConnect {
 
   DOMString getNextWordCandidates(DOMString word);
 
+  DOMString getComposingWords(DOMString letters, long indicator);
+
   [Throws]
   void importDictionary(Blob dictionary);
 

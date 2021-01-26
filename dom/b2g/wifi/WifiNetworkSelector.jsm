@@ -157,8 +157,7 @@ this.WifiNetworkSelector = (function() {
 
       // Has it been at least the minimum interval since last network selection?
       if (lastNetworkSelectionTimeStamp != WifiConstants.INVALID_TIME_STAMP) {
-        var now = Date.now();
-        var gap = now - lastNetworkSelectionTimeStamp;
+        var gap = Date.now() - lastNetworkSelectionTimeStamp;
         if (gap < MINIMUM_NETWORK_SELECTION_INTERVAL) {
           debug(
             "Too short since last network selection: " +

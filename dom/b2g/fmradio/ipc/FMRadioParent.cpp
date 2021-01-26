@@ -143,6 +143,11 @@ mozilla::ipc::IPCResult FMRadioParent::RecvEnableAudio(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult FMRadioParent::RecvSetVolume(const float& aVolume) {
+  IFMRadioService::Singleton()->SetVolume(aVolume);
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult FMRadioParent::RecvSetRDSGroupMask(
     const uint32_t& aRDSGroupMask) {
   IFMRadioService::Singleton()->SetRDSGroupMask(aRDSGroupMask);

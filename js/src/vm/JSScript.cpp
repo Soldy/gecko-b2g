@@ -10,6 +10,7 @@
 
 #include "vm/JSScript-inl.h"
 
+#include "mozilla/ArrayUtils.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
@@ -254,16 +255,16 @@ template <XDRMode mode>
 /* static */
 XDRResult BaseScript::XDRLazyScriptData(XDRState<mode>* xdr,
                                         HandleScriptSourceObject sourceObject,
-                                        Handle<BaseScript*> lazy,
-                                        bool hasMemberInitializers) {
+                                        Handle<BaseScript*> lazy) {
   JSContext* cx = xdr->cx();
 
   RootedAtom atom(cx);
   RootedFunction func(cx);
 
-  if (hasMemberInitializers) {
+  if (lazy->useMemberInitializers()) {
     uint32_t numMemberInitializers;
     if (mode == XDR_ENCODE) {
+      MOZ_ASSERT(lazy->getMemberInitializers().valid);
       numMemberInitializers =
           lazy->getMemberInitializers().numMemberInitializers;
     }
@@ -813,13 +814,11 @@ XDRResult js::PrivateScriptData::XDR(XDRState<mode>* xdr, HandleScript script,
     data = script->data_;
   }
 
-  // Code the field initilizer data.
-  if (funOrMod && funOrMod->is<JSFunction>() &&
-      funOrMod->as<JSFunction>().isClassConstructor()) {
-    MOZ_ASSERT(scriptEnclosingScope);
-
+  // Code the field initializer data.
+  if (script->useMemberInitializers()) {
     uint32_t numMemberInitializers;
     if (mode == XDR_ENCODE) {
+      MOZ_ASSERT(data->getMemberInitializers().valid);
       numMemberInitializers =
           data->getMemberInitializers().numMemberInitializers;
     }
@@ -1184,7 +1183,7 @@ XDRResult js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope,
       ssHolder.get().reset(sourceObject->source());
     }
 
-    MOZ_TRY(ScriptSource::XDR(xdr, options, &ssHolder));
+    MOZ_TRY(ScriptSource::XDR(xdr, options.ptrOr(nullptr), &ssHolder));
 
     if (mode == XDR_DECODE) {
       sourceObject = ScriptSourceObject::create(cx, ssHolder.get().get());
@@ -1328,12 +1327,7 @@ XDRResult js::XDRLazyScript(XDRState<mode>* xdr, HandleScope enclosingScope,
     }
   }
 
-  // FieldInitializer data is defined for class constructors, but only once
-  // their enclosing script has been compiled.
-  bool hasMemberInitializers = fun->isClassConstructor() && enclosingScope;
-
-  MOZ_TRY(BaseScript::XDRLazyScriptData(xdr, sourceObject, lazy,
-                                        hasMemberInitializers));
+  MOZ_TRY(BaseScript::XDRLazyScriptData(xdr, sourceObject, lazy));
 
   return Ok();
 }
@@ -2894,7 +2888,7 @@ bool ScriptSource::xdrFinalizeEncoder(JSContext* cx,
 
   auto cleanup = mozilla::MakeScopeExit([&] { xdrEncoder_.reset(nullptr); });
 
-  XDRResult res = xdrEncoder_->linearize(buffer);
+  XDRResult res = xdrEncoder_->linearize(buffer, this);
   return res.isOk();
 }
 
@@ -3236,7 +3230,7 @@ XDRResult ScriptSource::xdrData(XDRState<mode>* const xdr,
 template <XDRMode mode>
 /* static */
 XDRResult ScriptSource::XDR(XDRState<mode>* xdr,
-                            const mozilla::Maybe<JS::CompileOptions>& options,
+                            const ReadOnlyCompileOptions* maybeOptions,
                             MutableHandle<ScriptSourceHolder> holder) {
   JSContext* cx = xdr->cx();
   ScriptSource* ss = nullptr;
@@ -3255,7 +3249,7 @@ XDRResult ScriptSource::XDR(XDRState<mode>* xdr,
     // Most CompileOptions fields aren't used by ScriptSourceObject, and those
     // that are (element; elementAttributeName) aren't preserved by XDR. So
     // this can be simple.
-    if (!ss->initFromOptions(cx, *options)) {
+    if (!ss->initFromOptions(cx, *maybeOptions)) {
       return xdr->fail(JS::TranscodeResult_Throw);
     }
   }
@@ -3323,12 +3317,12 @@ XDRResult ScriptSource::XDR(XDRState<mode>* xdr,
 template /* static */
     XDRResult
     ScriptSource::XDR(XDRState<XDR_ENCODE>* xdr,
-                      const mozilla::Maybe<JS::CompileOptions>& options,
+                      const ReadOnlyCompileOptions* maybeOptions,
                       MutableHandle<ScriptSourceHolder> holder);
 template /* static */
     XDRResult
     ScriptSource::XDR(XDRState<XDR_DECODE>* xdr,
-                      const mozilla::Maybe<JS::CompileOptions>& options,
+                      const ReadOnlyCompileOptions* maybeOptions,
                       MutableHandle<ScriptSourceHolder> holder);
 
 // Format and return a cx->pod_malloc'ed URL for a generated script like:
@@ -3728,7 +3722,7 @@ PrivateScriptData* PrivateScriptData::new_(JSContext* cx, uint32_t ngcthings) {
 bool PrivateScriptData::InitFromStencil(
     JSContext* cx, js::HandleScript script,
     js::frontend::CompilationInput& input,
-    js::frontend::BaseCompilationStencil& stencil,
+    const js::frontend::BaseCompilationStencil& stencil,
     js::frontend::CompilationGCOutput& gcOutput,
     const js::frontend::ScriptIndex scriptIndex) {
   js::frontend::ScriptStencil& scriptStencil = stencil.scriptData[scriptIndex];
@@ -3748,10 +3742,6 @@ bool PrivateScriptData::InitFromStencil(
                                 data->gcthings())) {
       return false;
     }
-  }
-
-  if (scriptStencil.hasMemberInitializers()) {
-    script->setMemberInitializers(scriptStencil.memberInitializers());
   }
 
   return true;
@@ -3826,7 +3816,7 @@ bool JSScript::createPrivateScriptData(JSContext* cx, HandleScript script,
 /* static */
 bool JSScript::fullyInitFromStencil(
     JSContext* cx, js::frontend::CompilationInput& input,
-    js::frontend::BaseCompilationStencil& stencil,
+    const js::frontend::BaseCompilationStencil& stencil,
     frontend::CompilationGCOutput& gcOutput, HandleScript script,
     const js::frontend::ScriptIndex scriptIndex) {
   MutableScriptFlags lazyMutableFlags;
@@ -3894,6 +3884,20 @@ bool JSScript::fullyInitFromStencil(
     return false;
   }
 
+  // Member-initializer data is computed in initial parse only. If we are
+  // delazifying, make sure to copy it off the `lazyData` before we throw it
+  // away.
+  if (script->useMemberInitializers()) {
+    if (stencil.isInitialStencil()) {
+      MemberInitializers initializers(stencil.asCompilationStencil()
+                                          .scriptExtra[scriptIndex]
+                                          .memberInitializers());
+      script->setMemberInitializers(initializers);
+    } else {
+      script->setMemberInitializers(lazyData.get()->getMemberInitializers());
+    }
+  }
+
   script->initSharedData(stencil.sharedData.get(scriptIndex));
 
   // NOTE: JSScript is now constructed and should be linked in.
@@ -3934,7 +3938,7 @@ bool JSScript::fullyInitFromStencil(
 
 JSScript* JSScript::fromStencil(JSContext* cx,
                                 js::frontend::CompilationInput& input,
-                                js::frontend::CompilationStencil& stencil,
+                                const js::frontend::CompilationStencil& stencil,
                                 frontend::CompilationGCOutput& gcOutput,
                                 const js::frontend::ScriptIndex scriptIndex) {
   js::frontend::ScriptStencil& scriptStencil = stencil.scriptData[scriptIndex];
@@ -4540,6 +4544,11 @@ static JSScript* CopyScriptImpl(JSContext* cx, HandleScript src,
   // Reset the mutable flags to request arguments analysis as needed.
   dst->resetArgsUsageAnalysis();
 
+  // Maintain this flag when cloning self-hosted functions.
+  if (src->isInlinableLargeFunction()) {
+    dst->setIsInlinableLargeFunction();
+  }
+
   // Clone the PrivateScriptData into dst
   if (!PrivateScriptData::Clone(cx, src, dst, scopes)) {
     return nullptr;
@@ -5000,8 +5009,9 @@ BaseScript* BaseScript::CreateRawLazy(JSContext* cx, uint32_t ngcthings,
   }
 
   // Allocate a PrivateScriptData if it will not be empty. Lazy class
-  // constructors also need PrivateScriptData for field lists.
-  if (ngcthings || fun->isClassConstructor()) {
+  // constructors that use member initializers also need PrivateScriptData for
+  // field data.
+  if (ngcthings || lazy->useMemberInitializers()) {
     UniquePtr<PrivateScriptData> data(PrivateScriptData::new_(cx, ngcthings));
     if (!data) {
       return nullptr;

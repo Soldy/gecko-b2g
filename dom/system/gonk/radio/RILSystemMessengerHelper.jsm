@@ -35,8 +35,7 @@ XPCOMUtils.defineLazyServiceGetter(
 
 var DEBUG = true;
 function debug(s) {
-  // dump("-@- RILSystemMessenger: " + s + "\n");
-  console.log("-@- RILSystemMessengerHelper: " + s + "\n");
+  dump("-@- RILSystemMessenger: " + s + "\n");
 }
 
 // Read debug setting from pref.
@@ -172,6 +171,26 @@ RILSystemMessengerHelper.prototype = {
       aSentTimestamp,
       aDeliveryTimestamp,
       aRead
+    );
+  },
+
+  notifyDataSms(
+    aServiceId,
+    aIccId,
+    aSender,
+    aReceiver,
+    aOriginatorPort,
+    aDestinationPort,
+    aDatas
+  ) {
+    this.messenger.notifyDataSms(
+      aServiceId,
+      aIccId,
+      aSender,
+      aReceiver,
+      aOriginatorPort,
+      aDestinationPort,
+      aDatas
     );
   },
 

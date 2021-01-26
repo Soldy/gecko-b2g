@@ -25,7 +25,9 @@ using mozilla::dom::quota::AssertIsOnIOThread;
 using mozilla::dom::quota::Client;
 using mozilla::dom::quota::CloneFileAndAppend;
 using mozilla::dom::quota::DatabaseUsageType;
+using mozilla::dom::quota::GetDirEntryKind;
 using mozilla::dom::quota::GroupAndOrigin;
+using mozilla::dom::quota::nsIFileKind;
 using mozilla::dom::quota::PERSISTENCE_TYPE_DEFAULT;
 using mozilla::dom::quota::PersistenceType;
 using mozilla::dom::quota::QuotaManager;
@@ -59,15 +61,18 @@ Result<UsageInfo, nsresult> GetBodyUsage(nsIFile& aMorgueDir,
       aMorgueDir, aCanceled,
       [aInitializing](
           const nsCOMPtr<nsIFile>& bodyDir) -> Result<UsageInfo, nsresult> {
-        CACHE_TRY_INSPECT(const bool& isDir,
-                          MOZ_TO_RESULT_INVOKE(bodyDir, IsDirectory));
+        CACHE_TRY_INSPECT(const auto& dirEntryKind, GetDirEntryKind(*bodyDir));
 
-        if (!isDir) {
-          const DebugOnly<nsresult> result =
-              RemoveNsIFile(QuotaInfo{}, *bodyDir, /* aTrackQuota */ false);
-          // Try to remove the unexpected files, and keep moving on even if it
-          // fails because it might be created by virus or the operation system
-          MOZ_ASSERT(NS_SUCCEEDED(result));
+        if (dirEntryKind != nsIFileKind::ExistsAsDirectory) {
+          if (dirEntryKind == nsIFileKind::ExistsAsFile) {
+            const DebugOnly<nsresult> result =
+                RemoveNsIFile(QuotaInfo{}, *bodyDir, /* aTrackQuota */ false);
+            // Try to remove the unexpected files, and keep moving on even if it
+            // fails because it might be created by virus or the operation
+            // system
+            MOZ_ASSERT(NS_SUCCEEDED(result));
+          }
+
           return UsageInfo{};
         }
 
@@ -268,12 +273,9 @@ nsresult CacheQuotaClient::UpgradeStorageFrom2_0To2_1(nsIFile* aDirectory) {
 
   MutexAutoLock lock(mDirPaddingFileMutex);
 
-  nsresult rv = LockedDirectoryPaddingInit(*aDirectory);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  CACHE_TRY(LockedDirectoryPaddingInit(*aDirectory));
 
-  return rv;
+  return NS_OK;
 }
 
 nsresult CacheQuotaClient::RestorePaddingFileInternal(
@@ -332,22 +334,15 @@ nsresult CacheQuotaClient::WipePaddingFileInternal(const QuotaInfo& aQuotaInfo,
     DecreaseUsageForQuotaInfo(aQuotaInfo, paddingSize);
   }
 
-  nsresult rv =
-      LockedDirectoryPaddingDeleteFile(*aBaseDir, DirPaddingFile::FILE);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  CACHE_TRY(LockedDirectoryPaddingDeleteFile(*aBaseDir, DirPaddingFile::FILE));
 
   // Remove temporary file if we have one.
-  rv = LockedDirectoryPaddingDeleteFile(*aBaseDir, DirPaddingFile::TMP_FILE);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
+  CACHE_TRY(
+      LockedDirectoryPaddingDeleteFile(*aBaseDir, DirPaddingFile::TMP_FILE));
 
-  rv = LockedDirectoryPaddingInit(*aBaseDir);
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  CACHE_TRY(LockedDirectoryPaddingInit(*aBaseDir));
 
-  return rv;
+  return NS_OK;
 }
 
 CacheQuotaClient::~CacheQuotaClient() {
@@ -486,10 +481,9 @@ nsresult RestorePaddingFile(nsIFile* aBaseDir, mozIStorageConnection* aConn) {
   RefPtr<CacheQuotaClient> cacheQuotaClient = CacheQuotaClient::Get();
   MOZ_DIAGNOSTIC_ASSERT(cacheQuotaClient);
 
-  nsresult rv = cacheQuotaClient->RestorePaddingFileInternal(aBaseDir, aConn);
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  CACHE_TRY(cacheQuotaClient->RestorePaddingFileInternal(aBaseDir, aConn));
 
-  return rv;
+  return NS_OK;
 }
 
 // static
@@ -500,10 +494,9 @@ nsresult WipePaddingFile(const QuotaInfo& aQuotaInfo, nsIFile* aBaseDir) {
   RefPtr<CacheQuotaClient> cacheQuotaClient = CacheQuotaClient::Get();
   MOZ_DIAGNOSTIC_ASSERT(cacheQuotaClient);
 
-  nsresult rv = cacheQuotaClient->WipePaddingFileInternal(aQuotaInfo, aBaseDir);
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  CACHE_TRY(cacheQuotaClient->WipePaddingFileInternal(aQuotaInfo, aBaseDir));
 
-  return rv;
+  return NS_OK;
 }
 
 }  // namespace mozilla::dom::cache

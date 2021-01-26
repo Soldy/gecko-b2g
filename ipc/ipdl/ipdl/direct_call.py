@@ -104,6 +104,18 @@ DIRECT_CALL_OVERRIDES = {
         "TelephonyRequestParent",
         "mozilla/dom/telephony/TelephonyParent.h",
     ),
+    ("PRSU", "child"): (
+        "RSUChild", "mozilla/dom/RSUChild.h"
+    ),
+    ("PRSU", "parent"): (
+        "RSUParent", "mozilla/dom/RSUParent.h"
+    ),
+    ("PRSURequest", "child"): (
+        "RSURequestChild", "mozilla/dom/RSUChild.h"
+    ),
+    ("PRSURequest", "parent"): (
+        "RSURequestParent", "mozilla/dom/RSUParent.h"
+    ),
     ("PSubsidyLock", "child"): (
         "SubsidyLockChild",
         "mozilla/dom/subsidylock/SubsidyLockChild.h",

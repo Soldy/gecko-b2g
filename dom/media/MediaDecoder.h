@@ -17,6 +17,7 @@
 #  include "MediaResource.h"
 #  include "MediaStatistics.h"
 #  include "SeekTarget.h"
+#  include "TelemetryProbesReporter.h"
 #  include "TimeUnits.h"
 #  include "mozilla/Atomics.h"
 #  include "mozilla/CDMProxy.h"
@@ -61,6 +62,7 @@ enum class Visibility : uint8_t;
 struct MOZ_STACK_CLASS MediaDecoderInit {
   MediaDecoderOwner* const mOwner;
   const dom::AudioChannel mAudioChannel;
+  TelemetryProbesReporterOwner* const mReporterOwner;
   const double mVolume;
   const bool mPreservesPitch;
   const double mPlaybackRate;
@@ -69,12 +71,15 @@ struct MOZ_STACK_CLASS MediaDecoderInit {
   const bool mLooping;
   const MediaContainerType mContainerType;
 
-  MediaDecoderInit(MediaDecoderOwner* aOwner, dom::AudioChannel aAudioChannel,
-                   double aVolume, bool aPreservesPitch, double aPlaybackRate,
+  MediaDecoderInit(MediaDecoderOwner* aOwner,
+                   TelemetryProbesReporterOwner* aReporterOwner,
+                   dom::AudioChannel aAudioChannel, double aVolume,
+                   bool aPreservesPitch, double aPlaybackRate,
                    bool aMinimizePreroll, bool aHasSuspendTaint, bool aLooping,
                    const MediaContainerType& aContainerType)
       : mOwner(aOwner),
         mAudioChannel(aAudioChannel),
+        mReporterOwner(aReporterOwner),
         mVolume(aVolume),
         mPreservesPitch(aPreservesPitch),
         mPlaybackRate(aPlaybackRate),
@@ -96,7 +101,6 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
 
   // Enumeration for the valid play states (see mPlayState)
   enum PlayState {
-    PLAY_STATE_START,
     PLAY_STATE_LOADING,
     PLAY_STATE_PAUSED,
     PLAY_STATE_PLAYING,
@@ -149,9 +153,8 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   virtual void Play();
 
   // Notify activity of the decoder owner is changed.
-  virtual void NotifyOwnerActivityChanged(bool aIsDocumentVisible,
-                                          Visibility aElementVisibility,
-                                          bool aIsElementInTree);
+  virtual void NotifyOwnerActivityChanged(bool aIsOwnerInvisible,
+                                          bool aIsOwnerConnected);
 
   // Pause video playback.
   virtual void Pause();
@@ -322,9 +325,8 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   dom::AudioChannel GetAudioChannel() { return mAudioChannel; }
 
   // Called from HTMLMediaElement when owner document activity changes
-  virtual void SetElementVisibility(bool aIsDocumentVisible,
-                                    Visibility aElementVisibility,
-                                    bool aIsElementInTree);
+  virtual void SetElementVisibility(bool aIsOwnerInvisible,
+                                    bool aIsOwnerConnected);
 
   // Force override the visible state to hidden.
   // Called from HTMLMediaElement when testing of video decode suspend from
@@ -600,14 +602,12 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   // only be accessed from main thread.
   UniquePtr<MediaInfo> mInfo;
 
-  // Tracks the visibility status of owner element's document.
-  bool mIsDocumentVisible;
+  // True if the owner element is actually visible to users.
+  bool mIsOwnerInvisible;
 
-  // Tracks the visibility status of owner element.
-  Visibility mElementVisibility;
-
-  // Tracks the owner is in-tree or not.
-  bool mIsElementInTree;
+  // True if the owner element is connected to a document tree.
+  // https://dom.spec.whatwg.org/#connected
+  bool mIsOwnerConnected;
 
   // If true, forces the decoder to be considered hidden.
   bool mForcedHidden;
@@ -747,6 +747,15 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   }
   AbstractCanonical<PlayState>* CanonicalPlayState() { return &mPlayState; }
 
+  void UpdateTelemetryHelperBasedOnPlayState(PlayState aState) const;
+
+  TelemetryProbesReporter::Visibility OwnerVisibility() const;
+
+  // They are used for reporting telemetry related results.
+  double GetTotalPlayTimeInSeconds() const;
+  double GetInvisibleVideoPlayTimeInSeconds() const;
+  double GetVideoDecodeSuspendedTimeInSeconds() const;
+
  private:
   // Notify owner when the audible state changed
   void NotifyAudibleStateChanged();
@@ -754,6 +763,8 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   bool mTelemetryReported;
   const MediaContainerType mContainerType;
   bool mCanPlayThrough = false;
+
+  UniquePtr<TelemetryProbesReporter> mTelemetryProbesReporter;
 };
 
 typedef MozPromise<mozilla::dom::MediaMemoryInfo, nsresult, true>

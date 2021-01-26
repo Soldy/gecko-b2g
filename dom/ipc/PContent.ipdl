@@ -90,6 +90,10 @@ include LookAndFeelTypes;
 include protocol PSandboxTesting;
 #endif
 
+#ifdef ENABLE_RSU
+include protocol PRSU;
+#endif
+
 //#ifdef ENABLE_EMBMS
 //include protocol PLteBroadcast;
 //#endif
@@ -610,6 +614,9 @@ nested(upto inside_cpow) sync protocol PContent
     manages PFileDescriptorSet;
 #ifdef MOZ_B2G_FM
     manages PFMRadio;
+#endif
+#ifdef ENABLE_RSU
+    manages PRSU;
 #endif
     manages PHal;
     manages PHandlerService;
@@ -1296,6 +1303,10 @@ parent:
 
 #ifdef MOZ_B2G_FM
     async PFMRadio();
+#endif
+
+#ifdef ENABLE_RSU
+    async PRSU();
 #endif
 
     async PWebrtcGlobal();
@@ -2102,7 +2113,7 @@ both:
     async WindowClose(MaybeDiscardedBrowsingContext aContext,
                       bool aTrustedCaller);
     async WindowFocus(MaybeDiscardedBrowsingContext aContext,
-                      CallerType aCallerType);
+                      CallerType aCallerType, uint64_t aActionId);
     async WindowBlur(MaybeDiscardedBrowsingContext aContext);
     async RaiseWindow(MaybeDiscardedBrowsingContext aContext, CallerType aCallerType, uint64_t aActionId);
     async ClearFocus(MaybeDiscardedBrowsingContext aContext);

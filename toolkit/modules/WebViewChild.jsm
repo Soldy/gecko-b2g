@@ -843,6 +843,14 @@ var WebViewChild = {
     ) {
       this.global.sendAsyncMessage(`WebView::fullscreen::exit`, {});
     }
+
+    let element = content.document.fullscreenElement;
+    if (element && element.mozOrientationLockEnabled) {
+      if (element.videoWidth > element.videoHeight) {
+        content.screen.orientation.lock("landscape");
+        element.mozIsOrientationLocked = true;
+      }
+    }
   },
 
   recvFullscreenExited(data) {
@@ -851,6 +859,15 @@ var WebViewChild = {
     if (!content || !content.windowUtils) {
       return;
     }
+
+    let element = content.document.fullscreenElement;
+    if (element && element.mozOrientationLockEnabled) {
+      if (element.mozIsOrientationLocked) {
+        content.screen.orientation.unlock();
+        element.mozIsOrientationLocked = false;
+      }
+    }
+
     content.windowUtils.exitFullscreen();
   },
 

@@ -190,6 +190,7 @@
 #include "mozilla/dom/WindowContext.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/XULCommandEvent.h"
 #include "mozilla/fallible.h"
 #include "mozilla/gfx/2D.h"
@@ -1731,6 +1732,69 @@ bool nsContentUtils::IsHTMLBlockLevelElement(nsIContent* aContent) {
       nsGkAtoms::ul, nsGkAtoms::xmp);
 }
 
+class GetPushPermissionRunnable final : public WorkerMainThreadRunnable {
+  uint32_t mPermission;
+
+ public:
+  explicit GetPushPermissionRunnable(WorkerPrivate* aWorker)
+      : WorkerMainThreadRunnable(aWorker,
+                                 "nsContentUtils :: Get Push Permission"_ns),
+        mPermission(nsIPermissionManager::DENY_ACTION) {}
+
+  bool MainThreadRun() override {
+    nsresult rv;
+    nsCOMPtr<nsIPermissionManager> permMgr =
+        do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, false);
+
+    rv = permMgr->TestExactPermissionFromPrincipal(mWorkerPrivate->GetPrincipal(),
+                                              "push"_ns, &mPermission);
+    NS_ENSURE_SUCCESS(rv, false);
+
+    return true;
+  }
+
+  uint32_t GetPermission() { return mPermission; }
+};
+
+/* static */
+bool nsContentUtils::PushVisible(JSContext* aCx, JSObject* aObj) {
+  if (ThreadsafeIsCallerChrome()) {
+    return true;
+  }
+  uint32_t perm = nsIPermissionManager::DENY_ACTION;
+
+  if (NS_IsMainThread()) {
+    nsresult rv;
+    nsCOMPtr<nsIPermissionManager> permMgr =
+        do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, false);
+    JS::RootedObject contentScope(aCx, aObj);
+    JSAutoRealm ar(aCx, contentScope);
+    nsIPrincipal* principal = xpc::GetObjectPrincipal(contentScope);
+
+    if (principal->GetIsNullPrincipal()) {
+      return false;
+    }
+
+    rv = permMgr->TestExactPermissionFromPrincipal(principal, "push"_ns, &perm);
+    NS_ENSURE_SUCCESS(rv, false);
+    return perm == nsIPermissionManager::ALLOW_ACTION;
+  }
+
+  WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+  MOZ_ASSERT(worker);
+  ErrorResult result;
+  RefPtr<GetPushPermissionRunnable> r = new GetPushPermissionRunnable(worker);
+  r->Dispatch(Canceling, result);
+  if (result.Failed()) {
+    return false;
+  }
+  perm = r->GetPermission();
+
+  return perm == nsIPermissionManager::ALLOW_ACTION;
+}
+
 /* static */
 bool nsContentUtils::ParseIntMarginValue(const nsAString& aString,
                                          nsIntMargin& result) {
@@ -2320,9 +2384,7 @@ nsINode* nsContentUtils::GetCrossDocParentNode(nsINode* aChild) {
     return parent;
   }
 
-  Document* doc = aChild->AsDocument();
-  Document* parentDoc = doc->GetInProcessParentDocument();
-  return parentDoc ? parentDoc->FindContentForSubDocument(doc) : nullptr;
+  return aChild->AsDocument()->GetEmbedderElement();
 }
 
 nsINode* nsContentUtils::GetNearestInProcessCrossDocParentNode(
@@ -5586,7 +5648,10 @@ void nsContentUtils::RemoveScriptBlocker() {
     ++firstBlocker;
 
     // Calling the runnable can reenter us
-    runnable->Run();
+    {
+      AUTO_PROFILE_FOLLOWING_RUNNABLE(runnable);
+      runnable->Run();
+    }
     // So can dropping the reference to the runnable
     runnable = nullptr;
 
@@ -5647,6 +5712,7 @@ void nsContentUtils::AddScriptRunner(already_AddRefed<nsIRunnable> aRunnable) {
     return;
   }
 
+  AUTO_PROFILE_FOLLOWING_RUNNABLE(runnable);
   runnable->Run();
 }
 
@@ -6615,7 +6681,8 @@ bool nsContentUtils::AllowXULXBLForPrincipal(nsIPrincipal* aPrincipal) {
 
   return (StaticPrefs::dom_allow_XUL_XBL_for_file() &&
           aPrincipal->SchemeIs("file")) ||
-         IsSitePermAllow(aPrincipal, "allowXULXBL"_ns);
+         IsSitePermAllow(aPrincipal, "allowXULXBL"_ns) ||
+         IsSitePermAllow(aPrincipal, "web-view"_ns);
 }
 
 bool nsContentUtils::IsPDFJSEnabled() {
@@ -8293,10 +8360,10 @@ bool nsContentUtils::IsPreloadType(nsContentPolicyType aType) {
 }
 
 /* static */
-bool nsContentUtils::IsUpgradableDisplayType(nsContentPolicyType aType) {
+bool nsContentUtils::IsUpgradableDisplayType(ExtContentPolicyType aType) {
   MOZ_ASSERT(NS_IsMainThread());
-  return (aType == nsIContentPolicy::TYPE_IMAGE ||
-          aType == nsIContentPolicy::TYPE_MEDIA);
+  return (aType == ExtContentPolicy::TYPE_IMAGE ||
+          aType == ExtContentPolicy::TYPE_MEDIA);
 }
 
 // static
@@ -8926,13 +8993,9 @@ static inline bool ShouldEscape(nsIContent* aParent) {
   }
 
   static const nsAtom* nonEscapingElements[] = {
-      nsGkAtoms::style, nsGkAtoms::script, nsGkAtoms::xmp, nsGkAtoms::iframe,
-      nsGkAtoms::noembed, nsGkAtoms::noframes, nsGkAtoms::plaintext,
-      // Per the current spec noscript should be escaped in case
-      // scripts are disabled or if document doesn't have
-      // browsing context. However the latter seems to be a spec bug
-      // and Gecko hasn't traditionally done the former.
-      nsGkAtoms::noscript};
+      nsGkAtoms::style,     nsGkAtoms::script,  nsGkAtoms::xmp,
+      nsGkAtoms::iframe,    nsGkAtoms::noembed, nsGkAtoms::noframes,
+      nsGkAtoms::plaintext, nsGkAtoms::noscript};
   static mozilla::BloomFilter<12, nsAtom> sFilter;
   static bool sInitialized = false;
   if (!sInitialized) {
@@ -8946,6 +9009,10 @@ static inline bool ShouldEscape(nsIContent* aParent) {
   if (sFilter.mightContain(tag)) {
     for (auto& nonEscapingElement : nonEscapingElements) {
       if (tag == nonEscapingElement) {
+        if (MOZ_UNLIKELY(tag == nsGkAtoms::noscript) &&
+            MOZ_UNLIKELY(!aParent->OwnerDoc()->IsScriptEnabled())) {
+          return true;
+        }
         return false;
       }
     }

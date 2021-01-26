@@ -58,7 +58,7 @@ this.WifiPnoSettings = (function() {
 
   var interval = DEFAULT_PNO_INTERVAL_MS;
   var min2gRssi = WifiConstants.RSSI_THRESHOLD_LOW_24G;
-  var min5gRssi = WifiConstants.RSSI_THRESHOLD_LOW_24G;
+  var min5gRssi = WifiConstants.RSSI_THRESHOLD_LOW_5G;
   var pnoNetworks = [];
 
   var pnoSettings = Object.create(null);

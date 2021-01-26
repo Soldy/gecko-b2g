@@ -9,7 +9,7 @@
 #include "mozilla/dom/KeyboardEvent.h"
 #include "mozilla/dom/BrowserChild.h"
 #include <string.h>
-
+#include "mozilla/dom/CustomEvent.h"
 extern mozilla::LazyLogModule gKeyboardAppProxyLog;
 
 namespace mozilla {
@@ -76,6 +76,45 @@ IPCResult KeyboardEventForwarderChild::RecvKey(const KeyRequest& aKey) {
 
   Unused << SendResponse(
       KeyResponse(aKey.eventType(), defaultPrevented, aKey.generation()));
+  return IPC_OK();
+}
+
+IPCResult KeyboardEventForwarderChild::RecvTextChanged(const nsCString& aText) {
+  MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
+          ("KeyboardEventForwarderChild::RecvTextChanged [%s]", aText.get()));
+  BrowserChild* browserChild = static_cast<BrowserChild*>(Manager());
+  if (!browserChild) {
+    MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
+            ("KeyboardEventForwarderChild::RecvKey no BrowserChild"));
+    return IPC_OK();
+  }
+  PresShell* presShell = browserChild->GetTopLevelPresShell();
+  if (!presShell) {
+    MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
+            ("KeyboardEventForwarderChild::RecvKey no PresShell"));
+    return IPC_OK();
+  }
+  Document* doc = presShell->GetDocument();
+  if (!doc) {
+    MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
+            ("KeyboardEventForwarderChild::RecvKey no doc"));
+    return IPC_OK();
+  }
+  RefPtr<CustomEvent> event = NS_NewDOMCustomEvent(doc, nullptr, nullptr);
+  AutoJSAPI jsapi;
+  bool success = jsapi.Init(event->GetParentObject());
+  if (!success) {
+    return IPC_OK();
+  }
+  JSContext* cx = jsapi.cx();
+  JS::Rooted<JS::Value> detail(cx);
+  if (!ToJSValue(cx, aText, &detail)) {
+    return IPC_OK();
+  }
+  event->InitCustomEvent(cx, u"inputmethod-contextchange"_ns, false, false,
+                         detail);
+  event->SetTrusted(true);
+  doc->DispatchEvent(*event);
   return IPC_OK();
 }
 

@@ -169,6 +169,14 @@ partial interface B2G {
   readonly attribute PowerSupplyManager powerSupplyManager;
 };
 
+#ifdef ENABLE_RSU
+[Exposed=Window]
+partial interface B2G {
+  [Throws, Func="B2G::HasRSUSupport"]
+  readonly attribute RemoteSimUnlock? rsu;
+};
+#endif
+
 partial interface B2G {
   /**
    * Request a wake lock for a resource.

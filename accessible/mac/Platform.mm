@@ -41,9 +41,7 @@ void PlatformInit() {}
 void PlatformShutdown() {}
 
 void ProxyCreated(ProxyAccessible* aProxy, uint32_t) {
-  ProxyAccessible* parent = aProxy->Parent();
-  if ((parent && nsAccUtils::MustPrune(parent)) ||
-      aProxy->Role() == roles::WHITESPACE) {
+  if (aProxy->Role() == roles::WHITESPACE) {
     // We don't create a native object if we're child of a "flat" accessible;
     // for example, on OS X buttons shouldn't have any children, because that
     // makes the OS confused. We also don't create accessibles for <br>
@@ -112,10 +110,11 @@ void ProxyStateChangeEvent(ProxyAccessible* aProxy, uint64_t aState,
 void ProxyCaretMoveEvent(ProxyAccessible* aTarget, int32_t aOffset,
                          bool aIsSelectionCollapsed) {
   mozAccessible* wrapper = GetNativeFromGeckoAccessible(aTarget);
+  MOXTextMarkerDelegate* delegate =
+      [MOXTextMarkerDelegate getOrCreateForDoc:aTarget->Document()];
+  [delegate setCaretOffset:aTarget at:aOffset];
   if (aIsSelectionCollapsed) {
     // If selection is collapsed, invalidate selection.
-    MOXTextMarkerDelegate* delegate =
-        [MOXTextMarkerDelegate getOrCreateForDoc:aTarget->Document()];
     [delegate setSelectionFrom:aTarget at:aOffset to:aTarget at:aOffset];
   }
 

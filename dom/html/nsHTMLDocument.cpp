@@ -127,7 +127,8 @@ nsHTMLDocument::nsHTMLDocument()
       mNumForms(0),
       mLoadFlags(0),
       mWarnedWidthHeight(false),
-      mIsPlainText(false) {
+      mIsPlainText(false),
+      mViewSource(false) {
   mType = eHTML;
   mDefaultElementType = kNameSpaceID_XHTML;
   mCompatMode = eCompatibility_NavQuirks;
@@ -206,7 +207,9 @@ void nsHTMLDocument::TryUserForcedCharset(nsIContentViewer* aCv,
                                           nsIDocShell* aDocShell,
                                           int32_t& aCharsetSource,
                                           NotNull<const Encoding*>& aEncoding) {
-  if (kCharsetFromUserForced <= aCharsetSource) return;
+  if (kCharsetFromUserForced <= aCharsetSource) {
+    return;
+  }
 
   // mCharacterSet not updated yet for channel, so check aEncoding, too.
   if (WillIgnoreCharsetOverride() || !IsAsciiCompatible(aEncoding)) {
@@ -222,7 +225,9 @@ void nsHTMLDocument::TryUserForcedCharset(nsIContentViewer* aCv,
         return;
       }
       aEncoding = WrapNotNull(encoding);
-      aCharsetSource = kCharsetFromUserForced;
+      aCharsetSource = nsDocShell::Cast(aDocShell)->GetForcedAutodetection()
+                           ? kCharsetFromPendingUserForcedAutoDetection
+                           : kCharsetFromUserForced;
       aDocShell->SetCharset(""_ns);
     }
   }
@@ -247,14 +252,21 @@ void nsHTMLDocument::TryParentCharset(nsIDocShell* aDocShell,
     return;
   }
   if (kCharsetFromUserForced == parentSource ||
-      kCharsetFromUserForcedAutoDetection == parentSource) {
+      kCharsetFromUserForcedJapaneseAutoDetection == parentSource ||
+      kCharsetFromPendingUserForcedAutoDetection == parentSource ||
+      kCharsetFromInitialUserForcedAutoDetection == parentSource ||
+      kCharsetFromFinalUserForcedAutoDetection == parentSource) {
     if (WillIgnoreCharsetOverride() ||
         !IsAsciiCompatible(aEncoding) ||  // if channel said UTF-16
         !IsAsciiCompatible(parentCharset)) {
       return;
     }
     aEncoding = WrapNotNull(parentCharset);
-    aCharsetSource = kCharsetFromUserForced;
+    aCharsetSource =
+        (kCharsetFromUserForced == parentSource ||
+         kCharsetFromUserForcedJapaneseAutoDetection == parentSource)
+            ? kCharsetFromUserForced
+            : kCharsetFromPendingUserForcedAutoDetection;
     return;
   }
 
@@ -262,7 +274,7 @@ void nsHTMLDocument::TryParentCharset(nsIDocShell* aDocShell,
     return;
   }
 
-  if (kCharsetFromInitialAutoDetection <= parentSource) {
+  if (kCharsetFromInitialAutoDetectionASCII <= parentSource) {
     // Make sure that's OK
     if (!NodePrincipal()->Equals(parentPrincipal) ||
         !IsAsciiCompatible(parentCharset)) {
@@ -308,9 +320,9 @@ nsresult nsHTMLDocument::StartDocumentLoad(const char* aCommand,
 
   bool view =
       !strcmp(aCommand, "view") || !strcmp(aCommand, "external-resource");
-  bool viewSource = !strcmp(aCommand, "view-source");
+  mViewSource = !strcmp(aCommand, "view-source");
   bool asData = !strcmp(aCommand, kLoadAsData);
-  if (!(view || viewSource || asData)) {
+  if (!(view || mViewSource || asData)) {
     MOZ_ASSERT(false, "Bad parser command");
     return NS_ERROR_INVALID_ARG;
   }
@@ -320,7 +332,7 @@ nsresult nsHTMLDocument::StartDocumentLoad(const char* aCommand,
                          contentType.EqualsLiteral(APPLICATION_WAPXHTML_XML));
   mIsPlainText =
       !html && !xhtml && nsContentUtils::IsPlainTextType(contentType);
-  if (!(html || xhtml || mIsPlainText || viewSource)) {
+  if (!(html || xhtml || mIsPlainText || mViewSource)) {
     MOZ_ASSERT(false, "Channel with bad content type.");
     return NS_ERROR_INVALID_ARG;
   }
@@ -330,7 +342,7 @@ nsresult nsHTMLDocument::StartDocumentLoad(const char* aCommand,
 
   bool loadAsHtml5 = true;
 
-  if (!viewSource && xhtml) {
+  if (!mViewSource && xhtml) {
     // We're parsing XHTML as XML, remember that.
     mType = eXHTML;
     SetCompatibilityMode(eCompatibility_FullStandards);
@@ -371,12 +383,12 @@ nsresult nsHTMLDocument::StartDocumentLoad(const char* aCommand,
     html5Parser = nsHtml5Module::NewHtml5Parser();
     mParser = html5Parser;
     if (mIsPlainText) {
-      if (viewSource) {
+      if (mViewSource) {
         html5Parser->MarkAsNotScriptCreated("view-source-plain");
       } else {
         html5Parser->MarkAsNotScriptCreated("plain-text");
       }
-    } else if (viewSource && !html) {
+    } else if (mViewSource && !html) {
       html5Parser->MarkAsNotScriptCreated("view-source-xml");
     } else {
       html5Parser->MarkAsNotScriptCreated(aCommand);

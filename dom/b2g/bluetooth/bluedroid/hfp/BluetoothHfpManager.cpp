@@ -502,7 +502,9 @@ void BluetoothHfpManager::Notify(const hal::BatteryInformation& aBatteryInfo) {
   // Range of battery level: [0, 1], double
   // Range of CIND::BATTCHG: [0, 5], int
   mBattChg = (int)round(aBatteryInfo.level() * 5.0);
-  UpdateDeviceCIND();
+  if (IsConnected()) {
+    UpdateDeviceCIND();
+  }
 }
 
 void BluetoothHfpManager::NotifyConnectionStateChanged(const nsAString& aType) {
@@ -649,7 +651,9 @@ void BluetoothHfpManager::HandleVoiceConnectionChanged(uint32_t aClientId) {
   // HFP Signal Strength indicator ranges from 0 to 5
   mSignal = signalLevel + 1;
 
-  UpdateDeviceCIND();
+  if (IsConnected()) {
+    UpdateDeviceCIND();
+  }
 
   // Operator name
   nsCOMPtr<nsIMobileNetworkInfo> network;

@@ -741,7 +741,8 @@ this.EncodedStringValue = {
         str = "";
       } else {
         try {
-          str = new TextDecoder(entry.name).decode(raw);
+          let dataArray = new Uint8Array(raw);
+          str = new TextDecoder(entry.name).decode(dataArray);
         } catch (e) {
           throw new WSP.CodeError("Charset-encoded-string: " + e.message);
         }

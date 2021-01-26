@@ -25,7 +25,6 @@
 #include "js/friend/WindowProxy.h"    // js::IsWindow
 #include "js/Printf.h"
 #include "vm/ArrayObject.h"
-#include "vm/EqualityOperations.h"  // js::StrictlyEqual
 #include "vm/Interpreter.h"
 #include "vm/PlainObject.h"  // js::PlainObject
 #include "vm/SelfHosting.h"
@@ -823,48 +822,6 @@ bool MutatePrototype(JSContext* cx, HandlePlainObject obj, HandleValue value) {
 }
 
 template <EqualityKind Kind>
-bool LooselyEqual(JSContext* cx, MutableHandleValue lhs, MutableHandleValue rhs,
-                  bool* res) {
-  if (!js::LooselyEqual(cx, lhs, rhs, res)) {
-    return false;
-  }
-  if (Kind != EqualityKind::Equal) {
-    *res = !*res;
-  }
-  return true;
-}
-
-template bool LooselyEqual<EqualityKind::Equal>(JSContext* cx,
-                                                MutableHandleValue lhs,
-                                                MutableHandleValue rhs,
-                                                bool* res);
-template bool LooselyEqual<EqualityKind::NotEqual>(JSContext* cx,
-                                                   MutableHandleValue lhs,
-                                                   MutableHandleValue rhs,
-                                                   bool* res);
-
-template <EqualityKind Kind>
-bool StrictlyEqual(JSContext* cx, MutableHandleValue lhs,
-                   MutableHandleValue rhs, bool* res) {
-  if (!js::StrictlyEqual(cx, lhs, rhs, res)) {
-    return false;
-  }
-  if (Kind != EqualityKind::Equal) {
-    *res = !*res;
-  }
-  return true;
-}
-
-template bool StrictlyEqual<EqualityKind::Equal>(JSContext* cx,
-                                                 MutableHandleValue lhs,
-                                                 MutableHandleValue rhs,
-                                                 bool* res);
-template bool StrictlyEqual<EqualityKind::NotEqual>(JSContext* cx,
-                                                    MutableHandleValue lhs,
-                                                    MutableHandleValue rhs,
-                                                    bool* res);
-
-template <EqualityKind Kind>
 bool StringsEqual(JSContext* cx, HandleString lhs, HandleString rhs,
                   bool* res) {
   if (!js::EqualStrings(cx, lhs, rhs, res)) {
@@ -1131,39 +1088,6 @@ bool CreateThisFromIon(JSContext* cx, HandleObject callee,
 
   MOZ_ASSERT_IF(rval.isObject(), fun->realm() == rval.toObject().nonCCWRealm());
   return true;
-}
-
-bool GetDynamicNamePure(JSContext* cx, JSObject* envChain, JSString* str,
-                        Value* vp) {
-  // Lookup a string on the env chain, returning the value found through rval.
-  // This function is infallible, and cannot GC or invalidate.
-  // Returns false if the lookup could not be completed without GC.
-
-  AutoUnsafeCallWithABI unsafe;
-
-  JSAtom* atom;
-  if (str->isAtom()) {
-    atom = &str->asAtom();
-  } else {
-    atom = AtomizeString(cx, str);
-    if (!atom) {
-      cx->recoverFromOutOfMemory();
-      return false;
-    }
-  }
-
-  if (!frontend::IsIdentifier(atom) || frontend::IsKeyword(atom)) {
-    return false;
-  }
-
-  PropertyResult prop;
-  JSObject* scope = nullptr;
-  JSObject* pobj = nullptr;
-  if (LookupNameNoGC(cx, atom->asPropertyName(), envChain, &scope, &pobj,
-                     &prop)) {
-    return FetchNameNoGC(pobj, prop, vp);
-  }
-  return false;
 }
 
 void PostWriteBarrier(JSRuntime* rt, js::gc::Cell* cell) {
@@ -1632,13 +1556,6 @@ void AssertValidBigIntPtr(JSContext* cx, JS::BigInt* bi) {
   MOZ_ASSERT(bi->getAllocKind() == gc::AllocKind::BIGINT);
 }
 
-void AssertValidObjectOrNullPtr(JSContext* cx, JSObject* obj) {
-  AutoUnsafeCallWithABI unsafe;
-  if (obj) {
-    AssertValidObjectPtr(cx, obj);
-  }
-}
-
 void AssertValidObjectPtr(JSContext* cx, JSObject* obj) {
   AutoUnsafeCallWithABI unsafe;
 #ifdef DEBUG
@@ -1735,28 +1652,34 @@ bool ObjectIsConstructor(JSObject* obj) {
 
 void MarkValueFromJit(JSRuntime* rt, Value* vp) {
   AutoUnsafeCallWithABI unsafe;
+  MOZ_ASSERT(vp->isGCThing());
+  MOZ_ASSERT(!vp->toGCThing()->isMarkedBlack());
   TraceManuallyBarrieredEdge(&rt->gc.marker, vp, "write barrier");
 }
 
 void MarkStringFromJit(JSRuntime* rt, JSString** stringp) {
   AutoUnsafeCallWithABI unsafe;
   MOZ_ASSERT(*stringp);
+  MOZ_ASSERT(!(*stringp)->isMarkedBlack());
   TraceManuallyBarrieredEdge(&rt->gc.marker, stringp, "write barrier");
 }
 
 void MarkObjectFromJit(JSRuntime* rt, JSObject** objp) {
   AutoUnsafeCallWithABI unsafe;
   MOZ_ASSERT(*objp);
+  MOZ_ASSERT(!(*objp)->isMarkedBlack());
   TraceManuallyBarrieredEdge(&rt->gc.marker, objp, "write barrier");
 }
 
 void MarkShapeFromJit(JSRuntime* rt, Shape** shapep) {
   AutoUnsafeCallWithABI unsafe;
+  MOZ_ASSERT(!(*shapep)->isMarkedBlack());
   TraceManuallyBarrieredEdge(&rt->gc.marker, shapep, "write barrier");
 }
 
 void MarkObjectGroupFromJit(JSRuntime* rt, ObjectGroup** groupp) {
   AutoUnsafeCallWithABI unsafe;
+  MOZ_ASSERT(!(*groupp)->isMarkedBlack());
   TraceManuallyBarrieredEdge(&rt->gc.marker, groupp, "write barrier");
 }
 

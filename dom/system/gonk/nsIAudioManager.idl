@@ -23,6 +23,8 @@ interface nsIAudioManager : nsISupports
    */
   attribute boolean fmRadioAudioEnabled;
 
+  void setFmRadioContentVolume(in float aVolume);
+
   /**
    * Set the phone's audio mode.
    */

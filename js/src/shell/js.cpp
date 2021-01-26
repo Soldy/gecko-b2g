@@ -188,7 +188,6 @@ using JS::CompileOptions;
 using js::shell::RCFile;
 
 using mozilla::ArrayEqual;
-using mozilla::ArrayLength;
 using mozilla::AsVariant;
 using mozilla::Atomic;
 using mozilla::MakeScopeExit;
@@ -2058,7 +2057,7 @@ static void CacheEntry_setKind(JSContext* cx, HandleObject cache,
 }
 
 static uint8_t* CacheEntry_getBytecode(JSContext* cx, HandleObject cache,
-                                       uint32_t* length) {
+                                       size_t* length) {
   MOZ_ASSERT(CacheEntry_isCacheEntry(cache));
   Value v = JS::GetReservedSlot(cache, CacheEntry_BYTECODE);
   if (!v.isObject() || !v.toObject().is<ArrayBufferObject>()) {
@@ -2069,7 +2068,7 @@ static uint8_t* CacheEntry_getBytecode(JSContext* cx, HandleObject cache,
   }
 
   ArrayBufferObject* arrayBuffer = &v.toObject().as<ArrayBufferObject>();
-  *length = arrayBuffer->byteLength().deprecatedGetUint32();
+  *length = arrayBuffer->byteLength().get();
   return arrayBuffer->dataPointer();
 }
 
@@ -2322,7 +2321,7 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
   BytecodeCacheKind saveCacheKind = BytecodeCacheKind::Undefined;
 
   if (loadBytecode) {
-    uint32_t loadLength = 0;
+    size_t loadLength = 0;
     uint8_t* loadData = nullptr;
     loadData = CacheEntry_getBytecode(cx, cacheEntry, &loadLength);
     if (!loadData) {
@@ -2355,7 +2354,7 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
               JS_ReportErrorASCII(
                   cx,
                   "if both loadBytecode and saveIncrementalBytecode are set "
-                  "and --no-off-thread-parse-global is used, bytecode should "
+                  "and --off-thread-parse-global isn't used, bytecode should "
                   "have been saved with saveIncrementalBytecode");
               return false;
             }
@@ -2367,7 +2366,7 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
               JS_ReportErrorASCII(
                   cx,
                   "if both loadBytecode and saveIncrementalBytecode are set "
-                  "and --no-off-thread-parse-global isn't used, bytecode "
+                  "and --off-thread-parse-global is used, bytecode "
                   "should have been saved with saveBytecode");
               return false;
             }
@@ -5931,7 +5930,7 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
   CompileOptions options(cx);
   options.setIntroductionType("js shell offThreadDecodeScript")
       .setFileAndLine("<string>", 1);
-  // NOTE: If --no-off-thread-parse-global is used, input can be either script
+  // NOTE: If --off-thread-parse-global is not used, input can be either script
   // for saveBytecode, or stencil for saveIncrementalBytecode.
   options.useOffThreadParseGlobal =
       CacheEntry_getKind(cx, cacheEntry) == BytecodeCacheKind::Script;
@@ -5960,7 +5959,7 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
   options.forceAsync = true;
 
   JS::TranscodeBuffer loadBuffer;
-  uint32_t loadLength = 0;
+  size_t loadLength = 0;
   uint8_t* loadData = nullptr;
   loadData = CacheEntry_getBytecode(cx, cacheEntry, &loadLength);
   if (!loadData) {
@@ -6575,6 +6574,13 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
       behaviors.setDisableLazyParsing(v.toBoolean());
     }
 
+    if (!JS_GetProperty(cx, opts, "discardSource", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      behaviors.setDiscardSource(v.toBoolean());
+    }
+
     if (!JS_GetProperty(cx, opts, "useWindowProxy", &v)) {
       return false;
     }
@@ -7154,15 +7160,15 @@ struct SharedObjectMailbox {
   union Value {
     struct {
       SharedArrayRawBuffer* buffer;
-      uint32_t length;
+      BufferSize length;
     } sarb;
     JS::WasmModule* module;
     double number;
+
+    Value() : number(0.0) {}
   };
 
-  SharedObjectMailbox() : tag(MailboxTag::Empty) {}
-
-  MailboxTag tag;
+  MailboxTag tag = MailboxTag::Empty;
   Value val;
 };
 
@@ -7225,7 +7231,7 @@ static bool GetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
         // incremented prior to the SAB creation.
 
         SharedArrayRawBuffer* buf = mbx->val.sarb.buffer;
-        uint32_t length = mbx->val.sarb.length;
+        BufferSize length = mbx->val.sarb.length;
         if (!buf->addReference()) {
           JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                                     JSMSG_SC_SAB_REFCNT_OFLO);
@@ -7236,7 +7242,7 @@ static bool GetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
         // returning.
 
         Rooted<ArrayBufferObjectMaybeShared*> maybesab(
-            cx, SharedArrayBufferObject::New(cx, buf, BufferSize(length)));
+            cx, SharedArrayBufferObject::New(cx, buf, length));
         if (!maybesab) {
           buf->dropReference();
           return false;
@@ -7310,7 +7316,7 @@ static bool SetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
                                            &obj->as<SharedArrayBufferObject>());
       tag = MailboxTag::SharedArrayBuffer;
       value.sarb.buffer = sab->rawBufferObject();
-      value.sarb.length = sab->byteLength().deprecatedGetUint32();
+      value.sarb.length = sab->byteLength();
       if (!value.sarb.buffer->addReference()) {
         JS_ReportErrorASCII(cx,
                             "Reference count overflow on SharedArrayBuffer");
@@ -7326,7 +7332,7 @@ static bool SetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
                      .as<SharedArrayBufferObject>());
         tag = MailboxTag::WasmMemory;
         value.sarb.buffer = sab->rawBufferObject();
-        value.sarb.length = sab->byteLength().deprecatedGetUint32();
+        value.sarb.length = sab->byteLength();
         if (!value.sarb.buffer->addReference()) {
           JS_ReportErrorASCII(cx,
                               "Reference count overflow on SharedArrayBuffer");
@@ -8697,10 +8703,10 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "      saveIncrementalBytecode: if true, and if the source is a\n"
 "         CacheEntryObject, the bytecode would be incrementally encoded and\n"
 "         saved into the cache entry.\n"
-"         If --no-off-thread-parse-global is used, the encoded bytecode's\n"
+"         If --off-thread-parse-global is not used, the encoded bytecode's\n"
 "         kind is 'stencil'. If not, the encoded bytecode's kind is 'script'\n"
 "         If both loadBytecode and saveIncrementalBytecode are set,\n"
-"         and --no-off-thread-parse-global is used, the input bytecode's\n"
+"         and --off-thread-parse-global is not used, the input bytecode's\n"
 "         kind should be 'stencil'."
 "      assertEqBytecode: if true, and if both loadBytecode and either\n"
 "         saveBytecode or saveIncrementalBytecode is true, then the loaded\n"
@@ -9040,6 +9046,8 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "      invisibleToDebugger: If true, the global will be invisible to the\n"
 "         debugger (default false)\n"
 "      disableLazyParsing: If true, don't create lazy scripts for functions\n"
+"         (default false).\n"
+"      discardSource: If true, discard source after compiling a script\n"
 "         (default false).\n"
 "      useWindowProxy: the global will be created with a WindowProxy attached. In this\n"
 "          case, the WindowProxy will be returned.\n"
@@ -10486,7 +10494,7 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
                              op.getBoolOption("enable-private-methods");
   enablePrivateClassMethods = op.getBoolOption("enable-private-methods");
   enableTopLevelAwait = op.getBoolOption("enable-top-level-await");
-  useOffThreadParseGlobal = !op.getBoolOption("no-off-thread-parse-global");
+  useOffThreadParseGlobal = op.getBoolOption("off-thread-parse-global");
 
   JS::ContextOptionsRef(cx)
       .setAsmJS(enableAsmJS)
@@ -10823,6 +10831,10 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
 
   if (op.getBoolOption("enable-large-buffers")) {
     ArrayBufferObject::supportLargeBuffers = true;
+  }
+
+  if (op.getBoolOption("disable-bailout-loop-check")) {
+    jit::JitOptions.disableBailoutLoopCheck = true;
   }
 
 #if defined(JS_CODEGEN_ARM)
@@ -11471,9 +11483,8 @@ int main(int argc, char** argv, char** envp) {
                         "Enable private class methods") ||
       !op.addBoolOption('\0', "enable-top-level-await",
                         "Enable top-level await") ||
-      !op.addBoolOption('\0', "no-off-thread-parse-global",
-                        "Do not use parseGlobal in off-thread compilation and "
-                        "instead instantiate stencil in main-thread") ||
+      !op.addBoolOption('\0', "off-thread-parse-global",
+                        "Use parseGlobal in all off-thread compilation") ||
       !op.addBoolOption('\0', "enable-large-buffers",
                         "Allow creating ArrayBuffers larger than 2 GB on "
                         "64-bit platforms (experimental!)") ||
@@ -11529,6 +11540,8 @@ int main(int argc, char** argv, char** envp) {
       !op.addStringOption(
           '\0', "ion-osr", "on/off",
           "On-Stack Replacement (default: on, off to disable)") ||
+      !op.addBoolOption('\0', "disable-bailout-loop-check",
+                        "Turn off bailout loop check") ||
       !op.addStringOption(
           '\0', "ion-limit-script-size", "on/off",
           "Don't compile very large scripts (default: on, off to disable)") ||
@@ -11986,10 +11999,11 @@ int main(int argc, char** argv, char** envp) {
 
   EnvironmentPreparer environmentPreparer(cx);
 
-  if (!op.getBoolOption("no-incremental-gc")) {
-    JS_SetGCParameter(cx, JSGC_MODE, JSGC_MODE_ZONE_INCREMENTAL);
-    JS_SetGCParameter(cx, JSGC_SLICE_TIME_BUDGET_MS, 10);
-  }
+  bool incrementalGC = !op.getBoolOption("no-incremental-gc");
+  JS_SetGCParameter(cx, JSGC_INCREMENTAL_GC_ENABLED, incrementalGC);
+  JS_SetGCParameter(cx, JSGC_SLICE_TIME_BUDGET_MS, 10);
+
+  JS_SetGCParameter(cx, JSGC_PER_ZONE_GC_ENABLED, true);
 
   JS::SetProcessLargeAllocationFailureCallback(my_LargeAllocFailCallback);
 

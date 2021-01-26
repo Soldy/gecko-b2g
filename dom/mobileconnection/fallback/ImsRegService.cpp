@@ -19,4 +19,9 @@ NS_IMETHODIMP FallbackImsRegService::GetHandlerByServiceId(
   return NS_OK;
 }
 
+NS_IMETHODIMP FallbackImsRegService::IsServiceReady(bool *retval) {
+  *retval = false;
+  return NS_OK;
+}
+
 }  // namespace mozilla::dom::mobileconnection

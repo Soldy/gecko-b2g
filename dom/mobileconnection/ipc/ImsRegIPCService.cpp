@@ -95,3 +95,10 @@ ImsRegIPCService::GetHandlerByServiceId(uint32_t aServiceId,
 
   return NS_OK;
 }
+
+NS_IMETHODIMP
+ImsRegIPCService::IsServiceReady(bool* aRetval) {
+  // Always return ready.
+  *aRetval = true;
+  return NS_OK;
+}

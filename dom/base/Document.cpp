@@ -1347,6 +1347,7 @@ Document::Document(const char* aContentType)
       mBFCacheDisallowed(false),
       mHasHadDefaultView(false),
       mStyleSheetChangeEventsEnabled(false),
+      mShadowRootAttachedEventEnabled(false),
       mIsSrcdocDocument(false),
       mHasDisplayDocument(false),
       mFontFaceSetDirty(true),
@@ -3071,7 +3072,6 @@ void Document::FillStyleSetUserAndUASheets() {
 
   mStyleSet->AppendStyleSheet(*cache->FormsSheet());
   mStyleSet->AppendStyleSheet(*cache->ScrollbarsSheet());
-  mStyleSet->AppendStyleSheet(*cache->PluginProblemSheet());
 
   for (StyleSheet* sheet : *sheetService->AgentStyleSheets()) {
     mStyleSet->AppendStyleSheet(*sheet);
@@ -3571,7 +3571,7 @@ nsresult Document::InitCSP(nsIChannel* aChannel) {
   // served with a CSP might block internally applied inline styles.
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (loadInfo->GetExternalContentPolicyType() ==
-      nsIContentPolicy::TYPE_IMAGE) {
+      ExtContentPolicy::TYPE_IMAGE) {
     return NS_OK;
   }
 
@@ -3642,10 +3642,7 @@ nsresult Document::InitCSP(nsIChannel* aChannel) {
 
   // ----- if the doc is an addon, apply its CSP.
   if (addonPolicy) {
-    nsAutoString extensionPageCSP;
-    Unused << ExtensionPolicyService::GetSingleton().GetBaseCSP(
-        extensionPageCSP);
-    mCSP->AppendPolicy(extensionPageCSP, false, false);
+    mCSP->AppendPolicy(addonPolicy->BaseCSP(), false, false);
 
     mCSP->AppendPolicy(addonPolicy->ExtensionPageCSP(), false, false);
     // Bug 1548468: Move CSP off ExpandedPrincipal
@@ -3703,8 +3700,12 @@ nsresult Document::InitCSP(nsIChannel* aChannel) {
 
 already_AddRefed<dom::FeaturePolicy> Document::GetParentFeaturePolicy() {
   BrowsingContext* browsingContext = GetBrowsingContext();
-  NS_ENSURE_TRUE(browsingContext, nullptr);
-  NS_ENSURE_TRUE(browsingContext->IsContentSubframe(), nullptr);
+  if (!browsingContext) {
+    return nullptr;
+  }
+  if (!browsingContext->IsContentSubframe()) {
+    return nullptr;
+  }
 
   HTMLIFrameElement* iframe =
       HTMLIFrameElement::FromNodeOrNull(browsingContext->GetEmbedderElement());
@@ -3717,10 +3718,14 @@ already_AddRefed<dom::FeaturePolicy> Document::GetParentFeaturePolicy() {
   }
 
   WindowContext* windowContext = browsingContext->GetCurrentWindowContext();
-  NS_ENSURE_TRUE(windowContext, nullptr);
+  if (!windowContext) {
+    return nullptr;
+  }
 
   WindowGlobalChild* child = windowContext->GetWindowGlobalChild();
-  NS_ENSURE_TRUE(child, nullptr);
+  if (!child) {
+    return nullptr;
+  }
 
   return do_AddRef(child->GetContainerFeaturePolicy());
 }
@@ -6701,19 +6706,15 @@ Document* Document::GetSubDocumentFor(nsIContent* aContent) const {
   return nullptr;
 }
 
-Element* Document::FindContentForSubDocument(Document* aDocument) const {
-  NS_ENSURE_TRUE(aDocument, nullptr);
-
-  if (!mSubDocuments) {
-    return nullptr;
+Element* Document::GetEmbedderElement() const {
+  // We check if we're the active document in our BrowsingContext
+  // by comparing against its document, rather than checking if the
+  // WindowContext is cached, since mWindow may be null when we're
+  // called (such as in nsPresContext::Init).
+  if (BrowsingContext* bc = GetBrowsingContext()) {
+    return bc->GetExtantDocument() == this ? bc->GetEmbedderElement() : nullptr;
   }
 
-  for (auto iter = mSubDocuments->Iter(); !iter.Done(); iter.Next()) {
-    auto entry = static_cast<SubDocMapEntry*>(iter.Get());
-    if (entry->mSubDocument == aDocument) {
-      return entry->mKey;
-    }
-  }
   return nullptr;
 }
 
@@ -7253,8 +7254,7 @@ void Document::SetScriptGlobalObject(
   // still test false at this point and no state change will happen) or we're
   // doing the initial document load and don't want to fire the event for this
   // change.
-  dom::VisibilityState oldState = mVisibilityState;
-  mVisibilityState = ComputeVisibilityState();
+  //
   // When the visibility is changed, notify it to observers.
   // Some observers need the notification, for example HTMLMediaElement uses
   // it to update internal media resource allocation.
@@ -7267,9 +7267,7 @@ void Document::SetScriptGlobalObject(
   // not yet necessary. But soon after Document::SetScriptGlobalObject()
   // call, the document becomes not hidden. At the time, MediaDecoder needs
   // to know it and needs to start updating decoding.
-  if (oldState != mVisibilityState) {
-    EnumerateActivityObservers(NotifyActivityChanged);
-  }
+  UpdateVisibilityState(DispatchVisibilityChange::No);
 
   // The global in the template contents owner document should be the same.
   if (mTemplateContentsOwner && mTemplateContentsOwner != this) {
@@ -7507,15 +7505,11 @@ void Document::DispatchContentLoadedEvents() {
   // target_frame is the [i]frame element that will be used as the
   // target for the event. It's the [i]frame whose content is done
   // loading.
-  nsCOMPtr<EventTarget> target_frame;
+  nsCOMPtr<Element> target_frame = GetEmbedderElement();
 
-  if (mParentDocument) {
-    target_frame = mParentDocument->FindContentForSubDocument(this);
-  }
-
-  if (target_frame) {
-    nsCOMPtr<Document> parent = mParentDocument;
-    do {
+  if (target_frame && target_frame->IsInComposedDoc()) {
+    nsCOMPtr<Document> parent = target_frame->OwnerDoc();
+    while (parent) {
       RefPtr<Event> event;
       if (parent) {
         IgnoredErrorResult ignored;
@@ -7546,7 +7540,7 @@ void Document::DispatchContentLoadedEvents() {
       }
 
       parent = parent->GetInProcessParentDocument();
-    } while (parent);
+    }
   }
 
   // If the document has a manifest attribute, fire a MozApplicationManifest
@@ -14478,13 +14472,15 @@ bool Document::ApplyFullscreen(UniquePtr<FullscreenRequest> aRequest) {
     if (child == fullScreenRootDoc) {
       break;
     }
-    Document* parent = child->GetInProcessParentDocument();
-    Element* element = parent->FindContentForSubDocument(child);
+
+    Element* element = child->GetEmbedderElement();
     if (!element) {
       // We've reached the root.No more changes need to be made
       // to the top layer stacks of documents further up the tree.
       break;
     }
+
+    Document* parent = child->GetInProcessParentDocument();
     parent->SetFullscreenElement(element);
     changed.AppendElement(parent);
     child = parent;
@@ -14882,18 +14878,19 @@ void Document::UnlockPointer(Document* aDoc) {
   asyncDispatcher->RunDOMEventWhenSafe();
 }
 
-void Document::UpdateVisibilityState() {
+void Document::UpdateVisibilityState(DispatchVisibilityChange aDispatchEvent) {
   dom::VisibilityState oldState = mVisibilityState;
   mVisibilityState = ComputeVisibilityState();
   if (oldState != mVisibilityState) {
-    nsContentUtils::DispatchTrustedEvent(this, ToSupports(this),
-                                         u"visibilitychange"_ns,
-                                         CanBubble::eYes, Cancelable::eNo);
+    if (aDispatchEvent == DispatchVisibilityChange::Yes) {
+      nsContentUtils::DispatchTrustedEvent(this, ToSupports(this),
+                                           u"visibilitychange"_ns,
+                                           CanBubble::eYes, Cancelable::eNo);
+    }
     EnumerateActivityObservers(NotifyActivityChanged);
-  }
-
-  if (mVisibilityState == dom::VisibilityState::Visible) {
-    MaybeActiveMediaComponents();
+    if (mVisibilityState == dom::VisibilityState::Visible) {
+      MaybeActiveMediaComponents();
+    }
   }
 }
 
@@ -14914,9 +14911,9 @@ VisibilityState Document::ComputeVisibilityState() const {
 }
 
 void Document::PostVisibilityUpdateEvent() {
-  nsCOMPtr<nsIRunnable> event =
-      NewRunnableMethod("Document::UpdateVisibilityState", this,
-                        &Document::UpdateVisibilityState);
+  nsCOMPtr<nsIRunnable> event = NewRunnableMethod<DispatchVisibilityChange>(
+      "Document::UpdateVisibilityState", this, &Document::UpdateVisibilityState,
+      DispatchVisibilityChange::Yes);
   Dispatch(TaskCategory::Other, event.forget());
 }
 

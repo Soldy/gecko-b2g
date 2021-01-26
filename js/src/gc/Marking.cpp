@@ -6,7 +6,6 @@
 
 #include "gc/Marking-inl.h"
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/IntegerRange.h"
 #include "mozilla/Maybe.h"
@@ -271,10 +270,10 @@ void js::CheckTracedThing(JSTracer* trc, const T& thing) {
 }
 
 namespace js {
-#define IMPL_CHECK_TRACED_THING(_, type, _1, _2) \
-  template void CheckTracedThing<type>(JSTracer*, type*);
+#  define IMPL_CHECK_TRACED_THING(_, type, _1, _2) \
+    template void CheckTracedThing<type>(JSTracer*, type*);
 JS_FOR_EACH_TRACEKIND(IMPL_CHECK_TRACED_THING);
-#undef IMPL_CHECK_TRACED_THING
+#  undef IMPL_CHECK_TRACED_THING
 }  // namespace js
 
 #endif
@@ -2121,35 +2120,20 @@ MarkStack::~MarkStack() {
   MOZ_ASSERT(iteratorCount_ == 0);
 }
 
-bool MarkStack::init(JSGCMode gcMode, StackType which) {
+bool MarkStack::init(StackType which, bool incrementalGCEnabled) {
   MOZ_ASSERT(isEmpty());
-
-  return setCapacityForMode(gcMode, which);
+  return setStackCapacity(which, incrementalGCEnabled);
 }
 
-void MarkStack::setGCMode(JSGCMode gcMode) {
-  // Ignore failure to resize the stack and keep using the existing stack.
-  mozilla::Unused << setCapacityForMode(gcMode, MainStack);
-}
-
-bool MarkStack::setCapacityForMode(JSGCMode mode, StackType which) {
+bool MarkStack::setStackCapacity(StackType which, bool incrementalGCEnabled) {
   size_t capacity;
 
   if (which == AuxiliaryStack) {
     capacity = SMALL_MARK_STACK_BASE_CAPACITY;
+  } else if (incrementalGCEnabled) {
+    capacity = INCREMENTAL_MARK_STACK_BASE_CAPACITY;
   } else {
-    switch (mode) {
-      case JSGC_MODE_GLOBAL:
-      case JSGC_MODE_ZONE:
-        capacity = NON_INCREMENTAL_MARK_STACK_BASE_CAPACITY;
-        break;
-      case JSGC_MODE_INCREMENTAL:
-      case JSGC_MODE_ZONE_INCREMENTAL:
-        capacity = INCREMENTAL_MARK_STACK_BASE_CAPACITY;
-        break;
-      default:
-        MOZ_CRASH("bad gc mode");
-    }
+    capacity = NON_INCREMENTAL_MARK_STACK_BASE_CAPACITY;
   }
 
   if (capacity > maxCapacity_) {
@@ -2353,9 +2337,10 @@ GCMarker::GCMarker(JSRuntime* rt)
   setMarkColorUnchecked(MarkColor::Black);
 }
 
-bool GCMarker::init(JSGCMode gcMode) {
-  return stack.init(gcMode, gc::MarkStack::MainStack) &&
-         auxStack.init(gcMode, gc::MarkStack::AuxiliaryStack);
+bool GCMarker::init() {
+  bool incrementalGCEnabled = runtime()->gc.isIncrementalGCEnabled();
+  return stack.init(gc::MarkStack::MainStack, incrementalGCEnabled) &&
+         auxStack.init(gc::MarkStack::AuxiliaryStack, incrementalGCEnabled);
 }
 
 void GCMarker::start() {
@@ -3143,8 +3128,11 @@ void js::TenuringTracer::traceBigInt(JS::BigInt* bi) {
 }
 
 #ifdef DEBUG
+static inline uintptr_t OffsetFromChunkStart(void* p) {
+  return uintptr_t(p) & gc::ChunkMask;
+}
 static inline ptrdiff_t OffsetToChunkEnd(void* p) {
-  return ChunkLocationOffset - (uintptr_t(p) & gc::ChunkMask);
+  return ChunkSize - (uintptr_t(p) & gc::ChunkMask);
 }
 #endif
 
@@ -3213,6 +3201,7 @@ JSObject* js::TenuringTracer::moveToTenuredSlow(JSObject* src) {
   tenuredCells++;
 
   // Copy the Cell contents.
+  MOZ_ASSERT(OffsetFromChunkStart(src) >= sizeof(ChunkBase));
   MOZ_ASSERT(OffsetToChunkEnd(src) >= ptrdiff_t(srcSize));
   js_memcpy(dst, src, srcSize);
 
@@ -3260,6 +3249,7 @@ inline JSObject* js::TenuringTracer::movePlainObjectToTenured(
   tenuredCells++;
 
   // Copy the Cell contents.
+  MOZ_ASSERT(OffsetFromChunkStart(src) >= sizeof(ChunkBase));
   MOZ_ASSERT(OffsetToChunkEnd(src) >= ptrdiff_t(srcSize));
   js_memcpy(dst, src, srcSize);
 
@@ -4101,8 +4091,9 @@ uintptr_t* GetMarkWordAddress(Cell* cell) {
 
   MarkBitmapWord* wordp;
   uintptr_t mask;
-  js::gc::detail::GetGCThingMarkWordAndMask(uintptr_t(cell), ColorBit::BlackBit,
-                                            &wordp, &mask);
+  TenuredChunkBase* chunk = gc::detail::GetCellChunkBase(&cell->asTenured());
+  chunk->markBits.getMarkWordAndMask(&cell->asTenured(), ColorBit::BlackBit,
+                                     &wordp, &mask);
   return reinterpret_cast<uintptr_t*>(wordp);
 }
 
@@ -4116,8 +4107,8 @@ uintptr_t GetMarkMask(Cell* cell, uint32_t colorBit) {
   ColorBit bit = colorBit == 0 ? ColorBit::BlackBit : ColorBit::GrayOrBlackBit;
   MarkBitmapWord* wordp;
   uintptr_t mask;
-  js::gc::detail::GetGCThingMarkWordAndMask(uintptr_t(cell), bit, &wordp,
-                                            &mask);
+  TenuredChunkBase* chunk = gc::detail::GetCellChunkBase(&cell->asTenured());
+  chunk->markBits.getMarkWordAndMask(&cell->asTenured(), bit, &wordp, &mask);
   return mask;
 }
 

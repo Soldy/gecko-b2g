@@ -110,6 +110,7 @@ DIRS += [
     "localstorage",
     "prio",
     "l10n",
+    "pco",
 ]
 
 if CONFIG["OS_ARCH"] == "WINNT":

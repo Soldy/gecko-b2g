@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <initializer_list>
+#include <iterator>
 #include <utility>
 
 #if defined(XP_UNIX) && !defined(XP_DARWIN)
@@ -131,7 +132,6 @@
 
 using namespace js;
 
-using mozilla::ArrayLength;
 using mozilla::AssertedCast;
 using mozilla::AsWritableChars;
 using mozilla::Maybe;
@@ -616,7 +616,8 @@ static bool MinorGC(JSContext* cx, unsigned argc, Value* vp) {
   _("gcNumber", JSGC_NUMBER, false)                                        \
   _("majorGCNumber", JSGC_MAJOR_GC_NUMBER, false)                          \
   _("minorGCNumber", JSGC_MINOR_GC_NUMBER, false)                          \
-  _("mode", JSGC_MODE, true)                                               \
+  _("incrementalGCEnabled", JSGC_INCREMENTAL_GC_ENABLED, true)             \
+  _("perZoneGCEnabled", JSGC_PER_ZONE_GC_ENABLED, true)                    \
   _("unusedChunks", JSGC_UNUSED_CHUNKS, false)                             \
   _("totalChunks", JSGC_TOTAL_CHUNKS, false)                               \
   _("sliceTimeBudgetMS", JSGC_SLICE_TIME_BUDGET_MS, true)                  \
@@ -676,18 +677,17 @@ static bool GCParameter(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  size_t paramIndex = 0;
-  for (;; paramIndex++) {
-    if (paramIndex == ArrayLength(paramMap)) {
-      JS_ReportErrorASCII(
-          cx, "the first argument must be one of:" GC_PARAMETER_ARGS_LIST);
-      return false;
-    }
-    if (JS_LinearStringEqualsAscii(linearStr, paramMap[paramIndex].name)) {
-      break;
-    }
+  const auto* ptr = std::find_if(
+      std::begin(paramMap), std::end(paramMap), [&](const auto& param) {
+        return JS_LinearStringEqualsAscii(linearStr, param.name);
+      });
+  if (ptr == std::end(paramMap)) {
+    JS_ReportErrorASCII(
+        cx, "the first argument must be one of:" GC_PARAMETER_ARGS_LIST);
+    return false;
   }
-  const ParamInfo& info = paramMap[paramIndex];
+
+  const ParamInfo& info = *ptr;
   JSGCParamKey param = info.param;
 
   // Request mode.
@@ -4966,16 +4966,6 @@ static bool GetStringRepresentation(JSContext* cx, unsigned argc, Value* vp) {
 
 #endif
 
-static bool SetLazyParsingDisabled(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  bool disable = !args.hasDefined(0) || ToBoolean(args[0]);
-  cx->realm()->behaviors().setDisableLazyParsing(disable);
-
-  args.rval().setUndefined();
-  return true;
-}
-
 static bool CompileStencilXDR(JSContext* cx, uint32_t argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -5098,16 +5088,6 @@ static bool EvalStencilXDR(JSContext* cx, uint32_t argc, Value* vp) {
   }
 
   args.rval().set(retVal);
-  return true;
-}
-
-static bool SetDiscardSource(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  bool discard = !args.hasDefined(0) || ToBoolean(args[0]);
-  cx->realm()->behaviors().setDiscardSource(discard);
-
-  args.rval().setUndefined();
   return true;
 }
 
@@ -7131,16 +7111,6 @@ gc::ZealModeHelpText),
 "  Return a human-readable description of how the string |str| is represented.\n"),
 
 #endif
-
-    JS_FN_HELP("setLazyParsingDisabled", SetLazyParsingDisabled, 1, 0,
-"setLazyParsingDisabled(bool)",
-"  Explicitly disable lazy parsing in the current compartment.  The default is that lazy "
-"  parsing is not explicitly disabled."),
-
-    JS_FN_HELP("setDiscardSource", SetDiscardSource, 1, 0,
-"setDiscardSource(bool)",
-"  Explicitly enable source discarding in the current compartment.  The default is that "
-"  source discarding is not explicitly enabled."),
 
     JS_FN_HELP("allocationMarker", AllocationMarker, 0, 0,
 "allocationMarker([options])",

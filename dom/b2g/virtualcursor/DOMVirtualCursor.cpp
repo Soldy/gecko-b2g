@@ -59,9 +59,20 @@ void DOMVirtualCursor::Enable(ErrorResult& aRv) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return;
   }
+
   nsPIDOMWindowOuter* outer = inner->GetOuterWindow();
+  if (!outer) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return;
+  }
+
   RefPtr<VirtualCursorProxy> cursorProxy =
       VirtualCursorService::GetOrCreateCursor(outer);
+  if (!cursorProxy) {
+    aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return;
+  }
+
   cursorProxy->RequestEnable();
 }
 
@@ -74,18 +85,37 @@ void DOMVirtualCursor::Disable(ErrorResult& aRv) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return;
   }
+
   nsPIDOMWindowOuter* outer = inner->GetOuterWindow();
+  if (!outer) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return;
+  }
+
   RefPtr<VirtualCursorProxy> cursorProxy =
       VirtualCursorService::GetOrCreateCursor(outer);
+  if (!cursorProxy) {
+    aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return;
+  }
+
   cursorProxy->RequestDisable();
 }
 
 bool DOMVirtualCursor::Enabled() const {
   nsPIDOMWindowInner* inner = mGlobal->AsInnerWindow();
   MOZ_ASSERT(inner);
+
   nsPIDOMWindowOuter* outer = inner->GetOuterWindow();
+  if (!outer) {
+    return false;
+  }
+
   RefPtr<VirtualCursorProxy> cursorProxy =
       VirtualCursorService::GetOrCreateCursor(outer);
+  if (!cursorProxy) {
+    return false;
+  }
   bool enabled = false;
   cursorProxy->IsEnabled(&enabled);
   return enabled;

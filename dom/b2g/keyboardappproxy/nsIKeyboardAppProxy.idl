@@ -17,7 +17,7 @@ namespace mozilla {
 
 [ptr] native WidgetKeyboardEventPtr(mozilla::WidgetKeyboardEvent);
 
-[scriptable, function, uuid(87857156-bcef-4db1-886c-e91674b9546b)]
+[scriptable, uuid(87857156-bcef-4db1-886c-e91674b9546b)]
 interface nsIKeyboardEventForwarder : nsISupports
 {
   void onKeyboardEventReceived(in ACString eventType,
@@ -26,6 +26,7 @@ interface nsIKeyboardEventForwarder : nsISupports
                                in ACString key,
                                in uint64_t timeStamp,
                                in uint64_t generation);
+  void onTextChanged(in ACString text);
 };
 
 [scriptable, uuid(17005351-d16e-4a35-a136-4d75b844e807)]
@@ -58,4 +59,5 @@ interface nsIKeyboardAppProxy : nsISupports
    */
   void activate(in FrameLoader frameLoader);
   void deactivate();
+  void onTextChanged(in ACString text);
 };

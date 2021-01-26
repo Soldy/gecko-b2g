@@ -194,6 +194,9 @@ SandboxInfo::SandboxInfo() {
   if (getenv("MOZ_SANDBOX_LOGGING")) {
     flags |= kVerbose;
   }
+  if (getenv("MOZ_SANDBOX_ERROR")) {
+    flags |= kError;
+  }
 
   mFlags = static_cast<Flags>(flags);
 }

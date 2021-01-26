@@ -468,6 +468,11 @@ TelephonyParent::NotifyRttMessageReceived(uint32_t aClientId,
              : NS_ERROR_FAILURE;
 }
 
+NS_IMETHODIMP
+TelephonyParent::NotifySrvccState(uint32_t aClientId, int32_t aState) {
+  return NS_OK;
+}
+
 /*******************************************************************************
  * TelephonyRequestParent
  ******************************************************************************/
@@ -571,6 +576,11 @@ NS_IMETHODIMP
 TelephonyRequestParent::NotifyRttMessageReceived(uint32_t aClientId,
                                                  int32_t aCallIndex,
                                                  const nsAString& aMessage) {
+  MOZ_CRASH("Not a TelephonyParent!");
+}
+
+NS_IMETHODIMP
+TelephonyRequestParent::NotifySrvccState(uint32_t aClientId, int32_t aState) {
   MOZ_CRASH("Not a TelephonyParent!");
 }
 

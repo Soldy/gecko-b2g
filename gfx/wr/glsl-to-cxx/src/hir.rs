@@ -1910,6 +1910,9 @@ fn is_vector(ty: &Type) -> bool {
         TypeKind::Vec2
         | TypeKind::Vec3
         | TypeKind::Vec4
+        | TypeKind::BVec2
+        | TypeKind::BVec3
+        | TypeKind::BVec4
         | TypeKind::IVec2
         | TypeKind::IVec3
         | TypeKind::IVec4 => ty.array_sizes == None,
@@ -3697,7 +3700,13 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         Type::new(Void),
         vec![Type::new(Float), Type::new(Float)],
     );
-
+    declare_function(
+        state,
+        "swgl_clipMask",
+        None,
+        Type::new(Void),
+        vec![Type::new(Sampler2D), Type::new(Vec2), Type::new(Vec2), Type::new(Vec2)],
+    );
     for s in &[Sampler2D, Sampler2DRect, Sampler2DArray] {
         declare_function_ext(
             state,

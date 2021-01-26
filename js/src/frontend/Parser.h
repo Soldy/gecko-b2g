@@ -181,6 +181,7 @@
 #include "frontend/ErrorReporter.h"
 #include "frontend/FullParseHandler.h"
 #include "frontend/FunctionSyntaxKind.h"  // FunctionSyntaxKind
+#include "frontend/IteratorKind.h"
 #include "frontend/NameAnalysisTypes.h"
 #include "frontend/NameCollections.h"
 #include "frontend/ParseContext.h"
@@ -520,7 +521,6 @@ class MOZ_STACK_CLASS PerHandlerParser : public ParserBase {
   inline NameNodeType newName(const ParserName* name, TokenPos pos);
 
   inline NameNodeType newPrivateName(const ParserName* name);
-  inline NameNodeType newPrivateName(const ParserName* name, TokenPos pos);
 
   NameNodeType newInternalDotName(const ParserName* name);
   NameNodeType newThisName();
@@ -1043,8 +1043,8 @@ class MOZ_STACK_CLASS GeneralParser : public PerHandlerParser<ParseHandler> {
   BinaryNodeType whileStatement(YieldHandling yieldHandling);
 
   Node forStatement(YieldHandling yieldHandling);
-  bool forHeadStart(YieldHandling yieldHandling, ParseNodeKind* forHeadKind,
-                    Node* forInitialPart,
+  bool forHeadStart(YieldHandling yieldHandling, IteratorKind iterKind,
+                    ParseNodeKind* forHeadKind, Node* forInitialPart,
                     mozilla::Maybe<ParseContext::Scope>& forLetImpliedScope,
                     Node* forInOrOfExpression);
   Node expressionAfterForInOrOf(ParseNodeKind forHeadKind,

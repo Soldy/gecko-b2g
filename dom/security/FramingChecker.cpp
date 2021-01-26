@@ -103,6 +103,11 @@ bool FramingChecker::CheckOneFrameOptionsPolicy(nsIHttpChannel* aHttpChannel,
       return true;
     }
 
+    if (principal &&
+        nsContentUtils::IsSitePermAllow(principal, "web-view"_ns)) {
+      return true;
+    }
+
     if (checkSameOrigin) {
       bool isPrivateWin = false;
       bool isSameOrigin = false;
@@ -176,12 +181,12 @@ bool FramingChecker::CheckFrameOptions(nsIChannel* aChannel,
   }
 
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
-  nsContentPolicyType contentType = loadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType contentType = loadInfo->GetExternalContentPolicyType();
 
   // xfo check only makes sense for subdocument and object loads, if this is
   // not a load of such type, there is nothing to do here.
-  if (contentType != nsIContentPolicy::TYPE_SUBDOCUMENT &&
-      contentType != nsIContentPolicy::TYPE_OBJECT) {
+  if (contentType != ExtContentPolicy::TYPE_SUBDOCUMENT &&
+      contentType != ExtContentPolicy::TYPE_OBJECT) {
     return true;
   }
 

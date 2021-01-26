@@ -105,6 +105,7 @@ def old_configure_options(*options):
     "--enable-negotiateauth",
     "--enable-official-branding",
     "--enable-parental-controls",
+    '--enable-rsu',
     "--enable-sandbox",
     "--enable-system-cairo",
     "--enable-system-extension-dirs",

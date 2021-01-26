@@ -27,7 +27,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   CFRPageActions: "resource://activity-stream/lib/CFRPageActions.jsm",
   CharsetMenu: "resource://gre/modules/CharsetMenu.jsm",
   Color: "resource://gre/modules/Color.jsm",
-  ContentSearch: "resource:///modules/ContentSearch.jsm",
   ContextualIdentityService:
     "resource://gre/modules/ContextualIdentityService.jsm",
   CustomizableUI: "resource:///modules/CustomizableUI.jsm",
@@ -70,9 +69,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   SimpleServiceDiscovery: "resource://gre/modules/SimpleServiceDiscovery.jsm",
   SiteDataManager: "resource:///modules/SiteDataManager.jsm",
   SitePermissions: "resource:///modules/SitePermissions.jsm",
-  SiteSpecificBrowser: "resource:///modules/SiteSpecificBrowserService.jsm",
-  SiteSpecificBrowserService:
-    "resource:///modules/SiteSpecificBrowserService.jsm",
   SubDialogManager: "resource://gre/modules/SubDialog.jsm",
   TabModalPrompt: "chrome://global/content/tabprompts.jsm",
   TabCrashHandler: "resource:///modules/ContentCrashHandlers.jsm",
@@ -558,6 +554,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
   this,
   "gProton",
   "browser.proton.enabled",
+  false,
+  (pref, oldValue, newValue) => {
+    document.documentElement.toggleAttribute("proton", newValue);
+  }
+);
+
+/* Temporary pref while we settle some questions around new tab design.
+   This will eventually be removed and browser.proton.enabled will be used instead. */
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "gProtonTabs",
+  "browser.proton.tabs.enabled",
   false,
   (pref, oldValue, newValue) => {
     document.documentElement.toggleAttribute("proton", newValue);
@@ -1930,8 +1938,6 @@ var gBrowserInit = {
     FullZoom.init();
     PanelUI.init();
 
-    SiteSpecificBrowserUI.init();
-
     UpdateUrlbarSearchSplitterState();
 
     BookmarkingUI.init();
@@ -2288,10 +2294,6 @@ var gBrowserInit = {
     }
 
     scheduleIdleTask(() => {
-      PlacesToolbarHelper.startShowingToolbar();
-    });
-
-    scheduleIdleTask(() => {
       // Initialize the Sync UI
       gSync.init();
     });
@@ -2566,130 +2568,6 @@ XPCOMUtils.defineLazyGetter(
 gBrowserInit.idleTasksFinishedPromise = new Promise(resolve => {
   gBrowserInit.idleTaskPromiseResolve = resolve;
 });
-
-const SiteSpecificBrowserUI = {
-  menuInitialized: false,
-
-  init() {
-    if (!SiteSpecificBrowserService.isEnabled) {
-      return;
-    }
-
-    XPCOMUtils.defineLazyGetter(this, "panelBody", () => {
-      return PanelMultiView.getViewNode(
-        document,
-        "appMenu-SSBView .panel-subview-body"
-      );
-    });
-
-    let initializeMenu = async () => {
-      let list = await SiteSpecificBrowserService.list();
-
-      for (let ssb of list) {
-        this.addSSBToMenu(ssb);
-      }
-
-      if (!list.length) {
-        document.getElementById("appMenu-ssb-button").hidden = true;
-      }
-
-      this.menuInitialized = true;
-      Services.obs.addObserver(this, "site-specific-browser-install", true);
-      Services.obs.addObserver(this, "site-specific-browser-uninstall", true);
-    };
-
-    document.getElementById("appMenu-popup").addEventListener(
-      "popupshowing",
-      () => {
-        let blocker = initializeMenu();
-        PanelMultiView.getViewNode(
-          document,
-          "appMenu-SSBView"
-        ).addEventListener(
-          "ViewShowing",
-          event => {
-            event.detail.addBlocker(blocker);
-          },
-          { once: true }
-        );
-      },
-      { once: true }
-    );
-  },
-
-  observe(subject, topic, id) {
-    let ssb = SiteSpecificBrowser.get(id);
-    switch (topic) {
-      case "site-specific-browser-install":
-        this.addSSBToMenu(ssb);
-        break;
-      case "site-specific-browser-uninstall":
-        this.removeSSBFromMenu(ssb);
-        break;
-    }
-  },
-
-  removeSSBFromMenu(ssb) {
-    let container = document.getElementById("ssb-button-" + ssb.id);
-    if (!container) {
-      return;
-    }
-
-    if (!container.nextElementSibling && !container.previousElementSibling) {
-      document.getElementById("appMenu-ssb-button").hidden = true;
-    }
-
-    let button = container.querySelector(".ssb-launch");
-    let uri = button.getAttribute("image");
-    if (uri) {
-      URL.revokeObjectURL(uri);
-    }
-
-    container.remove();
-  },
-
-  addSSBToMenu(ssb) {
-    let container = document.createXULElement("toolbaritem");
-    container.id = `ssb-button-${ssb.id}`;
-    container.className = "toolbaritem-menu-buttons";
-
-    let menu = document.createXULElement("toolbarbutton");
-    menu.className = "ssb-launch subviewbutton subviewbutton-iconic";
-    menu.setAttribute("label", ssb.name);
-    menu.setAttribute("flex", "1");
-
-    ssb.getScaledIcon(16 * devicePixelRatio).then(
-      icon => {
-        if (icon) {
-          menu.setAttribute("image", URL.createObjectURL(icon));
-        }
-      },
-      error => {
-        console.error(error);
-      }
-    );
-
-    menu.addEventListener("command", () => {
-      ssb.launch();
-    });
-
-    let uninstall = document.createXULElement("toolbarbutton");
-    uninstall.className = "ssb-uninstall subviewbutton subviewbutton-iconic";
-    // Hardcoded for now. Localization tracked in bug 1602528.
-    uninstall.setAttribute("tooltiptext", "Uninstall");
-
-    uninstall.addEventListener("command", () => {
-      ssb.uninstall();
-    });
-
-    container.append(menu);
-    container.append(uninstall);
-    this.panelBody.append(container);
-    document.getElementById("appMenu-ssb-button").hidden = false;
-  },
-
-  QueryInterface: ChromeUtils.generateQI(["nsISupportsWeakReference"]),
-};
 
 function HandleAppCommandEvent(evt) {
   switch (evt.command) {
@@ -3251,10 +3129,14 @@ async function BrowserViewSourceOfDocument(args) {
     // source in tab expects the new view source browser's remoteness to match
     // that of the original URL, so disable remoteness if necessary for this
     // URL.
+    var oa = E10SUtils.predictOriginAttributes({ window });
     preferredRemoteType = E10SUtils.getRemoteTypeForURI(
       args.URL,
       gMultiProcessBrowser,
-      gFissionBrowser
+      gFissionBrowser,
+      E10SUtils.DEFAULT_REMOTE_TYPE,
+      null,
+      oa
     );
   }
 
@@ -4425,9 +4307,12 @@ const BrowserSearch = {
       csp
     );
     if (engine) {
-      BrowserSearchTelemetry.recordSearch(gBrowser, engine, "contextmenu", {
-        url,
-      });
+      BrowserSearchTelemetry.recordSearch(
+        gBrowser.selectedBrowser,
+        engine,
+        "contextmenu",
+        { url }
+      );
     }
   },
 
@@ -4444,7 +4329,12 @@ const BrowserSearch = {
       csp
     );
     if (engine) {
-      BrowserSearchTelemetry.recordSearch(gBrowser, engine, "system", { url });
+      BrowserSearchTelemetry.recordSearch(
+        gBrowser.selectedBrowser,
+        engine,
+        "system",
+        { url }
+      );
     }
   },
 
@@ -4464,12 +4354,10 @@ const BrowserSearch = {
     );
 
     BrowserSearchTelemetry.recordSearch(
-      gBrowser,
+      gBrowser.selectedBrowser,
       result.engine,
       "webextension",
-      {
-        url: result.url,
-      }
+      { url: result.url }
     );
   },
 

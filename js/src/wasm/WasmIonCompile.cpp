@@ -663,7 +663,7 @@ class FunctionCompiler {
     if (inDeadCode()) {
       return nullptr;
     }
-    auto* ins = MCompare::New(alloc(), lhs, rhs, op, type);
+    auto* ins = MCompare::NewWasm(alloc(), lhs, rhs, op, type);
     curBlock_->add(ins);
     return ins;
   }
@@ -4952,6 +4952,19 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::F64x2Eq):
           case uint32_t(SimdOp::F64x2Ne):
           case uint32_t(SimdOp::I32x4DotSI16x8):
+          case uint32_t(SimdOp::I16x8ExtMulLowSI8x16):
+          case uint32_t(SimdOp::I16x8ExtMulHighSI8x16):
+          case uint32_t(SimdOp::I16x8ExtMulLowUI8x16):
+          case uint32_t(SimdOp::I16x8ExtMulHighUI8x16):
+          case uint32_t(SimdOp::I32x4ExtMulLowSI16x8):
+          case uint32_t(SimdOp::I32x4ExtMulHighSI16x8):
+          case uint32_t(SimdOp::I32x4ExtMulLowUI16x8):
+          case uint32_t(SimdOp::I32x4ExtMulHighUI16x8):
+          case uint32_t(SimdOp::I64x2ExtMulLowSI32x4):
+          case uint32_t(SimdOp::I64x2ExtMulHighSI32x4):
+          case uint32_t(SimdOp::I64x2ExtMulLowUI32x4):
+          case uint32_t(SimdOp::I64x2ExtMulHighUI32x4):
+          case uint32_t(SimdOp::I16x8Q15MulrSatS):
             CHECK(EmitBinarySimd128(f, /* commutative= */ true, SimdOp(op.b1)));
           case uint32_t(SimdOp::V128AndNot):
           case uint32_t(SimdOp::I8x16Sub):
@@ -5033,6 +5046,10 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::I32x4TruncSSatF32x4):
           case uint32_t(SimdOp::I32x4TruncUSatF32x4):
           case uint32_t(SimdOp::I64x2Neg):
+          case uint32_t(SimdOp::I64x2WidenLowSI32x4):
+          case uint32_t(SimdOp::I64x2WidenHighSI32x4):
+          case uint32_t(SimdOp::I64x2WidenLowUI32x4):
+          case uint32_t(SimdOp::I64x2WidenHighUI32x4):
           case uint32_t(SimdOp::F32x4Abs):
           case uint32_t(SimdOp::F32x4Neg):
           case uint32_t(SimdOp::F32x4Sqrt):
@@ -5054,7 +5071,7 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::F64x2Trunc):
           case uint32_t(SimdOp::F64x2Nearest):
             CHECK(EmitUnarySimd128(f, SimdOp(op.b1)));
-          case uint32_t(SimdOp::I8x16AnyTrue):
+          case uint32_t(SimdOp::V128AnyTrue):
           case uint32_t(SimdOp::I16x8AnyTrue):
           case uint32_t(SimdOp::I32x4AnyTrue):
           case uint32_t(SimdOp::I8x16AllTrue):
@@ -5063,6 +5080,7 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::I8x16Bitmask):
           case uint32_t(SimdOp::I16x8Bitmask):
           case uint32_t(SimdOp::I32x4Bitmask):
+          case uint32_t(SimdOp::I64x2Bitmask):
             CHECK(EmitReduceSimd128(f, SimdOp(op.b1)));
           case uint32_t(SimdOp::I8x16Shl):
           case uint32_t(SimdOp::I8x16ShrS):
@@ -5483,7 +5501,10 @@ bool wasm::IonCompileFunctions(const ModuleEnvironment& moduleEnv,
   GenerateTrapExitMachineState(&trapExitLayout, &trapExitLayoutNumWords);
 
   for (const FuncCompileInput& func : inputs) {
-    JitSpew(JitSpew_Codegen, "# ========================================");
+    JitSpewCont(JitSpew_Codegen, "\n");
+    JitSpew(JitSpew_Codegen,
+            "# ================================"
+            "==================================");
     JitSpew(JitSpew_Codegen, "# ==");
     JitSpew(JitSpew_Codegen,
             "# wasm::IonCompileFunctions: starting on function index %d",
@@ -5565,7 +5586,10 @@ bool wasm::IonCompileFunctions(const ModuleEnvironment& moduleEnv,
             "# wasm::IonCompileFunctions: completed function index %d",
             (int)func.index);
     JitSpew(JitSpew_Codegen, "# ==");
-    JitSpew(JitSpew_Codegen, "# ========================================");
+    JitSpew(JitSpew_Codegen,
+            "# ================================"
+            "==================================");
+    JitSpewCont(JitSpew_Codegen, "\n");
   }
 
   masm.finish();

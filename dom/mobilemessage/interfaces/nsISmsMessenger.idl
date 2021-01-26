@@ -71,4 +71,12 @@ interface nsISmsMessenger : nsISupports
                  in DOMTimeStamp aSentTimestamp,
                  in DOMTimeStamp aDeliveryTimestamp,
                  in boolean aRead);
+
+  void notifyDataSms(in unsigned long aServiceId,
+                     in AString aIccId,
+                     in AString aSender,
+                     in AString aReceiver,
+                     in unsigned long aOriginatorPort,
+                     in unsigned long aDestinationPort,
+                     in Array<octet> aDatas);
 };

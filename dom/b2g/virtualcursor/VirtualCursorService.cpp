@@ -115,6 +115,13 @@ void VirtualCursorService::UpdatePos(const LayoutDeviceIntPoint& aPoint) {
   if (!mWindow) {
     return;
   }
+
+  if (IsPanning()) {
+    // There may be a timing that we already start panning on the b2g process
+    // then receive the move requests from content. Ignore the request.
+    return;
+  }
+
   MOZ_LOG(gVirtualCursorLog, LogLevel::Debug,
           ("VirtualCursorService::UpdatePos"));
   nsIDocShell* docShell = mWindow->GetDocShell();
@@ -154,6 +161,11 @@ void VirtualCursorService::CursorUp() {
 void VirtualCursorService::CursorMove() {
   MOZ_LOG(gVirtualCursorLog, LogLevel::Debug,
           ("VirtualCursorService::CursorMove"));
+  if (IsPanning()) {
+    // There may be a timing that we already start panning on the b2g process
+    // then receive the move requests from content. Ignore the request.
+    return;
+  }
   SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mousemove"));
 }
 

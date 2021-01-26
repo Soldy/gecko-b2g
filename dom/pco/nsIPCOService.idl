@@ -1,0 +1,20 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+[scriptable, uuid(e3b1cf07-a6d9-4236-b60e-c02ea15f4867)]
+interface nsIPCOService : nsISupports
+{
+  void updatePcoData([optional] in unsigned long count,
+                     [array, size_is(count), retval] in jsval pcoValue);
+
+  /**
+   * Get the restrict status.
+   *
+   * @param origin
+   *        Follow the origin to check the restrict status.
+   */
+  boolean getRestriction(in AString origin);
+};

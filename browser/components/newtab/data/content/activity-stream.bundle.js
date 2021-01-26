@@ -205,7 +205,7 @@ const globalImportContext = typeof Window === "undefined" ? BACKGROUND_PROCESS :
 // }
 const actionTypes = {};
 
-for (const type of ["ABOUT_SPONSORED_TOP_SITES", "ADDONS_INFO_REQUEST", "ADDONS_INFO_RESPONSE", "ARCHIVE_FROM_POCKET", "AS_ROUTER_INITIALIZED", "AS_ROUTER_PREF_CHANGED", "AS_ROUTER_TARGETING_UPDATE", "AS_ROUTER_TELEMETRY_USER_EVENT", "BLOCK_URL", "BOOKMARK_URL", "CLEAR_PREF", "COPY_DOWNLOAD_LINK", "DELETE_BOOKMARK_BY_ID", "DELETE_FROM_POCKET", "DELETE_HISTORY_URL", "DIALOG_CANCEL", "DIALOG_OPEN", "DISCOVERY_STREAM_COLLECTION_DISMISSIBLE_TOGGLE", "DISCOVERY_STREAM_CONFIG_CHANGE", "DISCOVERY_STREAM_CONFIG_RESET", "DISCOVERY_STREAM_CONFIG_RESET_DEFAULTS", "DISCOVERY_STREAM_CONFIG_SETUP", "DISCOVERY_STREAM_CONFIG_SET_VALUE", "DISCOVERY_STREAM_DEV_EXPIRE_CACHE", "DISCOVERY_STREAM_DEV_IDLE_DAILY", "DISCOVERY_STREAM_DEV_SYNC_RS", "DISCOVERY_STREAM_DEV_SYSTEM_TICK", "DISCOVERY_STREAM_FEEDS_UPDATE", "DISCOVERY_STREAM_FEED_UPDATE", "DISCOVERY_STREAM_IMPRESSION_STATS", "DISCOVERY_STREAM_LAYOUT_RESET", "DISCOVERY_STREAM_LAYOUT_UPDATE", "DISCOVERY_STREAM_LINK_BLOCKED", "DISCOVERY_STREAM_LOADED_CONTENT", "DISCOVERY_STREAM_PERSONALIZATION_INIT", "DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED", "DISCOVERY_STREAM_PERSONALIZATION_VERSION", "DISCOVERY_STREAM_PERSONALIZATION_VERSION_TOGGLE", "DISCOVERY_STREAM_RETRY_FEED", "DISCOVERY_STREAM_SPOCS_CAPS", "DISCOVERY_STREAM_SPOCS_ENDPOINT", "DISCOVERY_STREAM_SPOCS_PLACEMENTS", "DISCOVERY_STREAM_SPOCS_UPDATE", "DISCOVERY_STREAM_SPOC_BLOCKED", "DISCOVERY_STREAM_SPOC_IMPRESSION", "DOWNLOAD_CHANGED", "FAKE_FOCUS_SEARCH", "FILL_SEARCH_TERM", "HANDOFF_SEARCH_TO_AWESOMEBAR", "HIDE_PRIVACY_INFO", "HIDE_SEARCH", "INIT", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_REHYDRATED", "NEW_TAB_STATE_REQUEST", "NEW_TAB_UNLOAD", "OPEN_DOWNLOAD_FILE", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "OPEN_WEBEXT_SETTINGS", "PARTNER_LINK_ATTRIBUTION", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINKS_CHANGED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "PLACES_SAVED_TO_POCKET", "POCKET_CTA", "POCKET_LINK_DELETED_OR_ARCHIVED", "POCKET_LOGGED_IN", "POCKET_WAITING_FOR_SPOC", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "PREVIEW_REQUEST", "PREVIEW_REQUEST_CANCEL", "PREVIEW_RESPONSE", "REMOVE_DOWNLOAD_FILE", "RICH_ICON_MISSING", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_DISABLE", "SECTION_ENABLE", "SECTION_MOVE", "SECTION_OPTIONS_CHANGED", "SECTION_REGISTER", "SECTION_UPDATE", "SECTION_UPDATE_CARD", "SETTINGS_CLOSE", "SETTINGS_OPEN", "SET_PREF", "SHOW_DOWNLOAD_FILE", "SHOW_FIREFOX_ACCOUNTS", "SHOW_PRIVACY_INFO", "SHOW_SEARCH", "SKIPPED_SIGNIN", "SNIPPETS_BLOCKLIST_CLEARED", "SNIPPETS_BLOCKLIST_UPDATED", "SNIPPETS_DATA", "SNIPPETS_PREVIEW_MODE", "SNIPPETS_RESET", "SNIPPET_BLOCKED", "SUBMIT_EMAIL", "SUBMIT_SIGNIN", "SYSTEM_TICK", "TELEMETRY_IMPRESSION_STATS", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_CANCEL_EDIT", "TOP_SITES_CLOSE_SEARCH_SHORTCUTS_MODAL", "TOP_SITES_EDIT", "TOP_SITES_INSERT", "TOP_SITES_OPEN_SEARCH_SHORTCUTS_MODAL", "TOP_SITES_PIN", "TOP_SITES_PREFS_UPDATED", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "TOTAL_BOOKMARKS_REQUEST", "TOTAL_BOOKMARKS_RESPONSE", "UNINIT", "UPDATE_PINNED_SEARCH_SHORTCUTS", "UPDATE_SEARCH_SHORTCUTS", "UPDATE_SECTION_PREFS", "WEBEXT_CLICK", "WEBEXT_DISMISS"]) {
+for (const type of ["ABOUT_SPONSORED_TOP_SITES", "ADDONS_INFO_REQUEST", "ADDONS_INFO_RESPONSE", "ARCHIVE_FROM_POCKET", "AS_ROUTER_INITIALIZED", "AS_ROUTER_PREF_CHANGED", "AS_ROUTER_TARGETING_UPDATE", "AS_ROUTER_TELEMETRY_USER_EVENT", "BLOCK_URL", "BOOKMARK_URL", "CLEAR_PREF", "COPY_DOWNLOAD_LINK", "DELETE_BOOKMARK_BY_ID", "DELETE_FROM_POCKET", "DELETE_HISTORY_URL", "DIALOG_CANCEL", "DIALOG_OPEN", "DISCOVERY_STREAM_COLLECTION_DISMISSIBLE_TOGGLE", "DISCOVERY_STREAM_CONFIG_CHANGE", "DISCOVERY_STREAM_CONFIG_RESET", "DISCOVERY_STREAM_CONFIG_RESET_DEFAULTS", "DISCOVERY_STREAM_CONFIG_SETUP", "DISCOVERY_STREAM_CONFIG_SET_VALUE", "DISCOVERY_STREAM_DEV_EXPIRE_CACHE", "DISCOVERY_STREAM_DEV_IDLE_DAILY", "DISCOVERY_STREAM_DEV_SYNC_RS", "DISCOVERY_STREAM_DEV_SYSTEM_TICK", "DISCOVERY_STREAM_FEEDS_UPDATE", "DISCOVERY_STREAM_FEED_UPDATE", "DISCOVERY_STREAM_IMPRESSION_STATS", "DISCOVERY_STREAM_LAYOUT_RESET", "DISCOVERY_STREAM_LAYOUT_UPDATE", "DISCOVERY_STREAM_LINK_BLOCKED", "DISCOVERY_STREAM_LOADED_CONTENT", "DISCOVERY_STREAM_PERSONALIZATION_INIT", "DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED", "DISCOVERY_STREAM_PERSONALIZATION_VERSION", "DISCOVERY_STREAM_PERSONALIZATION_VERSION_TOGGLE", "DISCOVERY_STREAM_RETRY_FEED", "DISCOVERY_STREAM_SPOCS_CAPS", "DISCOVERY_STREAM_SPOCS_ENDPOINT", "DISCOVERY_STREAM_SPOCS_PLACEMENTS", "DISCOVERY_STREAM_SPOCS_UPDATE", "DISCOVERY_STREAM_SPOC_BLOCKED", "DISCOVERY_STREAM_SPOC_IMPRESSION", "DOWNLOAD_CHANGED", "FAKE_FOCUS_SEARCH", "FILL_SEARCH_TERM", "HANDOFF_SEARCH_TO_AWESOMEBAR", "HIDE_PRIVACY_INFO", "HIDE_SEARCH", "INIT", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_REHYDRATED", "NEW_TAB_STATE_REQUEST", "NEW_TAB_UNLOAD", "OPEN_DOWNLOAD_FILE", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "OPEN_WEBEXT_SETTINGS", "PARTNER_LINK_ATTRIBUTION", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINKS_CHANGED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "PLACES_SAVED_TO_POCKET", "POCKET_CTA", "POCKET_LINK_DELETED_OR_ARCHIVED", "POCKET_LOGGED_IN", "POCKET_WAITING_FOR_SPOC", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "PREVIEW_REQUEST", "PREVIEW_REQUEST_CANCEL", "PREVIEW_RESPONSE", "REMOVE_DOWNLOAD_FILE", "RICH_ICON_MISSING", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_DISABLE", "SECTION_ENABLE", "SECTION_MOVE", "SECTION_OPTIONS_CHANGED", "SECTION_REGISTER", "SECTION_UPDATE", "SECTION_UPDATE_CARD", "SETTINGS_CLOSE", "SETTINGS_OPEN", "SET_PREF", "SHOW_DOWNLOAD_FILE", "SHOW_FIREFOX_ACCOUNTS", "SHOW_PRIVACY_INFO", "SHOW_SEARCH", "SKIPPED_SIGNIN", "SNIPPETS_BLOCKLIST_CLEARED", "SNIPPETS_BLOCKLIST_UPDATED", "SNIPPETS_DATA", "SNIPPETS_PREVIEW_MODE", "SNIPPETS_RESET", "SNIPPET_BLOCKED", "SUBMIT_EMAIL", "SUBMIT_SIGNIN", "SYSTEM_TICK", "TELEMETRY_IMPRESSION_STATS", "TELEMETRY_USER_EVENT", "TOP_SITES_CANCEL_EDIT", "TOP_SITES_CLOSE_SEARCH_SHORTCUTS_MODAL", "TOP_SITES_EDIT", "TOP_SITES_INSERT", "TOP_SITES_OPEN_SEARCH_SHORTCUTS_MODAL", "TOP_SITES_PIN", "TOP_SITES_PREFS_UPDATED", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "TOTAL_BOOKMARKS_REQUEST", "TOTAL_BOOKMARKS_RESPONSE", "UNINIT", "UPDATE_PINNED_SEARCH_SHORTCUTS", "UPDATE_SEARCH_SHORTCUTS", "UPDATE_SECTION_PREFS", "WEBEXT_CLICK", "WEBEXT_DISMISS"]) {
   actionTypes[type] = type;
 } // Helper function for creating routed actions between content and main
 // Not intended to be used by consumers
@@ -359,22 +359,6 @@ function ASRouterUserEvent(data) {
   });
 }
 /**
- * UndesiredEvent - A telemetry ping indicating an undesired state.
- *
- * @param  {object} data Fields to include in the ping (value, etc.)
- * @param  {int} importContext (For testing) Override the import context for testing.
- * @return {object} An action. For UI code, a AlsoToMain action.
- */
-
-
-function UndesiredEvent(data, importContext = globalImportContext) {
-  const action = {
-    type: actionTypes.TELEMETRY_UNDESIRED_EVENT,
-    data
-  };
-  return importContext === UI_CODE ? AlsoToMain(action) : action;
-}
-/**
  * ImpressionStats - A telemetry ping indicating an impression stats.
  *
  * @param  {object} data Fields to include in the ping
@@ -450,7 +434,6 @@ var actionCreators = {
   BroadcastToContent,
   UserEvent,
   ASRouterUserEvent,
-  UndesiredEvent,
   ImpressionStats,
   AlsoToOneContent,
   OnlyToOneContent,
@@ -654,6 +637,7 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
     this.openPreferences = this.openPreferences.bind(this);
     this.openCustomizationMenu = this.openCustomizationMenu.bind(this);
     this.closeCustomizationMenu = this.closeCustomizationMenu.bind(this);
+    this.handleOnKeyDown = this.handleOnKeyDown.bind(this);
     this.onWindowScroll = debounce(this.onWindowScroll.bind(this), 5);
     this.setPref = this.setPref.bind(this);
     this.state = {
@@ -664,17 +648,17 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
 
   componentDidMount() {
     global.addEventListener("scroll", this.onWindowScroll);
+    global.addEventListener("keydown", this.handleOnKeyDown);
   }
 
   componentWillUnmount() {
     global.removeEventListener("scroll", this.onWindowScroll);
+    global.removeEventListener("keydown", this.handleOnKeyDown);
   }
 
   onWindowScroll() {
-    const prefs = this.props.Prefs.values; // Show logo only if the logo is enabled and pocket is not enabled.
-
-    const showLogo = prefs["logowordmark.alwaysVisible"] && !(prefs["feeds.section.topstories"] && prefs["feeds.system.topstories"]);
-    const SCROLL_THRESHOLD = showLogo ? 179 : 34;
+    const prefs = this.props.Prefs.values;
+    const SCROLL_THRESHOLD = prefs["logowordmark.alwaysVisible"] ? 179 : 34;
 
     if (global.scrollY > SCROLL_THRESHOLD && !this.state.fixedSearch) {
       this.setState({
@@ -700,12 +684,27 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
     this.setState({
       customizeMenuVisible: true
     });
+    this.props.dispatch(common_Actions_jsm__WEBPACK_IMPORTED_MODULE_0__["actionCreators"].UserEvent({
+      event: "SHOW_PERSONALIZE"
+    }));
   }
 
   closeCustomizationMenu() {
-    this.setState({
-      customizeMenuVisible: false
-    });
+    if (this.state.customizeMenuVisible) {
+      this.setState({
+        customizeMenuVisible: false
+      });
+    }
+
+    this.props.dispatch(common_Actions_jsm__WEBPACK_IMPORTED_MODULE_0__["actionCreators"].UserEvent({
+      event: "HIDE_PERSONALIZE"
+    }));
+  }
+
+  handleOnKeyDown(e) {
+    if (e.key === "Escape") {
+      this.closeCustomizationMenu();
+    }
   }
 
   setPref(pref, value) {
@@ -732,7 +731,6 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
     const pocketEnabled = prefs["feeds.section.topstories"] && prefs["feeds.system.topstories"];
     const noSectionsEnabled = !prefs["feeds.topsites"] && !pocketEnabled && filteredSections.filter(section => section.enabled).length === 0;
     const searchHandoffEnabled = prefs["improvesearch.handoffToAwesomebar"];
-    const showLogo = prefs["logowordmark.alwaysVisible"] && (!prefs["feeds.section.topstories"] || !prefs["feeds.system.topstories"] && prefs.region);
     const customizationMenuEnabled = prefs["customizationMenu.enabled"];
     const newNewtabExperienceEnabled = prefs["newNewtabExperience.enabled"];
     const canShowCustomizationMenu = customizationMenuEnabled || newNewtabExperienceEnabled;
@@ -750,7 +748,7 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
     const {
       mayHaveSponsoredTopSites
     } = prefs;
-    const outerClassName = ["outer-wrapper", isDiscoveryStream && pocketEnabled && "ds-outer-wrapper-search-alignment", isDiscoveryStream && "ds-outer-wrapper-breakpoint-override", prefs.showSearch && this.state.fixedSearch && !noSectionsEnabled && "fixed-search", prefs.showSearch && noSectionsEnabled && "only-search", showLogo && "visible-logo", newNewtabExperienceEnabled && "newtab-experience"].filter(v => v).join(" ");
+    const outerClassName = ["outer-wrapper", isDiscoveryStream && pocketEnabled && "ds-outer-wrapper-search-alignment", isDiscoveryStream && "ds-outer-wrapper-breakpoint-override", prefs.showSearch && this.state.fixedSearch && !noSectionsEnabled && "fixed-search", prefs.showSearch && noSectionsEnabled && "only-search", prefs["logowordmark.alwaysVisible"] && "visible-logo", newNewtabExperienceEnabled && "newtab-experience"].filter(v => v).join(" ");
     return react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement("div", null, canShowCustomizationMenu ? react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement("span", null, react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement(PersonalizeButton, {
       onClick: this.openCustomizationMenu
     }), react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement(react_transition_group__WEBPACK_IMPORTED_MODULE_11__["CSSTransition"], {
@@ -769,11 +767,12 @@ class BaseContent extends react__WEBPACK_IMPORTED_MODULE_8___default.a.PureCompo
       onClick: this.openPreferences,
       icon: prefsButtonIcon
     }), react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement("div", {
-      className: outerClassName
+      className: outerClassName,
+      onClick: this.closeCustomizationMenu
     }, react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement("main", null, prefs.showSearch && react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement("div", {
       className: "non-collapsible-section"
     }, react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement(content_src_components_ErrorBoundary_ErrorBoundary__WEBPACK_IMPORTED_MODULE_6__["ErrorBoundary"], null, react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement(content_src_components_Search_Search__WEBPACK_IMPORTED_MODULE_9__["Search"], _extends({
-      showLogo: noSectionsEnabled || showLogo,
+      showLogo: noSectionsEnabled || prefs["logowordmark.alwaysVisible"],
       handoffEnabled: searchHandoffEnabled
     }, props.Search)))), react__WEBPACK_IMPORTED_MODULE_8___default.a.createElement(_asrouter_asrouter_content__WEBPACK_IMPORTED_MODULE_2__["ASRouterUISurface"], {
       adminContent: this.props.adminContent,
@@ -1252,7 +1251,8 @@ class ASRouterAdminInner extends react__WEBPACK_IMPORTED_MODULE_3___default.a.Pu
         content: "iridium@particlecore.github.io",
         experiment: "ua-onboarding",
         variation: "chrome",
-        ua: "Google Chrome 123"
+        ua: "Google Chrome 123",
+        dltoken: "00000000-0000-0000-0000-000000000000"
       }
     };
   }
@@ -2013,6 +2013,12 @@ class ASRouterAdminInner extends react__WEBPACK_IMPORTED_MODULE_3___default.a.Pu
       placeholder: "Google Chrome 123",
       value: this.state.attributionParameters.ua,
       onChange: this.onChangeAttributionParameters
+    }), " ")), react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("tr", null, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("td", null, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("b", null, " Download Token ")), react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("td", null, " ", react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("input", {
+      type: "text",
+      name: "dltoken",
+      placeholder: "00000000-0000-0000-0000-000000000000",
+      value: this.state.attributionParameters.dltoken,
+      onChange: this.onChangeAttributionParameters
     }), " ")), react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("tr", null, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("td", null, " ", react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("button", {
       className: "ASRouterButton primary button",
       onClick: this.setAttribution
@@ -2512,8 +2518,7 @@ class ASRouterUISurface extends react__WEBPACK_IMPORTED_MODULE_7___default.a.Pur
   async fetchFlowParams(params = {}) {
     let result = {};
     const {
-      fxaEndpoint,
-      dispatch
+      fxaEndpoint
     } = this.props;
 
     if (!fxaEndpoint) {
@@ -2544,24 +2549,9 @@ class ASRouterUISurface extends react__WEBPACK_IMPORTED_MODULE_7___default.a.Pur
         };
       } else {
         console.error("Non-200 response", response); // eslint-disable-line no-console
-
-        dispatch(common_Actions_jsm__WEBPACK_IMPORTED_MODULE_1__["actionCreators"].OnlyToMain({
-          type: common_Actions_jsm__WEBPACK_IMPORTED_MODULE_1__["actionTypes"].TELEMETRY_UNDESIRED_EVENT,
-          data: {
-            event: "FXA_METRICS_FETCH_ERROR",
-            value: response.status
-          }
-        }));
       }
     } catch (error) {
       console.error(error); // eslint-disable-line no-console
-
-      dispatch(common_Actions_jsm__WEBPACK_IMPORTED_MODULE_1__["actionCreators"].OnlyToMain({
-        type: common_Actions_jsm__WEBPACK_IMPORTED_MODULE_1__["actionTypes"].TELEMETRY_UNDESIRED_EVENT,
-        data: {
-          event: "FXA_METRICS_ERROR"
-        }
-      }));
     }
 
     return result;
@@ -2572,9 +2562,11 @@ class ASRouterUISurface extends react__WEBPACK_IMPORTED_MODULE_7___default.a.Pur
       message
     } = this.state;
     const eventType = `${message.provider}_user_event`;
+    const source = extraProps.id;
+    delete extraProps.id;
     _asrouter_utils__WEBPACK_IMPORTED_MODULE_2__["ASRouterUtils"].sendTelemetry({
+      source,
       message_id: message.id,
-      source: extraProps.id,
       action: eventType,
       ...extraProps
     });
@@ -4228,12 +4220,16 @@ const LinkMenu = Object(react_redux__WEBPACK_IMPORTED_MODULE_1__["connect"])(get
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* WEBPACK VAR INJECTION */(function(global) {/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "ContextMenu", function() { return ContextMenu; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "_ContextMenuItem", function() { return _ContextMenuItem; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "ContextMenuItem", function() { return ContextMenuItem; });
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(8);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var react_redux__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(7);
+/* harmony import */ var react_redux__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(react_redux__WEBPACK_IMPORTED_MODULE_1__);
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 
 class ContextMenu extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComponent {
   constructor(props) {
@@ -4295,7 +4291,7 @@ class ContextMenu extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureCompo
   }
 
 }
-class ContextMenuItem extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComponent {
+class _ContextMenuItem extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComponent {
   constructor(props) {
     super(props);
     this.onClick = this.onClick.bind(this);
@@ -4379,6 +4375,7 @@ class ContextMenuItem extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureC
     const {
       option
     } = this.props;
+    const isNewNewtabExperienceEnabled = this.props.Prefs.values["newNewtabExperience.enabled"];
     return react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("li", {
       role: "presentation",
       className: "context-menu-item"
@@ -4389,7 +4386,7 @@ class ContextMenuItem extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureC
       onKeyDown: this.onKeyDown,
       onKeyUp: this.onKeyUp,
       ref: option.first ? this.focusFirst : null
-    }, option.icon && react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("span", {
+    }, !isNewNewtabExperienceEnabled && option.icon && react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("span", {
       className: `icon icon-spacer icon-${option.icon}`
     }), react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("span", {
       "data-l10n-id": option.string_id || option.id
@@ -4397,6 +4394,9 @@ class ContextMenuItem extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureC
   }
 
 }
+const ContextMenuItem = Object(react_redux__WEBPACK_IMPORTED_MODULE_1__["connect"])(state => ({
+  Prefs: state.Prefs
+}))(_ContextMenuItem);
 /* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(3)))
 
 /***/ }),
@@ -5893,7 +5893,7 @@ class _CollapsibleSection extends react__WEBPACK_IMPORTED_MODULE_3___default.a.P
     }, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("span", {
       className: "click-target-container"
     }, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("span", {
-      className: `click-target ${isNewNewtabExperienceEnabled ? " new-header" : " click-pointer"}`,
+      className: "click-target",
       role: "button",
       tabIndex: "0",
       onKeyPress: this.onKeyPress,
@@ -8164,7 +8164,7 @@ class ComponentPerfTimer extends react__WEBPACK_IMPORTED_MODULE_2___default.a.Co
     }
   }
   /**
-   * Creates `TELEMETRY_UNDESIRED_EVENT` with timestamp in ms
+   * Creates `SAVE_SESSION_PERF_DATA` with timestamp in ms
    * of how much longer the data took to be ready for display than it would
    * have been the ideal case.
    * https://github.com/mozilla/ping-centre/issues/98
@@ -10383,8 +10383,7 @@ class _Search extends react__WEBPACK_IMPORTED_MODULE_3___default.a.PureComponent
       "data-l10n-id": isNewNewtabExperienceEnabled ? "newtab-search-box-input" : "newtab-search-box-search-the-web-input",
       maxLength: "256",
       ref: this.onInputMount,
-      type: "search",
-      className: `${isNewNewtabExperienceEnabled ? " search-bar-new" : ""}`
+      type: "search"
     }), react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("button", {
       id: "searchSubmit",
       className: "search-button",
@@ -10393,7 +10392,7 @@ class _Search extends react__WEBPACK_IMPORTED_MODULE_3___default.a.PureComponent
     })), this.props.handoffEnabled && react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("div", {
       className: "search-inner-wrapper"
     }, react__WEBPACK_IMPORTED_MODULE_3___default.a.createElement("button", {
-      className: `search-handoff-button ${isNewNewtabExperienceEnabled ? " search-handoff-button-new" : ""}`,
+      className: "search-handoff-button",
       "data-l10n-id": isNewNewtabExperienceEnabled ? "newtab-search-box-input" : "newtab-search-box-search-the-web-input",
       ref: this.onSearchHandoffButtonMount,
       onClick: this.onSearchHandoffClick,
@@ -14336,7 +14335,8 @@ class ContentSection_ContentSection extends external_React_default.a.PureCompone
       onChange: this.onPreferenceSelect,
       preference: "feeds.topsites",
       "aria-labelledby": "custom-shortcuts-title",
-      "aria-describedby": "custom-shortcuts-subtitle"
+      "aria-describedby": "custom-shortcuts-subtitle",
+      eventSource: "TOP_SITES"
     }), external_React_default.a.createElement("span", {
       className: "slider",
       role: "presentation"
@@ -14389,7 +14389,8 @@ class ContentSection_ContentSection extends external_React_default.a.PureCompone
       checked: showSponsoredTopSitesEnabled,
       type: "checkbox",
       onChange: this.onPreferenceSelect,
-      preference: "showSponsoredTopSites"
+      preference: "showSponsoredTopSites",
+      eventSource: "SPONSORED_TOP_SITES"
     }), external_React_default.a.createElement("label", {
       className: "sponsored",
       htmlFor: "sponsored-shortcuts",
@@ -14406,7 +14407,8 @@ class ContentSection_ContentSection extends external_React_default.a.PureCompone
       onChange: this.onPreferenceSelect,
       preference: "feeds.section.topstories",
       "aria-labelledby": "custom-pocket-title",
-      "aria-describedby": "custom-pocket-subtitle"
+      "aria-describedby": "custom-pocket-subtitle",
+      eventSource: "TOP_STORIES"
     }), external_React_default.a.createElement("span", {
       className: "slider",
       role: "presentation"
@@ -14479,7 +14481,8 @@ class ContentSection_ContentSection extends external_React_default.a.PureCompone
       onChange: this.onPreferenceSelect,
       preference: "feeds.snippets",
       "aria-labelledby": "custom-snippets-title",
-      "aria-describedby": "custom-snippets-subtitle"
+      "aria-describedby": "custom-snippets-subtitle",
+      eventSource: "SNIPPETS"
     }), external_React_default.a.createElement("span", {
       className: "slider",
       role: "presentation"

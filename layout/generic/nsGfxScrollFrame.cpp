@@ -77,7 +77,6 @@
 #include "ScrollAnimationMSDPhysics.h"
 #include "ScrollSnap.h"
 #include "UnitTransforms.h"
-#include "nsPluginFrame.h"
 #include "nsSliderFrame.h"
 #include "ViewportFrame.h"
 #include "mozilla/gfx/gfxVars.h"
@@ -115,16 +114,16 @@ using namespace mozilla::layers;
 using namespace mozilla::layout;
 using nsStyleTransformMatrix::TransformReferenceBox;
 
-static uint32_t GetOverflowChange(const nsRect& aCurScrolledRect,
-                                  const nsRect& aPrevScrolledRect) {
-  uint32_t result = 0;
+static ScrollDirections GetOverflowChange(const nsRect& aCurScrolledRect,
+                                          const nsRect& aPrevScrolledRect) {
+  ScrollDirections result;
   if (aPrevScrolledRect.x != aCurScrolledRect.x ||
       aPrevScrolledRect.width != aCurScrolledRect.width) {
-    result |= nsIScrollableFrame::HORIZONTAL;
+    result += ScrollDirection::eHorizontal;
   }
   if (aPrevScrolledRect.y != aCurScrolledRect.y ||
       aPrevScrolledRect.height != aCurScrolledRect.height) {
-    result |= nsIScrollableFrame::VERTICAL;
+    result += ScrollDirection::eVertical;
   }
   return result;
 }
@@ -772,10 +771,10 @@ void nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowInput* aState,
       LogicalPoint(wm), dummyContainerSize,
       ReflowChildFlags::NoMoveFrame | ReflowChildFlags::NoSizeView);
 
-  // XXX Some frames (e.g., nsPluginFrame, nsFrameFrame, nsTextFrame) don't
+  // XXX Some frames (e.g. nsFrameFrame, nsTextFrame) don't
   // bother setting their mOverflowArea. This is wrong because every frame
-  // should always set mOverflowArea. In fact nsPluginFrame and nsFrameFrame
-  // don't support the 'outline' property because of this. Rather than fix the
+  // should always set mOverflowArea. In fact nsFrameFrame doesn't
+  // support the 'outline' property because of this. Rather than fix the
   // world right now, just fix up the overflow area if necessary. Note that we
   // don't check HasOverflowRect() because it could be set even though the
   // overflow area doesn't include the frame bounds.
@@ -2335,20 +2334,6 @@ void ScrollFrameHelper::CompleteAsyncScroll(const nsRect& aRange,
   PostScrollEndEvent();
 }
 
-bool ScrollFrameHelper::HasPluginFrames() {
-#if defined(XP_WIN) || defined(MOZ_WIDGET_GTK)
-  if (XRE_IsContentProcess()) {
-    nsPresContext* presContext = mOuter->PresContext();
-    nsRootPresContext* rootPresContext = presContext->GetRootPresContext();
-    if (!rootPresContext ||
-        rootPresContext->NeedToComputePluginGeometryUpdates()) {
-      return true;
-    }
-  }
-#endif
-  return false;
-}
-
 bool ScrollFrameHelper::HasBgAttachmentLocal() const {
   const nsStyleBackground* bg = mOuter->StyleBackground();
   return bg->HasLocalBackground();
@@ -3041,12 +3026,12 @@ void ScrollFrameHelper::ScrollToImpl(nsPoint aPt, const nsRect& aRange,
     displayPort.MoveBy(-mScrolledFrame->GetPosition());
 
     PAINT_SKIP_LOG(
-        "New scrollpos %s usingDP %d dpEqual %d scrollableByApz %d plugins"
+        "New scrollpos %s usingDP %d dpEqual %d scrollableByApz "
         "%d perspective %d bglocal %d filter %d\n",
         ToString(CSSPoint::FromAppUnits(GetScrollPosition())).c_str(),
         usingDisplayPort, displayPort.IsEqualEdges(oldDisplayPort),
-        mScrollableByAPZ, HasPluginFrames(), HasPerspective(),
-        HasBgAttachmentLocal(), mHasOutOfFlowContentInsideFilter);
+        mScrollableByAPZ, HasPerspective(), HasBgAttachmentLocal(),
+        mHasOutOfFlowContentInsideFilter);
     if (usingDisplayPort && displayPort.IsEqualEdges(oldDisplayPort) &&
         !HasPerspective() && !HasBgAttachmentLocal() &&
         !mHasOutOfFlowContentInsideFilter) {
@@ -3054,7 +3039,7 @@ void ScrollFrameHelper::ScrollToImpl(nsPoint aPt, const nsRect& aRange,
           content->GetComposedDoc()->HasScrollLinkedEffect();
       bool apzDisabled = haveScrollLinkedEffects &&
                          StaticPrefs::apz_disable_for_scroll_linked_effects();
-      if (!apzDisabled && !HasPluginFrames()) {
+      if (!apzDisabled) {
         if (LastScrollOrigin() == ScrollOrigin::Apz) {
           schedulePaint = false;
           PAINT_SKIP_LOG("Skipping due to APZ scroll\n");
@@ -4117,30 +4102,16 @@ void ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
 nsDisplayWrapList* ScrollFrameHelper::MaybeCreateTopLayerItems(
     nsDisplayListBuilder* aBuilder, bool* aIsOpaque) {
-  if (mIsRoot) {
-    if (ViewportFrame* viewportFrame = do_QueryFrame(mOuter->GetParent())) {
-      nsDisplayList topLayerList;
-      viewportFrame->BuildDisplayListForTopLayer(aBuilder, &topLayerList,
-                                                 aIsOpaque);
-      if (!topLayerList.IsEmpty()) {
-        nsDisplayListBuilder::AutoBuildingDisplayList buildingDisplayList(
-            aBuilder, viewportFrame);
-
-        // Wrap the whole top layer in a single item with maximum z-index,
-        // and append it at the very end, so that it stays at the topmost.
-        nsDisplayWrapList* wrapList =
-            MakeDisplayItemWithIndex<nsDisplayWrapList>(
-                aBuilder, viewportFrame, 2, &topLayerList,
-                aBuilder->CurrentActiveScrolledRoot(), false);
-        if (wrapList) {
-          wrapList->SetOverrideZIndex(
-              std::numeric_limits<decltype(wrapList->ZIndex())>::max());
-          return wrapList;
-        }
-      }
-    }
+  if (!mIsRoot) {
+    return nullptr;
   }
-  return nullptr;
+
+  ViewportFrame* viewport = do_QueryFrame(mOuter->GetParent());
+  if (!viewport) {
+    return nullptr;
+  }
+
+  return viewport->BuildDisplayListForTopLayer(aBuilder, aIsOpaque);
 }
 
 nsRect ScrollFrameHelper::RestrictToRootDisplayPort(
@@ -6543,17 +6514,18 @@ bool ScrollFrameHelper::ComputeCustomOverflow(OverflowAreas& aOverflowAreas) {
   // changing or might require repositioning the scrolled content due to
   // reduced extents.
   nsRect scrolledRect = GetScrolledRect();
-  uint32_t overflowChange = GetOverflowChange(scrolledRect, mPrevScrolledRect);
+  ScrollDirections overflowChange =
+      GetOverflowChange(scrolledRect, mPrevScrolledRect);
   mPrevScrolledRect = scrolledRect;
 
   bool needReflow = false;
   nsPoint scrollPosition = GetScrollPosition();
-  if (overflowChange & nsIScrollableFrame::HORIZONTAL) {
+  if (overflowChange.contains(ScrollDirection::eHorizontal)) {
     if (ss.mHorizontal != StyleOverflow::Hidden || scrollPosition.x) {
       needReflow = true;
     }
   }
-  if (overflowChange & nsIScrollableFrame::VERTICAL) {
+  if (overflowChange.contains(ScrollDirection::eVertical)) {
     if (ss.mVertical != StyleOverflow::Hidden || scrollPosition.y) {
       needReflow = true;
     }
@@ -7301,16 +7273,16 @@ void ScrollFrameHelper::FireScrolledAreaEvent() {
   }
 }
 
-uint32_t nsIScrollableFrame::GetAvailableScrollingDirections() const {
+ScrollDirections nsIScrollableFrame::GetAvailableScrollingDirections() const {
   nscoord oneDevPixel =
       GetScrolledFrame()->PresContext()->AppUnitsPerDevPixel();
-  uint32_t directions = 0;
+  ScrollDirections directions;
   nsRect scrollRange = GetScrollRange();
   if (scrollRange.width >= oneDevPixel) {
-    directions |= HORIZONTAL;
+    directions += ScrollDirection::eHorizontal;
   }
   if (scrollRange.height >= oneDevPixel) {
-    directions |= VERTICAL;
+    directions += ScrollDirection::eVertical;
   }
   return directions;
 }
@@ -7347,8 +7319,8 @@ nsRect ScrollFrameHelper::GetScrollRangeForUserInputEvents() const {
   return scrollRange;
 }
 
-uint32_t ScrollFrameHelper::GetAvailableScrollingDirectionsForUserInputEvents()
-    const {
+ScrollDirections
+ScrollFrameHelper::GetAvailableScrollingDirectionsForUserInputEvents() const {
   nsRect scrollRange = GetScrollRangeForUserInputEvents();
 
   // We check if there is at least one half of a screen pixel of scroll range to
@@ -7360,12 +7332,12 @@ uint32_t ScrollFrameHelper::GetAvailableScrollingDirectionsForUserInputEvents()
   float halfScreenPixel =
       GetScrolledFrame()->PresContext()->AppUnitsPerDevPixel() /
       (mOuter->PresShell()->GetCumulativeResolution() * 2.f);
-  uint32_t directions = 0;
+  ScrollDirections directions;
   if (scrollRange.width >= halfScreenPixel) {
-    directions |= nsIScrollableFrame::HORIZONTAL;
+    directions += ScrollDirection::eHorizontal;
   }
   if (scrollRange.height >= halfScreenPixel) {
-    directions |= nsIScrollableFrame::VERTICAL;
+    directions += ScrollDirection::eVertical;
   }
   return directions;
 }

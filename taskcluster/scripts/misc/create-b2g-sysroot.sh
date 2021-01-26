@@ -88,6 +88,7 @@ out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/android.hardware.
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/android.system.wifi.keystore@1.0.so
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/binder_b2g_connectivity_interface-cpp.so
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/binder_b2g_telephony_interface-cpp.so
+out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/binder_b2g_remotesimunlock_interface-cpp.so
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/dnsresolver_aidl_interface-V2-cpp.so
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/libaudioclient.so
 out/target/product/${GONK_PRODUCT_NAME}/system/lib${BINSUFFIX}/libbase.so
@@ -172,6 +173,7 @@ out/soong/.intermediates/frameworks/av/media/libaudioclient/libaudioclient/andro
 out/soong/.intermediates/frameworks/av/media/libmedia/libmedia_omx/android_${ARCH_FOLDER}_core_shared/gen/aidl
 out/soong/.intermediates/gonk-misc/gonk-binder/binder_b2g_connectivity_interface-cpp-source/gen/include
 out/soong/.intermediates/gonk-misc/gonk-binder/binder_b2g_telephony_interface-cpp-source/gen/include
+out/soong/.intermediates/gonk-misc/gonk-binder/binder_b2g_remotesimunlock_interface-cpp-source/gen/include
 out/soong/.intermediates/system/connectivity/wificond/libwificond_ipc/android_${ARCH_FOLDER}_core_static/gen/aidl
 out/soong/.intermediates/system/netd/resolv/dnsresolver_aidl_interface-V2-cpp-source/gen/include
 out/soong/.intermediates/system/netd/server/netd_aidl_interface-V2-cpp-source/gen/include

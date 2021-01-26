@@ -193,82 +193,6 @@ function TypedArraySpeciesCreateWithBuffer(exemplar, buffer, byteOffset, length)
     return TypedArrayCreateWithBuffer(C, buffer, byteOffset, length);
 }
 
-// ES2020 draft rev dc1e21c454bd316810be1c0e7af0131a2d7f38e9
-// 22.2.3.5 %TypedArray%.prototype.copyWithin ( target, start [ , end ] )
-function TypedArrayCopyWithin(target, start, end = undefined) {
-    // Step 2.
-    if (!IsObject(this) || !IsTypedArray(this)) {
-        return callFunction(CallTypedArrayMethodIfWrapped, this, target, start, end,
-                            "TypedArrayCopyWithin");
-    }
-
-    GetAttachedArrayBuffer(this);
-
-    // Step 1.
-    var obj = this;
-
-    // Step 3.
-    var len = TypedArrayLength(obj);
-
-    assert(0 <= len && len <= 0x7FFFFFFF,
-           "assumed by some of the math below, see also the other assertions");
-
-    // Step 4.
-    var relativeTarget = ToInteger(target);
-
-    // Step 5.
-    var to = relativeTarget < 0 ? std_Math_max(len + relativeTarget, 0)
-                                : std_Math_min(relativeTarget, len);
-
-    // Step 6.
-    var relativeStart = ToInteger(start);
-
-    // Step 7.
-    var from = relativeStart < 0 ? std_Math_max(len + relativeStart, 0)
-                                 : std_Math_min(relativeStart, len);
-
-    // Step 8.
-    var relativeEnd = end === undefined ? len : ToInteger(end);
-
-    // Step 9.
-    var final = relativeEnd < 0 ? std_Math_max(len + relativeEnd, 0)
-                                : std_Math_min(relativeEnd, len);
-
-    // Step 10.
-    var count = std_Math_min(final - from, len - to);
-
-    assert(0 <= to && to <= 0x7FFFFFFF,
-           "typed array |to| index assumed int32_t");
-    assert(0 <= from && from <= 0x7FFFFFFF,
-           "typed array |from| index assumed int32_t");
-
-    // Negative counts are possible for cases like tarray.copyWithin(0, 3, 0)
-    // where |count === final - from|.  As |to| is within the [0, len] range,
-    // only |final - from| may underflow; with |final| in the range [0, len]
-    // and |from| in the range [0, len] the overall subtraction range is
-    // [-len, len] for |count| -- and with |len| bounded by implementation
-    // limits to 2**31 - 1, there can be no exceeding int32_t.
-    assert(-0x7FFFFFFF - 1 <= count && count <= 0x7FFFFFFF,
-           "typed array element count assumed int32_t");
-
-    // Step 11.
-    //
-    // Note that getting or setting a typed array element must throw if the
-    // underlying buffer is detached, so the intrinsic below checks for
-    // detachment.  This happens *only* if a get/set occurs, i.e. when
-    // |count > 0|.
-    //
-    // Also note that this copies elements effectively by memmove, *not* in
-    // step 11's specified order.  This is unobservable, even when the
-    // underlying buffer is a SharedArrayBuffer instance, because the access is
-    // unordered and therefore is allowed to have data races.
-    if (count > 0)
-        MoveTypedArrayElements(obj, to | 0, from | 0, count | 0);
-
-    // Step 12.
-    return obj;
-}
-
 // ES6 draft rev30 (2014/12/24) 22.2.3.6 %TypedArray%.prototype.entries()
 function TypedArrayEntries() {
     // Step 1.
@@ -996,7 +920,7 @@ function TypedArraySlice(start, end) {
             ThrowTypeError(JSMSG_TYPED_ARRAY_DETACHED);
 
         // Steps 10-13, 15.
-        var sliced = TypedArrayBitwiseSlice(O, A, k | 0, count | 0);
+        var sliced = TypedArrayBitwiseSlice(O, A, k, count);
 
         // Step 14.
         if (!sliced) {
@@ -1767,7 +1691,7 @@ function ArrayBufferSlice(start, end) {
         ThrowTypeError(JSMSG_TYPED_ARRAY_DETACHED);
 
     // Steps 20-22.
-    ArrayBufferCopyData(newBuffer, 0, O, first | 0, newLen | 0, isWrapped);
+    ArrayBufferCopyData(newBuffer, 0, O, first, newLen, isWrapped);
 
     // Step 23.
     return newBuffer;
@@ -1850,7 +1774,7 @@ function SharedArrayBufferSlice(start, end) {
         ThrowTypeError(JSMSG_SHORT_SHARED_ARRAY_BUFFER_RETURNED, newLen, actualLen);
 
     // Steps 16-18.
-    SharedArrayBufferCopyData(newObj, 0, O, first | 0, newLen | 0, isWrapped);
+    SharedArrayBufferCopyData(newObj, 0, O, first, newLen, isWrapped);
 
     // Step 19.
     return newObj;

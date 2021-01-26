@@ -9,6 +9,7 @@
 #include "CacheFileUtils.h"
 #include "CacheIndex.h"
 
+#include "nsIAsyncOutputStream.h"
 #include "nsIInputStream.h"
 #include "nsIOutputStream.h"
 #include "nsISeekableStream.h"
@@ -1100,9 +1101,12 @@ nsresult CacheEntry::GetIsForcedValid(bool* aIsForcedValid) {
 
   MOZ_ASSERT(mState > LOADING);
 
-  if (mPinned) {
-    *aIsForcedValid = true;
-    return NS_OK;
+  {
+    mozilla::MutexAutoLock lock(mLock);
+    if (mPinned) {
+      *aIsForcedValid = true;
+      return NS_OK;
+    }
   }
 
   nsAutoCString key;

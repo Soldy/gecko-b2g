@@ -82,7 +82,6 @@
 #include "nsIContentViewer.h"
 #include "nsFrameManager.h"
 #include "nsIBrowserChild.h"
-#include "nsPluginFrame.h"
 #include "nsMenuPopupFrame.h"
 
 #include "nsIObserverService.h"
@@ -613,8 +612,6 @@ nsresult EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     }
   }
 
-  PointerEventHandler::UpdateActivePointerState(mouseEvent, aTargetContent);
-
   switch (aEvent->mMessage) {
     case eContextMenu:
       if (sIsPointerLocked) {
@@ -666,6 +663,7 @@ nsresult EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
       break;
     }
     case eMouseEnterIntoWidget:
+      PointerEventHandler::UpdateActivePointerState(mouseEvent, aTargetContent);
       // In some cases on e10s eMouseEnterIntoWidget
       // event was sent twice into child process of content.
       // (From specific widget code (sending is not permanent) and
@@ -721,6 +719,8 @@ nsresult EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     case eMouseMove:
     case ePointerDown:
       if (aEvent->mMessage == ePointerDown) {
+        PointerEventHandler::UpdateActivePointerState(mouseEvent,
+                                                      aTargetContent);
         PointerEventHandler::ImplicitlyCapturePointer(aTargetFrame, aEvent);
         if (mouseEvent->mInputSource != MouseEvent_Binding::MOZ_SOURCE_TOUCH) {
           NotifyTargetUserActivation(aEvent, aTargetContent);
@@ -1909,8 +1909,7 @@ void EventStateManager::MaybeFirePointerCancel(WidgetInputEvent* aEvent) {
   RefPtr<PresShell> presShell = mPresContext->GetPresShell();
   AutoWeakFrame targetFrame = mCurrentTarget;
 
-  if (!StaticPrefs::dom_w3c_pointer_events_enabled() || !presShell ||
-      !targetFrame) {
+  if (!presShell || !targetFrame) {
     return;
   }
 
@@ -2675,13 +2674,6 @@ nsIFrame* EventStateManager::ComputeScrollTargetAndMayAdjustWheelEvent(
     // hasn't moved.
     nsIFrame* lastScrollFrame = WheelTransaction::GetTargetFrame();
     if (lastScrollFrame) {
-      if (aOptions & INCLUDE_PLUGIN_AS_TARGET) {
-        nsPluginFrame* pluginFrame = do_QueryFrame(lastScrollFrame);
-        if (pluginFrame &&
-            pluginFrame->WantsToHandleWheelEventAsDefaultAction()) {
-          return lastScrollFrame;
-        }
-      }
       nsIScrollableFrame* scrollableFrame =
           lastScrollFrame->GetScrollTargetFrame();
       if (scrollableFrame) {
@@ -2733,18 +2725,6 @@ nsIFrame* EventStateManager::ComputeScrollTargetAndMayAdjustWheelEvent(
     // Check whether the frame wants to provide us with a scrollable view.
     nsIScrollableFrame* scrollableFrame = scrollFrame->GetScrollTargetFrame();
     if (!scrollableFrame) {
-      // If the frame is a plugin frame, then, the plugin content may handle
-      // wheel events.  Only when the caller computes the scroll target for
-      // default action handling, we should assume the plugin frame as
-      // scrollable if the plugin wants to handle wheel events as default
-      // action.
-      if (aOptions & INCLUDE_PLUGIN_AS_TARGET) {
-        nsPluginFrame* pluginFrame = do_QueryFrame(scrollFrame);
-        if (pluginFrame &&
-            pluginFrame->WantsToHandleWheelEventAsDefaultAction()) {
-          return scrollFrame;
-        }
-      }
       nsMenuPopupFrame* menuPopupFrame = do_QueryFrame(scrollFrame);
       if (menuPopupFrame) {
         return nullptr;
@@ -2779,14 +2759,14 @@ nsIFrame* EventStateManager::ComputeScrollTargetAndMayAdjustWheelEvent(
       }
     }
 
-    uint32_t directions =
+    layers::ScrollDirections directions =
         scrollableFrame->GetAvailableScrollingDirectionsForUserInputEvents();
-    if ((!(directions & nsIScrollableFrame::VERTICAL) &&
-         !(directions & nsIScrollableFrame::HORIZONTAL)) ||
+    if ((!(directions.contains(layers::ScrollDirection::eVertical)) &&
+         !(directions.contains(layers::ScrollDirection::eHorizontal))) ||
         (checkIfScrollableY && !checkIfScrollableX &&
-         !(directions & nsIScrollableFrame::VERTICAL)) ||
+         !(directions.contains(layers::ScrollDirection::eVertical))) ||
         (checkIfScrollableX && !checkIfScrollableY &&
-         !(directions & nsIScrollableFrame::HORIZONTAL))) {
+         !(directions.contains(layers::ScrollDirection::eHorizontal)))) {
       continue;
     }
 
@@ -3102,17 +3082,18 @@ void EventStateManager::DecideGestureEvent(WidgetGestureNotifyEvent* aEvent,
           displayPanFeedback = false;
         }
       } else {  // Not a XUL box
-        uint32_t scrollbarVisibility =
+        layers::ScrollDirections scrollbarVisibility =
             scrollableFrame->GetScrollbarVisibility();
 
         // Check if we have visible scrollbars
-        if (scrollbarVisibility & nsIScrollableFrame::VERTICAL) {
+        if (scrollbarVisibility.contains(layers::ScrollDirection::eVertical)) {
           panDirection = WidgetGestureNotifyEvent::ePanVertical;
           displayPanFeedback = true;
           break;
         }
 
-        if (scrollbarVisibility & nsIScrollableFrame::HORIZONTAL) {
+        if (scrollbarVisibility.contains(
+                layers::ScrollDirection::eHorizontal)) {
           panDirection = WidgetGestureNotifyEvent::ePanHorizontal;
           displayPanFeedback = true;
         }
@@ -3277,7 +3258,8 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
   // Add special cases here.
   if (!mCurrentTarget && aEvent->mMessage != eMouseUp &&
       aEvent->mMessage != eMouseDown && aEvent->mMessage != eDragEnter &&
-      aEvent->mMessage != eDragOver) {
+      aEvent->mMessage != eDragOver && aEvent->mMessage != ePointerUp &&
+      aEvent->mMessage != ePointerCancel) {
     return NS_OK;
   }
 
@@ -3465,6 +3447,7 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
       // Implicitly releasing capture for given pointer. ePointerLostCapture
       // should be send after ePointerUp or ePointerCancel.
       PointerEventHandler::ImplicitlyReleasePointerCapture(pointerEvent);
+      PointerEventHandler::UpdateActivePointerState(pointerEvent);
 
       if (pointerEvent->mMessage == ePointerCancel ||
           pointerEvent->mInputSource == MouseEvent_Binding::MOZ_SOURCE_TOUCH) {
@@ -3550,19 +3533,9 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
       // values is adjusted during its lifetime, the instance will restore the
       // adjusted delta when it's being destrcuted.
       ESMAutoDirWheelDeltaRestorer restorer(*wheelEvent);
-      // Check if the frame to scroll before checking the default action
-      // because if the scroll target is a plugin, the default action should be
-      // chosen by the plugin rather than by our prefs.
       nsIFrame* frameToScroll = ComputeScrollTargetAndMayAdjustWheelEvent(
           mCurrentTarget, wheelEvent,
           COMPUTE_DEFAULT_ACTION_TARGET_WITH_AUTO_DIR);
-      nsPluginFrame* pluginFrame = do_QueryFrame(frameToScroll);
-      if (pluginFrame) {
-        MOZ_ASSERT(pluginFrame->WantsToHandleWheelEventAsDefaultAction());
-        // Plugins should receive original values instead of adjusted values.
-        horizontalizer.CancelHorizontalization();
-        action = WheelPrefs::ACTION_SEND_TO_PLUGIN;
-      }
 
       switch (action) {
         case WheelPrefs::ACTION_SCROLL:
@@ -3624,23 +3597,6 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           DoScrollZoom(mCurrentTarget, intDelta);
           break;
         }
-        case WheelPrefs::ACTION_SEND_TO_PLUGIN:
-          MOZ_ASSERT(pluginFrame);
-
-          if (wheelEvent->mMessage != eWheel ||
-              (!wheelEvent->mDeltaX && !wheelEvent->mDeltaY)) {
-            break;
-          }
-
-          MOZ_ASSERT(static_cast<void*>(frameToScroll) ==
-                     static_cast<void*>(pluginFrame));
-          if (!WheelTransaction::WillHandleDefaultAction(wheelEvent,
-                                                         frameToScroll)) {
-            break;
-          }
-
-          pluginFrame->HandleWheelEventAsDefaultAction(wheelEvent);
-          break;
         case WheelPrefs::ACTION_NONE:
         default:
           bool allDeltaOverflown = false;
@@ -3866,6 +3822,10 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
       }
       break;
 
+    case eMouseExitFromWidget:
+      PointerEventHandler::UpdateActivePointerState(aEvent->AsMouseEvent());
+      break;
+
 #ifdef XP_MACOSX
     case eMouseActivate:
       if (mCurrentTarget) {
@@ -3912,6 +3872,7 @@ void EventStateManager::NotifyDestroyPresContext(nsPresContext* aPresContext) {
     SetContentState(nullptr, NS_EVENT_STATE_HOVER);
   }
   mPointersEnterLeaveHelper.Clear();
+  PointerEventHandler::NotifyDestroyPresContext(aPresContext);
 }
 
 void EventStateManager::SetPresContext(nsPresContext* aPresContext) {
@@ -4558,8 +4519,7 @@ void EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
   // content associated with our subdocument.
   EnsureDocument(mPresContext);
   if (Document* parentDoc = mDocument->GetInProcessParentDocument()) {
-    if (nsCOMPtr<nsIContent> docContent =
-            parentDoc->FindContentForSubDocument(mDocument)) {
+    if (nsCOMPtr<nsIContent> docContent = mDocument->GetEmbedderElement()) {
       if (PresShell* parentPresShell = parentDoc->GetPresShell()) {
         RefPtr<EventStateManager> parentESM =
             parentPresShell->GetPresContext()->EventStateManager();
@@ -4621,9 +4581,6 @@ static LayoutDeviceIntPoint GetWindowClientRectCenter(nsIWidget* aWidget) {
 
 void EventStateManager::GeneratePointerEnterExit(EventMessage aMessage,
                                                  WidgetMouseEvent* aEvent) {
-  if (!StaticPrefs::dom_w3c_pointer_events_enabled()) {
-    return;
-  }
   WidgetPointerEvent pointerEvent(*aEvent);
   pointerEvent.mMessage = aMessage;
   GenerateMouseEnterExit(&pointerEvent);
@@ -5715,10 +5672,8 @@ void EventStateManager::ContentRemoved(Document* aDocument,
   if (aContent->IsAnyOfHTMLElements(nsGkAtoms::a, nsGkAtoms::area) &&
       (aContent->AsElement()->State().HasAtLeastOneOfStates(
           NS_EVENT_STATE_FOCUS | NS_EVENT_STATE_HOVER))) {
-    nsGenericHTMLElement* element =
-        static_cast<nsGenericHTMLElement*>(aContent);
-    element->LeaveLink(
-        element->GetPresContext(nsGenericHTMLElement::eForComposedDoc));
+    Element* element = aContent->AsElement();
+    element->LeaveLink(element->GetPresContext(Element::eForComposedDoc));
   }
 
   IMEStateManager::OnRemoveContent(mPresContext, aContent);

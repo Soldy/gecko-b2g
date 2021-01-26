@@ -321,6 +321,10 @@ using namespace mozilla::system;
 #  include "mozilla/dom/FMRadioParent.h"
 #endif
 
+#ifdef ENABLE_RSU
+#   include "mozilla/dom/RSUParent.h"
+#endif
+
 #include "mozilla/RemoteSpellCheckEngineParent.h"
 
 #include "Crypto.h"
@@ -1379,6 +1383,27 @@ mozilla::ipc::IPCResult ContentParent::RecvUngrabPointer(
 #endif
 }
 
+static void LogFailedPrincipalValidationInfo(nsIPrincipal* aPrincipal,
+                                             const char* aMethod) {
+  // no need to do the dance if logging is disabled
+  if (MOZ_LOG_TEST(ContentParent::GetLog(), LogLevel::Error)) {
+    nsAutoCString spec;
+    if (!aPrincipal) {
+      spec.AssignLiteral("NullPtr");
+    } else if (aPrincipal->IsSystemPrincipal()) {
+      spec.AssignLiteral("SystemPrincipal");
+    } else if (aPrincipal->GetIsExpandedPrincipal()) {
+      spec.AssignLiteral("ExpandedPrincipal");
+    } else if (aPrincipal->GetIsContentPrincipal()) {
+      aPrincipal->GetSpec(spec);
+    }
+
+    MOZ_LOG(ContentParent::GetLog(), LogLevel::Error,
+            ("  Receiving unexpected Principal (%s) within %s", spec.get(),
+             aMethod));
+  }
+}
+
 bool ContentParent::ValidatePrincipal(
     nsIPrincipal* aPrincipal,
     const EnumSet<ValidatePrincipalOptions>& aOptions) {
@@ -1479,7 +1504,7 @@ mozilla::ipc::IPCResult ContentParent::RecvRemovePermission(
     const IPC::Principal& aPrincipal, const nsCString& aPermissionType,
     nsresult* aRv) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   *aRv = Permissions::RemovePermission(aPrincipal, aPermissionType);
   return IPC_OK();
@@ -3383,7 +3408,7 @@ mozilla::ipc::IPCResult ContentParent::RecvSetClipboard(
     const int32_t& aWhichClipboard) {
   if (!ValidatePrincipal(aRequestingPrincipal,
                          {ValidatePrincipalOptions::AllowNullPtr})) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aRequestingPrincipal, __func__);
   }
 
   nsresult rv;
@@ -4768,6 +4793,22 @@ bool ContentParent::DeallocPFMRadioParent(PFMRadioParent* aActor) {
 }
 #endif
 
+#ifdef ENABLE_RSU
+PRSUParent*
+ContentParent::AllocPRSUParent()
+{
+  RefPtr<RSUParent> actor = new RSUParent();
+  return actor.forget().take();
+}
+
+bool
+ContentParent::DeallocPRSUParent(PRSUParent* aActor)
+{
+  RefPtr<RSUParent> actor = dont_AddRef(static_cast<RSUParent*>(aActor));
+  return true;
+}
+#endif
+
 PBenchmarkStorageParent* ContentParent::AllocPBenchmarkStorageParent() {
   return new BenchmarkStorageParent;
 }
@@ -4962,7 +5003,7 @@ mozilla::ipc::IPCResult ContentParent::RecvCloseAlert(const nsString& aName) {
 mozilla::ipc::IPCResult ContentParent::RecvDisableNotifications(
     const IPC::Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   Unused << Notification::RemovePermission(aPrincipal);
   return IPC_OK();
@@ -4971,7 +5012,7 @@ mozilla::ipc::IPCResult ContentParent::RecvDisableNotifications(
 mozilla::ipc::IPCResult ContentParent::RecvOpenNotificationSettings(
     const IPC::Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   Unused << Notification::OpenSettings(aPrincipal);
   return IPC_OK();
@@ -5073,8 +5114,9 @@ mozilla::ipc::IPCResult ContentParent::RecvAddGeolocationListener(
     const bool& aHighAccuracy) {
   // To ensure no geolocation updates are skipped, we always force the
   // creation of a new listener.
+  int32_t watchId = AddGeolocationListener(this, this, aHighAccuracy);
   RecvRemoveGeolocationListener();
-  mGeolocationWatchID = AddGeolocationListener(this, this, aHighAccuracy);
+  mGeolocationWatchID = watchId;
   return IPC_OK();
 }
 
@@ -5092,8 +5134,9 @@ mozilla::ipc::IPCResult ContentParent::RecvSetGeolocationHigherAccuracy(
   // This should never be called without a listener already present,
   // so this check allows us to forgo securing privileges.
   if (mGeolocationWatchID != -1) {
+    int32_t watchId = AddGeolocationListener(this, this, aEnable);
     RecvRemoveGeolocationListener();
-    mGeolocationWatchID = AddGeolocationListener(this, this, aEnable);
+    mGeolocationWatchID = watchId;
   }
   return IPC_OK();
 }
@@ -5592,7 +5635,7 @@ bool ContentParent::DeallocPWebrtcGlobalParent(PWebrtcGlobalParent* aActor) {
 mozilla::ipc::IPCResult ContentParent::RecvSetOfflinePermission(
     const Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   nsCOMPtr<nsIOfflineCacheUpdateService> updateService =
       components::OfflineCacheUpdate::Service();
@@ -5930,7 +5973,7 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindow(
     CreateWindowResolver&& aResolve) {
   if (!ValidatePrincipal(aTriggeringPrincipal,
                          {ValidatePrincipalOptions::AllowSystem})) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aTriggeringPrincipal, __func__);
   }
 
   nsresult rv = NS_OK;
@@ -5962,8 +6005,9 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindow(
     }
   });
 
-  // Don't continue to try to create a new window if we've been discarded.
-  if (aParent.IsDiscarded()) {
+  // Don't continue to try to create a new window if we've been fully discarded.
+  RefPtr<BrowsingContext> parent = aParent.GetMaybeDiscarded();
+  if (NS_WARN_IF(!parent)) {
     rv = NS_ERROR_FAILURE;
     return IPC_OK();
   }
@@ -5974,8 +6018,8 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindow(
     return IPC_FAIL(this, "Missing BrowsingContext for new tab");
   }
 
-  RefPtr<BrowsingContext> newBCOpener = newBC->GetOpener();
-  if (newBCOpener && aParent.get() != newBCOpener) {
+  uint64_t newBCOpenerId = newBC->GetOpenerId();
+  if (newBCOpenerId != 0 && parent->Id() != newBCOpenerId) {
     return IPC_FAIL(this, "Invalid opener BrowsingContext for new tab");
   }
   if (newBC->GetParent() != nullptr) {
@@ -6006,7 +6050,7 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindow(
   nsCOMPtr<nsIRemoteTab> newRemoteTab;
   int32_t openLocation = nsIBrowserDOMWindow::OPEN_NEWWINDOW;
   mozilla::ipc::IPCResult ipcResult = CommonCreateWindow(
-      aThisTab, aParent.get(), !!newBCOpener, aChromeFlags, aCalledFromJS,
+      aThisTab, parent, newBCOpenerId != 0, aChromeFlags, aCalledFromJS,
       aWidthSpecified, aForPrinting, aForPrintPreview, aURIToLoad, aFeatures,
       aFullZoom, newTab, VoidString(), rv, newRemoteTab, &cwi.windowOpened(),
       openLocation, aTriggeringPrincipal, aReferrerInfo, /* aLoadUri = */ false,
@@ -6048,8 +6092,9 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindowInDifferentProcess(
     nsIReferrerInfo* aReferrerInfo, const OriginAttributes& aOriginAttributes) {
   MOZ_DIAGNOSTIC_ASSERT(!nsContentUtils::IsSpecialName(aName));
 
-  // Don't continue to try to create a new window if we've been discarded.
-  if (NS_WARN_IF(aParent.IsDiscarded())) {
+  // Don't continue to try to create a new window if we've been fully discarded.
+  RefPtr<BrowsingContext> parent = aParent.GetMaybeDiscarded();
+  if (NS_WARN_IF(!parent)) {
     return IPC_OK();
   }
 
@@ -6084,8 +6129,8 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateWindowInDifferentProcess(
 
   nsresult rv;
   mozilla::ipc::IPCResult ipcResult = CommonCreateWindow(
-      aThisTab, aParent.get(), /* aSetOpener = */ false, aChromeFlags,
-      aCalledFromJS, aWidthSpecified, /* aForPrinting = */ false,
+      aThisTab, parent, /* aSetOpener = */ false, aChromeFlags, aCalledFromJS,
+      aWidthSpecified, /* aForPrinting = */ false,
       /* aForPrintPreview = */ false, aURIToLoad, aFeatures, aFullZoom,
       /* aNextRemoteBrowser = */ nullptr, aName, rv, newRemoteTab, &windowIsNew,
       openLocation, aTriggeringPrincipal, aReferrerInfo,
@@ -6265,7 +6310,7 @@ mozilla::ipc::IPCResult ContentParent::RecvNotifyPushObservers(
     const nsCString& aScope, const IPC::Principal& aPrincipal,
     const nsString& aMessageId) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId, Nothing());
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
@@ -6276,7 +6321,7 @@ mozilla::ipc::IPCResult ContentParent::RecvNotifyPushObserversWithData(
     const nsCString& aScope, const IPC::Principal& aPrincipal,
     const nsString& aMessageId, nsTArray<uint8_t>&& aData) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId,
                                    Some(std::move(aData)));
@@ -6288,7 +6333,7 @@ mozilla::ipc::IPCResult
 ContentParent::RecvNotifyPushSubscriptionChangeObservers(
     const nsCString& aScope, const IPC::Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   PushSubscriptionChangeDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
@@ -6299,7 +6344,7 @@ mozilla::ipc::IPCResult ContentParent::RecvPushError(
     const nsCString& aScope, const IPC::Principal& aPrincipal,
     const nsString& aMessage, const uint32_t& aFlags) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   PushErrorDispatcher dispatcher(aScope, aPrincipal, aMessage, aFlags);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
@@ -6310,7 +6355,7 @@ mozilla::ipc::IPCResult
 ContentParent::RecvNotifyPushSubscriptionModifiedObservers(
     const nsCString& aScope, const IPC::Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
@@ -6383,7 +6428,7 @@ mozilla::ipc::IPCResult ContentParent::RecvStoreAndBroadcastBlobURLRegistration(
     const nsCString& aURI, const IPCBlob& aBlob, const Principal& aPrincipal,
     const Maybe<nsID>& aAgentClusterId) {
   if (!ValidatePrincipal(aPrincipal, {ValidatePrincipalOptions::AllowSystem})) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   RefPtr<BlobImpl> blobImpl = IPCBlobUtils::Deserialize(aBlob);
   if (NS_WARN_IF(!blobImpl)) {
@@ -6406,7 +6451,7 @@ mozilla::ipc::IPCResult
 ContentParent::RecvUnstoreAndBroadcastBlobURLUnregistration(
     const nsCString& aURI, const Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal, {ValidatePrincipalOptions::AllowSystem})) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   BlobURLProtocolHandler::RemoveDataEntry(aURI, false /* Don't broadcast */);
   BroadcastBlobURLUnregistration(aURI, aPrincipal, this);
@@ -6752,10 +6797,6 @@ PURLClassifierParent* ContentParent::AllocPURLClassifierParent(
 
 mozilla::ipc::IPCResult ContentParent::RecvPURLClassifierConstructor(
     PURLClassifierParent* aActor, const Principal& aPrincipal, bool* aSuccess) {
-  if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
-  }
-
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aActor);
   *aSuccess = false;
@@ -6767,7 +6808,7 @@ mozilla::ipc::IPCResult ContentParent::RecvPURLClassifierConstructor(
     return IPC_OK();
   }
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   return actor->StartClassify(principal, aSuccess);
 }
@@ -6936,7 +6977,7 @@ ContentParent::RecvAutomaticStorageAccessPermissionCanBeGranted(
     const Principal& aPrincipal,
     AutomaticStorageAccessPermissionCanBeGrantedResolver&& aResolver) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   aResolver(Document::AutomaticStorageAccessPermissionCanBeGranted(aPrincipal));
   return IPC_OK();
@@ -7010,7 +7051,7 @@ mozilla::ipc::IPCResult ContentParent::RecvCompleteAllowAccessFor(
 mozilla::ipc::IPCResult ContentParent::RecvStoreUserInteractionAsPermission(
     const Principal& aPrincipal) {
   if (!ValidatePrincipal(aPrincipal)) {
-    return IPC_FAIL(this, "receiving unexpected principal");
+    LogFailedPrincipalValidationInfo(aPrincipal, __func__);
   }
   ContentBlockingUserInteraction::Observe(aPrincipal);
   return IPC_OK();
@@ -7307,7 +7348,8 @@ mozilla::ipc::IPCResult ContentParent::RecvWindowClose(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvWindowFocus(
-    const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType) {
+    const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
+    uint64_t aActionId) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(
         BrowsingContext::GetLog(), LogLevel::Debug,
@@ -7319,7 +7361,7 @@ mozilla::ipc::IPCResult ContentParent::RecvWindowFocus(
   ContentProcessManager* cpm = ContentProcessManager::GetSingleton();
   ContentParent* cp =
       cpm->GetContentProcessById(ContentParentId(context->OwnerProcessId()));
-  Unused << cp->SendWindowFocus(context, aCallerType);
+  Unused << cp->SendWindowFocus(context, aCallerType, aActionId);
   return IPC_OK();
 }
 

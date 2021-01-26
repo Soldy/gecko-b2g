@@ -99,7 +99,7 @@ const kSettingsToObserve = {
     prefName: "dom.sms.maxReadAheadEntries",
     defaultValue: 7,
   },
-  "ui.prefers.color-theme": {
+  "ui.prefers.color-scheme": {
     prefName: "ui.systemUsesDarkTheme",
     defaultValue: 0,
     valueMap: { dark: 1 },

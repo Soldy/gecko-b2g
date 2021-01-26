@@ -2073,6 +2073,16 @@ void BluetoothServiceBluedroid::BondStateChangedNotification(
       DistributeSignal(
           BluetoothSignal(PAIRING_ABORTED_ID, KEY_ADAPTER, deviceAddressStr));
 
+      // Query pairing device name from hash table
+      BluetoothRemoteName remotebdName;
+      mDeviceNameMap.Get(aRemoteBdAddr, &remotebdName);
+      // Since mName is not 0-terminated, mLength is required here.
+      NS_ConvertASCIItoUTF16 bdName(reinterpret_cast<char*>(remotebdName.mName),
+                                    remotebdName.mLength);
+
+      BT_ENSURE_TRUE_VOID_BROADCAST_SYSMSG(SYS_MSG_BT_PAIRING_ABORTED,
+                                           BluetoothValue(bdName));
+
       // Reject pair promise
       if (!mCreateBondRunnables.IsEmpty()) {
         DispatchReplyError(mCreateBondRunnables[0], aStatus);

@@ -290,6 +290,72 @@ void IMEConnect::GetNextWordCandidates(const nsAString& aWord,
   aRetval = nsString(str.c_str(), str.length());
 }
 
+bool IMEConnect::KoreanCharToVowel(char16_t c1, char16_t c2, char16_t* v1,
+                                   char16_t* v2) {
+  // transform  characters into korean vowels
+  unsigned int length = sizeof(sKoreanVowels) / sizeof(sKoreanVowels[0]);
+  for (unsigned int i = 0; i < length; i++) {
+    CharToVowel vowel = sKoreanVowels[i];
+    if (c1 == vowel.c1 && c2 == vowel.c2) {
+      *v1 = vowel.v1;
+      *v2 = vowel.v2;
+      return true;
+    }
+  }
+  return false;
+}
+
+void IMEConnect::GetComposingWords(const nsAString& aLetters,
+                                   const long aIndicator, nsAString& aRetval) {
+  if (mInitStatus != eInitStatusSuccess) {
+    CT_LOGE("GetComposingWords::init failed mInitStatus=%d", mInitStatus);
+    return;
+  }
+
+  if (mImeId != eImeKorean) {
+    CT_LOGE("GetComposingWords::unexpected mImeId=0x%x", mImeId);
+    return;
+  }
+
+  u16string str = u16string(((nsString)aLetters).get());
+  u16string letters;
+
+  // transform characters into a sequence of composable vowels and consonants
+  for (unsigned int i = 0; i < str.length(); i++) {
+    char16_t latest, current, vowel, vowel2;
+    current = str.at(i);
+
+    if (i == 0) {
+      letters.push_back(current);
+      continue;
+    }
+
+    latest = letters.back();
+
+    bool done = KoreanCharToVowel(latest, current, &vowel, &vowel2);
+    if (done) {
+      letters.pop_back();
+      if (vowel) {
+        letters.push_back(vowel);
+        if (vowel2) {
+          letters.push_back(vowel2);
+        }
+      }
+    } else {
+      letters.push_back(current);
+    }
+  }
+
+  // to search matched result by a sequence of vowels and consonants
+  mTypedKeycodes.clear();
+  for (unsigned int i = 0; i < letters.length(); i++) {
+    mTypedKeycodes.push_back((wchar_t)tolower(letters.at(i)));
+  }
+  FetchCandidates();
+
+  aRetval = mCandidateWord;
+}
+
 void IMEConnect::ImportDictionary(Blob& aBlob, ErrorResult& aRv) {
   uint64_t blobSize;
   uint32_t numRead;
@@ -497,8 +563,10 @@ int IMEConnect::InitKeyLayout(uint32_t aImeId, uint32_t aKeyboardId) {
       if (aKeyboardId == eKeyboardT9) {
         if (i == 10) {
           mKeyLetters['*'] = letterVec;
-        } else {
+        } else if (i < 10) {
           mKeyLetters['0' + i] = letterVec;
+        } else if (i > 10) {
+          mKeyLetters[letters[0]] = letterVec;
         }
       } else if (aKeyboardId == eKeyboardQwerty) {
         mKeyLetters[letters[0]] = letterVec;
@@ -630,8 +698,10 @@ void IMEConnect::FetchCandidates() {
       mKeyboardId == eKeyboardT9;
   bool isChinese = (mImeId == eImeChinesePinyin || mImeId == eImeChineseBihua ||
                     mImeId == eImeChineseZhuyin);
+  bool isKorean = (mImeId == eImeKorean);
   bool isSingleKeyInT9 =
-      (mKeyboardId == eKeyboardT9 && mTypedKeycodes.size() == 1 && !isChinese);
+      (mKeyboardId == eKeyboardT9 && mTypedKeycodes.size() == 1 && !isChinese &&
+       !isKorean);
 
   mCandWord.clear();
   mCandGroup.clear();
@@ -712,6 +782,24 @@ void IMEConnect::FetchCandidates() {
       mCandidateWord.AssignLiteral("");
       return;
     }
+  }
+
+  // take precise result specifically for Korean composing
+  if (isKorean) {
+    u16string str;
+    for (unsigned int i = 0; i < result.precise_items_size; i++) {
+      str = u16string((char16_t*)result.precise_items[i].word_item.word);
+      CT_LOGD("FetchCandidates::precise_items[%d]=%s", i,
+              U16STR_TO_U8CSTR(str));
+
+      ct_tag tag = result.precise_items[i].word_item.tag & CT_TAG_MASK;
+      if (tag == CT_TAG_TRANSLITERATED) {
+        break;
+      }
+      str.clear();
+    }
+    mCandidateWord.Assign(nsString(str.c_str(), str.length()));
+    return;
   }
 
   if (isGroupSupported) {

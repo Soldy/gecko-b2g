@@ -20,7 +20,6 @@
 #define wasm_types_h
 
 #include "mozilla/Alignment.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/BinarySearch.h"
 #include "mozilla/EnumeratedArray.h"
@@ -91,7 +90,6 @@ using RootedWasmExceptionObject = Rooted<WasmExceptionObject*>;
 
 namespace wasm {
 
-using mozilla::ArrayEqual;
 using mozilla::Atomic;
 using mozilla::DebugOnly;
 using mozilla::EnumeratedArray;
@@ -212,7 +210,7 @@ struct ShareableBytes : ShareableBase<ShareableBytes> {
   const uint8_t* begin() const { return bytes.begin(); }
   const uint8_t* end() const { return bytes.end(); }
   size_t length() const { return bytes.length(); }
-  bool append(const uint8_t* start, uint32_t len) {
+  bool append(const uint8_t* start, size_t len) {
     return bytes.append(start, len);
   }
 };

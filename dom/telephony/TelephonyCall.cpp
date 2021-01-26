@@ -382,9 +382,9 @@ void TelephonyCall::UpdateDisconnectedReason(
 
   // There is no 'Error' suffix in the corresponding enum. We should skip
   // that part for comparison.
-  CONVERT_STRING_TO_NULLABLE_ENUM(
-      Substring(aDisconnectedReason, 0, aDisconnectedReason.Length() - 5),
-      TelephonyCallDisconnectedReason, mDisconnectedReason);
+  CONVERT_STRING_TO_NULLABLE_ENUM(aDisconnectedReason,
+                                  TelephonyCallDisconnectedReason,
+                                  mDisconnectedReason);
 
   if (!aDisconnectedReason.EqualsLiteral("NormalCallClearingError")) {
     NotifyError(aDisconnectedReason);

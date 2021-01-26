@@ -135,7 +135,7 @@ var UrlbarUtils = {
     // DEFAULT is defined lazily so it doesn't eagerly initialize PlacesUtils.
     EXTENSION: "chrome://browser/content/extension.svg",
     HISTORY: "chrome://browser/skin/history.svg",
-    SEARCH_GLASS: "chrome://browser/skin/search-glass.svg",
+    SEARCH_GLASS: "chrome://global/skin/icons/search-glass.svg",
     SEARCH_GLASS_INVERTED: "chrome://browser/skin/search-glass-inverted.svg",
     TIP: "chrome://browser/skin/tip.svg",
   },
@@ -158,20 +158,9 @@ var UrlbarUtils = {
   // Whether a result should be highlighted up to the point the user has typed
   // or after that point.
   HIGHLIGHT: {
+    NONE: 0,
     TYPED: 1,
     SUGGESTED: 2,
-  },
-
-  // "Keyword offers" are search results with keywords that enter search mode
-  // when the user picks them.  Depending on the use case, a keyword offer can
-  // visually show or hide the keyword itself in its result.  For example,
-  // typing "@" by itself will show keyword offers for all engines with @
-  // aliases, and those results will preview their search modes. When a keyword
-  // offer is a heuristic -- like an autofilled @  alias -- usually it hides
-  // its keyword since the user is already typing it.
-  KEYWORD_OFFER: {
-    SHOW: 1,
-    HIDE: 2,
   },
 
   // UnifiedComplete's autocomplete results store their titles and tags together
@@ -1076,11 +1065,11 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       keyword: {
         type: "string",
       },
-      keywordOffer: {
-        type: "number", // UrlbarUtils.KEYWORD_OFFER
-      },
       lowerCaseSuggestion: {
         type: "string",
+      },
+      providesSearchMode: {
+        type: "boolean",
       },
       query: {
         type: "string",
@@ -1284,9 +1273,9 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       dynamicType: {
         type: "string",
       },
-      // If `shouldNavigate` is `true` and the payload contains a `url` property, when
-      // the result is selected the browser will navigate to the `url` and `pickResult`
-      // will not be called.
+      // If `shouldNavigate` is `true` and the payload contains a `url`
+      // property, when the result is selected the browser will navigate to the
+      // `url`.
       shouldNavigate: {
         type: "boolean",
       },

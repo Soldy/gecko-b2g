@@ -493,6 +493,10 @@ GonkGPSGeolocationProvider::Watch(nsIGeolocationUpdate* aCallback) {
 
 NS_IMETHODIMP
 GonkGPSGeolocationProvider::SetHighAccuracy(bool enableHighAccuracy) {
+  if (mEnableHighAccuracy != enableHighAccuracy) {
+    SetPositionMode(enableHighAccuracy);
+  }
+
   mEnableHighAccuracy = enableHighAccuracy;
   return NS_OK;
 }
@@ -618,38 +622,15 @@ void GonkGPSGeolocationProvider::StartGPS() {
   SetupAGPS();
 #endif
 
-  int32_t update = Preferences::GetInt("geo.default.update", kDefaultPeriod);
-  if (!mSupportsScheduling) {
-    update = kDefaultPeriod;
-  }
-
   MOZ_ASSERT(mGnssHal != nullptr);
 
-  int preferredAccuracy = mEnableHighAccuracy ? 0 : 10000;  // 10km
-  Return<bool> result = false;
-  if (mGnssHal_V1_1 != nullptr) {
-    auto positionMode = mSupportsMSB ? IGnss_V1_1::GnssPositionMode::MS_BASED
-                                     : IGnss_V1_1::GnssPositionMode::STANDALONE;
-    result = mGnssHal_V1_1->setPositionMode_1_1(
-        positionMode, IGnss_V1_1::GnssPositionRecurrence::RECURRENCE_PERIODIC,
-        update, preferredAccuracy,
-        0,       // preferred time
-        false);  // low power mode
-  } else if (mGnssHal != nullptr) {
-    auto positionMode = mSupportsMSB ? IGnss_V1_1::GnssPositionMode::MS_BASED
-                                     : IGnss_V1_1::GnssPositionMode::STANDALONE;
-    result = mGnssHal->setPositionMode(
-        positionMode, IGnss_V1_0::GnssPositionRecurrence::RECURRENCE_PERIODIC,
-        update, preferredAccuracy,
-        0);  // preferred time
-  }
-
-  if (!result.isOk() || !result) {
-    ERR("failed to set IGnss position mode");
+  bool success = SetPositionMode(mEnableHighAccuracy);
+  if (!success) {
     return;
   }
+
   DBG("mGnssHal->start");
-  result = mGnssHal->start();
+  Return<bool> result = mGnssHal->start();
   if (!result.isOk() || !result) {
     ERR("failed to start IGnss HAL");
   }
@@ -684,6 +665,46 @@ void GonkGPSGeolocationProvider::InjectLocation(double latitude,
       ERR("%s: Gnss injectLocation() failed");
     }
   }
+}
+
+bool GonkGPSGeolocationProvider::SetPositionMode(bool enableHighAccuracy) {
+  if (mGnssHal == nullptr) {
+    return false;
+  }
+
+  int32_t update = Preferences::GetInt("geo.default.update", kDefaultPeriod);
+  if (!mSupportsScheduling) {
+    update = kDefaultPeriod;
+  }
+
+  int preferredAccuracy = enableHighAccuracy ? 0 : 10000;  // 10km
+  DBG("SetPositionMode: update: %d, preferredAccuracy: %d", update,
+      preferredAccuracy);
+
+  Return<bool> result = false;
+  if (mGnssHal_V1_1 != nullptr) {
+    auto positionMode = mSupportsMSB ? IGnss_V1_1::GnssPositionMode::MS_BASED
+                                     : IGnss_V1_1::GnssPositionMode::STANDALONE;
+    result = mGnssHal_V1_1->setPositionMode_1_1(
+        positionMode, IGnss_V1_1::GnssPositionRecurrence::RECURRENCE_PERIODIC,
+        update, preferredAccuracy,
+        0,       // preferred time
+        false);  // low power mode
+  } else if (mGnssHal != nullptr) {
+    auto positionMode = mSupportsMSB ? IGnss_V1_1::GnssPositionMode::MS_BASED
+                                     : IGnss_V1_1::GnssPositionMode::STANDALONE;
+    result = mGnssHal->setPositionMode(
+        positionMode, IGnss_V1_0::GnssPositionRecurrence::RECURRENCE_PERIODIC,
+        update, preferredAccuracy,
+        0);  // preferred time
+  }
+
+  if (!result.isOk() || !result) {
+    ERR("failed to set IGnss position mode");
+    return false;
+  }
+
+  return true;
 }
 
 class GonkGPSGeolocationProvider::UpdateLocationEvent final
@@ -842,13 +863,13 @@ Return<void> GnssCallback::gnssNameCb(
 
 Return<void> GnssCallback::gnssRequestLocationCb(
     const bool independentFromGnss) {
-  LOG("%s: Gonk doesn't support gnssRequestLocationCb.", __FUNCTION__);
+  DBG("%s: Gonk doesn't support gnssRequestLocationCb.", __FUNCTION__);
   return Void();
 }
 
 Return<void> GnssCallback::gnssRequestLocationCb_2_0(
     const bool independentFromGnss, const bool isUserEmergency) {
-  LOG("%s: Gonk doesn't support gnssRequestLocationCb_2_0.", __FUNCTION__);
+  DBG("%s: Gonk doesn't support gnssRequestLocationCb_2_0.", __FUNCTION__);
   return Void();
 }
 

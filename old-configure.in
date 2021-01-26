@@ -2922,6 +2922,20 @@ AC_SUBST(MOZ_B2G_BT)
 AC_SUBST(MOZ_B2G_BT_DAEMON)
 
 dnl ========================================================
+dnl Enable Support for KaiOS RSU
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(rsu,
+[  --enable-rsu   Enable rsu modules],
+    ENABLE_RSU=1,
+    ENABLE_RSU= )
+if test -d "$_topsrcdir/koost" ; then
+    if test -n "$ENABLE_RSU"; then
+        AC_DEFINE(ENABLE_RSU)
+    fi
+    AC_SUBST(ENABLE_RSU)
+fi
+
+dnl ========================================================
 dnl = Enable Radio FM for B2G (Gonk usually)
 dnl ========================================================
 MOZ_ARG_ENABLE_BOOL(b2g-fm,

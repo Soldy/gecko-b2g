@@ -159,32 +159,15 @@ class LInteger64 : public LInstructionHelper<INT64_PIECES, 0, 0> {
 
 // Constant pointer.
 class LPointer : public LInstructionHelper<1, 0, 0> {
- public:
-  enum Kind { GC_THING, NON_GC_THING };
-
- private:
-  void* ptr_;
-  Kind kind_;
+  gc::Cell* ptr_;
 
  public:
   LIR_HEADER(Pointer)
 
   explicit LPointer(gc::Cell* ptr)
-      : LInstructionHelper(classOpcode), ptr_(ptr), kind_(GC_THING) {}
+      : LInstructionHelper(classOpcode), ptr_(ptr) {}
 
-  LPointer(void* ptr, Kind kind)
-      : LInstructionHelper(classOpcode), ptr_(ptr), kind_(kind) {}
-
-  void* ptr() const { return ptr_; }
-  Kind kind() const { return kind_; }
-  const char* extraName() const {
-    return kind_ == GC_THING ? "GC_THING" : "NON_GC_THING";
-  }
-
-  gc::Cell* gcptr() const {
-    MOZ_ASSERT(kind() == GC_THING);
-    return (gc::Cell*)ptr_;
-  }
+  gc::Cell* gcptr() const { return ptr_; }
 };
 
 // Constant double.
@@ -1338,52 +1321,6 @@ class LConstructArrayGeneric
   const LAllocation* getTempStackCounter() { return getOperand(2); }
 };
 
-class LGetDynamicName : public LCallInstructionHelper<BOX_PIECES, 2, 3> {
- public:
-  LIR_HEADER(GetDynamicName)
-
-  LGetDynamicName(const LAllocation& envChain, const LAllocation& name,
-                  const LDefinition& temp1, const LDefinition& temp2,
-                  const LDefinition& temp3)
-      : LCallInstructionHelper(classOpcode) {
-    setOperand(0, envChain);
-    setOperand(1, name);
-    setTemp(0, temp1);
-    setTemp(1, temp2);
-    setTemp(2, temp3);
-  }
-
-  MGetDynamicName* mir() const { return mir_->toGetDynamicName(); }
-
-  const LAllocation* getEnvironmentChain() { return getOperand(0); }
-  const LAllocation* getName() { return getOperand(1); }
-
-  const LDefinition* temp1() { return getTemp(0); }
-  const LDefinition* temp2() { return getTemp(1); }
-  const LDefinition* temp3() { return getTemp(2); }
-};
-
-class LCallDirectEval
-    : public LCallInstructionHelper<BOX_PIECES, 2 + BOX_PIECES, 0> {
- public:
-  LIR_HEADER(CallDirectEval)
-
-  LCallDirectEval(const LAllocation& envChain, const LAllocation& string,
-                  const LBoxAllocation& newTarget)
-      : LCallInstructionHelper(classOpcode) {
-    setOperand(0, envChain);
-    setOperand(1, string);
-    setBoxOperand(NewTarget, newTarget);
-  }
-
-  static const size_t NewTarget = 2;
-
-  MCallDirectEval* mir() const { return mir_->toCallDirectEval(); }
-
-  const LAllocation* getEnvironmentChain() { return getOperand(0); }
-  const LAllocation* getString() { return getOperand(1); }
-};
-
 // Takes in either an integer or boolean input and tests it for truthiness.
 class LTestIAndBranch : public LControlInstructionHelper<2, 1, 0> {
  public:
@@ -1490,11 +1427,6 @@ class LTestVAndBranch : public LControlInstructionHelper<2, BOX_PIECES, 3> {
     setTemp(0, temp0);
     setTemp(1, temp1);
     setTemp(2, temp2);
-  }
-
-  const char* extraName() const {
-    return mir()->operandMightEmulateUndefined() ? "MightEmulateUndefined"
-                                                 : nullptr;
   }
 
   static const size_t Input = 0;
@@ -1701,26 +1633,6 @@ class LCompareS : public LInstructionHelper<1, 2, 0> {
   MCompare* mir() { return mir_->toCompare(); }
 };
 
-// strict-equality between value and string.
-class LCompareStrictS : public LInstructionHelper<1, BOX_PIECES + 1, 1> {
- public:
-  LIR_HEADER(CompareStrictS)
-
-  LCompareStrictS(const LBoxAllocation& lhs, const LAllocation& rhs,
-                  const LDefinition& temp)
-      : LInstructionHelper(classOpcode) {
-    setBoxOperand(Lhs, lhs);
-    setOperand(BOX_PIECES, rhs);
-    setTemp(0, temp);
-  }
-
-  static const size_t Lhs = 0;
-
-  const LAllocation* right() { return getOperand(BOX_PIECES); }
-  const LDefinition* tempToUnbox() { return getTemp(0); }
-  MCompare* mir() { return mir_->toCompare(); }
-};
-
 class LCompareBigInt : public LInstructionHelper<1, 2, 3> {
  public:
   LIR_HEADER(CompareBigInt)
@@ -1797,69 +1709,6 @@ class LCompareBigIntString : public LCallInstructionHelper<1, 2, 0> {
   MCompare* mir() { return mir_->toCompare(); }
 };
 
-// Used for strict-equality comparisons where one side is a boolean
-// and the other is a value. Note that CompareI is used to compare
-// two booleans.
-class LCompareB : public LInstructionHelper<1, BOX_PIECES + 1, 0> {
- public:
-  LIR_HEADER(CompareB)
-
-  LCompareB(const LBoxAllocation& lhs, const LAllocation& rhs)
-      : LInstructionHelper(classOpcode) {
-    setBoxOperand(Lhs, lhs);
-    setOperand(BOX_PIECES, rhs);
-  }
-
-  static const size_t Lhs = 0;
-
-  const LAllocation* rhs() { return getOperand(BOX_PIECES); }
-
-  MCompare* mir() { return mir_->toCompare(); }
-};
-
-class LCompareBAndBranch
-    : public LControlInstructionHelper<2, BOX_PIECES + 1, 0> {
-  MCompare* cmpMir_;
-
- public:
-  LIR_HEADER(CompareBAndBranch)
-
-  LCompareBAndBranch(MCompare* cmpMir, const LBoxAllocation& lhs,
-                     const LAllocation& rhs, MBasicBlock* ifTrue,
-                     MBasicBlock* ifFalse)
-      : LControlInstructionHelper(classOpcode), cmpMir_(cmpMir) {
-    setBoxOperand(Lhs, lhs);
-    setOperand(BOX_PIECES, rhs);
-    setSuccessor(0, ifTrue);
-    setSuccessor(1, ifFalse);
-  }
-
-  static const size_t Lhs = 0;
-
-  const LAllocation* rhs() { return getOperand(BOX_PIECES); }
-
-  MBasicBlock* ifTrue() const { return getSuccessor(0); }
-  MBasicBlock* ifFalse() const { return getSuccessor(1); }
-  MTest* mir() const { return mir_->toTest(); }
-  MCompare* cmpMir() const { return cmpMir_; }
-};
-
-class LCompareVM : public LCallInstructionHelper<1, 2 * BOX_PIECES, 0> {
- public:
-  LIR_HEADER(CompareVM)
-
-  static const size_t LhsInput = 0;
-  static const size_t RhsInput = BOX_PIECES;
-
-  LCompareVM(const LBoxAllocation& lhs, const LBoxAllocation& rhs)
-      : LCallInstructionHelper(classOpcode) {
-    setBoxOperand(LhsInput, lhs);
-    setBoxOperand(RhsInput, rhs);
-  }
-
-  MCompare* mir() const { return mir_->toCompare(); }
-};
-
 class LBitAndAndBranch : public LControlInstructionHelper<2, 2, 0> {
   Assembler::Condition cond_;
 
@@ -1906,8 +1755,8 @@ class LIsNullOrLikeUndefinedV : public LInstructionHelper<1, BOX_PIECES, 2> {
   const LDefinition* tempToUnbox() { return getTemp(1); }
 };
 
-// Takes an object or object-or-null pointer and tests whether it is null or is
-// an object that emulates |undefined|, as above.
+// Takes an object pointer and tests whether it is an object that emulates
+// |undefined|, as above.
 class LIsNullOrLikeUndefinedT : public LInstructionHelper<1, 1, 0> {
  public:
   LIR_HEADER(IsNullOrLikeUndefinedT)
@@ -1988,40 +1837,6 @@ class LSameValueD : public LInstructionHelper<1, 2, 1> {
   const LAllocation* left() { return getOperand(0); }
   const LAllocation* right() { return getOperand(1); }
   const LDefinition* tempFloat() { return getTemp(0); }
-};
-
-class LSameValueV : public LInstructionHelper<1, BOX_PIECES + 1, 2> {
- public:
-  LIR_HEADER(SameValueV)
-
-  static const size_t LhsInput = 0;
-
-  LSameValueV(const LBoxAllocation& left, const LAllocation& right,
-              const LDefinition& temp1, const LDefinition& temp2)
-      : LInstructionHelper(classOpcode) {
-    setBoxOperand(LhsInput, left);
-    setOperand(BOX_PIECES, right);
-    setTemp(0, temp1);
-    setTemp(1, temp2);
-  }
-
-  const LAllocation* right() { return getOperand(BOX_PIECES); }
-  const LDefinition* tempFloat1() { return getTemp(0); }
-  const LDefinition* tempFloat2() { return getTemp(1); }
-};
-
-class LSameValueVM : public LCallInstructionHelper<1, 2 * BOX_PIECES, 0> {
- public:
-  LIR_HEADER(SameValueVM)
-
-  static const size_t LhsInput = 0;
-  static const size_t RhsInput = BOX_PIECES;
-
-  LSameValueVM(const LBoxAllocation& left, const LBoxAllocation& right)
-      : LCallInstructionHelper(classOpcode) {
-    setBoxOperand(LhsInput, left);
-    setBoxOperand(RhsInput, right);
-  }
 };
 
 // Not operation on an integer.
@@ -3584,19 +3399,6 @@ class LValueToString : public LInstructionHelper<1, BOX_PIECES, 1> {
   const LDefinition* tempToUnbox() { return getTemp(0); }
 };
 
-// Convert a value to an object.
-class LValueToObject : public LInstructionHelper<1, BOX_PIECES, 0> {
- public:
-  LIR_HEADER(ValueToObject)
-
-  explicit LValueToObject(const LBoxAllocation& input)
-      : LInstructionHelper(classOpcode) {
-    setBoxOperand(Input, input);
-  }
-
-  static const size_t Input = 0;
-};
-
 // Double raised to a half power.
 class LPowHalfD : public LInstructionHelper<1, 1, 0> {
  public:
@@ -3951,18 +3753,6 @@ class LDynamicImport : public LCallInstructionHelper<1, BOX_PIECES, 0> {
   }
 
   const MDynamicImport* mir() const { return mir_->toDynamicImport(); }
-};
-
-class LLambdaForSingleton : public LCallInstructionHelper<1, 1, 0> {
- public:
-  LIR_HEADER(LambdaForSingleton)
-
-  explicit LLambdaForSingleton(const LAllocation& envChain)
-      : LCallInstructionHelper(classOpcode) {
-    setOperand(0, envChain);
-  }
-  const LAllocation* environmentChain() { return getOperand(0); }
-  const MLambda* mir() const { return mir_->toLambda(); }
 };
 
 class LLambda : public LInstructionHelper<1, 1, 1> {
@@ -4394,72 +4184,6 @@ class LLoadElementHole : public LInstructionHelper<BOX_PIECES, 3, 0> {
   const LAllocation* initLength() { return getOperand(2); }
 };
 
-// Load a typed value from a dense array's elements vector. The array must be
-// known to be packed, so that we don't have to check for the hole value.
-// This instruction does not load the type tag and can directly load into a
-// FP register.
-class LLoadElementT : public LInstructionHelper<1, 2, 0> {
- public:
-  LIR_HEADER(LoadElementT)
-
-  LLoadElementT(const LAllocation& elements, const LAllocation& index)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, elements);
-    setOperand(1, index);
-  }
-
-  const char* extraName() const {
-    return mir()->needsHoleCheck() ? "HoleCheck" : nullptr;
-  }
-
-  const MLoadElement* mir() const { return mir_->toLoadElement(); }
-  const LAllocation* elements() { return getOperand(0); }
-  const LAllocation* index() { return getOperand(1); }
-};
-
-class LUnboxObjectOrNull : public LInstructionHelper<1, 1, 0> {
- public:
-  LIR_HEADER(UnboxObjectOrNull);
-
-  explicit LUnboxObjectOrNull(const LAllocation& input)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, input);
-  }
-
-  MUnbox* mir() const { return mir_->toUnbox(); }
-  const LAllocation* input() { return getOperand(0); }
-};
-
-// Load an element from a non-allocated entity represented by its state object
-// such as ArgumentState. The elements of the state object are set as operands
-// of this variadic LIR instruction and inlined in the code generated for this
-// instruction.
-//
-// Each element is represented with BOX_PIECES allocations, even if 1 (typed
-// register) or 0 (constants) is enough. In such case, the unused allocations
-// would be bogus.
-class LLoadElementFromStateV : public LVariadicInstruction<BOX_PIECES, 3> {
- public:
-  LIR_HEADER(LoadElementFromStateV)
-
-  LLoadElementFromStateV(uint32_t numOperands, const LDefinition& temp0,
-                         const LDefinition& temp1, const LDefinition& tempD)
-      : LVariadicInstruction<BOX_PIECES, 3>(classOpcode, numOperands) {
-    setTemp(0, temp0);
-    setTemp(1, temp1);
-    setTemp(2, tempD);
-  }
-
-  const MLoadElementFromState* mir() const {
-    return mir_->toLoadElementFromState();
-  }
-  const LAllocation* index() { return getOperand(0); }
-  const LDefinition* temp0() { return getTemp(0); }
-  const LDefinition* temp1() { return getTemp(1); }
-  const LDefinition* tempD() { return getTemp(2); }
-  MDefinition* array() { return mir()->array(); }
-};
-
 // Store a boxed value to a dense array's element vector.
 class LStoreElementV : public LInstructionHelper<0, 2 + BOX_PIECES, 0> {
  public:
@@ -4573,59 +4297,6 @@ class LStoreElementHoleT : public LInstructionHelper<0, 4, 1> {
   const LDefinition* spectreTemp() { return getTemp(0); }
 };
 
-// Like LStoreElementV, but can just ignore assignment (for eg. frozen objects)
-class LFallibleStoreElementV : public LInstructionHelper<0, 3 + BOX_PIECES, 1> {
- public:
-  LIR_HEADER(FallibleStoreElementV)
-
-  LFallibleStoreElementV(const LAllocation& object, const LAllocation& elements,
-                         const LAllocation& index, const LBoxAllocation& value,
-                         const LDefinition& spectreTemp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, object);
-    setOperand(1, elements);
-    setOperand(2, index);
-    setBoxOperand(Value, value);
-    setTemp(0, spectreTemp);
-  }
-
-  static const size_t Value = 3;
-
-  const MFallibleStoreElement* mir() const {
-    return mir_->toFallibleStoreElement();
-  }
-  const LAllocation* object() { return getOperand(0); }
-  const LAllocation* elements() { return getOperand(1); }
-  const LAllocation* index() { return getOperand(2); }
-  const LDefinition* spectreTemp() { return getTemp(0); }
-};
-
-// Like LStoreElementT, but can just ignore assignment (for eg. frozen objects)
-class LFallibleStoreElementT : public LInstructionHelper<0, 4, 1> {
- public:
-  LIR_HEADER(FallibleStoreElementT)
-
-  LFallibleStoreElementT(const LAllocation& object, const LAllocation& elements,
-                         const LAllocation& index, const LAllocation& value,
-                         const LDefinition& spectreTemp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, object);
-    setOperand(1, elements);
-    setOperand(2, index);
-    setOperand(3, value);
-    setTemp(0, spectreTemp);
-  }
-
-  const MFallibleStoreElement* mir() const {
-    return mir_->toFallibleStoreElement();
-  }
-  const LAllocation* object() { return getOperand(0); }
-  const LAllocation* elements() { return getOperand(1); }
-  const LAllocation* index() { return getOperand(2); }
-  const LAllocation* value() { return getOperand(3); }
-  const LDefinition* spectreTemp() { return getTemp(0); }
-};
-
 class LArrayPopShift : public LInstructionHelper<BOX_PIECES, 1, 2> {
  public:
   LIR_HEADER(ArrayPopShift)
@@ -4648,12 +4319,12 @@ class LArrayPopShift : public LInstructionHelper<BOX_PIECES, 1, 2> {
   const LDefinition* temp1() { return getTemp(1); }
 };
 
-class LArrayPushV : public LInstructionHelper<1, 1 + BOX_PIECES, 2> {
+class LArrayPush : public LInstructionHelper<1, 1 + BOX_PIECES, 2> {
  public:
-  LIR_HEADER(ArrayPushV)
+  LIR_HEADER(ArrayPush)
 
-  LArrayPushV(const LAllocation& object, const LBoxAllocation& value,
-              const LDefinition& temp, const LDefinition& spectreTemp)
+  LArrayPush(const LAllocation& object, const LBoxAllocation& value,
+             const LDefinition& temp, const LDefinition& spectreTemp)
       : LInstructionHelper(classOpcode) {
     setOperand(0, object);
     setBoxOperand(Value, value);
@@ -4665,26 +4336,6 @@ class LArrayPushV : public LInstructionHelper<1, 1 + BOX_PIECES, 2> {
 
   const MArrayPush* mir() const { return mir_->toArrayPush(); }
   const LAllocation* object() { return getOperand(0); }
-  const LDefinition* temp() { return getTemp(0); }
-  const LDefinition* spectreTemp() { return getTemp(1); }
-};
-
-class LArrayPushT : public LInstructionHelper<1, 2, 2> {
- public:
-  LIR_HEADER(ArrayPushT)
-
-  LArrayPushT(const LAllocation& object, const LAllocation& value,
-              const LDefinition& temp, const LDefinition& spectreTemp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, object);
-    setOperand(1, value);
-    setTemp(0, temp);
-    setTemp(1, spectreTemp);
-  }
-
-  const MArrayPush* mir() const { return mir_->toArrayPush(); }
-  const LAllocation* object() { return getOperand(0); }
-  const LAllocation* value() { return getOperand(1); }
   const LDefinition* temp() { return getTemp(0); }
   const LDefinition* spectreTemp() { return getTemp(1); }
 };
@@ -5433,92 +5084,6 @@ class LGetPropertyCache
   const MGetPropertyCache* mir() const { return mir_->toGetPropertyCache(); }
 };
 
-// Emit code to load a boxed value from an object's slots if its shape matches
-// one of the shapes observed by the baseline IC, else bails out.
-class LGetPropertyPolymorphicV : public LInstructionHelper<BOX_PIECES, 1, 1> {
- public:
-  LIR_HEADER(GetPropertyPolymorphicV)
-
-  LGetPropertyPolymorphicV(const LAllocation& obj, const LDefinition& temp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, obj);
-    setTemp(0, temp);
-  }
-  const LAllocation* obj() { return getOperand(0); }
-  const LDefinition* temp() { return getTemp(0); }
-  const MGetPropertyPolymorphic* mir() const {
-    return mir_->toGetPropertyPolymorphic();
-  }
-};
-
-// Emit code to load a typed value from an object's slots if its shape matches
-// one of the shapes observed by the baseline IC, else bails out.
-class LGetPropertyPolymorphicT : public LInstructionHelper<1, 1, 1> {
- public:
-  LIR_HEADER(GetPropertyPolymorphicT)
-
-  LGetPropertyPolymorphicT(const LAllocation& obj, const LDefinition& temp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, obj);
-    setTemp(0, temp);
-  }
-  const LAllocation* obj() { return getOperand(0); }
-  const LDefinition* temp() { return getTemp(0); }
-  const MGetPropertyPolymorphic* mir() const {
-    return mir_->toGetPropertyPolymorphic();
-  }
-};
-
-// Emit code to store a boxed value to an object's slots if its shape matches
-// one of the shapes observed by the baseline IC, else bails out.
-class LSetPropertyPolymorphicV
-    : public LInstructionHelper<0, 1 + BOX_PIECES, 1> {
- public:
-  LIR_HEADER(SetPropertyPolymorphicV)
-
-  LSetPropertyPolymorphicV(const LAllocation& obj, const LBoxAllocation& value,
-                           const LDefinition& temp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, obj);
-    setBoxOperand(Value, value);
-    setTemp(0, temp);
-  }
-
-  static const size_t Value = 1;
-
-  const LAllocation* obj() { return getOperand(0); }
-  const LDefinition* temp() { return getTemp(0); }
-  const MSetPropertyPolymorphic* mir() const {
-    return mir_->toSetPropertyPolymorphic();
-  }
-};
-
-// Emit code to store a typed value to an object's slots if its shape matches
-// one of the shapes observed by the baseline IC, else bails out.
-class LSetPropertyPolymorphicT : public LInstructionHelper<0, 2, 1> {
-  MIRType valueType_;
-
- public:
-  LIR_HEADER(SetPropertyPolymorphicT)
-
-  LSetPropertyPolymorphicT(const LAllocation& obj, const LAllocation& value,
-                           MIRType valueType, const LDefinition& temp)
-      : LInstructionHelper(classOpcode), valueType_(valueType) {
-    setOperand(0, obj);
-    setOperand(1, value);
-    setTemp(0, temp);
-  }
-
-  const LAllocation* obj() { return getOperand(0); }
-  const LAllocation* value() { return getOperand(1); }
-  const LDefinition* temp() { return getTemp(0); }
-  MIRType valueType() const { return valueType_; }
-  const MSetPropertyPolymorphic* mir() const {
-    return mir_->toSetPropertyPolymorphic();
-  }
-  const char* extraName() const { return StringFromMIRType(valueType_); }
-};
-
 class LBindNameCache : public LInstructionHelper<1, 1, 1> {
  public:
   LIR_HEADER(BindNameCache)
@@ -5554,22 +5119,6 @@ class LLoadDynamicSlotV : public LInstructionHelper<BOX_PIECES, 1, 0> {
       : LInstructionHelper(classOpcode) {
     setOperand(0, in);
   }
-  const MLoadDynamicSlot* mir() const { return mir_->toLoadDynamicSlot(); }
-};
-
-// Load a typed value from an object's dslots or a slots vector. Unlike
-// LLoadDynamicSlotV, this can bypass extracting a type tag, directly retrieving
-// a pointer, integer, or double.
-class LLoadDynamicSlotT : public LInstructionHelper<1, 1, 0> {
- public:
-  LIR_HEADER(LoadDynamicSlotT)
-
-  explicit LLoadDynamicSlotT(const LAllocation& slots)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, slots);
-  }
-  const LAllocation* slots() { return getOperand(0); }
-  const LDefinition* output() { return this->getDef(0); }
   const MLoadDynamicSlot* mir() const { return mir_->toLoadDynamicSlot(); }
 };
 
@@ -6010,22 +5559,6 @@ class LRest : public LCallInstructionHelper<1, 1, 3> {
   }
   const LAllocation* numActuals() { return getOperand(0); }
   MRest* mir() const { return mir_->toRest(); }
-};
-
-class LGuardReceiverPolymorphic : public LInstructionHelper<1, 1, 1> {
- public:
-  LIR_HEADER(GuardReceiverPolymorphic)
-
-  LGuardReceiverPolymorphic(const LAllocation& in, const LDefinition& temp)
-      : LInstructionHelper(classOpcode) {
-    setOperand(0, in);
-    setTemp(0, temp);
-  }
-  const LAllocation* object() { return getOperand(0); }
-  const LDefinition* temp() { return getTemp(0); }
-  const MGuardReceiverPolymorphic* mir() const {
-    return mir_->toGuardReceiverPolymorphic();
-  }
 };
 
 // Convert a Boolean to an Int64, following ToBigInt.
@@ -7052,15 +6585,17 @@ class LGuardToClass : public LInstructionHelper<1, 1, 1> {
   MGuardToClass* mir() const { return mir_->toGuardToClass(); }
 };
 
-class LObjectClassToString : public LCallInstructionHelper<1, 1, 0> {
+class LObjectClassToString : public LCallInstructionHelper<1, 1, 1> {
  public:
   LIR_HEADER(ObjectClassToString);
 
-  explicit LObjectClassToString(const LAllocation& lhs)
+  LObjectClassToString(const LAllocation& lhs, const LDefinition& temp)
       : LCallInstructionHelper(classOpcode) {
     setOperand(0, lhs);
+    setTemp(0, temp);
   }
   const LAllocation* object() { return getOperand(0); }
+  const LDefinition* temp() { return getTemp(0); }
   MObjectClassToString* mir() const { return mir_->toObjectClassToString(); }
 };
 

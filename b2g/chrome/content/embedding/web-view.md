@@ -38,6 +38,7 @@ The <web-view> element supports the following attributes:
 - `(readonly) currentURI : string` : returns the current URI loaded in the web-view, which can be different from the `src` attribute.
 - `fullZoom` : controls the overall zoom level of the page.
 - `textZoom` : controls the zoom level of the page's text.
+- `openWindowInfo` : setting this property is mandatory to fully create the web-view. A null value is valid.
 
 ## Events
 

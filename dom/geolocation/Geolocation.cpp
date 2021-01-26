@@ -760,7 +760,11 @@ void nsGeolocationService::UpdateAccuracy(bool aForceHigh) {
     return;
   }
 
-  mProvider->SetHighAccuracy(!mHigherAccuracy && highRequired);
+  // Notify provider if the accuracy is changed
+  if (mHigherAccuracy != highRequired) {
+    mProvider->SetHighAccuracy(highRequired);
+  }
+
   mHigherAccuracy = highRequired;
 }
 

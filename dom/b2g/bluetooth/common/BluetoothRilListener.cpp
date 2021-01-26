@@ -283,6 +283,12 @@ TelephonyListener::NotifyRttMessageReceived(uint32_t aClientId,
   return NS_OK;
 }
 
+
+NS_IMETHODIMP
+TelephonyListener::NotifySrvccState(uint32_t clientId, int32_t state) {
+  return NS_OK;
+}
+
 bool TelephonyListener::Listen(bool aStart) {
   nsCOMPtr<nsITelephonyService> service =
       do_GetService(TELEPHONY_SERVICE_CONTRACTID);

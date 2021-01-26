@@ -41,6 +41,7 @@ class InputMethodService final : public nsIEditableSupport {
   nsIEditableSupport* GetRegisteredEditableSupport() {
     return mEditableSupport;
   }
+  void HandleTextChanged(const nsAString& aText);
 
  private:
   InputMethodService() = default;

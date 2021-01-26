@@ -9,7 +9,6 @@
 #ifndef vm_JSScript_h
 #define vm_JSScript_h
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MaybeOneOf.h"
@@ -1097,8 +1096,8 @@ class ScriptSource {
  public:
   template <XDRMode mode>
   static MOZ_MUST_USE XDRResult
-  XDR(XDRState<mode>* xdr, const mozilla::Maybe<JS::CompileOptions>& options,
-      MutableHandle<ScriptSourceHolder> ss);
+  XDR(XDRState<mode>* xdr, const JS::ReadOnlyCompileOptions* maybeOptions,
+      MutableHandle<ScriptSourceHolder> holder);
 
   void trace(JSTracer* trc);
 };
@@ -1405,11 +1404,12 @@ class alignas(uintptr_t) PrivateScriptData final : public TrailingArray {
   static bool Clone(JSContext* cx, js::HandleScript src, js::HandleScript dst,
                     js::MutableHandle<JS::GCVector<js::Scope*>> scopes);
 
-  static bool InitFromStencil(JSContext* cx, js::HandleScript script,
-                              js::frontend::CompilationInput& input,
-                              js::frontend::BaseCompilationStencil& stencil,
-                              js::frontend::CompilationGCOutput& gcOutput,
-                              const js::frontend::ScriptIndex scriptIndex);
+  static bool InitFromStencil(
+      JSContext* cx, js::HandleScript script,
+      js::frontend::CompilationInput& input,
+      const js::frontend::BaseCompilationStencil& stencil,
+      js::frontend::CompilationGCOutput& gcOutput,
+      const js::frontend::ScriptIndex scriptIndex);
 
   void trace(JSTracer* trc);
 
@@ -1681,6 +1681,7 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   IMMUTABLE_FLAG_GETTER(needsHomeObject, NeedsHomeObject)
   IMMUTABLE_FLAG_GETTER(isDerivedClassConstructor, IsDerivedClassConstructor)
   IMMUTABLE_FLAG_GETTER(isFieldInitializer, IsFieldInitializer)
+  IMMUTABLE_FLAG_GETTER(useMemberInitializers, UseMemberInitializers)
   IMMUTABLE_FLAG_GETTER(hasRest, HasRest)
   IMMUTABLE_FLAG_GETTER(needsFunctionEnvironmentObjects,
                         NeedsFunctionEnvironmentObjects)
@@ -1703,9 +1704,11 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   MUTABLE_FLAG_GETTER_SETTER(hadLICMInvalidation, HadLICMInvalidation)
   MUTABLE_FLAG_GETTER_SETTER(hadEagerTruncationBailout,
                              HadEagerTruncationBailout)
+  MUTABLE_FLAG_GETTER_SETTER(hadUnboxFoldingBailout, HadUnboxFoldingBailout)
   MUTABLE_FLAG_GETTER_SETTER(uninlineable, Uninlineable)
   MUTABLE_FLAG_GETTER_SETTER(failedLexicalCheck, FailedLexicalCheck)
   MUTABLE_FLAG_GETTER_SETTER(hadSpeculativePhiBailout, HadSpeculativePhiBailout)
+  MUTABLE_FLAG_GETTER_SETTER(isInlinableLargeFunction, IsInlinableLargeFunction)
 
 #undef IMMUTABLE_FLAG_GETTER
 #undef MUTABLE_FLAG_GETTER_SETTER
@@ -1769,6 +1772,7 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   }
 
   void setMemberInitializers(MemberInitializers memberInitializers) {
+    MOZ_ASSERT(useMemberInitializers());
     MOZ_ASSERT(data_);
     data_->setMemberInitializers(memberInitializers);
   }
@@ -1807,8 +1811,7 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   template <XDRMode mode>
   static XDRResult XDRLazyScriptData(XDRState<mode>* xdr,
                                      HandleScriptSourceObject sourceObject,
-                                     Handle<BaseScript*> lazy,
-                                     bool hasFieldInitializer);
+                                     Handle<BaseScript*> lazy);
 
   // JIT accessors
   static constexpr size_t offsetOfJitCodeRaw() { return offsetOfHeaderPtr(); }
@@ -1903,7 +1906,7 @@ class JSScript : public js::BaseScript {
   friend bool js::PrivateScriptData::InitFromStencil(
       JSContext* cx, js::HandleScript script,
       js::frontend::CompilationInput& input,
-      js::frontend::BaseCompilationStencil& stencil,
+      const js::frontend::BaseCompilationStencil& stencil,
       js::frontend::CompilationGCOutput& gcOutput,
       const js::frontend::ScriptIndex scriptIndex);
 
@@ -1931,7 +1934,7 @@ class JSScript : public js::BaseScript {
  public:
   static bool fullyInitFromStencil(
       JSContext* cx, js::frontend::CompilationInput& input,
-      js::frontend::BaseCompilationStencil& stencil,
+      const js::frontend::BaseCompilationStencil& stencil,
       js::frontend::CompilationGCOutput& gcOutput, js::HandleScript script,
       const js::frontend::ScriptIndex scriptIndex);
 
@@ -1939,7 +1942,7 @@ class JSScript : public js::BaseScript {
   // allocations within the stencil.
   static JSScript* fromStencil(JSContext* cx,
                                js::frontend::CompilationInput& input,
-                               js::frontend::CompilationStencil& stencil,
+                               const js::frontend::CompilationStencil& stencil,
                                js::frontend::CompilationGCOutput& gcOutput,
                                const js::frontend::ScriptIndex scriptIndex);
 

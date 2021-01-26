@@ -13,7 +13,7 @@
 #include "js/JSON.h"
 #include "mozilla/dom/IMELog.h"
 #include "mozilla/Services.h"
-
+#include "mozilla/dom/KeyboardAppProxy.h"
 namespace mozilla {
 namespace dom {
 
@@ -216,6 +216,15 @@ void InputMethodService::HandleBlur(nsIEditableSupport* aEditableSupport) {
     // Blur does not need input field information.
     obs->NotifyObservers(nullptr, "inputmethod-contextchange", u"blur");
   }
+}
+
+void InputMethodService::HandleTextChanged(const nsAString& aText) {
+  IME_LOGD("InputMethodService::HandleTextChanged");
+  RefPtr<KeyboardAppProxy> proxy = KeyboardAppProxy::GetInstance();
+  if (!proxy) {
+    return;
+  }
+  proxy->OnTextChanged(NS_ConvertUTF16toUTF8(aText));
 }
 
 }  // namespace dom

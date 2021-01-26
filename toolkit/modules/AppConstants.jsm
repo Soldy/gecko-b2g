@@ -221,6 +221,13 @@ this.AppConstants = Object.freeze({
   false,
 #endif
 
+  MOZ_BACKGROUNDTASKS:
+#ifdef MOZ_BACKGROUNDTASKS
+  true,
+#else
+  false,
+#endif
+
   MOZ_UPDATE_AGENT:
 #ifdef MOZ_UPDATE_AGENT
   true,
@@ -392,13 +399,6 @@ this.AppConstants = Object.freeze({
 
   MOZ_NEW_NOTIFICATION_STORE:
 #ifdef MOZ_NEW_NOTIFICATION_STORE
-    true,
-#else
-    false,
-#endif
-
-  MOZ_NEW_CERT_STORAGE:
-#ifdef MOZ_NEW_CERT_STORAGE
     true,
 #else
     false,

@@ -1295,6 +1295,9 @@ class ContentSandboxPolicy : public SandboxPolicyCommon {
         return Trap(StatFsTrap, nullptr);
 
       CASES_FOR_fstatfs:
+#ifdef __NR_getgroups32
+      case __NR_getgroups32:  // To dump tombstone in logcat
+#endif
         return Allow();
 #endif
 

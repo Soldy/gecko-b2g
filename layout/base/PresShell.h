@@ -738,7 +738,7 @@ class PresShell final : public nsStubDocumentObserver,
 #endif
 
   /**
-   * Stop all active elements (plugins and the caret) in this presentation and
+   * Stop all refresh drivers and carets in this presentation and
    * in the presentations of subdocuments.  Resets painting to a suppressed
    * state.
    * XXX this should include image animations
@@ -747,7 +747,7 @@ class PresShell final : public nsStubDocumentObserver,
   bool IsFrozen() { return mFrozen; }
 
   /**
-   * Restarts active elements (plugins) in this presentation and in the
+   * Restarts refresh drivers in this presentation and in the
    * presentations of subdocuments, then do a full invalidate of the content
    * area.
    */
@@ -998,12 +998,6 @@ class PresShell final : public nsStubDocumentObserver,
                        bool aDontRetargetEvents, nsEventStatus* aEventStatus);
   bool ShouldIgnoreInvalidation();
   /**
-   * Notify that we're going to call Paint with PaintFlags::PaintComposite.
-   * Fires on the presshell for the painted widget.
-   * This is issued at a time when it's safe to modify widget geometry.
-   */
-  MOZ_CAN_RUN_SCRIPT void WillPaintWindow();
-  /**
    * Notify that we called Paint with PaintFlags::PaintComposite.
    * Fires on the presshell for the painted widget.
    * This is issued at a time when it's safe to modify widget geometry.
@@ -1152,7 +1146,11 @@ class PresShell final : public nsStubDocumentObserver,
                              FlushType aFlushType);
 
   bool AddPostRefreshObserver(nsAPostRefreshObserver* aObserver);
+  bool AddPostRefreshObserver(mozilla::OneShotPostRefreshObserver* aObserver) =
+      delete;
   bool RemovePostRefreshObserver(nsAPostRefreshObserver* aObserver);
+  bool RemovePostRefreshObserver(
+      mozilla::OneShotPostRefreshObserver* aObserver) = delete;
 
   // Represents an update to the visual scroll offset that will be sent to APZ.
   // The update type is used to determine priority compared to other scroll

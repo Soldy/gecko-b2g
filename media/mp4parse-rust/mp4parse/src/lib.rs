@@ -3813,7 +3813,7 @@ fn read_audio_sample_entry<T: Read>(src: &mut BMFFBox<T>) -> Result<SampleEntry>
                 protection_info.push(sinf)?;
             }
             BoxType::AMRSpecificBox => {
-                if (codec_type != CodecType::AMRNB && codec_type != CodecType::AMRWB) {
+                if codec_type != CodecType::AMRNB && codec_type != CodecType::AMRWB {
                     return Err(Error::InvalidData("malformed audio sample entry"));
                 }
                 let amr_dec_spec_struc_size = b

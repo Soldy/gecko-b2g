@@ -315,10 +315,8 @@ class JS::Realm : public JS::shadow::Realm {
   friend js::ObjectRealm& js::ObjectRealm::get(const JSObject*);
 
   // Object group tables and other state in the realm. This is private to
-  // enforce use of ObjectGroupRealm::get(group)/getForNewObject(cx).
+  // enforce use of ObjectGroupRealm::getForNewObject(cx).
   js::ObjectGroupRealm objectGroups_;
-  friend js::ObjectGroupRealm& js::ObjectGroupRealm::get(
-      const js::ObjectGroup* group);
   friend js::ObjectGroupRealm& js::ObjectGroupRealm::getForNewObject(
       JSContext* cx);
 
@@ -497,8 +495,13 @@ class JS::Realm : public JS::shadow::Realm {
   const JS::RealmCreationOptions& creationOptions() const {
     return creationOptions_;
   }
-  JS::RealmBehaviors& behaviors() { return behaviors_; }
+
+  // NOTE: Do not provide accessor for mutable reference.
+  // Modifying RealmBehaviors after creating a realm can result in
+  // inconsistency.
   const JS::RealmBehaviors& behaviors() const { return behaviors_; }
+
+  void setNonLive() { behaviors_.setNonLive(); }
 
   /* Whether to preserve JIT code on non-shrinking GCs. */
   bool preserveJitCode() { return creationOptions_.preserveJitCode(); }

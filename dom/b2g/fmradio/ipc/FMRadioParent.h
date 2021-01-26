@@ -33,6 +33,8 @@ class FMRadioParent final : public PFMRadioParent, public FMRadioEventObserver {
 
   mozilla::ipc::IPCResult RecvEnableAudio(const bool& aAudioEnabled);
 
+  mozilla::ipc::IPCResult RecvSetVolume(const float& aVolume);
+
   mozilla::ipc::IPCResult RecvSetRDSGroupMask(const uint32_t& aRDSGroupMask);
 };
 

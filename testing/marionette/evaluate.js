@@ -667,7 +667,7 @@ evaluate.ScriptStorage = class extends Set {
     for (let s of additional) {
       rv = rv + ";" + s;
     }
-    logger.info(rv);
+    logger.debug(rv);
     return rv;
   }
 

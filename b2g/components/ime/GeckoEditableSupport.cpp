@@ -644,6 +644,80 @@ void GeckoEditableSupport::HandleBlur() {
   }
 }
 
+void GeckoEditableSupport::HandleTextChanged() {
+  nsresult rv = NS_ERROR_ABORT;
+  nsAutoString text;
+  RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
+  if (!focusManager) {
+    return;
+  }
+  RefPtr<Element> focusedElement = focusManager->GetFocusedElement();
+  if (!focusedElement) {
+    return;
+  }
+  nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
+  if (!doc) {
+    return;
+  }
+  RefPtr<Element> activeElement = doc->GetActiveElement();
+  if (!activeElement) {
+    return;
+  }
+  if (EditableUtils::isContentEditable(activeElement)) {
+    rv = getContentEditableText(activeElement, text);
+  } else {
+    RefPtr<HTMLTextAreaElement> textArea =
+        HTMLTextAreaElement::FromNodeOrNull(activeElement);
+    RefPtr<HTMLInputElement> input =
+        HTMLInputElement::FromNodeOrNull(activeElement);
+    if (textArea) {
+      textArea->GetValue(text);
+      rv = NS_OK;
+    } else if (input) {
+      input->GetValue(text, CallerType::NonSystem);
+      rv = NS_OK;
+    }
+  }
+  if (rv != NS_OK) {
+    return;
+  }
+  if (XRE_IsParentProcess()) {
+    // Call from parent process (or in-proces app).
+    RefPtr<InputMethodService> service = dom::InputMethodService::GetInstance();
+    service->HandleTextChanged(text);
+  } else {
+    EnsureServiceChild();
+    mServiceChild->SetEditableSupport(this);
+    HandleTextChangedRequest request(text);
+    mServiceChild->SendRequest(request);
+  }
+}
+
+NS_IMETHODIMP
+GeckoEditableSupport::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
+                                const IMENotification& aNotification) {
+  IME_LOGD("NotifyIME(aNotification={ mMessage=%s }",
+           ToChar(aNotification.mMessage));
+
+  switch (aNotification.mMessage) {
+    case NOTIFY_IME_OF_SELECTION_CHANGE: {
+      IME_LOGD("SelectionChangeData=%s",
+               ToString(aNotification.mSelectionChangeData).c_str());
+      break;
+    }
+    case NOTIFY_IME_OF_TEXT_CHANGE: {
+      IME_LOGD("TextChangeData=%s",
+               ToString(aNotification.mTextChangeData).c_str());
+      HandleTextChanged();
+      break;
+    }
+    default:
+      break;
+  }
+
+  return NS_OK;
+}
+
 // nsIEditableSupport methods.
 NS_IMETHODIMP
 GeckoEditableSupport::SetComposition(uint32_t aId,

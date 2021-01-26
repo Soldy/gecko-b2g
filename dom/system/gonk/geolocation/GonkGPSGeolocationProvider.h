@@ -88,6 +88,8 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
   void ShutdownGPS();
 
   void InjectLocation(double latitude, double longitude, float accuracy);
+  // Set the GnssPositionMode to HAL, return true on success.
+  bool SetPositionMode(bool enableHighAccuracy);
 
   NS_IMETHOD HandleSettings(nsISettingInfo* const info, bool isObserved);
 
@@ -146,6 +148,9 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
   }
   NS_IMETHOD NotifyRttMessageReceived(uint32_t clientId, int32_t callIndex,
                                       const nsAString& message) override {
+    return NS_OK;
+  }
+  NS_IMETHOD NotifySrvccState(uint32_t clientId, int32_t state) {
     return NS_OK;
   }
 #endif  // MOZ_B2G_RIL

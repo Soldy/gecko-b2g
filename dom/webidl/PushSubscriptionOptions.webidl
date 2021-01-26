@@ -7,7 +7,7 @@
 * https://w3c.github.io/push-api/
 */
 
-[Exposed=(Window,Worker), Pref="dom.push.enabled"]
+[Exposed=(Window,Worker), Pref="dom.push.enabled", Func="nsContentUtils::PushVisible"]
 interface PushSubscriptionOptions
 {
   [SameObject, Throws]

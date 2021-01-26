@@ -81,7 +81,6 @@ DIRS += [
     "utils",
     "url-classifier",
     "urlformatter",
-    "viewconfig",
     "viewsource",
     "windowcreator",
     "windowwatcher",
@@ -91,6 +90,7 @@ DIRS += [
 
 if CONFIG["MOZ_BUILD_APP"] != "mobile/android":
     DIRS += [
+        "aboutconfig",
         "narrate",
         "reader",
         "viaduct",
@@ -129,6 +129,9 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":
 
 if CONFIG["MOZ_BUILD_APP"] == "browser":
     DIRS += ["normandy", "messaging-system"]
+
+if CONFIG["MOZ_BACKGROUNDTASKS"]:
+    DIRS += ["backgroundtasks"]
 
 # This is only packaged for browser since corrupt JAR and XPI files tend to be a desktop-OS problem.
 if CONFIG["MOZ_BUILD_APP"] == "browser":
