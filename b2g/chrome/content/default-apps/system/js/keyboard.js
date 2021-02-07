@@ -3,6 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Bug 109000, we must set the openWindowInfo.
+  document.getElementById("keyboard").openWindowInfo = null;
   window.addEventListener("inputmethod-contextchange", event => {
     let detail = event.detail;
     console.log(`Event 'inputmethod-contextchange' ${JSON.stringify(detail)}`);

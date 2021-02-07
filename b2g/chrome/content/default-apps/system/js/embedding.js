@@ -67,7 +67,11 @@
       );
 
       let wm = exports.wm;
-      let web_view = wm.open_frame(aURI, { activate: true });
+      let web_view = wm.open_frame(
+        aURI,
+        { activate: true },
+        aParams.openWindowInfo
+      );
       return web_view;
     },
 

@@ -195,6 +195,13 @@ XPCOMUtils.defineLazyModuleGetter(
   "PhoneNumberUtils"
 );
 
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "gImsServiceManager",
+  "@mozilla.org/b2g/imsservicemanager;1",
+  "nsIImsServiceManager"
+);
+
 var DEBUG = RIL_DEBUG.DEBUG_RIL;
 function debug(s) {
   dump("MobileConnectionService: " + s + "\n");
@@ -2267,19 +2274,34 @@ MobileConnectionProvider.prototype = {
   },
 
   exitEmergencyCbMode(aCallback) {
-    this._radioInterface.sendWorkerMessage(
-      "exitEmergencyCbMode",
-      null,
-      function(aResponse) {
-        if (aResponse.errorMsg) {
-          aCallback.notifyError(aResponse.errorMsg);
-          return false;
+    if (this._imsRegHandler && this._imsRegHandler.isImsRegistered) {
+      try {
+        let imsEcbm = gImsServiceManager.getEcbm(this._clientId);
+        if (imsEcbm) {
+          imsEcbm.exitEmergencyCallbackMode();
+          aCallback.notifySuccess();
+          return;
         }
-
-        aCallback.notifySuccess();
-        return false;
+      } catch (e) {
+        if (DEBUG) {
+          this._debug("getEcbm failed");
+        }
       }
-    );
+      aCallback.notifyError(RIL.GECKO_ERROR_GENERIC_FAILURE);
+    } else {
+      this._radioInterface.sendWorkerMessage(
+        "sendExitEmergencyCbModeRequest",
+        null,
+        function(aResponse) {
+          if (aResponse.errorMsg) {
+            aCallback.notifyError(aResponse.errorMsg);
+            return;
+          }
+
+          aCallback.notifySuccess();
+        }
+      );
+    }
   },
 
   setRadioEnabled(aEnabled, aCallback) {

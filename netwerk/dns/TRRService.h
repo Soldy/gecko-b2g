@@ -11,6 +11,7 @@
 #include "nsIObserver.h"
 #include "nsITimer.h"
 #include "nsWeakReference.h"
+#include "ODoHService.h"
 #include "TRRServiceBase.h"
 
 class nsDNSService;
@@ -37,7 +38,7 @@ class TRRService : public TRRServiceBase,
   TRRService();
   nsresult Init();
   nsresult Start();
-  bool Enabled(nsIRequest::TRRMode aMode = nsIRequest::TRR_FIRST_MODE);
+  bool Enabled(nsIRequest::TRRMode aRequestMode = nsIRequest::TRR_DEFAULT_MODE);
   bool IsConfirmed() { return mConfirmationState == CONFIRM_OK; }
 
   bool DisableIPv6() { return mDisableIPv6; }
@@ -75,6 +76,7 @@ class TRRService : public TRRServiceBase,
 
   friend class TRRServiceChild;
   friend class TRRServiceParent;
+  friend class ODoHService;
   static void AddObserver(nsIObserver* aObserver,
                           nsIObserverService* aObserverService = nullptr);
   static bool CheckCaptivePortalIsPassed();
@@ -96,6 +98,7 @@ class TRRService : public TRRServiceBase,
 
   nsresult DispatchTRRRequestInternal(TRR* aTrrRequest, bool aWithLock);
   already_AddRefed<nsIThread> TRRThread_locked();
+  already_AddRefed<nsIThread> MainThreadOrTRRThread(bool aWithLock = true);
 
   // This method will process the URI and try to set mPrivateURI to that value.
   // Will return true if performed the change (if the value was different)
@@ -142,6 +145,7 @@ class TRRService : public TRRServiceBase,
   uint32_t mRetryConfirmInterval;  // milliseconds until retry
   Atomic<uint32_t, Relaxed> mTRRFailures;
   bool mParentalControlEnabled;
+  RefPtr<ODoHService> mODoHService;
 };
 
 extern TRRService* gTRRService;

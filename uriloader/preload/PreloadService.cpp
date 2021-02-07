@@ -23,12 +23,13 @@ PreloadService::~PreloadService() = default;
 
 bool PreloadService::RegisterPreload(const PreloadHashKey& aKey,
                                      PreloaderBase* aPreload) {
-  if (PreloadExists(aKey)) {
-    return false;
+  auto lookup = mPreloads.LookupForAdd(aKey);
+  if (lookup) {
+    lookup.Data() = aPreload;
+    return true;
   }
-
-  mPreloads.Put(aKey, RefPtr{aPreload});
-  return true;
+  lookup.OrInsert([&] { return aPreload; });
+  return false;
 }
 
 void PreloadService::DeregisterPreload(const PreloadHashKey& aKey) {
@@ -93,9 +94,9 @@ already_AddRefed<PreloaderBase> PreloadService::PreloadLinkElement(
   aLinkElement->GetReferrerPolicy(referrerPolicy);
   aLinkElement->GetType(type);
 
-  auto result =
-      PreloadOrCoalesce(uri, url, aPolicyType, as, type, charset, srcset, sizes,
-                        integrity, crossOrigin, referrerPolicy);
+  auto result = PreloadOrCoalesce(uri, url, aPolicyType, as, type, charset,
+                                  srcset, sizes, integrity, crossOrigin,
+                                  referrerPolicy, /* aFromHeader = */ false);
 
   if (!result.mPreloader) {
     NotifyNodeEvent(aLinkElement, result.mAlreadyComplete);
@@ -129,7 +130,8 @@ void PreloadService::PreloadLinkHeader(
   }
 
   PreloadOrCoalesce(aURI, aURL, aPolicyType, aAs, aType, u""_ns, aSrcset,
-                    aSizes, aIntegrity, aCORS, aReferrerPolicy);
+                    aSizes, aIntegrity, aCORS, aReferrerPolicy,
+                    /* aFromHeader = */ true);
 }
 
 PreloadService::PreloadOrCoalesceResult PreloadService::PreloadOrCoalesce(
@@ -137,7 +139,7 @@ PreloadService::PreloadOrCoalesceResult PreloadService::PreloadOrCoalesce(
     const nsAString& aAs, const nsAString& aType, const nsAString& aCharset,
     const nsAString& aSrcset, const nsAString& aSizes,
     const nsAString& aIntegrity, const nsAString& aCORS,
-    const nsAString& aReferrerPolicy) {
+    const nsAString& aReferrerPolicy, bool aFromHeader) {
   if (!aURI) {
     MOZ_ASSERT_UNREACHABLE("Should not pass null nsIURI");
     return {nullptr, false};
@@ -180,7 +182,12 @@ PreloadService::PreloadOrCoalesceResult PreloadService::PreloadOrCoalesce(
     PreloadScript(uri, aType, aCharset, aCORS, aReferrerPolicy, aIntegrity,
                   true /* isInHead - TODO */);
   } else if (aAs.LowerCaseEqualsASCII("style")) {
-    switch (PreloadStyle(uri, aCharset, aCORS, aReferrerPolicy, aIntegrity)) {
+    auto status = mDocument->PreloadStyle(
+        aURI, Encoding::ForLabel(aCharset), aCORS,
+        PreloadReferrerPolicy(aReferrerPolicy), aIntegrity,
+        aFromHeader ? css::StylePreloadKind::FromLinkRelPreloadHeader
+                    : css::StylePreloadKind::FromLinkRelPreloadElement);
+    switch (status) {
       case dom::SheetPreloadStatus::AlreadyComplete:
         return {nullptr, /* already_complete = */ true};
       case dom::SheetPreloadStatus::Errored:
@@ -207,14 +214,6 @@ void PreloadService::PreloadScript(nsIURI* aURI, const nsAString& aType,
   mDocument->ScriptLoader()->PreloadURI(
       aURI, aCharset, aType, aCrossOrigin, aIntegrity, aScriptFromHead, false,
       false, false, true, PreloadReferrerPolicy(aReferrerPolicy));
-}
-
-dom::SheetPreloadStatus PreloadService::PreloadStyle(
-    nsIURI* aURI, const nsAString& aCharset, const nsAString& aCrossOrigin,
-    const nsAString& aReferrerPolicy, const nsAString& aIntegrity) {
-  return mDocument->PreloadStyle(
-      aURI, Encoding::ForLabel(aCharset), aCrossOrigin,
-      PreloadReferrerPolicy(aReferrerPolicy), aIntegrity, true);
 }
 
 void PreloadService::PreloadImage(nsIURI* aURI, const nsAString& aCrossOrigin,

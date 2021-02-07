@@ -3705,9 +3705,7 @@ ICCRecordHelperObject.prototype = {
         //this.context.RuimRecordHelper.fetchRuimRecords();
         break;
     }
-    //Cameron mark first.
-    //console.log("Cameron, fetchICCRecords fetchISimRecords");
-    //this.context.ISimRecordHelper.fetchISimRecords();
+    this.context.ISimRecordHelper.fetchISimRecords();
   },
 
   /**
@@ -4487,6 +4485,64 @@ SimRecordHelperObject.prototype = {
         this.readSST();
       }
     );
+  },
+
+  // Sim refresh file updated.
+  handleFileUpdate(aEfId) {
+    switch (aEfId) {
+      case ICC_EF_MSISDN:
+        if (DEBUG) this.context.debug("File refresh for EF_MSISDN.");
+        if (ICCUtilsHelper.isICCServiceAvailable("MSISDN")) {
+          if (DEBUG) {
+            this.context.debug("MSISDN: MSISDN is available");
+          }
+          this.readMSISDN();
+        } else if (DEBUG) {
+          this.context.debug("MSISDN: MSISDN service is not available");
+        }
+        break;
+      case ICC_EF_AD:
+        if (DEBUG) this.context.debug("File refresh for EF_AD.");
+        this.readAD();
+        break;
+      case ICC_EF_MBDN:
+        if (DEBUG) this.context.debug("File refresh for EF_MBDN.");
+        if (ICCUtilsHelper.isICCServiceAvailable("MDN")) {
+          if (DEBUG) {
+            this.context.debug("MDN: MDN available.");
+          }
+          this.readMBDN();
+        } else {
+          if (DEBUG) {
+            this.context.debug("MDN: MDN service is not available");
+          }
+
+          if (ICCUtilsHelper.isCphsServiceAvailable("MBN")) {
+            // read CPHS_MBN in advance if MBDN is not available.
+            this.readCphsMBN();
+          } else if (DEBUG) {
+            this.context.debug("CPHS_MBN: CPHS_MBN service is not available");
+          }
+        }
+        break;
+      case ICC_EF_SPDI:
+        if (DEBUG) this.context.debug("File refresh for EF_SPDI.");
+        if (ICCUtilsHelper.isICCServiceAvailable("SPDI")) {
+          if (DEBUG) {
+            this.context.debug("SPDI: SPDI available.");
+          }
+          this.readSPDI();
+        } else if (DEBUG) {
+          this.context.debug("SPDI: SPDI service is not available");
+        }
+        break;
+      default:
+        // No one knew how to handle this particular file, so to be safe just
+        // fetch all records.
+        if (DEBUG) this.context.debug("SIM Refresh for all.");
+        fetchSimRecords();
+        break;
+    }
   },
 
   /**
@@ -6030,36 +6086,30 @@ ISimRecordHelperObject.prototype = {
     this.readIMPU();
   },
 
+  // Sim refresh file updated.
+  handleFileUpdate(aEfId) {
+    //TODO complete the isim part.
+  },
+
   readIMPI() {
     let ICCFileHelper = this.context.ICCFileHelper;
     let ICCIOHelper = this.context.ICCIOHelper;
 
-    function callback() {
-      let Buf = this.context.Buf;
-      let strLen = Buf.readInt32();
-      let octetLen = strLen / PDU_HEX_OCTET_SIZE;
-      let readLen = 0;
-
+    function callback(options) {
       let GsmPDUHelper = this.context.GsmPDUHelper;
+      GsmPDUHelper.initWith(options.simResponse);
       let tlvTag = GsmPDUHelper.readHexOctet();
       let tlvLen = GsmPDUHelper.readHexOctet();
-      readLen += 2; // For tag and length fields.
       if (tlvTag === ICC_ISIM_NAI_TLV_DATA_OBJECT_TAG) {
         let str = "";
         for (let i = 0; i < tlvLen; i++) {
           str += String.fromCharCode(GsmPDUHelper.readHexOctet());
         }
-        readLen += tlvLen;
         if (DEBUG) {
           this.context.debug("impi : " + str);
         }
         this.impi = str;
       }
-
-      // Consume unread octets.
-      Buf.seekIncoming((octetLen - readLen) * Buf.PDU_HEX_OCTET_SIZE);
-      Buf.readStringDelimiter(strLen);
-
       this._handleIsimInfoChange();
     }
 
@@ -6078,22 +6128,18 @@ ISimRecordHelperObject.prototype = {
     let ICCIOHelper = this.context.ICCIOHelper;
 
     function callback(options) {
-      let Buf = this.context.Buf;
       let GsmPDUHelper = this.context.GsmPDUHelper;
+      GsmPDUHelper.initWith(options.simResponse);
+
       let ICCIOHelper = this.context.ICCIOHelper;
-      let strLen = Buf.readInt32();
-      let octetLen = strLen / PDU_HEX_OCTET_SIZE;
-      let readLen = 0;
 
       let tlvTag = GsmPDUHelper.readHexOctet();
       let tlvLen = GsmPDUHelper.readHexOctet();
-      readLen += 2; // For tag and length fields.
       if (tlvTag === ICC_ISIM_URI_TLV_DATA_OBJECTTAG) {
         let str = "";
         for (let i = 0; i < tlvLen; i++) {
           str += String.fromCharCode(GsmPDUHelper.readHexOctet());
         }
-        readLen += tlvLen;
         if (str.length) {
           if (DEBUG) {
             this.context.debug("impu : " + str);
@@ -6101,10 +6147,6 @@ ISimRecordHelperObject.prototype = {
           this.impus.push(str);
         }
       }
-
-      // Consume unread octets.
-      Buf.seekIncoming((octetLen - readLen) * Buf.PDU_HEX_OCTET_SIZE);
-      Buf.readStringDelimiter(strLen);
 
       if (options.p1 < options.totalRecords) {
         ICCIOHelper.loadNextRecord(options);
@@ -6448,6 +6490,7 @@ ICCPDUHelperObject.prototype = {
          *       bit 8 = 1
          *       UCS2 character whose char code is (Ch_n & 0x7f) + offset
          */
+        GsmPDUHelper.initWith(value);
         let len = GsmPDUHelper.readHexOctet();
         let offset, headerLen;
         if (scheme == 0x81) {
@@ -6471,14 +6514,16 @@ ICCPDUHelperObject.prototype = {
             while (i + count + 1 < len) {
               count++;
               if (GsmPDUHelper.readHexOctet() & 0x80) {
+                GsmPDUHelper.seekIncoming(-1 * PDU_HEX_OCTET_SIZE);
                 gotUCS2 = 1;
                 break;
               }
             }
             // Unread.
             // +1 for the GSM alphabet indexed at i,
-            GsmPDUHelper.seekIncoming(-1 * (count + 1) * PDU_HEX_OCTET_SIZE);
-            str += this.read8BitUnpackedToString(count + 1 - gotUCS2);
+            //GsmPDUHelper.seekIncoming(-1 * (count + 1) * PDU_HEX_OCTET_SIZE);
+            let gsm8bitValue = value.slice(GsmPDUHelper.pduReadIndex -(count * PDU_HEX_OCTET_SIZE));
+            str += this.read8BitUnpackedToString(gsm8bitValue, count + 1 - gotUCS2);
             i += count - gotUCS2;
           }
         }
@@ -6576,12 +6621,12 @@ ICCPDUHelperObject.prototype = {
     }
     let GsmPDUHelper = this.context.GsmPDUHelper;
 
-    let temp = GsmPDUHelper.processHexToInt(value.slice(0, 2), 16);
+    let scheme = GsmPDUHelper.processHexToInt(value.slice(0, 2), 16);
     // Read the 1st octet to determine the encoding.
-    if (temp == 0x80 || temp == 0x81 || temp == 0x82) {
+    if (scheme == 0x80 || scheme == 0x81 || scheme == 0x82) {
       numOctets--;
       value = value.slice(2);
-      let string = this.readICCUCS2String(temp, value, numOctets);
+      let string = this.readICCUCS2String(scheme, value, numOctets);
       return string;
     }
     let string = this.read8BitUnpackedToString(value, numOctets);

@@ -135,7 +135,24 @@ FilePicker.prototype = {
   },
 
   appendFilter(title, extensions) {
-    // pick activity doesn't support extensions
+    // pick activity supports image extensions
+
+    let imageList = [
+      "BMP Image",
+      "GIF Image",
+      "JPEG Image",
+      "PNG Image",
+      "TIFF Image",
+    ];
+    let prefixReg = /\*\./g;
+
+    if (imageList.includes(title)) {
+      if (extensions.includes("*.")) {
+        extensions = extensions.replace(prefixReg, "image/");
+      }
+      this.mFilterTypes = this.mFilterTypes.concat(extensions.split(/[\s;]+/));
+      this.mExtraProps.nocrop = true;
+    }
   },
 
   open(aFilePickerShownCallback) {

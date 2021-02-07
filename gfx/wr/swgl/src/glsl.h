@@ -215,6 +215,24 @@ SI Float sqrt(Float v) {
 #endif
 }
 
+SI float recip(float x) { return 1.0f / x; }
+
+// Use a fast vector reciprocal approximation when available. This should only
+// be used in cases where it is okay that the approximation is imprecise -
+// essentially visually correct but numerically wrong. Otherwise just rely on
+// however the compiler would implement slower division if the platform doesn't
+// provide a convenient intrinsic.
+SI Float recip(Float v) {
+#if USE_SSE2
+  return _mm_rcp_ps(v);
+#elif USE_NEON
+  Float e = vrecpeq_f32(v);
+  return vrecpsq_f32(v, e) * e;
+#else
+  return 1.0f / v;
+#endif
+}
+
 SI float inversesqrt(float x) { return 1.0f / sqrtf(x); }
 
 SI Float inversesqrt(Float v) {
@@ -262,6 +280,14 @@ struct bvec2_scalar {
   constexpr bvec2_scalar(bool x, bool y) : x(x), y(y) {}
 };
 
+struct bvec2_scalar1 {
+  bool x;
+
+  IMPLICIT constexpr bvec2_scalar1(bool a) : x(a) {}
+
+  operator bvec2_scalar() const { return bvec2_scalar(x); }
+};
+
 struct bvec2 {
   bvec2() : bvec2(0) {}
   IMPLICIT bvec2(Bool a) : x(a), y(a) {}
@@ -284,7 +310,7 @@ struct bvec2 {
   Bool y;
 };
 
-bvec2_scalar make_bvec2(bool n) { return bvec2_scalar{n, n}; }
+bvec2_scalar1 make_bvec2(bool n) { return bvec2_scalar1(n); }
 
 bvec2_scalar make_bvec2(bool x, bool y) { return bvec2_scalar{x, y}; }
 
@@ -648,8 +674,8 @@ SI I32 roundfast(Float v, Float scale) {
 }
 
 template <typename T>
-SI auto round_pixel(T v) {
-  return roundfast(v, 255.0f);
+SI auto round_pixel(T v, float maxval = 1.0f) {
+  return roundfast(v, (255.0f / maxval));
 }
 
 #define round __glsl_round
@@ -1097,6 +1123,14 @@ struct bvec3_scalar {
   constexpr bvec3_scalar(bool x, bool y, bool z) : x(x), y(y), z(z) {}
 };
 
+struct bvec3_scalar1 {
+  bool x;
+
+  IMPLICIT constexpr bvec3_scalar1(bool a) : x(a) {}
+
+  operator bvec3_scalar() const { return bvec3_scalar(x); }
+};
+
 struct bvec3 {
   bvec3() : bvec3(0) {}
   IMPLICIT bvec3(Bool a) : x(a), y(a), z(a) {}
@@ -1120,7 +1154,7 @@ struct bvec3 {
   Bool z;
 };
 
-bvec3_scalar make_bvec3(bool n) { return bvec3_scalar{n, n, n}; }
+bvec3_scalar1 make_bvec3(bool n) { return bvec3_scalar1(n); }
 
 struct bvec4_scalar {
   bool x;
@@ -1132,6 +1166,14 @@ struct bvec4_scalar {
   IMPLICIT constexpr bvec4_scalar(bool a) : x(a), y(a), z(a), w(a) {}
   constexpr bvec4_scalar(bool x, bool y, bool z, bool w)
       : x(x), y(y), z(z), w(w) {}
+};
+
+struct bvec4_scalar1 {
+  bool x;
+
+  IMPLICIT constexpr bvec4_scalar1(bool a) : x(a) {}
+
+  operator bvec4_scalar() const { return bvec4_scalar(x); }
 };
 
 struct bvec4 {
@@ -1159,7 +1201,7 @@ struct bvec4 {
   Bool w;
 };
 
-bvec4_scalar make_bvec4(bool n) { return bvec4_scalar{n, n, n, n}; }
+bvec4_scalar1 make_bvec4(bool n) { return bvec4_scalar1(n); }
 
 bvec4_scalar make_bvec4(bool x, bool y, bool z, bool w) {
   return bvec4_scalar{x, y, z, w};
@@ -1335,6 +1377,7 @@ struct vec3 {
   IMPLICIT constexpr vec3(Float a) : x(a), y(a), z(a) {}
   constexpr vec3(Float x, Float y, Float z) : x(x), y(y), z(z) {}
   vec3(vec2 a, Float z) : x(a.x), y(a.y), z(z) {}
+  explicit vec3(vec4);
   IMPLICIT constexpr vec3(vec3_scalar s) : x(s.x), y(s.y), z(s.z) {}
   constexpr vec3(vec3_scalar s0, vec3_scalar s1, vec3_scalar s2, vec3_scalar s3)
       : x(Float{s0.x, s1.x, s2.x, s3.x}),
@@ -1363,6 +1406,8 @@ struct vec3 {
   vec3 sel(XYZW c1, XYZW c2, XYZW c3) {
     return vec3(select(c1), select(c2), select(c3));
   }
+
+  vec4 sel(XYZW c1, XYZW c2, XYZW c3, XYZW c4);
 
   vec2_ref lsel(XYZW c1, XYZW c2) { return vec2_ref(select(c1), select(c2)); }
 
@@ -1538,6 +1583,9 @@ struct vec4_scalar {
   vec3_scalar sel(XYZW c1, XYZW c2, XYZW c3) {
     return vec3_scalar{select(c1), select(c2), select(c3)};
   }
+  vec4_scalar sel(XYZW c1, XYZW c2, XYZW c3, XYZW c4) {
+    return vec4_scalar{select(c1), select(c2), select(c3), select(c4)};
+  }
   vec2_scalar_ref lsel(XYZW c1, XYZW c2) {
     return vec2_scalar_ref(select(c1), select(c2));
   }
@@ -1599,6 +1647,16 @@ vec4_scalar vec2_scalar::sel(XYZW c1, XYZW c2, XYZW c3, XYZW c4) {
   return vec4_scalar{select(c1), select(c2), select(c3), select(c4)};
 }
 
+struct vec4_ref {
+  vec4_ref(Float& x, Float& y, Float& z, Float& w) : x(x), y(y), z(z), w(w) {}
+  Float& x;
+  Float& y;
+  Float& z;
+  Float& w;
+
+  vec4_ref& operator=(const vec4& a);
+};
+
 struct vec4 {
   typedef struct vec4 vector_type;
   typedef float element_type;
@@ -1642,6 +1700,13 @@ struct vec4 {
   }
 
   vec2_ref lsel(XYZW c1, XYZW c2) { return vec2_ref(select(c1), select(c2)); }
+
+  vec4 sel(XYZW c1, XYZW c2, XYZW c3, XYZW c4) {
+    return vec4(select(c1), select(c2), select(c3), select(c4));
+  }
+  vec4_ref lsel(XYZW c1, XYZW c2, XYZW c3, XYZW c4) {
+    return vec4_ref(select(c1), select(c2), select(c3), select(c4));
+  }
 
   Float& operator[](int index) {
     switch (index) {
@@ -1777,6 +1842,18 @@ struct vec4 {
   Float w;
 };
 
+inline vec4_ref& vec4_ref::operator=(const vec4& a) {
+  x = a.x;
+  y = a.y;
+  z = a.z;
+  w = a.w;
+  return *this;
+}
+
+inline vec4 vec3::sel(XYZW c1, XYZW c2, XYZW c3, XYZW c4) {
+  return vec4(select(c1), select(c2), select(c3), select(c4));
+}
+
 vec4_scalar force_scalar(const vec4& v) {
   return vec4_scalar{force_scalar(v.x), force_scalar(v.y), force_scalar(v.z),
                      force_scalar(v.w)};
@@ -1827,6 +1904,8 @@ template <typename X, typename Y, typename Z, typename W>
 vec4 make_vec4(const X& x, const Y& y, const Z& z, const W& w) {
   return vec4(x, y, z, w);
 }
+
+ALWAYS_INLINE vec3::vec3(vec4 v) : x(v.x), y(v.y), z(v.z) {}
 
 SI ivec4 roundfast(vec4 v, Float scale) {
   return ivec4(roundfast(v.x, scale), roundfast(v.y, scale),
@@ -2361,13 +2440,28 @@ SI T mix(T x, T y, bvec4_scalar a) {
 }
 
 template <typename T>
+SI T mix(T x, T y, bvec4_scalar1 a) {
+  return a.x ? y : x;
+}
+
+template <typename T>
 SI T mix(T x, T y, bvec3_scalar a) {
   return T{a.x ? y.x : x.x, a.y ? y.y : x.y, a.z ? y.z : x.z};
 }
 
 template <typename T>
+SI T mix(T x, T y, bvec3_scalar1 a) {
+  return a.x ? y : x;
+}
+
+template <typename T>
 SI T mix(T x, T y, bvec2_scalar a) {
   return T{a.x ? y.x : x.x, a.y ? y.y : x.y};
+}
+
+template <typename T>
+SI T mix(T x, T y, bvec2_scalar1 a) {
+  return a.x ? y : x;
 }
 
 float dot(vec3_scalar a, vec3_scalar b) {

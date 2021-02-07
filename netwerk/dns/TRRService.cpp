@@ -32,8 +32,6 @@ static const char kOpenCaptivePortalLoginEvent[] = "captive-portal-login";
 static const char kClearPrivateData[] = "clear-private-data";
 static const char kPurge[] = "browser:purge-session-history";
 static const char kDisableIpv6Pref[] = "network.dns.disableIPv6";
-static const char kRolloutURIPref[] = "doh-rollout.uri";
-static const char kRolloutModePref[] = "doh-rollout.mode";
 
 #define TRR_PREF_PREFIX "network.trr."
 #define TRR_PREF(x) TRR_PREF_PREFIX x
@@ -200,6 +198,11 @@ nsresult TRRService::Init() {
     }
   }
 
+  mODoHService = new ODoHService();
+  if (!mODoHService->Init()) {
+    return NS_ERROR_FAILURE;
+  }
+
   LOG(("Initialized TRRService\n"));
   return NS_OK;
 }
@@ -227,14 +230,16 @@ void TRRService::SetDetectedTrrURI(const nsACString& aURI) {
   mURISetByDetection = MaybeSetPrivateURI(aURI);
 }
 
-bool TRRService::Enabled(nsIRequest::TRRMode aMode) {
-  if (mMode == nsIDNSService::MODE_TRROFF) {
+bool TRRService::Enabled(nsIRequest::TRRMode aRequestMode) {
+  if (mMode == nsIDNSService::MODE_TRROFF ||
+      aRequestMode == nsIRequest::TRR_DISABLED_MODE) {
     return false;
   }
+
   if (mConfirmationState == CONFIRM_INIT &&
       (!StaticPrefs::network_trr_wait_for_portal() || mCaptiveIsPassed ||
        (mMode == nsIDNSService::MODE_TRRONLY ||
-        aMode == nsIRequest::TRR_ONLY_MODE))) {
+        aRequestMode == nsIRequest::TRR_ONLY_MODE))) {
     LOG(("TRRService::Enabled => CONFIRM_TRYING\n"));
     mConfirmationState = CONFIRM_TRYING;
   }
@@ -242,14 +247,38 @@ bool TRRService::Enabled(nsIRequest::TRRMode aMode) {
   if (mConfirmationState == CONFIRM_TRYING) {
     LOG(("TRRService::Enabled MaybeConfirm()\n"));
     MaybeConfirm();
+    if (mMode == nsIDNSService::MODE_TRRONLY) {
+      MOZ_ASSERT(mConfirmationState == CONFIRM_OK,
+                 "Global mode is trr-only, but confirmation failed?");
+    }
   }
 
-  if (mConfirmationState != CONFIRM_OK) {
-    LOG(("TRRService::Enabled mConfirmationState=%d mCaptiveIsPassed=%d\n",
-         (int)mConfirmationState, (int)mCaptiveIsPassed));
+  LOG(("TRRService::Enabled mConfirmationState=%d mCaptiveIsPassed=%d\n",
+       (int)mConfirmationState, (int)mCaptiveIsPassed));
+
+  if (mConfirmationState == CONFIRM_OK) {
+    return true;
   }
 
-  return (mConfirmationState == CONFIRM_OK);
+  if (StaticPrefs::network_trr_wait_for_confirmation()) {
+    return false;
+  }
+
+  if ((aRequestMode == nsIRequest::TRR_DEFAULT_MODE &&
+       mMode == nsIDNSService::MODE_TRRONLY) ||
+      aRequestMode == nsIRequest::TRR_ONLY_MODE) {
+    // For TRR-only requests, or if the global mode is TRR-only, just say we're
+    // enabled.
+    return true;
+  }
+
+  if ((aRequestMode == nsIRequest::TRR_DEFAULT_MODE &&
+       mMode == nsIDNSService::MODE_TRRFIRST) ||
+      aRequestMode == nsIRequest::TRR_FIRST_MODE) {
+    return mConfirmationState != CONFIRM_FAILED;
+  }
+
+  return false;
 }
 
 void TRRService::GetPrefBranch(nsIPrefBranch** result) {
@@ -492,18 +521,24 @@ nsresult TRRService::DispatchTRRRequest(TRR* aTrrRequest) {
 nsresult TRRService::DispatchTRRRequestInternal(TRR* aTrrRequest,
                                                 bool aWithLock) {
   NS_ENSURE_ARG_POINTER(aTrrRequest);
-  if (!StaticPrefs::network_trr_fetch_off_main_thread() ||
-      XRE_IsSocketProcess()) {
-    return NS_DispatchToMainThread(aTrrRequest);
-  }
 
-  RefPtr<TRR> trr = aTrrRequest;
-  nsCOMPtr<nsIThread> thread = aWithLock ? TRRThread() : TRRThread_locked();
+  nsCOMPtr<nsIThread> thread = MainThreadOrTRRThread(aWithLock);
   if (!thread) {
     return NS_ERROR_FAILURE;
   }
 
+  RefPtr<TRR> trr = aTrrRequest;
   return thread->Dispatch(trr.forget());
+}
+
+already_AddRefed<nsIThread> TRRService::MainThreadOrTRRThread(bool aWithLock) {
+  if (!StaticPrefs::network_trr_fetch_off_main_thread() ||
+      XRE_IsSocketProcess()) {
+    return do_GetMainThread();
+  }
+
+  nsCOMPtr<nsIThread> thread = aWithLock ? TRRThread() : TRRThread_locked();
+  return thread.forget();
 }
 
 already_AddRefed<nsIThread> TRRService::TRRThread() {
@@ -557,16 +592,18 @@ TRRService::Observe(nsISupports* aSubject, const char* aTopic,
     // unless the service is in a TRR=enabled mode.
     if (mMode == nsIDNSService::MODE_TRRFIRST ||
         mMode == nsIDNSService::MODE_TRRONLY) {
-      if (!mCaptiveIsPassed) {
-        if (mConfirmationState != CONFIRM_OK) {
-          mConfirmationState = CONFIRM_TRYING;
-          MaybeConfirm();
-        }
-      } else {
-        LOG(("TRRservice CP clear when already up!\n"));
+      if (mRetryConfirmTimer) {
+        mRetryConfirmTimer->Cancel();
+        mRetryConfirmTimer = nullptr;
       }
-      mCaptiveIsPassed = true;
+      mRetryConfirmInterval = StaticPrefs::network_trr_retry_timeout_ms();
+      if (mConfirmationState != CONFIRM_OK) {
+        mConfirmationState = CONFIRM_TRYING;
+        MaybeConfirm();
+      }
     }
+
+    mCaptiveIsPassed = true;
 
   } else if (!strcmp(aTopic, kClearPrivateData) || !strcmp(aTopic, kPurge)) {
     // flush the TRR blocklist
@@ -680,7 +717,7 @@ bool TRRService::MaybeBootstrap(const nsACString& aPossible,
 bool TRRService::IsDomainBlocked(const nsACString& aHost,
                                  const nsACString& aOriginSuffix,
                                  bool aPrivateBrowsing) {
-  if (!Enabled(nsIRequest::TRR_DEFAULT_MODE)) {
+  if (!Enabled()) {
     return true;
   }
 

@@ -530,10 +530,11 @@ void LIRGeneratorX86Shared::lowerCompareExchangeTypedArrayElement(
   MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
 
   MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-  MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
   const LUse elements = useRegister(ins->elements());
-  const LAllocation index = useRegisterOrConstant(ins->index());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
 
   // If the target is a floating register then we need a temp at the
   // lower level; that temp must be eax.
@@ -583,10 +584,11 @@ void LIRGeneratorX86Shared::lowerAtomicExchangeTypedArrayElement(
   MOZ_ASSERT(ins->arrayType() <= Scalar::Uint32);
 
   MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-  MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
   const LUse elements = useRegister(ins->elements());
-  const LAllocation index = useRegisterOrConstant(ins->index());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
   const LAllocation value = useRegister(ins->value());
 
   // The underlying instruction is XCHG, which can operate on any
@@ -622,10 +624,11 @@ void LIRGeneratorX86Shared::lowerAtomicTypedArrayElementBinop(
   MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
 
   MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-  MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
   const LUse elements = useRegister(ins->elements());
-  const LAllocation index = useRegisterOrConstant(ins->index());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
 
   // Case 1: the result of the operation is not used.
   //
@@ -793,6 +796,9 @@ void LIRGenerator::visitWasmBinarySimd128(MWasmBinarySimd128* ins) {
   MOZ_ASSERT(rhs->type() == MIRType::Simd128);
   MOZ_ASSERT(ins->type() == MIRType::Simd128);
 
+  // Note MWasmBinarySimd128::foldsTo has already specialized operations that
+  // have a constant operand, so this takes care of more general cases of
+  // reordering, see ReorderCommutative.
   if (ins->isCommutative()) {
     ReorderCommutative(&lhs, &rhs, ins);
   }

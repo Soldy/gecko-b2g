@@ -1597,17 +1597,32 @@ MobileMessageDB.prototype = {
 
         let deletedInfo = { messageIds: [], threadIds: [] };
 
+        function removeGroupMark() {
+          // Use the no mark recipients after save message successfully.
+          if (aMessageRecord.isGroup) {
+            if (Array.isArray(aMessageRecord.headers.to)) {
+              let firstAddress = aMessageRecord.headers.to[0].address.replace(
+                "group",
+                ""
+              );
+              aMessageRecord.headers.to[0].address = firstAddress;
+            } else {
+              let firstAddress = aMessageRecord.headers.to.address.replace(
+                "group",
+                ""
+              );
+              aMessageRecord.headers.to.address = firstAddress;
+            }
+          }
+        }
+
         txn.oncomplete = function(event) {
           if (aMessageRecord.id > self.lastMessageId) {
             self.lastMessageId = aMessageRecord.id;
           }
-          // Use the no mark recipients after save message successfully.
+
           if (aMessageRecord.isGroup) {
-            let firstAddress = aMessageRecord.headers.to[0].address.replace(
-              "group",
-              ""
-            );
-            aMessageRecord.headers.to[0].address = firstAddress;
+            removeGroupMark();
           }
           notifyResult(Cr.NS_OK, aMessageRecord);
           self.notifyDeletedInfo(deletedInfo);
@@ -1620,13 +1635,9 @@ MobileMessageDB.prototype = {
             event.target.error.name === "QuotaExceededError"
               ? Cr.NS_ERROR_FILE_NO_DEVICE_SPACE
               : Cr.NS_ERROR_FAILURE;
-          // Use the no mark recipients after save message fail.
+
           if (aMessageRecord.isGroup) {
-            let firstAddress = aMessageRecord.headers.to[0].address.replace(
-              "group",
-              ""
-            );
-            aMessageRecord.headers.to[0].address = firstAddress;
+            removeGroupMark();
           }
           notifyResult(error, aMessageRecord);
         };

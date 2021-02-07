@@ -1169,6 +1169,17 @@ panelview .toolbarbutton-1,
 .subviewbutton-iconic:not(.subviewbutton-back) > .toolbarbutton-icon {
   display: none;
 }
+
+#appMenu-zoomReduce-button2 > .toolbarbutton-icon,
+#appMenu-zoomEnlarge-button2 > .toolbarbutton-icon,
+#appMenu-fullscreen-button2 > .toolbarbutton-icon {
+  display: unset;
+}
+
+#appMenu-zoom-controls2 > .subviewbutton {
+  margin-inline-start: 2px;
+  padding: 4px 4px;
+}
 } /*** END proton ***/
 
 /* We don't always display: none this item, and if it has forced width (like above)
@@ -1176,6 +1187,10 @@ panelview .toolbarbutton-1,
  */
 .subviewbutton > .toolbarbutton-icon {
   margin: 0;
+}
+
+.panel-subview-footer-button {
+  margin-bottom: 6px;
 }
 
 .subviewbutton.panel-subview-footer > .menu-text {
@@ -1325,20 +1340,24 @@ panelmultiview .toolbaritem-combined-buttons > spacer.after-label {
   background-color: var(--arrowpanel-dimmed);
 }
 
-#appMenu-zoomReset-button@buttonStateHover@ {
+#appMenu-zoomReset-button@buttonStateHover@,
+#appMenu-zoomReset-button2@buttonStateHover@ {
   background-color: var(--arrowpanel-dimmed-further);
 }
 
-#appMenu-zoomReset-button@buttonStateActive@ {
+#appMenu-zoomReset-button@buttonStateActive@,
+#appMenu-zoomReset-button2@buttonStateActive@ {
   background-color: var(--arrowpanel-dimmed-even-further);
 }
 
-#appMenu-zoomReset-button > .toolbarbutton-text {
+#appMenu-zoomReset-button > .toolbarbutton-text,
+#appMenu-zoomReset-button2 > .toolbarbutton-text {
   min-width: calc(3ch + 8px);
   text-align: center;
 }
 
-#appMenu-zoom-controls > toolbarseparator[orient="vertical"] + .subviewbutton {
+#appMenu-zoom-controls > toolbarseparator[orient="vertical"] + .subviewbutton,
+#appMenu-zoom-controls2 > toolbarseparator[orient="vertical"] + .subviewbutton {
   margin-inline-start: 0;
 }
 

@@ -307,7 +307,7 @@ GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
       mSupportsScheduling(false),
       mSupportsSingleShot(false),
       mSupportsTimeInjection(false),
-      mSupportsMSB(false),
+      mSupportsMSB(true),  // almost all the GNSS HALs support MSB
       mSupportsMSA(false),
 #ifdef MOZ_B2G_RIL
       mRilDataServiceId(0),

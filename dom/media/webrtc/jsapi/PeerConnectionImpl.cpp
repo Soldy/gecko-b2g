@@ -1980,6 +1980,10 @@ PeerConnectionImpl::Close() {
   CSFLogDebug(LOGTAG, "%s: for %s", __FUNCTION__, mHandle.c_str());
   PC_AUTO_ENTER_API_CALL_NO_CHECK();
 
+  if (IsClosed()) {
+    return NS_OK;
+  }
+
   CloseInt();
   // Uncount this connection as active on the inner window upon close.
   if (mWindow && mActiveOnWindow) {
@@ -2084,6 +2088,8 @@ void PeerConnectionImpl::RecordEndOfCallTelemetry() {
 
 nsresult PeerConnectionImpl::CloseInt() {
   PC_AUTO_ENTER_API_CALL_NO_CHECK();
+
+  mSignalingState = RTCSignalingState::Closed;
 
   // We do this at the end of the call because we want to make sure we've waited
   // for all trickle ICE candidates to come in; this can happen well after we've

@@ -3109,27 +3109,6 @@ void nsPIDOMWindowOuter::RefreshMediaElementsSuspend(SuspendTypes aSuspend) {
   }
 }
 
-void nsPIDOMWindowOuter::SetServiceWorkersTestingEnabled(bool aEnabled) {
-  // Devtools should only be setting this on the top level window.  Its
-  // ok if devtools clears the flag on clean up of nested windows, though.
-  // It will have no affect.
-#ifdef DEBUG
-  nsCOMPtr<nsPIDOMWindowOuter> topWindow = GetInProcessScriptableTop();
-  MOZ_ASSERT_IF(aEnabled, this == topWindow);
-#endif
-  mServiceWorkersTestingEnabled = aEnabled;
-}
-
-bool nsPIDOMWindowOuter::GetServiceWorkersTestingEnabled() {
-  // Automatically get this setting from the top level window so that nested
-  // iframes get the correct devtools setting.
-  nsCOMPtr<nsPIDOMWindowOuter> topWindow = GetInProcessScriptableTop();
-  if (!topWindow) {
-    return false;
-  }
-  return topWindow->mServiceWorkersTestingEnabled;
-}
-
 mozilla::dom::BrowsingContextGroup*
 nsPIDOMWindowOuter::GetBrowsingContextGroup() const {
   return mBrowsingContext ? mBrowsingContext->Group() : nullptr;
@@ -6935,17 +6914,22 @@ nsresult nsGlobalWindowOuter::OpenInternal(
   nsAutoCString options;
   features.Stringify(options);
 
-  // If current's top-level browsing context's active document's
-  // cross-origin-opener-policy is "same-origin" or "same-origin + COEP" then
-  // if currentDoc's origin is not same origin with currentDoc's top-level
-  // origin, then set noopener to true and name to "_blank".
+  // If noopener is force-enabled for the current document, then set noopener to
+  // true, and clear the name to "_blank".
   nsAutoString windowName(aName);
-  auto topPolicy = mBrowsingContext->Top()->GetOpenerPolicy();
-  if ((topPolicy == nsILoadInfo::OPENER_POLICY_SAME_ORIGIN ||
-       topPolicy ==
-           nsILoadInfo::
-               OPENER_POLICY_SAME_ORIGIN_EMBEDDER_POLICY_REQUIRE_CORP) &&
-      !mBrowsingContext->SameOriginWithTop()) {
+  if (nsDocShell::Cast(GetDocShell())->NoopenerForceEnabled()) {
+    // FIXME: Eventually bypass force-enabling noopener if `aPrintKind !=
+    // PrintKind::None`, so that we can print pages with noopener force-enabled.
+    // This will require relaxing assertions elsewhere.
+    if (aPrintKind != PrintKind::None) {
+      NS_WARNING(
+          "printing frames with noopener force-enabled isn't supported yet");
+      return NS_ERROR_FAILURE;
+    }
+
+    MOZ_DIAGNOSTIC_ASSERT(aNavigate,
+                          "cannot OpenNoNavigate if noopener is force-enabled");
+
     forceNoOpener = true;
     windowName = u"_blank"_ns;
   }
@@ -7621,7 +7605,6 @@ nsPIDOMWindowOuter::nsPIDOMWindowOuter(uint64_t aWindowID)
       mIsRootOuterWindow(false),
       mInnerWindow(nullptr),
       mWindowID(aWindowID),
-      mMarkedCCGeneration(0),
-      mServiceWorkersTestingEnabled(false) {}
+      mMarkedCCGeneration(0) {}
 
 nsPIDOMWindowOuter::~nsPIDOMWindowOuter() = default;

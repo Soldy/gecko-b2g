@@ -49,13 +49,10 @@ class WindowBackBuffer {
   ~WindowBackBuffer();
 
   already_AddRefed<gfx::DrawTarget> Lock();
-  bool IsLocked() { return mIsLocked; };
-  void Unlock() { mIsLocked = false; };
 
   void Attach(wl_surface* aSurface);
   void Detach(wl_buffer* aBuffer);
   bool IsAttached() { return mAttached; }
-  void SetAttached() { mAttached = true; };
 
   void Clear();
   bool Create(int aWidth, int aHeight);
@@ -101,7 +98,6 @@ class WindowBackBuffer {
   int mWidth;
   int mHeight;
   bool mAttached;
-  bool mIsLocked;
 };
 
 class WindowImageSurface {
@@ -173,7 +169,6 @@ class WindowSurfaceWayland : public WindowSurface {
   WindowBackBuffer* WaylandBufferFindAvailable(int aWidth, int aHeight);
 
   already_AddRefed<gfx::DrawTarget> LockWaylandBuffer();
-  void UnlockWaylandBuffer();
 
   already_AddRefed<gfx::DrawTarget> LockImageSurface(
       const gfx::IntSize& aLockSize);

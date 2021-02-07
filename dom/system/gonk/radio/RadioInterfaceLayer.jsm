@@ -1085,6 +1085,9 @@ RadioInterface.prototype = {
         this.handleIccMwis(message.mwi);
         break;
       case "isiminfochange":
+        if (DEBUG) {
+          this.debug("isiminfochange message=" + JSON.stringify(message));
+        }
         gIccService.notifyIsimInfoChanged(
           this.clientId,
           message.impi ? message : null
@@ -1183,6 +1186,7 @@ RadioInterface.prototype = {
               JSON.stringify(refreshResult)
           );
         }
+        this.handleSimRefresh(refreshResult);
         break;
       case "restrictedStateChanged":
         let restrictedState = message.restrictedState;
@@ -1259,8 +1263,7 @@ RadioInterface.prototype = {
           pco.cid,
           pco.bearerProto,
           pco.pcoId,
-          pco.contents,
-          pco.contents.length
+          pco.getContents()
         );
         break;
       case "imsNetworkStateChanged":
@@ -4162,6 +4165,27 @@ RadioInterface.prototype = {
           );
         }
         break;
+      case "setDataProfile":
+        if (response.errorMsg == 0) {
+          if (DEBUG) {
+            this.debug(
+              "RILJ: [" +
+                response.rilMessageToken +
+                "] < RIL_REQUEST_SET_DATA_PROFILE"
+            );
+          }
+        } else if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              response.rilMessageToken +
+              "] < RIL_REQUEST_SET_DATA_PROFILE error = " +
+              result.errorMsg +
+              " (" +
+              response.errorMsg +
+              ")"
+          );
+        }
+        break;
       case "iccOpenChannel":
         break;
       case "iccCloseChannel":
@@ -4844,6 +4868,58 @@ RadioInterface.prototype = {
   exitEmergencyCbMode() {
     this.cancelEmergencyCbModeTimeout();
     this.sendRilRequest("sendExitEmergencyCbModeRequest", null);
+  },
+
+  handleSimRefresh(aRefreshResult) {
+    if (!aRefreshResult) {
+      if (DEBUG) {
+        this.debug("aRefreshResult null.");
+      }
+      return;
+    }
+
+    // Match the aid.
+    let aid = aRefreshResult.aid;
+    let simRecord;
+    if (this.simIOcontext.SimRecordHelper.aid === aid) {
+      if (DEBUG) {
+        this.debug("SimRecordHelper. aid = " + aid);
+      }
+      simRecord = this.simIOcontext.SimRecordHelper;
+    } else if (this.simIOcontext.ISimRecordHelper.aid === aid) {
+      if (DEBUG) {
+        this.debug("ISimRecordHelper. aid = " + aid);
+      }
+      simRecord = this.simIOcontext.ISimRecordHelper;
+    } else {
+      // TODO: handle ruim later.
+      if (DEBUG) {
+        this.debug("aid not match. aid = " + aid);
+      }
+      return;
+    }
+
+    let efId = aRefreshResult.efId;
+    if (!efId) {
+      if (DEBUG) {
+        this.debug("efId null.");
+      }
+      return;
+    }
+
+    switch (aRefreshResult.type) {
+      case RIL.SIM_FILE_UPDATE:
+        if (DEBUG) {
+          this.debug("handleSimRefresh with SIM_FILE_UPDATED");
+        }
+        simRecord.handleFileUpdate(efId);
+        break;
+      default:
+        if (DEBUG) {
+          this.debug("handleSimRefresh with unknown operation");
+        }
+        break;
+    }
   },
 
   /**
@@ -6762,6 +6838,9 @@ RadioInterface.prototype = {
           message.isRoaming
         );
         break;
+      case "setDataProfile":
+        this.processSetDataProfile(message);
+        break;
       case "iccOpenChannel":
         break;
       case "iccCloseChannel":
@@ -7968,6 +8047,43 @@ RadioInterface.prototype = {
       );
     }
     this.rilworker.sendEnvelope(options.rilMessageToken, contents);
+  },
+
+  processSetDataProfile(message) {
+    // profileList must be a nsIDataProfile list.
+    if (!(message.profileList instanceof Array)) {
+      message.errorMsg = RIL.GECKO_ERROR_INVALID_ARGUMENTS;
+      this.handleRilResponse(message);
+      return;
+    }
+
+    let profileList = [];
+    message.profileList.forEach(function(profile) {
+      if (!(profile instanceof Ci.nsIDataProfile)) {
+        profileList.push(new DataProfile(profile));
+      } else {
+        profileList.push(profile);
+      }
+    });
+
+    let roaming;
+    if (!message.isRoaming) {
+      roaming = this.dataRegistrationState.roaming;
+    }
+
+    if (DEBUG) {
+      this.debug(
+        "RILJ: [" +
+          message.rilMessageToken +
+          "] > RIL_REQUEST_SET_DATA_PROFILE profile = " +
+          JSON.stringify(profileList)
+      );
+    }
+    this.rilworker.setDataProfile(
+      message.rilMessageToken,
+      profileList,
+      roaming
+    );
   },
 
   sendWorkerMessage(rilMessageType, message, callback) {

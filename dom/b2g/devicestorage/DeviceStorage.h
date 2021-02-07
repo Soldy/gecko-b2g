@@ -116,6 +116,7 @@ class DeviceStorageFile final : public nsISupports {
   void AccumDiskUsage(uint64_t* aPicturesSoFar, uint64_t* aVideosSoFar,
                       uint64_t* aMusicSoFar, uint64_t* aTotalSoFar);
 
+  void GetStorageIsDiskFull(bool* aIsDiskFull);
   void GetStorageFreeSpace(int64_t* aSoFar);
   void GetStatus(nsAString& aStatus);
   void GetStorageStatus(nsAString& aStatus);
@@ -221,6 +222,7 @@ class nsDOMDeviceStorage final : public mozilla::DOMEventTargetHelper,
   already_AddRefed<FileIterable> EnumerateEditable(
       const nsAString& aPath, const EnumerationParameters& aOptions,
       ErrorResult& aRv);
+  already_AddRefed<DOMRequest> IsDiskFull(ErrorResult& aRv);
   already_AddRefed<DOMRequest> FreeSpace(ErrorResult& aRv);
   already_AddRefed<DOMRequest> UsedSpace(ErrorResult& aRv);
   already_AddRefed<DOMRequest> Available(ErrorResult& aRv);

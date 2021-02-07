@@ -1492,6 +1492,7 @@ var Policies = {
     onBeforeAddons(manager, param) {
       const allowedPrefixes = [
         "accessibility.",
+        "app.update.",
         "browser.",
         "datareporting.policy.",
         "dom.",
@@ -1520,9 +1521,14 @@ var Policies = {
         "security.osclientcerts.autoload",
         "security.ssl.errorReporting.enabled",
         "security.tls.hello_downgrade_check",
+        "security.tls.version.enable-deprecated",
         "security.warn_submit_secure_to_insecure",
       ];
-      const blockedPrefs = [];
+      const blockedPrefs = [
+        "app.update.channel",
+        "app.update.lastUpdateTime",
+        "app.update.migrated",
+      ];
 
       for (let preference in param) {
         if (blockedPrefs.includes(preference)) {
@@ -2361,11 +2367,6 @@ function blockAboutPage(manager, feature, neededOnContentProcess = false) {
     gBlockedAboutPages.push(chromeURL);
   } catch (e) {
     // Some about pages don't have chrome URLS (compat)
-  }
-
-  if (feature == "about:config") {
-    // Hide old page until it is removed
-    gBlockedAboutPages.push("chrome://global/content/config.xhtml");
   }
 }
 

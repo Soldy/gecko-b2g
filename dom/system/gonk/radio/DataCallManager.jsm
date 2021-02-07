@@ -1081,7 +1081,7 @@ DataCallHandler.prototype = {
     this.dataCallInterface.setInitialAttachApn(apnProfile, dataInfo.roaming);
   },
 
-  updatePcoData(aCid, aBearerProtom, aPcoId, aContents, aCount) {
+  updatePcoData(aCid, aBearerProtom, aPcoId, aContents) {
     if (!gPCOService) {
       this.debug("Error. No PCO Service. return.");
       return;
@@ -1095,9 +1095,7 @@ DataCallHandler.prototype = {
           " ,aPcoId=" +
           aPcoId +
           " ,aContents=" +
-          JSON.stringify(aContents) +
-          " ,aCount=" +
-          aCount
+          JSON.stringify(aContents)
       );
     }
 

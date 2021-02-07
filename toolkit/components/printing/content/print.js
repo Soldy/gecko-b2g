@@ -1435,8 +1435,8 @@ var PrintSettingsViewProxy = {
 
       case "printDuplex":
         target.duplex = value
-          ? Ci.nsIPrintSettings.kDuplexHorizontal
-          : Ci.nsIPrintSettings.kSimplex;
+          ? Ci.nsIPrintSettings.kDuplexFlipOnSideEdge
+          : Ci.nsIPrintSettings.kDuplexNone;
         break;
 
       case "printFootersHeaders":

@@ -42,10 +42,12 @@
 
 #include "mozilla/AutoRestore.h"
 #include "mozilla/BasicEvents.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPrefs_widget.h"
-#include "mozilla/PresShell.h"
+#include "mozilla/WritingModes.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include <algorithm>
 
@@ -983,11 +985,9 @@ void nsCocoaWindow::Show(bool bState) {
 // the assigned space even when opened from another display. Apply the
 // workaround whenever more than one display is enabled.
 bool nsCocoaWindow::NeedsRecreateToReshow() {
-  // Limit the workaround to non-tooltip popup windows because only they need to
-  // override the "Assign To" setting. i.e., to display where the parent window
-  // is.
-  return (mWindowType == eWindowType_popup) && (mPopupType != ePopupTypeTooltip) && mWasShown &&
-         ([[NSScreen screens] count] > 1);
+  // Limit the workaround to popup windows because only they need to override
+  // the "Assign To" setting. i.e., to display where the parent window is.
+  return (mWindowType == eWindowType_popup) && mWasShown && ([[NSScreen screens] count] > 1);
 }
 
 struct ShadowParams {
@@ -1176,6 +1176,11 @@ void nsCocoaWindow::SetSizeConstraints(const SizeConstraints& aConstraints) {
   NSSize minSize = {nsCocoaUtils::DevPixelsToCocoaPoints(c.mMinSize.width, scaleFactor),
                     nsCocoaUtils::DevPixelsToCocoaPoints(c.mMinSize.height, scaleFactor)};
   [mWindow setMinSize:minSize];
+
+  c.mMaxSize.width = std::max(nsCocoaUtils::CocoaPointsToDevPixels(c.mMaxSize.width, scaleFactor),
+                              c.mMaxSize.width);
+  c.mMaxSize.height = std::max(nsCocoaUtils::CocoaPointsToDevPixels(c.mMaxSize.height, scaleFactor),
+                               c.mMaxSize.height);
 
   NSSize maxSize = {c.mMaxSize.width == NS_MAXSIZE
                         ? FLT_MAX
@@ -2591,7 +2596,11 @@ bool nsCocoaWindow::GetEditCommands(NativeKeyBindingsType aType, const WidgetKey
   }
 
   NativeKeyBindings* keyBindings = NativeKeyBindings::GetInstance(aType);
-  keyBindings->GetEditCommands(aEvent, aCommands);
+  // When the keyboard event is fired from this widget, it must mean that no web content has focus
+  // because any web contents should be on `nsChildView`.  And in any locales, the system UI is
+  // always horizontal layout.  So, let's pass `Nothing()` for the writing mode here, it won't be
+  // treated as in a vertical content.
+  keyBindings->GetEditCommands(aEvent, Nothing(), aCommands);
   return true;
 }
 

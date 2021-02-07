@@ -150,8 +150,7 @@ MOZ_MUST_USE JSFunction* CompileStandaloneFunction(
     JSContext* cx, const JS::ReadOnlyCompileOptions& options,
     JS::SourceText<char16_t>& srcBuf,
     const mozilla::Maybe<uint32_t>& parameterListEnd,
-    frontend::FunctionSyntaxKind syntaxKind,
-    HandleScope enclosingScope = nullptr);
+    frontend::FunctionSyntaxKind syntaxKind);
 
 MOZ_MUST_USE JSFunction* CompileStandaloneGenerator(
     JSContext* cx, const JS::ReadOnlyCompileOptions& options,
@@ -170,6 +169,13 @@ MOZ_MUST_USE JSFunction* CompileStandaloneAsyncGenerator(
     JS::SourceText<char16_t>& srcBuf,
     const mozilla::Maybe<uint32_t>& parameterListEnd,
     frontend::FunctionSyntaxKind syntaxKind);
+
+// Compile a single function in given enclosing non-syntactic scope.
+MOZ_MUST_USE JSFunction* CompileStandaloneFunctionInNonSyntacticScope(
+    JSContext* cx, const JS::ReadOnlyCompileOptions& options,
+    JS::SourceText<char16_t>& srcBuf,
+    const mozilla::Maybe<uint32_t>& parameterListEnd,
+    frontend::FunctionSyntaxKind syntaxKind, HandleScope enclosingScope);
 
 /*
  * True if str consists of an IdentifierStart character, followed by one or
@@ -196,8 +202,7 @@ bool IsIdentifierNameOrPrivateName(const Latin1Char* chars, size_t length);
 bool IsIdentifierNameOrPrivateName(const char16_t* chars, size_t length);
 
 /* True if str is a keyword. Defined in TokenStream.cpp. */
-bool IsKeyword(const ParserAtom* atom);
-bool IsKeyword(JSLinearString* str);
+bool IsKeyword(TaggedParserAtomIndex atom);
 
 class MOZ_STACK_CLASS AutoFrontendTraceLog {
 #ifdef JS_TRACE_LOGGING

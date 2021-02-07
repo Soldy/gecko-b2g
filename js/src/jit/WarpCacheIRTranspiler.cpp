@@ -222,7 +222,7 @@ class MOZ_RAII WarpCacheIRTranspiler : public WarpBuilderShared {
                        MDefinition** offset, MInstruction** elements);
 
   [[nodiscard]] bool emitAtomicsBinaryOp(ObjOperandId objId,
-                                         Int32OperandId indexId,
+                                         IntPtrOperandId indexId,
                                          Int32OperandId valueId,
                                          Scalar::Type elementType, AtomicOp op);
 
@@ -1215,26 +1215,6 @@ bool WarpCacheIRTranspiler::emitGuardToInt32Index(ValOperandId inputId,
   return defineOperand(resultId, ins);
 }
 
-bool WarpCacheIRTranspiler::emitGuardToTypedArrayIndex(
-    ValOperandId inputId, Int32OperandId resultId) {
-  MDefinition* input = getOperand(inputId);
-
-  MDefinition* number;
-  if (input->type() == MIRType::Int32 || input->type() == MIRType::Double) {
-    number = input;
-  } else {
-    auto* unbox =
-        MUnbox::New(alloc(), input, MIRType::Double, MUnbox::Fallible);
-    add(unbox);
-    number = unbox;
-  }
-
-  auto* ins = MTypedArrayIndexToInt32::New(alloc(), number);
-  add(ins);
-
-  return defineOperand(resultId, ins);
-}
-
 bool WarpCacheIRTranspiler::emitTruncateDoubleToUInt32(
     NumberOperandId inputId, Int32OperandId resultId) {
   MDefinition* input = getOperand(inputId);
@@ -1269,6 +1249,22 @@ bool WarpCacheIRTranspiler::emitToString(OperandId inputId,
       MToString::New(alloc(), input, MToString::SideEffectHandling::Bailout);
   add(ins);
 
+  return defineOperand(resultId, ins);
+}
+
+bool WarpCacheIRTranspiler::emitInt32ToIntPtr(Int32OperandId inputId,
+                                              IntPtrOperandId resultId) {
+  MDefinition* input = getOperand(inputId);
+  auto* ins = MInt32ToIntPtr::New(alloc(), input);
+  add(ins);
+  return defineOperand(resultId, ins);
+}
+
+bool WarpCacheIRTranspiler::emitGuardNumberToIntPtrIndex(
+    NumberOperandId inputId, bool supportOOB, IntPtrOperandId resultId) {
+  MDefinition* input = getOperand(inputId);
+  auto* ins = MGuardNumberToIntPtrIndex::New(alloc(), input, supportOOB);
+  add(ins);
   return defineOperand(resultId, ins);
 }
 
@@ -1609,13 +1605,21 @@ bool WarpCacheIRTranspiler::emitLoadArrayBufferByteLengthInt32Result(
   return true;
 }
 
-bool WarpCacheIRTranspiler::emitLoadTypedArrayLengthResult(ObjOperandId objId) {
+bool WarpCacheIRTranspiler::emitLoadTypedArrayLengthInt32Result(
+    ObjOperandId objId) {
   MDefinition* obj = getOperand(objId);
+
+  // Use a separate instruction for converting the length to Int32, so that we
+  // can fold the MArrayBufferViewLength instruction with length instructions
+  // added for bounds checks.
 
   auto* length = MArrayBufferViewLength::New(alloc(), obj);
   add(length);
 
-  pushResult(length);
+  auto* lengthInt32 = MNonNegativeIntPtrToInt32::New(alloc(), length);
+  add(lengthInt32);
+
+  pushResult(lengthInt32);
   return true;
 }
 
@@ -1780,7 +1784,7 @@ bool WarpCacheIRTranspiler::emitCallObjectHasSparseElementResult(
 }
 
 bool WarpCacheIRTranspiler::emitLoadTypedArrayElementExistsResult(
-    ObjOperandId objId, Int32OperandId indexId) {
+    ObjOperandId objId, IntPtrOperandId indexId) {
   MDefinition* obj = getOperand(objId);
   MDefinition* index = getOperand(indexId);
 
@@ -1788,8 +1792,8 @@ bool WarpCacheIRTranspiler::emitLoadTypedArrayElementExistsResult(
   add(length);
 
   // Unsigned comparison to catch negative indices.
-  auto* ins =
-      MCompare::New(alloc(), index, length, JSOp::Lt, MCompare::Compare_UInt32);
+  auto* ins = MCompare::New(alloc(), index, length, JSOp::Lt,
+                            MCompare::Compare_UIntPtr);
   add(ins);
 
   pushResult(ins);
@@ -1797,7 +1801,7 @@ bool WarpCacheIRTranspiler::emitLoadTypedArrayElementExistsResult(
 }
 
 bool WarpCacheIRTranspiler::emitLoadTypedArrayElementResult(
-    ObjOperandId objId, Int32OperandId indexId, Scalar::Type elementType,
+    ObjOperandId objId, IntPtrOperandId indexId, Scalar::Type elementType,
     bool handleOOB, bool allowDoubleForUint32) {
   MDefinition* obj = getOperand(objId);
   MDefinition* index = getOperand(indexId);
@@ -2099,7 +2103,7 @@ bool WarpCacheIRTranspiler::emitStoreDenseElementHole(ObjOperandId objId,
 
 bool WarpCacheIRTranspiler::emitStoreTypedArrayElement(ObjOperandId objId,
                                                        Scalar::Type elementType,
-                                                       Int32OperandId indexId,
+                                                       IntPtrOperandId indexId,
                                                        uint32_t rhsId,
                                                        bool handleOOB) {
   MDefinition* obj = getOperand(objId);
@@ -2137,25 +2141,10 @@ void WarpCacheIRTranspiler::addDataViewData(MDefinition* obj, Scalar::Type type,
 
   // Adjust the length to account for accesses near the end of the dataview.
   if (size_t byteSize = Scalar::byteSize(type); byteSize > 1) {
-    // To ensure |0 <= offset && offset + byteSize <= length|, we can either
-    // emit |BoundsCheck(offset, length)| followed by
-    // |BoundsCheck(offset + (byteSize - 1), length)|, or alternatively emit
-    // |BoundsCheck(offset, Max(length - (byteSize - 1), 0))|. The latter should
-    // result in faster code when LICM moves the length adjustment and also
-    // ensures Spectre index masking occurs after all bounds checks.
-
-    auto* byteSizeMinusOne = MConstant::New(alloc(), Int32Value(byteSize - 1));
-    add(byteSizeMinusOne);
-
-    length = MSub::New(alloc(), length, byteSizeMinusOne, MIRType::Int32);
-    length->toSub()->setTruncateKind(TruncateKind::Truncate);
-    add(length);
-
-    // |length| mustn't be negative for MBoundsCheck.
-    auto* zero = MConstant::New(alloc(), Int32Value(0));
-    add(zero);
-
-    length = MMinMax::New(alloc(), length, zero, MIRType::Int32, true);
+    // To ensure |0 <= offset && offset + byteSize <= length|, first adjust the
+    // length by subtracting |byteSize - 1| (bailing out if that becomes
+    // negative).
+    length = MAdjustDataViewLength::New(alloc(), length, byteSize);
     add(length);
   }
 
@@ -2166,7 +2155,7 @@ void WarpCacheIRTranspiler::addDataViewData(MDefinition* obj, Scalar::Type type,
 }
 
 bool WarpCacheIRTranspiler::emitLoadDataViewValueResult(
-    ObjOperandId objId, Int32OperandId offsetId,
+    ObjOperandId objId, IntPtrOperandId offsetId,
     BooleanOperandId littleEndianId, Scalar::Type elementType,
     bool allowDoubleForUint32) {
   MDefinition* obj = getOperand(objId);
@@ -2196,7 +2185,7 @@ bool WarpCacheIRTranspiler::emitLoadDataViewValueResult(
 }
 
 bool WarpCacheIRTranspiler::emitStoreDataViewValueResult(
-    ObjOperandId objId, Int32OperandId offsetId, uint32_t valueId,
+    ObjOperandId objId, IntPtrOperandId offsetId, uint32_t valueId,
     BooleanOperandId littleEndianId, Scalar::Type elementType) {
   MDefinition* obj = getOperand(objId);
   MDefinition* offset = getOperand(offsetId);
@@ -2780,6 +2769,28 @@ bool WarpCacheIRTranspiler::emitNumberMinMax(bool isMax,
   return defineOperand(resultId, ins);
 }
 
+bool WarpCacheIRTranspiler::emitInt32MinMaxArrayResult(ObjOperandId arrayId,
+                                                       bool isMax) {
+  MDefinition* array = getOperand(arrayId);
+
+  auto* ins = MMinMaxArray::New(alloc(), array, MIRType::Int32, isMax);
+  add(ins);
+
+  pushResult(ins);
+  return true;
+}
+
+bool WarpCacheIRTranspiler::emitNumberMinMaxArrayResult(ObjOperandId arrayId,
+                                                        bool isMax) {
+  MDefinition* array = getOperand(arrayId);
+
+  auto* ins = MMinMaxArray::New(alloc(), array, MIRType::Double, isMax);
+  add(ins);
+
+  pushResult(ins);
+  return true;
+}
+
 bool WarpCacheIRTranspiler::emitMathAbsInt32Result(Int32OperandId inputId) {
   MDefinition* input = getOperand(inputId);
 
@@ -3294,7 +3305,8 @@ bool WarpCacheIRTranspiler::emitIsTypedArrayResult(ObjOperandId objId,
   return true;
 }
 
-bool WarpCacheIRTranspiler::emitTypedArrayByteOffsetResult(ObjOperandId objId) {
+bool WarpCacheIRTranspiler::emitTypedArrayByteOffsetInt32Result(
+    ObjOperandId objId) {
   MDefinition* obj = getOperand(objId);
 
   auto* ins = MArrayBufferViewByteOffset::New(alloc(), obj);
@@ -3511,7 +3523,7 @@ bool WarpCacheIRTranspiler::emitNewTypedArrayFromArrayResult(
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsCompareExchangeResult(
-    ObjOperandId objId, Int32OperandId indexId, Int32OperandId expectedId,
+    ObjOperandId objId, IntPtrOperandId indexId, Int32OperandId expectedId,
     Int32OperandId replacementId, Scalar::Type elementType) {
   MDefinition* obj = getOperand(objId);
   MDefinition* index = getOperand(indexId);
@@ -3540,7 +3552,7 @@ bool WarpCacheIRTranspiler::emitAtomicsCompareExchangeResult(
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsExchangeResult(
-    ObjOperandId objId, Int32OperandId indexId, Int32OperandId valueId,
+    ObjOperandId objId, IntPtrOperandId indexId, Int32OperandId valueId,
     Scalar::Type elementType) {
   MDefinition* obj = getOperand(objId);
   MDefinition* index = getOperand(indexId);
@@ -3568,7 +3580,7 @@ bool WarpCacheIRTranspiler::emitAtomicsExchangeResult(
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsBinaryOp(ObjOperandId objId,
-                                                Int32OperandId indexId,
+                                                IntPtrOperandId indexId,
                                                 Int32OperandId valueId,
                                                 Scalar::Type elementType,
                                                 AtomicOp op) {
@@ -3598,7 +3610,7 @@ bool WarpCacheIRTranspiler::emitAtomicsBinaryOp(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsAddResult(ObjOperandId objId,
-                                                 Int32OperandId indexId,
+                                                 IntPtrOperandId indexId,
                                                  Int32OperandId valueId,
                                                  Scalar::Type elementType) {
   return emitAtomicsBinaryOp(objId, indexId, valueId, elementType,
@@ -3606,7 +3618,7 @@ bool WarpCacheIRTranspiler::emitAtomicsAddResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsSubResult(ObjOperandId objId,
-                                                 Int32OperandId indexId,
+                                                 IntPtrOperandId indexId,
                                                  Int32OperandId valueId,
                                                  Scalar::Type elementType) {
   return emitAtomicsBinaryOp(objId, indexId, valueId, elementType,
@@ -3614,7 +3626,7 @@ bool WarpCacheIRTranspiler::emitAtomicsSubResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsAndResult(ObjOperandId objId,
-                                                 Int32OperandId indexId,
+                                                 IntPtrOperandId indexId,
                                                  Int32OperandId valueId,
                                                  Scalar::Type elementType) {
   return emitAtomicsBinaryOp(objId, indexId, valueId, elementType,
@@ -3622,7 +3634,7 @@ bool WarpCacheIRTranspiler::emitAtomicsAndResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsOrResult(ObjOperandId objId,
-                                                Int32OperandId indexId,
+                                                IntPtrOperandId indexId,
                                                 Int32OperandId valueId,
                                                 Scalar::Type elementType) {
   return emitAtomicsBinaryOp(objId, indexId, valueId, elementType,
@@ -3630,7 +3642,7 @@ bool WarpCacheIRTranspiler::emitAtomicsOrResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsXorResult(ObjOperandId objId,
-                                                 Int32OperandId indexId,
+                                                 IntPtrOperandId indexId,
                                                  Int32OperandId valueId,
                                                  Scalar::Type elementType) {
   return emitAtomicsBinaryOp(objId, indexId, valueId, elementType,
@@ -3638,7 +3650,7 @@ bool WarpCacheIRTranspiler::emitAtomicsXorResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsLoadResult(ObjOperandId objId,
-                                                  Int32OperandId indexId,
+                                                  IntPtrOperandId indexId,
                                                   Scalar::Type elementType) {
   MDefinition* obj = getOperand(objId);
   MDefinition* index = getOperand(indexId);
@@ -3665,7 +3677,7 @@ bool WarpCacheIRTranspiler::emitAtomicsLoadResult(ObjOperandId objId,
 }
 
 bool WarpCacheIRTranspiler::emitAtomicsStoreResult(ObjOperandId objId,
-                                                   Int32OperandId indexId,
+                                                   IntPtrOperandId indexId,
                                                    Int32OperandId valueId,
                                                    Scalar::Type elementType) {
   MDefinition* obj = getOperand(objId);

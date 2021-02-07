@@ -4924,7 +4924,8 @@ already_AddRefed<CacheStorage> nsGlobalWindowInner::GetCaches(
     ErrorResult& aRv) {
   if (!mCacheStorage) {
     bool forceTrustedOrigin =
-        GetOuterWindow()->GetServiceWorkersTestingEnabled();
+        GetBrowsingContext() &&
+        GetBrowsingContext()->Top()->GetServiceWorkersTestingEnabled();
     mCacheStorage = CacheStorage::CreateOnMainThread(
         cache::DEFAULT_NAMESPACE, this, GetEffectiveStoragePrincipal(),
         forceTrustedOrigin, aRv);
@@ -7539,6 +7540,22 @@ ContentMediaController* nsGlobalWindowInner::GetContentMediaController() {
 
   mContentMediaController = new ContentMediaController(mBrowsingContext->Id());
   return mContentMediaController;
+}
+
+void nsGlobalWindowInner::SetScrollMarks(
+    const nsTArray<uint32_t>& aScrollMarks) {
+  mScrollMarks.Assign(aScrollMarks);
+
+  // Mark the scrollbar for repainting.
+  if (mDoc) {
+    PresShell* presShell = mDoc->GetPresShell();
+    if (presShell) {
+      nsIScrollableFrame* sf = presShell->GetRootScrollFrameAsScrollable();
+      if (sf) {
+        sf->InvalidateVerticalScrollbar();
+      }
+    }
+  }
 }
 
 /* static */

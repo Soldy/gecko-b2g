@@ -340,12 +340,47 @@
   "CONTENT_PROCESS_LAUNCH_IS_SYNC" : {
     "record_in_processes": ["main"],
     "products": ["firefox", "fennec"],
-    "alert_emails": ["jld@mozilla.com", "jimm@mozilla.com", "mconley@mozilla.com"],
+    "alert_emails": ["jld@mozilla.com", "jimm@mozilla.  com", "mconley@mozilla.com"],
     "expires_in_version": "never",
     "bug_numbers": [1474991],
     "kind": "boolean",
     "releaseChannelCollection": "opt-out",
     "description": "Whether a content process was launched synchronously (unnecessarily delaying UI response)."
+  },
+  "CONTENT_PROCESS_COUNT": {
+    "record_in_processes": ["main"],
+    "products": ["firefox"],
+    "alert_emails": ["barret@mozilla.com", "perf-telemetry-alerts@mozilla.com"],
+    "expires_in_version": "98",
+    "bug_numbers": [1688078],
+    "kind": "linear",
+    "high": 500,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "A count of the number of content processes, collected every five minutes."
+  },
+  "CONTENT_PROCESS_MAX": {
+    "record_in_processes": ["main"],
+    "products": ["firefox"],
+    "alert_emails": ["barret@mozilla.com", "perf-telemetry-alerts@mozilla.com"],
+    "expires_in_version": "98",
+    "bug_numbers": [1688079],
+    "kind": "linear",
+    "high": 500,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "The maximum number of content processes, submitted when a new maximum is reached."
+  },
+  "CONTENT_PROCESS_TIME_SINCE_LAST_LAUNCH_MS": {
+    "record_in_processes": ["main"],
+    "products": ["firefox"],
+    "alert_emails": ["barret@mozilla.com", "perf-telemetry-alerts@mozilla.com"],
+    "expires_in_version": "98",
+    "bug_numbers": [1688082],
+    "kind": "exponential",
+    "high": 600000,
+    "n_buckets": 100,
+    "description": "The time (in milliseconds) since the last content process was launched."
   },
   "CYCLE_COLLECTOR": {
     "record_in_processes": ["main", "content"],
@@ -2577,35 +2612,6 @@
     "description": "Stats about success rate of HTTP OMT request in content process, keyed by content policy.",
     "labels": ["success", "successMainThread", "failListener", "failListenerChain", "notRequested"]
   },
-  "TCP_FAST_OPEN_3": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "65",
-    "kind": "enumerated",
-    "n_values": 32,
-    "description": "When a http connection is closed, track whether or not TCP Fast Open was used: 0=TFO_NOT_SET, 1=TFO_UNKNOWN, 2=TFO_DISABLED, 3=TFO_DISABLED_CONNECT, 4=TFO_NOT_TRIED, 5=TFO_TRIED, 6=TFO_DATA_SENT, 7=TFO_DATA_COOKIE_NOT_ACCEPTED, 8=TFO_FAILED_CONNECTION_REFUSED, 9=TFO_FAILED_NET_TIMEOUT, 10=TFO_FAILED_UNKNOW_ERROR, 11=TFO_FAILED_BACKUP_CONNECTION_TFO_NOT_TRIED, 12=TFO_FAILED_BACKUP_CONNECTION_TFO_TRIED, 13=TFO_FAILED_BACKUP_CONNECTION_TFO_DATA_SENT, 14=TFO_FAILED_BACKUP_CONNECTION_TFO_DATA_COOKIE_NOT_ACCEPTED, 15=TFO_FAILED_CONNECTION_REFUSED_NO_TFO_FAILED_TOO, 16=TFO_FAILED_NET_TIMEOUT__NO_TFO_FAILED_TOO, 17=TFO_FAILED_UNKNOW_ERROR_NO_TFO_FAILED_TOO, 18=TFO_FAILED_BACKUP_CONNECTION_NO_TFO_FAILED_TOO, 19=TFO_BACKUP_CONN. Please look at netwerk/base/TCPFastOpenLayer.h for more info",
-    "alert_emails": ["necko@mozilla.com", "ddamjanovic@mozilla.com"],
-    "bug_numbers": [1402879]
-  },
-  "TCP_FAST_OPEN_STATUS": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "65",
-    "kind": "enumerated",
-    "n_values": 8,
-    "description": "TCP Fast Open was: 0=enabled during the session, 1=not available or disabled in the os, 2=disabled by the pref, 3=disabled based on the too many connection failures, 4=disable based on too many http transaction stalls after a connection was idle.",
-    "alert_emails": ["necko@mozilla.com", "ddamjanovic@mozilla.com"],
-    "bug_numbers": [1390881]
-  },
-  "NETWORK_HTTP_BACKUP_CONN_WON_1" : {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "61",
-    "kind": "boolean",
-    "description": "For connection where TFO has not be use, collect telemetry on whether the backup connection or the primary connection was faster.",
-    "alert_emails": ["necko@mozilla.com", "ddamjanovic@mozilla.com"],
-    "bug_numbers": [1426710]
-  },
   "TLS_EARLY_DATA_NEGOTIATED": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec"],
@@ -4732,6 +4738,66 @@
     "n_buckets": 100,
     "releaseChannelCollection": "opt-out",
     "description": "Number of tabs opened across all windows, collected at most every 5 minutes whenever the user interacts with the browser in the following ways: open tab/window, page load."
+  },
+  "LAZYLOAD_IMAGE_TOTAL": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox"],
+    "alert_emails": ["sefeng@mozilla.com"],
+    "bug_numbers": [1687358],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": 2000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "The amount of images that have `loading='lazy'` on the page or have loaded lazily already."
+  },
+  "LAZYLOAD_IMAGE_STARTED": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox"],
+    "alert_emails": ["sefeng@mozilla.com"],
+    "bug_numbers": [1687358],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": 2000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "Number of lazy-loaded images that we've started loading as a result of triggering the lazy-load observer threshold."
+  },
+  "LAZYLOAD_IMAGE_NOT_VIEWPORT": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox"],
+    "alert_emails": ["sefeng@mozilla.com"],
+    "bug_numbers": [1687358],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": 2000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "Number of lazy-loaded images that were started to load but didn't reach to the viewport eventually"
+  },
+  "LAZYLOAD_IMAGE_VIEWPORT_LOADING": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox"],
+    "alert_emails": ["sefeng@mozilla.com"],
+    "bug_numbers": [1687358],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": 2000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "Number of lazy-loaded images that reached the viewport which were not done loading when they did so."
+  },
+  "LAZYLOAD_IMAGE_VIEWPORT_LOADED": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox"],
+    "alert_emails": ["sefeng@mozilla.com"],
+    "bug_numbers": [1687358],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": 2000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "description": "Number of lazy-loaded images that reached the viewport and were done loading when they did so."
   },
   "LOADED_TAB_COUNT": {
     "record_in_processes": ["main"],
@@ -9648,7 +9714,7 @@
     "kind": "count",
     "keyed": true,
     "releaseChannelCollection": "opt-out",
-    "alert_emails": ["fx-search@mozilla.com", "teon@mozilla.com"],
+    "alert_emails": ["fx-search@mozilla.com", "rev-data@mozilla.com"],
     "bug_numbers": [1089670, 1475571, 1482158, 1499193, 1545172, 1572500, 1654680],
     "description": "Records search counts for search access points and in-content searches. For search access points in general, the format is: <engine-name>.<search-access-point> For the urlbar when in search mode, the format is <engine name>.urlbar-searchmode For the urlbar when an internal @engine shortcut is used, the format is: <engine-name>.alias For in-content searches, the format is <provider>.in-content:[sap|sap-follow-on|organic]:[code|none]",
     "record_into_store": ["main", "account-ecosystem"]
@@ -10173,10 +10239,10 @@
     "record_in_processes": ["content"],
     "products": ["firefox"],
     "alert_emails": ["bvandyk@mozilla.com", "drno@ohlmeier.org"],
-    "expires_in_version": "88",
+    "expires_in_version": "100",
     "kind": "boolean",
     "description": "Reports a true value when a page requests canPlayType for a matroska media type.",
-    "bug_numbers": [1429986, 1570634, 1606206]
+    "bug_numbers": [1429986, 1570634, 1606206, 1689266]
   },
   "MEDIA_HLS_CANPLAY_REQUESTED": {
     "record_in_processes": ["content"],
@@ -13018,21 +13084,21 @@
   "VIDEO_SUSPEND_RECOVERY_TIME_MS" : {
     "record_in_processes": ["content"],
     "products": ["firefox"],
-    "alert_emails": ["jya@mozilla.com", "drno@ohlmeier.org"],
-    "expires_in_version": "88",
+    "alert_emails": ["alwu@mozilla.com", "drno@ohlmeier.org"],
+    "expires_in_version": "100",
     "description": "Time taken for a video to resume after decoding was suspended, in milliseconds. Keyed by audio presence, hw acceleration, and by height ranges (boundaries: 240. 480, 720, 1080, 2160), e.g.: 'V,0-240', 'AV(hw),2160+'; and 'All' will accumulate all percentages.",
     "keyed": true,
     "kind": "exponential",
     "high": 10000,
     "n_buckets": 100,
-    "bug_numbers": [1294349, 1570634, 1606206]
+    "bug_numbers": [1294349, 1570634, 1606206, 1689267]
   },
   "VIDEO_VP9_BENCHMARK_FPS": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
-    "alert_emails": ["jya@mozilla.com", "drno@ohlmeier.org"],
-    "expires_in_version": "88",
-    "bug_numbers": [1230265, 1570634, 1606206],
+    "alert_emails": ["alwu@mozilla.com", "drno@ohlmeier.org"],
+    "expires_in_version": "100",
+    "bug_numbers": [1230265, 1570634, 1606206, 1689267],
     "kind": "linear",
     "high": 1000,
     "n_buckets": 100,
@@ -14078,10 +14144,10 @@
     "record_in_processes": ["content"],
     "products": ["firefox"],
     "alert_emails": ["alwu@mozilla.com"],
-    "expires_in_version": "88",
+    "expires_in_version": "100",
     "kind": "enumerated",
     "n_values": 10,
-    "bug_numbers": [1280644, 1570634, 1606206],
+    "bug_numbers": [1280644, 1570634, 1606206, 1689267],
     "description": "Number of the use of the subtitles kind track. 0=Subtitles, 1=Captions, 2=Descriptions, 3=Chapters, 4=Metadata, 5=Undefined Error",
     "releaseChannelCollection": "opt-out"
   },
@@ -15467,17 +15533,6 @@
     "keyed": true,
     "description": "Permission requests (showing a permission prompt) by whether they were requested from code handling a user input event."
   },
-  "PROFILE_DIRECTORY_FILE_AGE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["jrediger@mozilla.com", "telemetry-client-dev@mozilla.com"],
-    "bug_numbers": [1458574],
-    "expires_in_version": "65",
-    "high": 1500,
-    "n_buckets": 20,
-    "kind": "exponential",
-    "description": "Age of files scanned in profile directory in days when determining initial profile age."
-  },
   "QUIRKS_MODE": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec"],
@@ -15589,10 +15644,10 @@
       "alwu@mozilla.com",
       "nohlmeier@mozilla.com"
     ],
-    "expires_in_version": "88",
+    "expires_in_version": "100",
     "kind": "categorical",
     "labels": ["allow", "blockAudible", "blockAll"],
-    "bug_numbers": [1567302, 1606206],
+    "bug_numbers": [1567302, 1606206, 1689267],
     "description": "counts the number of times a user changed the default autoplay behavior to each setting during a subsession.",
     "releaseChannelCollection": "opt-out"
   },
@@ -15885,46 +15940,6 @@
     ],
     "releaseChannelCollection": "opt-out",
     "description": "Tracking the use of the custom IDBFactory.open overload accepting an options dictionary in one of the categories."
-  },
-  "SHARED_MEMORY_UA_SHEETS_MAPPED_PARENT": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": ["cmccormack@mozilla.com"],
-    "bug_numbers": [1562060, 1621773],
-    "expires_in_version": "83",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Whether the parent process successfully mapped the User Agent style sheet shared memory buffer at the desired address"
-  },
-  "SHARED_MEMORY_UA_SHEETS_TOSHMEM_SUCCEEDED": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": ["layout-telemetry-alerts@mozilla.com"],
-    "bug_numbers": [1621773],
-    "expires_in_version": "83",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Whether the parent process failed to convert User Agent style sheets into a form suitable for storing in shared memory"
-  },
-  "SHARED_MEMORY_UA_SHEETS_MAPPED_PARENT_AFTER_FREEZE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": ["layout-telemetry-alerts@mozilla.com"],
-    "bug_numbers": [1562060, 1621773],
-    "expires_in_version": "83",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Whether the parent process successfully mapped the User Agent style sheet shared memory buffer at the desired address"
-  },
-  "SHARED_MEMORY_UA_SHEETS_MAPPED_CHILD": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "alert_emails": ["layout-telemetry-alerts@mozilla.com"],
-    "bug_numbers": [1562060, 1621773],
-    "expires_in_version": "83",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Whether a child process successfully mapped the User Agent style sheet shared memory buffer at the desired address"
   },
   "TLS_1_3_CLIENT_AUTH_USES_PHA": {
     "record_in_processes": ["main"],
@@ -16406,5 +16421,15 @@
       "xbls",
       "xmpp"
     ]
+  },
+  "ECHCONFIG_SUCCESS_RATE": {
+    "record_in_processes": ["main"],
+    "products": ["firefox"],
+    "expires_in_version": "never",
+    "kind": "categorical",
+    "labels": ["EchConfigSucceeded", "EchConfigFailed", "NoEchConfigSucceeded", "NoEchConfigFailed"],
+    "description": "TLS handshake with and without EchConfig success rate.",
+    "alert_emails": ["necko@mozilla.com", "kershaw@mozilla.com"],
+    "bug_numbers": [1682555]
   }
 }

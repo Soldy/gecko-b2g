@@ -20,4 +20,7 @@ ac_add_options --enable-wasm-simd
 # Disable until we figure CI issues
 # ac_add_options --enable-clang-plugin
 
+# Use sccache
+ac_add_options --with-ccache=sccache
+
 mk_add_options AUTOCLOBBER=1

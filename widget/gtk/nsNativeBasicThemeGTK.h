@@ -29,13 +29,21 @@ class nsNativeBasicThemeGTK : public nsNativeBasicTheme {
   void PaintScrollbar(DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect,
                       bool aHorizontal, nsIFrame* aFrame,
                       const ComputedStyle& aStyle,
-                      const EventStates& aDocumentState, DPIRatio aDpiRatio,
-                      bool aIsRoot) override;
+                      const EventStates& aDocumentState,
+                      DPIRatio aDpiRatio) override;
   void PaintScrollCorner(DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect,
                          nsIFrame* aFrame, const ComputedStyle& aStyle,
-                         const EventStates& aDocumentState, DPIRatio aDpiRatio,
-                         bool aIsRoot) override;
-  bool ThemeSupportsScrollbarButtons() override { return false; }
+                         const EventStates& aDocumentState,
+                         DPIRatio aDpiRatio) override;
+  bool ThemeSupportsScrollbarButtons() override;
+  sRGBColor ComputeScrollbarThumbColor(
+      nsIFrame*, const ComputedStyle&, const EventStates& aElementState,
+      const EventStates& aDocumentState) override;
+  std::pair<sRGBColor, sRGBColor> ComputeScrollbarColors(
+      nsIFrame*, const ComputedStyle&,
+      const EventStates& aDocumentState) override;
+  ScrollbarSizes GetScrollbarSizes(nsPresContext*, StyleScrollbarWidth,
+                                   Overlay) override;
 
  protected:
   virtual ~nsNativeBasicThemeGTK() = default;

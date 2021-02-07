@@ -200,8 +200,6 @@ class ContentChild final : public PContentChild,
       Endpoint<PRemoteDecoderManagerChild>&& aVideoManager,
       nsTArray<uint32_t>&& namespaces);
 
-  mozilla::ipc::IPCResult RecvAudioDefaultDeviceChange();
-
   mozilla::ipc::IPCResult RecvSpeakerManagerNotify();
 
   mozilla::ipc::IPCResult RecvReinitRenderingForDeviceReset();
@@ -617,9 +615,6 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvFlushCodeCoverageCounters(
       FlushCodeCoverageCountersResolver&& aResolver);
 
-  mozilla::ipc::IPCResult RecvGetMemoryUniqueSetSize(
-      GetMemoryUniqueSetSizeResolver&& aResolver);
-
   mozilla::ipc::IPCResult RecvSetInputEventQueueEnabled();
 
   mozilla::ipc::IPCResult RecvFlushInputEventQueue();
@@ -893,8 +888,7 @@ class ContentChild final : public PContentChild,
       nsDocShellLoadState* aLoadState, bool aSetNavigating,
       LoadURIResolver&& aResolve);
 
-  mozilla::ipc::IPCResult RecvInternalLoad(nsDocShellLoadState* aLoadState,
-                                           bool aTakeFocus);
+  mozilla::ipc::IPCResult RecvInternalLoad(nsDocShellLoadState* aLoadState);
 
   mozilla::ipc::IPCResult RecvDisplayLoadError(
       const MaybeDiscarded<BrowsingContext>& aContext, const nsAString& aURI);

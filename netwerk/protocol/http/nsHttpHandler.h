@@ -228,29 +228,6 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
     return mTCPKeepaliveLongLivedIdleTimeS;
   }
 
-  bool UseFastOpen() {
-    return mUseFastOpen && mFastOpenSupported &&
-           (mFastOpenStallsCounter < mFastOpenStallsLimit) &&
-           (mFastOpenConsecutiveFailureCounter <
-            mFastOpenConsecutiveFailureLimit);
-  }
-  // If one of tcp connections return PR_NOT_TCP_SOCKET_ERROR while trying
-  // fast open, it means that Fast Open is turned off so we will not try again
-  // until a restart. This is only on Linux.
-  void SetFastOpenNotSupported() { mFastOpenSupported = false; }
-
-  void IncrementFastOpenConsecutiveFailureCounter();
-
-  void ResetFastOpenConsecutiveFailureCounter() {
-    mFastOpenConsecutiveFailureCounter = 0;
-  }
-
-  void IncrementFastOpenStallsCounter();
-  uint32_t CheckIfConnectionIsStalledOnlyIfIdleForThisAmountOfSeconds() {
-    return mFastOpenStallsIdleTime;
-  }
-  uint32_t FastOpenStallsTimeout() { return mFastOpenStallsTimeout; }
-
   // returns the HTTP framing check level preference, as controlled with
   // network.http.enforce-framing.http1 and network.http.enforce-framing.soft
   FrameCheckLevel GetEnforceH1Framing() { return mEnforceH1Framing; }
@@ -364,12 +341,10 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
 
   already_AddRefed<AltSvcMapping> GetAltServiceMapping(
       const nsACString& scheme, const nsACString& host, int32_t port, bool pb,
-      bool isolated, const nsACString& topWindowOrigin,
       const OriginAttributes& originAttributes, bool aHttp2Allowed,
       bool aHttp3Allowed) {
-    return mAltSvcCache->GetAltServiceMapping(scheme, host, port, pb, isolated,
-                                              topWindowOrigin, originAttributes,
-                                              aHttp2Allowed, aHttp3Allowed);
+    return mAltSvcCache->GetAltServiceMapping(
+        scheme, host, port, pb, originAttributes, aHttp2Allowed, aHttp3Allowed);
   }
 
   //
@@ -510,8 +485,7 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
       nsHttpConnectionInfo* aCI);
 
   void MaybeAddAltSvcForTesting(nsIURI* aUri, const nsACString& aUsername,
-                                const nsACString& aTopWindowOrigin,
-                                bool aPrivateBrowsing, bool aIsolated,
+                                bool aPrivateBrowsing,
                                 nsIInterfaceRequestor* aCallbacks,
                                 const OriginAttributes& aOriginAttributes);
 
@@ -547,8 +521,6 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   [[nodiscard]] nsresult InitConnectionMgr();
 
   void NotifyObservers(nsIChannel* chan, const char* event);
-
-  void SetFastOpenOSSupport();
 
   friend class SocketProcessChild;
   void SetHttpHandlerInitArgs(const HttpHandlerInitArgs& aArgs);
@@ -781,15 +753,6 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   // We may disable speculative connect if the browser has user certificates
   // installed as that might randomly popup the certificate choosing window.
   Atomic<bool, Relaxed> mSpeculativeConnectEnabled;
-
-  Atomic<bool, Relaxed> mUseFastOpen;
-  Atomic<bool, Relaxed> mFastOpenSupported;
-  uint32_t mFastOpenConsecutiveFailureLimit;
-  uint32_t mFastOpenConsecutiveFailureCounter;
-  uint32_t mFastOpenStallsLimit;
-  uint32_t mFastOpenStallsCounter;
-  Atomic<uint32_t, Relaxed> mFastOpenStallsIdleTime;
-  uint32_t mFastOpenStallsTimeout;
 
   // If true, the transactions from active tab will be dispatched first.
   bool mActiveTabPriority;

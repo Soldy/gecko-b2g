@@ -79,6 +79,7 @@ pref_groups = [
     "telemetry",
     "test",
     "threads",
+    "timer",
     "toolkit",
     "ui",
     "urlclassifier",
@@ -167,3 +168,6 @@ else:
     FINAL_TARGET_PP_FILES += [
         "greprefs.js",
     ]
+
+if CONFIG["MOZ_BACKGROUNDTASKS"]:
+    DEFINES["MOZ_BACKGROUNDTASKS"] = True

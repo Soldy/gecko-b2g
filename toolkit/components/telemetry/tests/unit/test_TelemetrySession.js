@@ -53,9 +53,6 @@ const PR_CREATE_FILE = 0x8;
 const PR_TRUNCATE = 0x20;
 const RW_OWNER = parseInt("0600", 8);
 
-const NUMBER_OF_THREADS_TO_LAUNCH = 30;
-var gNumberOfThreadsLaunched = 0;
-
 const MS_IN_ONE_HOUR = 60 * 60 * 1000;
 const MS_IN_ONE_DAY = 24 * MS_IN_ONE_HOUR;
 
@@ -363,11 +360,6 @@ function checkPayload(payload, reason, successfulPings) {
   Assert.ok(payload.simpleMeasurements.totalTime >= 0);
   Assert.equal(payload.simpleMeasurements.startupInterrupted, 1);
   Assert.equal(payload.simpleMeasurements.shutdownDuration, SHUTDOWN_TIME);
-  Assert.ok("maximalNumberOfConcurrentThreads" in payload.simpleMeasurements);
-  Assert.ok(
-    payload.simpleMeasurements.maximalNumberOfConcurrentThreads >=
-      gNumberOfThreadsLaunched
-  );
 
   let activeTicks = payload.simpleMeasurements.activeTicks;
   Assert.ok(activeTicks >= 0);
@@ -550,30 +542,6 @@ add_task(async function test_setup() {
   // Make it look like we've shutdown before.
   write_fake_shutdown_file();
 
-  let currentMaxNumberOfThreads = Telemetry.maximalNumberOfConcurrentThreads;
-  Assert.ok(currentMaxNumberOfThreads > 0);
-
-  // Try to augment the maximal number of threads currently launched
-  let threads = [];
-  try {
-    for (let i = 0; i < currentMaxNumberOfThreads + 10; ++i) {
-      threads.push(Services.tm.newThread(0));
-    }
-  } catch (ex) {
-    // If memory is too low, it is possible that not all threads will be launched.
-  }
-  gNumberOfThreadsLaunched = threads.length;
-
-  Assert.ok(
-    Telemetry.maximalNumberOfConcurrentThreads >= gNumberOfThreadsLaunched
-  );
-
-  registerCleanupFunction(function() {
-    threads.forEach(function(thread) {
-      thread.shutdown();
-    });
-  });
-
   await new Promise(resolve =>
     Telemetry.asyncFetchTelemetryData(wrapWithExceptionHandler(resolve))
   );
@@ -641,7 +609,7 @@ add_task(async function sessionTimeExcludingAndIncludingSuspend() {
   // clocks are from different system calls, and it can fail in test condition
   // because the machine has not been suspended.
   if (
-    AppConstants.platform != "windows" ||
+    AppConstants.platform != "win" ||
     AppConstants.isPlatformAndVersionAtLeast("win", "10.0")
   ) {
     Assert.greaterOrEqual(

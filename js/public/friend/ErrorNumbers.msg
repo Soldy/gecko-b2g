@@ -82,7 +82,8 @@ MSG_DEF(JSMSG_SOURCE_ARRAY_TOO_LONG,   0, JSEXN_RANGEERR, "source array is too l
 MSG_DEF(JSMSG_REDECLARED_PREV,         2, JSEXN_NOTE, "Previously declared at line {0}, column {1}")
 MSG_DEF(JSMSG_REDECLARED_VAR,          2, JSEXN_SYNTAXERR, "redeclaration of {0} {1}")
 MSG_DEF(JSMSG_UNDECLARED_VAR,          1, JSEXN_REFERENCEERR, "assignment to undeclared variable {0}")
-MSG_DEF(JSMSG_UNDECLARED_PRIVATE,      0, JSEXN_TYPEERR, "Trying to read undeclared field")
+MSG_DEF(JSMSG_GET_MISSING_PRIVATE,     0, JSEXN_TYPEERR, "can't access private field or method: object is not the right class")
+MSG_DEF(JSMSG_SET_MISSING_PRIVATE,     0, JSEXN_TYPEERR, "can't set private field: object is not the right class")
 MSG_DEF(JSMSG_GETTER_ONLY,             1, JSEXN_TYPEERR, "setting getter-only property {0}")
 MSG_DEF(JSMSG_PRIVATE_SETTER_ONLY,     0, JSEXN_TYPEERR, "getting private setter-only property")
 MSG_DEF(JSMSG_OVERWRITING_ACCESSOR,    1, JSEXN_TYPEERR, "can't overwrite accessor property {0}")
@@ -460,7 +461,7 @@ MSG_DEF(JSMSG_WASM_NONSHARED_WAIT ,    0, JSEXN_WASMRUNTIMEERROR, "atomic wait o
 MSG_DEF(JSMSG_WASM_NULL_REQUIRED,      0, JSEXN_TYPEERR,     "nullref requires a null value")
 MSG_DEF(JSMSG_WASM_SUPPLY_ONLY_ONE,    2, JSEXN_TYPEERR,     "exactly one of {0} and {1} must be supplied")
 MSG_DEF(JSMSG_WASM_MISSING_REQUIRED,   1, JSEXN_TYPEERR,     "Missing required argument {0}")
-MSG_DEF(JSMSG_WASM_EXN_CONSTRUCTOR,    0, JSEXN_WASMRUNTIMEERROR, "cannot call WebAssembly.Exception")
+MSG_DEF(JSMSG_WASM_EXN_CONSTRUCTOR,    1, JSEXN_WASMRUNTIMEERROR, "cannot call {0}")
 
 // Proxy
 MSG_DEF(JSMSG_BAD_TRAP_RETURN_VALUE,   2, JSEXN_TYPEERR,"trap {1} for {0} returned a primitive value")

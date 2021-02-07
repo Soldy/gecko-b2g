@@ -22,6 +22,7 @@
 #include "nsIDocShell.h"
 #include "mozilla/dom/IMELog.h"
 #include "mozilla/dom/InputMethodService.h"
+#include "nsCharSeparatedTokenizer.h"
 #include "nsFocusManager.h"
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/HTMLTextAreaElement.h"
@@ -77,6 +78,30 @@ bool isPlainTextField(Element* aElement) {
   return false;
 }
 
+bool isVoiceInputSupported(Element* aElement,
+                           nsTArray<nsString>& aSupportedTypes) {
+  if (!aElement) {
+    return false;
+  }
+  nsAutoString attributeValue;
+  aElement->GetAttribute(u"x-inputmode"_ns, attributeValue);
+  if (attributeValue.LowerCaseEqualsASCII("native") ||
+      attributeValue.LowerCaseEqualsASCII("plain") ||
+      attributeValue.LowerCaseEqualsASCII("spell")) {
+    return false;
+  }
+  aElement->GetAttribute(u"type"_ns, attributeValue);
+  for (uint32_t i = 0; i < aSupportedTypes.Length(); ++i) {
+    if (attributeValue.Equals(aSupportedTypes[i])) {
+      return true;
+    }
+  }
+  if (EditableUtils::isContentEditable(aElement)) {
+    return true;
+  }
+  return false;
+}
+
 already_AddRefed<nsIDocumentEncoder> getDocumentEncoder(Element* aElement) {
   nsCOMPtr<Document> document = aElement->OwnerDoc();
   nsAutoString contentType;
@@ -115,7 +140,6 @@ nsresult getContentEditableText(Element* aElement, nsAString& aText) {
 
 uint32_t getSelectionStart(Element* aElement) {
   uint32_t start = 0;
-  nsAutoString attributeValue;
   if (isPlainTextField(aElement)) {
     ErrorResult rv;
     Nullable<uint32_t> _start;
@@ -158,7 +182,6 @@ uint32_t getSelectionStart(Element* aElement) {
 
 uint32_t getSelectionEnd(Element* aElement) {
   uint32_t end = 0;
-  nsAutoString attributeValue;
   if (isPlainTextField(aElement)) {
     ErrorResult rv;
     Nullable<uint32_t> _end;
@@ -480,7 +503,7 @@ NS_IMPL_ISUPPORTS(GeckoEditableSupport, TextEventDispatcherListener,
                   nsISupportsWeakReference)
 
 GeckoEditableSupport::GeckoEditableSupport(nsPIDOMWindowOuter* aDOMWindow)
-    : mIsFocused(false), mServiceChild(nullptr) {
+    : mServiceChild(nullptr), mIsFocused(false), mIsVoiceInputEnabled(false) {
   IME_LOGD("GeckoEditableSupport::Constructor[%p]", this);
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (obs) {
@@ -494,6 +517,20 @@ GeckoEditableSupport::GeckoEditableSupport(nsPIDOMWindowOuter* aDOMWindow)
                                           /* useCapture = */ true);
     mChromeEventHandler->AddEventListener(u"blur"_ns, this,
                                           /* useCapture = */ true);
+  }
+  mIsVoiceInputEnabled = Preferences::GetBool("voice-input.enabled", false);
+  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
+  if (prefs) {
+    prefs->AddObserver("voice-input.enabled", this, false);
+  }
+  nsAutoString voiceInputSupportedTypes;
+  if (NS_SUCCEEDED(Preferences::GetString("voice-input.supported-types",
+                                          voiceInputSupportedTypes))) {
+    for (const auto& type :
+         nsCharSeparatedTokenizer(voiceInputSupportedTypes, ',').ToRange()) {
+      IME_LOGD(" voice input supported type: %s", ToNewCString(type));
+      mVoiceInputSupportedTypes.AppendElement(type);
+    }
   }
 }
 
@@ -517,7 +554,10 @@ GeckoEditableSupport::Observe(nsISupports* aSubject, const char* aTopic,
                                              /* useCapture = */ true);
     mChromeEventHandler->RemoveEventListener(u"blur"_ns, this,
                                              /* useCapture = */ true);
+  } else if (!strcmp(aTopic, NS_PREFBRANCH_PREFCHANGE_TOPIC_ID)) {
+    mIsVoiceInputEnabled = Preferences::GetBool("voice-input.enabled", false);
   }
+
   return NS_OK;
 }
 
@@ -709,6 +749,36 @@ GeckoEditableSupport::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
       IME_LOGD("TextChangeData=%s",
                ToString(aNotification.mTextChangeData).c_str());
       HandleTextChanged();
+      break;
+    }
+    case NOTIFY_IME_OF_FOCUS:
+    case NOTIFY_IME_OF_BLUR: {
+      if (!mIsVoiceInputEnabled) {
+        break;
+      }
+
+      RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
+      if (!focusManager) {
+        break;
+      }
+
+      RefPtr<Element> focusedElement = focusManager->GetFocusedElement();
+      if (focusedElement) {
+        nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
+        if (!doc) {
+          break;
+        }
+
+        nsString eventName = aNotification.mMessage == NOTIFY_IME_OF_FOCUS
+                                 ? u"IMEFocus"_ns
+                                 : u"IMEBlur"_ns;
+        nsContentUtils::AddScriptRunner(NS_NewRunnableFunction(
+            "GeckoEditableSupport::NotifyIMEFocusOrBlur",
+            [doc = doc, element = focusedElement, name = eventName]() {
+              nsContentUtils::DispatchChromeEvent(
+                  doc, element, name, CanBubble::eYes, Cancelable::eNo);
+            }));
+      }
       break;
     }
     default:
@@ -1475,15 +1545,17 @@ nsresult GeckoEditableSupport::GetInputContextBag(
   // inputMode
   focusedElement->GetAttribute(u"x-inputmode"_ns, attributeValue);
   aInputContext->SetInputMode(attributeValue);
-  IME_LOGD("InputContext: inputMode:[%s]",
-           NS_ConvertUTF16toUTF8(attributeValue).get());
+  IME_LOGD("InputContext: inputMode:[%s]", ToNewCString(attributeValue));
 
   // voiceInputSupported
-  focusedElement->GetAttribute(u"voiceInputSupported"_ns, attributeValue);
-  aInputContext->SetVoiceInputSupported(
-      attributeValue.EqualsIgnoreCase("true"));
+  bool supported =
+      isVoiceInputSupported(focusedElement, mVoiceInputSupportedTypes);
+  focusedElement->SetAttribute(u"voice-input-supported"_ns,
+                               supported ? u"true"_ns : u"false"_ns,
+                               IgnoreErrors());
+  aInputContext->SetVoiceInputSupported(supported);
   IME_LOGD("InputContext: voiceInputSupported:[%s]",
-           NS_ConvertUTF16toUTF8(attributeValue).get());
+           supported ? "true" : "false");
 
   // name
   focusedElement->GetAttribute(u"name"_ns, attributeValue);

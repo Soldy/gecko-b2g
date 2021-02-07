@@ -272,7 +272,7 @@ skip-if(Android&&asyncPan) == 243519-1.html 243519-1-ref.html
 == 243519-5b.html 243519-5-ref.html
 == 243519-5c.html 243519-5-ref.html
 == 243519-5d.html 243519-5-ref.html
-asserts(4) == 243519-6.html 243519-6-ref.html # bug 1655630
+== 243519-6.html 243519-6-ref.html
 == 243519-7.html 243519-7-ref.html
 == 243519-8.svg 243519-8-ref.svg
 == 243519-9a.html 243519-9-ref.html
@@ -1383,8 +1383,8 @@ fuzzy-if(Android,0-5,0-1656) fuzzy-if(skiaContent,0-1,0-1200) == 512410.html 512
 == 512631-1.html 512631-1-ref.html
 fuzzy-if(Android,0-1,0-2) fuzzy-if(!nativeThemePref,0-1,0-4) == 513153-1a.html 513153-1-ref.html
 fuzzy-if(Android,0-1,0-2) fuzzy-if(!nativeThemePref,0-1,0-4) == 513153-1b.html 513153-1-ref.html
-fuzzy-if(webrender&&winWidget,82-82,76-76) == 513153-2a.html 513153-2-ref.html
-fuzzy-if(webrender&&OSX,34-34,138-138) == 513153-2b.html 513153-2-ref.html
+fuzzy-if(webrender&&winWidget,82-82,84-84) == 513153-2a.html 513153-2-ref.html
+fuzzy-if(webrender&&OSX,46-46,116-116) == 513153-2b.html 513153-2-ref.html
 == chrome://reftest/content/bugs/513318-1.xhtml chrome://reftest/content/bugs/513318-1-ref.xhtml
 fails-if(Android&&(!asyncPan)) != chrome://reftest/content/bugs/513318-2.xhtml chrome://reftest/content/bugs/513318-2-ref.xhtml
 == 514917-1.html 514917-1-ref.html
@@ -1958,7 +1958,7 @@ fuzzy(0-8,0-1900) fails-if(webrender) == 1291528.html 1291528-ref.html
 # should be same.  |fuzzy()| here allows the difference in border, but not
 # background color.
 fuzzy(0-255,0-1000) skip-if(!cocoaWidget) == 1294102-1.html 1294102-1-ref.html
-fuzzy-if(skiaContent,0-15,0-50) fuzzy-if(gtkWidget,0-14,0-215) fuzzy-if(!nativeThemePref,0-14,0-172) == 1295466-1.xhtml 1295466-1-ref.xhtml #bug 1540635
+fuzzy-if(skiaContent,0-15,0-50) fuzzy-if(gtkWidget,0-14,0-215) fuzzy-if(/^Windows\x20NT\x206\.1/.test(http.oscpu),0-14,0-172) == 1295466-1.xhtml 1295466-1-ref.xhtml #bug 1540635
 fuzzy-if(Android,0-27,0-874) fuzzy-if(!Android,0-14,0-43) == 1313772.xhtml 1313772-ref.xhtml # Bug 1128229, Bug 1389319
 fuzzy(0-3,0-320000) == 1315113-1.html 1315113-1-ref.html
 fuzzy(0-3,0-20000) == 1315113-2.html 1315113-2-ref.html
@@ -2037,7 +2037,7 @@ fuzzy(0-255,0-4054) == 1415987-1.html 1415987-1-ref.html # this is a large fuzz,
 == 1424680.html 1424680-ref.html
 == 1424798-1.html 1424798-ref.html
 fuzzy-if(!webrender,0-74,0-2234) == 1425243-1.html 1425243-1-ref.html
-fuzzy-if(Android,0-66,0-574) fuzzy-if(d2d,0-89,0-777) fuzzy-if(!Android&&!d2d,0-1,0-31341) fuzzy-if(webrender&&winWidget,1-1,31284-31320) fuzzy-if(webrender&&swgl,1-1,31620-31620) == 1425243-2.html 1425243-2-ref.html
+fuzzy-if(Android,0-66,0-574) fuzzy-if(d2d,0-89,0-777) fuzzy-if(!Android&&!d2d,0-1,0-31380) fuzzy-if(webrender&&winWidget,1-1,31284-31320) fuzzy-if(webrender&&swgl,1-1,31620-31620) == 1425243-2.html 1425243-2-ref.html
 == 1430869.html 1430869-ref.html
 == 1432541.html 1432541-ref.html
 == 1446470.html 1035091-ref.html
@@ -2075,7 +2075,7 @@ skip-if(!asyncPan) == 1544895.html 1544895-ref.html
 test-pref(ui.systemUsesDarkTheme,1) != 1551040.txt 1551040.txt
 test-pref(ui.systemUsesDarkTheme,1) == 1551040.html 1551040.html
 != 1552789-1.html 1552789-ref-1.html
-pref(image.downscale-during-decode.enabled,true) skip-if(Android&&webrender) == 1553571-1.html 1553571-1-ref.html
+pref(image.downscale-during-decode.enabled,true) skip-if(webrender&&((gtkWidget&&isDebugBuild)||(gtkWidget&&AddressSanitizer)||Android)) == 1553571-1.html 1553571-1-ref.html
 == 1558937-1.html 1558937-1-ref.html
 != 1563484.html 1563484-notref.html
 == 1563484.html 1563484-ref.html

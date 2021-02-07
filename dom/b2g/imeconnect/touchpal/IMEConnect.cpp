@@ -370,7 +370,7 @@ void IMEConnect::ImportDictionary(Blob& aBlob, ErrorResult& aRv) {
   CT_LOGI("ImportDictionary::mImeId=0x%x", mImeId);
 
   if (mImeId == eImeChinesePinyin || mImeId == eImeChineseBihua ||
-      mImeId == eImeChineseZhuyin) {
+      mImeId == eImeChineseZhuyin || mImeId == eImeKorean) {
     CT_LOGE("ImportDictionary::invalid mImeId=0x%x", mImeId);
     aRv.Throw(NS_ERROR_FAILURE);
     return;

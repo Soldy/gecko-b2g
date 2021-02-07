@@ -12,6 +12,7 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "nsIGlobalObject.h"
+#include "nsIPermissionManager.h"
 
 #undef LOG
 mozilla::LazyLogModule gWebActivityWorkerLog("WebActivityWorker");
@@ -28,7 +29,7 @@ class ActivityInitRunnable : public WorkerMainThreadRunnable,
  public:
   ActivityInitRunnable(WorkerPrivate* aWorkerPrivate, WebActivity* aWebActivity)
       : WorkerMainThreadRunnable(aWorkerPrivate,
-                                 "WebActivity :: ActivityInitialize"_ns),
+                                 "WebActivity :: Initialize"_ns),
         StructuredCloneHolder(CloningSupported, TransferringSupported,
                               StructuredCloneScope::SameProcess),
         mWebActivity(aWebActivity) {}
@@ -60,6 +61,43 @@ class ActivityInitRunnable : public WorkerMainThreadRunnable,
  private:
   ~ActivityInitRunnable() = default;
   RefPtr<WebActivity> mWebActivity;
+};
+
+class ActivityCheckPermissionRunnable : public WorkerMainThreadRunnable {
+ public:
+  ActivityCheckPermissionRunnable(WorkerPrivate* aWorkerPrivate)
+      : WorkerMainThreadRunnable(aWorkerPrivate,
+                                 "WebActivity :: CheckPermission"_ns),
+        mAllowed(false) {}
+
+  bool MainThreadRun() override {
+    nsCOMPtr<nsIPermissionManager> permissionManager =
+        services::GetPermissionManager();
+    if (NS_WARN_IF(!permissionManager)) {
+      return false;
+    }
+
+    nsCOMPtr<nsIPrincipal> principal = mWorkerPrivate->GetPrincipal();
+    if (NS_WARN_IF(!principal)) {
+      return false;
+    }
+
+    uint32_t permission = nsIPermissionManager::DENY_ACTION;
+    nsresult rv = permissionManager->TestPermissionFromPrincipal(
+        principal, "worker-activity"_ns, &permission);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return false;
+    }
+
+    mAllowed = permission == nsIPermissionManager::ALLOW_ACTION;
+
+    return true;
+  }
+
+  bool mAllowed;
+
+ private:
+  ~ActivityCheckPermissionRunnable() = default;
 };
 
 class ActivityStartRunnable : public Runnable {
@@ -189,10 +227,20 @@ WebActivityWorker::WebActivityWorker() : mOuter(nullptr) {}
 WebActivityWorker::~WebActivityWorker() { MOZ_DIAGNOSTIC_ASSERT(!mOuter); }
 
 nsresult WebActivityWorker::PermissionCheck() {
-  // TODO: Same security policy with Cliends.openWindow
-  // WebActivity is allowed only when called as the result of a notification
-  // click event. (Bug 80958)
-  return NS_OK;
+  MOZ_DIAGNOSTIC_ASSERT(mOuter);
+  WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+  MOZ_ASSERT(worker);
+  worker->AssertIsOnWorkerThread();
+
+  ErrorResult rv;
+  RefPtr<ActivityCheckPermissionRunnable> runnable =
+      new ActivityCheckPermissionRunnable(worker);
+  runnable->Dispatch(Canceling, rv);
+  if (NS_WARN_IF(rv.Failed())) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  return runnable->mAllowed ? NS_OK : NS_ERROR_DOM_SECURITY_ERR;
 }
 
 nsresult WebActivityWorker::Initialize(const GlobalObject& aOwner,

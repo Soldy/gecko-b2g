@@ -886,6 +886,15 @@ class MochitestArguments(ArgumentContainer):
                 "MOZ_UPLOAD_DIR environment variable.",
             },
         ],
+        [
+            ["--run-failures"],
+            {
+                "action": "store",
+                "dest": "runFailures",
+                "default": "",
+                "help": "Run fail-if/skip-if tests that match a keyword given.",
+            },
+        ],
     ]
 
     defaults = {
@@ -1277,10 +1286,7 @@ class AndroidArguments(ArgumentContainer):
                 ]
 
         if options.remoteWebServer is None:
-            if os.name != "nt":
-                options.remoteWebServer = moznetwork.get_ip()
-            else:
-                parser.error("you must specify a --remote-webserver=<ip address>")
+            options.remoteWebServer = moznetwork.get_ip()
 
         options.webServer = options.remoteWebServer
 

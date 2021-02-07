@@ -22,10 +22,6 @@
 
 #include <thread>
 
-#if defined(XP_WIN)
-#  include "mozilla/audio/AudioNotificationReceiver.h"
-#endif
-
 struct cubeb_stream;
 
 template <>
@@ -574,10 +570,6 @@ enum class AudioInputType { Unknown, Voice };
  */
 class AudioCallbackDriver : public GraphDriver,
                             public MixerCallbackReceiver
-#if defined(XP_WIN)
-    ,
-                            public audio::DeviceChangeListener
-#endif
 {
   using IterationResult = GraphInterface::IterationResult;
   enum class FallbackDriverState;
@@ -596,9 +588,6 @@ class AudioCallbackDriver : public GraphDriver,
 
   void Start() override;
   MOZ_CAN_RUN_SCRIPT void Shutdown() override;
-#if defined(XP_WIN)
-  void ResetDefaultDevice() override;
-#endif
 
   /* Static wrapper function cubeb calls back. */
   static long DataCallback_s(cubeb_stream* aStream, void* aUser,

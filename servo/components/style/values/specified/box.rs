@@ -265,6 +265,12 @@ impl Display {
         .unwrap()
     }
 
+    /// Returns the raw underlying u16 value.
+    #[inline]
+    pub const fn to_u16(&self) -> u16 {
+        self.0
+    }
+
     /// Whether this is `display: inline` (or `inline list-item`).
     #[inline]
     pub fn is_inline_flow(&self) -> bool {
@@ -1834,10 +1840,6 @@ pub enum Appearance {
     MozMacVibrantTitlebarDark,
     #[parse(condition = "ParserContext::in_ua_or_chrome_sheet")]
     MozMacVibrantTitlebarLight,
-
-    /// A non-disappearing scrollbar.
-    #[css(skip)]
-    ScrollbarNonDisappearing,
 
     /// A themed focus outline (for outline:auto).
     ///

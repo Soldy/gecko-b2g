@@ -121,10 +121,6 @@ void gfxConfigManager::ConfigureWebRenderSoftware() {
   // (hardware). See bug 1656811.
   if (mWrSoftwareForceEnabled) {
     mFeatureWrSoftware->UserForceEnable("Force enabled by pref");
-  } else if (mWrForceEnabled || mWrEnvForceEnabled) {
-    mFeatureWrSoftware->UserDisable(
-        "User force-enabled full WR",
-        "FEATURE_FAILURE_USER_FORCE_ENABLED_FULL_WR"_ns);
   } else if (mWrForceDisabled || mWrEnvForceDisabled) {
     // If the user set the pref to force-disable, let's do that. This
     // will override all the other enabling prefs
@@ -201,15 +197,7 @@ void gfxConfigManager::ConfigureWebRenderQualified() {
     // Disable WebRender if we don't have DirectComposition
     nsAutoString adapterVendorID;
     mGfxInfo->GetAdapterVendorID(adapterVendorID);
-    if (adapterVendorID == u"0x8086") {
-      bool mixed;
-      int32_t maxRefreshRate = mGfxInfo->GetMaxRefreshRate(&mixed);
-      if (maxRefreshRate > 75) {
-        mFeatureWrQualified->Disable(FeatureStatus::Blocked,
-                                     "Monitor refresh rate too high",
-                                     "REFRESH_RATE_TOO_HIGH"_ns);
-      }
-    } else if (adapterVendorID == u"0x10de") {
+    if (adapterVendorID == u"0x10de") {
       bool mixed = false;
       int32_t maxRefreshRate = mGfxInfo->GetMaxRefreshRate(&mixed);
       if (maxRefreshRate > 60 && mixed) {

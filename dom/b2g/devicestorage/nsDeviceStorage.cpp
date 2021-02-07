@@ -36,6 +36,7 @@
 #include "nsServiceManagerUtils.h"
 #include "nsIFile.h"
 #include "nsIDirectoryEnumerator.h"
+#include "nsIDiskSpaceWatcher.h"
 #include "nsIInputStream.h"
 #include "nsIInputStreamLength.h"
 #include "nsNetUtil.h"
@@ -366,6 +367,7 @@ size_t DeviceStorageTypeChecker::GetAccessIndexForRequest(
   switch (aRequestType) {
     case DEVICE_STORAGE_REQUEST_READ:
     case DEVICE_STORAGE_REQUEST_WATCH:
+    case DEVICE_STORAGE_REQUEST_IS_DISK_FULL:
     case DEVICE_STORAGE_REQUEST_FREE_SPACE:
     case DEVICE_STORAGE_REQUEST_USED_SPACE:
     case DEVICE_STORAGE_REQUEST_AVAILABLE:
@@ -1219,6 +1221,14 @@ void DeviceStorageFile::AccumDirectoryUsage(nsIFile* aFile,
   }
 }
 
+void DeviceStorageFile::GetStorageIsDiskFull(bool* aIsDiskFull) {
+  nsCOMPtr<nsIDiskSpaceWatcher> diskSpaceWatcher =
+      do_GetService("@mozilla.org/toolkit/disk-space-watcher;1");
+  if (diskSpaceWatcher) {
+    diskSpaceWatcher->GetIsDiskFull(aIsDiskFull);
+  }
+}
+
 void DeviceStorageFile::GetStorageFreeSpace(int64_t* aSoFar) {
   DeviceStorageTypeChecker* typeChecker =
       DeviceStorageTypeChecker::CreateOrGet();
@@ -2009,6 +2019,31 @@ class DeviceStorageDeleteRequest final : public DeviceStorageRequest {
   nsresult CreateSendParams(DeviceStorageParams& aParams) override {
     DeviceStorageDeleteParams params(mFile->mStorageType, mFile->mStorageName,
                                      mFile->mPath);
+    aParams = params;
+    return NS_OK;
+  }
+};
+
+class DeviceStorageIsDiskFullRequest final : public DeviceStorageRequest {
+ public:
+  DeviceStorageIsDiskFullRequest() {
+    mAccess = DEVICE_STORAGE_ACCESS_READ;
+    mUseStreamTransport = true;
+    DS_LOG_INFO("");
+  }
+
+  NS_IMETHOD Run() override {
+    bool isDiskFull = false;
+    if (mFile) {
+      mFile->GetStorageIsDiskFull(&isDiskFull);
+    }
+    return Resolve(static_cast<bool>(isDiskFull));
+  }
+
+ protected:
+  nsresult CreateSendParams(DeviceStorageParams& aParams) override {
+    DeviceStorageIsDiskFullParams params(mFile->mStorageType,
+                                         mFile->mStorageName);
     aParams = params;
     return NS_OK;
   }
@@ -2883,6 +2918,25 @@ already_AddRefed<DOMRequest> nsDOMDeviceStorage::Delete(const nsAString& aPath,
   return domRequest.forget();
 }
 
+already_AddRefed<DOMRequest> nsDOMDeviceStorage::IsDiskFull(ErrorResult& aRv) {
+  MOZ_ASSERT(IsOwningThread());
+
+  RefPtr<DeviceStorageFile> dsf =
+      new DeviceStorageFile(mStorageType, mStorageName);
+
+  RefPtr<DOMRequest> domRequest;
+  uint32_t id = CreateDOMRequest(getter_AddRefs(domRequest), aRv);
+  if (aRv.Failed()) {
+    return nullptr;
+  }
+
+  RefPtr<DeviceStorageRequest> request = new DeviceStorageIsDiskFullRequest();
+  request->Initialize(mManager, dsf.forget(), id);
+
+  aRv = CheckPermission(request.forget());
+  return domRequest.forget();
+}
+
 already_AddRefed<DOMRequest> nsDOMDeviceStorage::FreeSpace(ErrorResult& aRv) {
   MOZ_ASSERT(IsOwningThread());
 
@@ -3580,6 +3634,34 @@ nsresult DeviceStorageRequestManager::Resolve(uint32_t aId, uint64_t aValue,
   }
 
   JS::RootedValue value(RootingCx(), JS_NumberValue((double)aValue));
+  return ResolveInternal(i, value);
+}
+
+nsresult DeviceStorageRequestManager::Resolve(uint32_t aId, bool aValue,
+                                              bool aForceDispatch) {
+  if (aForceDispatch || !IsOwningThread()) {
+    DS_LOG_DEBUG("recv %u %s", aId, aValue ? "true" : "false");
+    RefPtr<DeviceStorageRequestManager> self = this;
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+        "DeviceStorageRequestManager::Resolve(bool)",
+        [self, aId, aValue]() -> void { self->Resolve(aId, aValue, false); });
+    return DispatchOrAbandon(aId, r.forget());
+  }
+
+  DS_LOG_INFO("posted %u %s", aId, aValue ? "true" : "false");
+
+  if (NS_WARN_IF(aId == INVALID_ID)) {
+    DS_LOG_ERROR("invalid");
+    MOZ_ASSERT_UNREACHABLE("resolve invalid request");
+    return NS_OK;
+  }
+
+  ListIndex i = Find(aId);
+  if (NS_WARN_IF(i == mPending.Length())) {
+    return NS_OK;
+  }
+
+  JS::RootedValue value(RootingCx(), JS::BooleanValue(aValue));
   return ResolveInternal(i, value);
 }
 

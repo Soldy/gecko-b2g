@@ -615,12 +615,13 @@ static const nsExtraMimeTypeEntry extraMimeEntries[] = {
     {VIDEO_RAW, "yuv", "Raw YUV Video"},
     {AUDIO_WAV, "wav", "Waveform Audio"},
     {VIDEO_3GPP, "3gpp,3gp", "3GPP Video"},
-    {VIDEO_3GPP2, "3g2", "3GPP2 Video"},
+    {VIDEO_3GPP2, "3gpp2,3g2", "3GPP2 Video"},
     {AUDIO_AAC, "aac", "AAC Audio"},
     {AUDIO_FLAC, "flac", "FLAC Audio"},
     {AUDIO_MIDI, "mid", "Standard MIDI Audio"},
     {APPLICATION_WASM, "wasm", "WebAssembly Module"},
-    {AUDIO_AAC, "aac", "AAC Audio"}};
+    {AUDIO_AAC, "aac", "AAC Audio"},
+    {AUDIO_AMR, "amr,awb", "AMR Audio"}};
 
 static const nsDefaultMimeTypeEntry sForbiddenPrimaryExtensions[] = {
     {IMAGE_JPEG, "jfif"}};
@@ -1419,10 +1420,11 @@ bool nsExternalAppHandler::ShouldForceExtension(const nsString& aFileExt) {
         break;
       }
     }
-    if (!canForce) {
-      return false;
-    }
   }
+  if (!canForce) {
+    return false;
+  }
+
   // If we get here, we know for sure the mimetype allows us to overwrite the
   // existing extension, if it's wrong. Return whether the extension is wrong:
 

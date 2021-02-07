@@ -44,7 +44,13 @@ void UsbManager::Init() {
   UpdateFromUsbStatus(usbStatus);
 }
 
-void UsbManager::Shutdown() { hal::UnregisterUsbObserver(this); }
+void UsbManager::Shutdown() {
+  if (mDebouncingTimer) {
+    mDebouncingTimer->Cancel();
+    mDebouncingTimer = nullptr;
+  }
+  hal::UnregisterUsbObserver(this);
+}
 
 JSObject* UsbManager::WrapObject(JSContext* aCx,
                                  JS::Handle<JSObject*> aGivenProto) {

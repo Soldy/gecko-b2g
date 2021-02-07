@@ -409,7 +409,7 @@ pref("media.videocontrols.picture-in-picture.video-toggle.always-show", false);
 pref("media.videocontrols.picture-in-picture.video-toggle.min-video-secs", 45);
 pref("media.videocontrols.picture-in-picture.video-toggle.position", "right");
 pref("media.videocontrols.picture-in-picture.video-toggle.has-used", false);
-pref("media.videocontrols.keyboard-tab-to-all-controls", false);
+pref("media.videocontrols.keyboard-tab-to-all-controls", true);
 
 #ifdef MOZ_WEBRTC
   pref("media.navigator.video.enabled", true);
@@ -657,6 +657,8 @@ pref("gfx.webrender.debug.obscure-images", false);
 pref("gfx.webrender.debug.glyph-flashing", false);
 pref("gfx.webrender.debug.capture-profiler", false);
 pref("gfx.webrender.debug.profiler-ui", "Default");
+pref("gfx.webrender.debug.batched-texture-uploads", false);
+pref("gfx.webrender.debug.draw-calls-for-texture-copy", false);
 
 
 pref("accessibility.warn_on_browsewithcaret", true);
@@ -2542,19 +2544,6 @@ pref("dom.ipc.processCount.webLargeAllocation", 10);
 // Disable e10s for Gecko by default. This is overridden in firefox.js.
 pref("browser.tabs.remote.autostart", false);
 
-// Disable fission for Gecko by default. Lock it on release and beta because
-// it is not ready for use and can leak URIs to telemetry until bug 1561653 is
-// fixed.
-// IMPORTANT: This preference should *almost never* be checked directly, since
-// any session can contain a mix of Fission and non-Fission windows. Instead,
-// callers should check whether the relevant nsILoadContext has the
-// `useRemoteSubframes` flag set.
-#if defined(RELEASE_OR_BETA)
-  pref("fission.autostart", false, locked);
-#else
-  pref("fission.autostart", false);
-#endif
-
 // Whether certain properties from origin attributes should be included as part
 // of remote types. Only in effect when fission is enabled.
 pref("browser.tabs.remote.useOriginAttributesInRemoteType", false);
@@ -3771,20 +3760,6 @@ pref("network.tcp.keepalive.idle_time", 600); // seconds; 10 mins
 #if defined(XP_UNIX) && !defined(XP_MACOSX)
   pref("network.tcp.keepalive.probe_count", 4);
 #endif
-
-pref("network.tcp.tcp_fastopen_enable", false);
-
-pref("network.tcp.tcp_fastopen_consecutive_failure_limit", 5);
-// We are trying to detect stalled tcp connections that use TFO and TLS
-// (bug 1395494).
-// This is only happening if a connection is idle for more than 10s, but we
-// will make this a pref. If tcp_fastopen_http_stalls_limit of stalls are
-// detected the TCP fast open will be disabled.
-// If tcp_fastopen_http_check_for_stalls_only_if_idle_for is set to 0 the
-// check will not be performed.
-pref("network.tcp.tcp_fastopen_http_check_for_stalls_only_if_idle_for", 10);
-pref("network.tcp.tcp_fastopen_http_stalls_limit", 3);
-pref("network.tcp.tcp_fastopen_http_stalls_timeout", 20);
 
 // This pref controls if we send the "public-suffix-list-updated" notification
 // from PublicSuffixList.onUpdate() - Doing so would cause the PSL graph to

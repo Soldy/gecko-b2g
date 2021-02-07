@@ -954,6 +954,8 @@ pub struct Capabilities {
     pub supports_multisampling: bool,
     /// Whether the function `glCopyImageSubData` is available.
     pub supports_copy_image_sub_data: bool,
+    /// Whether the RGBAF32 textures can be bound to framebuffers.
+    pub supports_color_buffer_float: bool,
     /// Whether the device supports persistently mapped buffers, via glBufferStorage.
     pub supports_buffer_storage: bool,
     /// Whether we are able to use `glBlitFramebuffers` with the draw fbo
@@ -978,9 +980,14 @@ pub struct Capabilities {
     pub supports_render_target_partial_update: bool,
     /// Whether we can use SSBOs.
     pub supports_shader_storage_object: bool,
-    /// Whether the driver prefers fewer and larger texture uploads
-    /// over many smaller updates.
-    pub prefers_batched_texture_uploads: bool,
+    /// Whether to enforce that texture uploads be batched regardless of what
+    /// the pref says.
+    pub requires_batched_texture_uploads: bool,
+    /// Whether the driver can reliably upload data to R8 format textures.
+    pub supports_r8_texture_upload: bool,
+    /// Whether clip-masking is supported natively by the GL implementation
+    /// rather than emulated in shaders.
+    pub uses_native_clip_mask: bool,
     /// The name of the renderer, as reported by GL
     pub renderer_name: String,
 }
@@ -1064,6 +1071,12 @@ pub struct Device {
     depth_available: bool,
 
     upload_method: UploadMethod,
+    use_batched_texture_uploads: bool,
+    /// Whether to use draw calls instead of regular blitting commands.
+    ///
+    /// Note: this currently only applies to the batched texture uploads
+    /// path. 
+    use_draw_calls_for_texture_copy: bool,
 
     // HW or API capabilities
     capabilities: Capabilities,
@@ -1537,6 +1550,11 @@ impl Device {
             supports_extension(&extensions, "GL_ARB_copy_image")
         };
 
+        let supports_color_buffer_float = match gl.get_type() {
+            gl::GlType::Gl => true,
+            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
+        };
+
         let is_adreno = renderer_name.starts_with("Adreno");
 
         // There appears to be a driver bug on older versions of the Adreno
@@ -1627,9 +1645,26 @@ impl Device {
             gl::GlType::Gles => gl_version >= [3, 1],
         };
 
+        // SWGL uses swgl_clipMask() instead of implementing clip-masking in shaders.
+        // This allows certain shaders to potentially bypass the more expensive alpha-
+        // pass variants if they know the alpha-pass was only required to deal with
+        // clip-masking.
+        let uses_native_clip_mask = is_software_webrender;
+
         // On Mali-Gxx the driver really struggles with many small texture uploads,
         // and handles fewer, larger uploads better.
-        let prefers_batched_texture_uploads = is_mali_g;
+        let requires_batched_texture_uploads = is_mali_g;
+
+        // On Linux we we have seen uploads to R8 format textures result in
+        // corruption on some AMD cards.
+        // See https://bugzilla.mozilla.org/show_bug.cgi?id=1687554#c13
+        let supports_r8_texture_upload = if cfg!(target_os = "linux")
+            && renderer_name.starts_with("AMD Radeon RX")
+        {
+            false
+        } else {
+            true
+        };
 
         Device {
             gl,
@@ -1638,11 +1673,15 @@ impl Device {
             resource_override_path,
             use_optimized_shaders,
             upload_method,
+            use_batched_texture_uploads: requires_batched_texture_uploads,
+            use_draw_calls_for_texture_copy: false,
+
             inside_frame: false,
 
             capabilities: Capabilities {
                 supports_multisampling: false, //TODO
                 supports_copy_image_sub_data,
+                supports_color_buffer_float,
                 supports_buffer_storage,
                 supports_blit_to_texture_array,
                 supports_advanced_blend_equation,
@@ -1653,7 +1692,9 @@ impl Device {
                 supports_texture_usage,
                 supports_render_target_partial_update,
                 supports_shader_storage_object,
-                prefers_batched_texture_uploads,
+                requires_batched_texture_uploads,
+                supports_r8_texture_upload,
+                uses_native_clip_mask,
                 renderer_name,
             },
 
@@ -1765,6 +1806,26 @@ impl Device {
 
     pub fn optimal_pbo_stride(&self) -> StrideAlignment {
         self.optimal_pbo_stride
+    }
+
+    pub fn upload_method(&self) -> &UploadMethod {
+        &self.upload_method
+    }
+
+    pub fn use_batched_texture_uploads(&self) -> bool {
+        self.use_batched_texture_uploads
+    }
+
+    pub fn use_draw_calls_for_texture_copy(&self) -> bool {
+        self.use_draw_calls_for_texture_copy
+    }
+
+    pub fn set_use_batched_texture_uploads(&mut self, enabled: bool) {
+        self.use_batched_texture_uploads = self.capabilities.requires_batched_texture_uploads | enabled;
+    }
+
+    pub fn set_use_draw_calls_for_texture_copy(&mut self, enabled: bool) {
+        self.use_draw_calls_for_texture_copy = enabled;
     }
 
     pub fn reset_state(&mut self) {
@@ -4280,7 +4341,7 @@ pub struct TextureUploader<'a> {
     /// A list of buffers containing uploads that need to be flushed.
     buffers: Vec<PixelBuffer<'a>>,
     /// Pool used to obtain PBOs to fill with texture data.
-    pbo_pool: &'a mut UploadPBOPool,
+    pub pbo_pool: &'a mut UploadPBOPool,
 }
 
 impl<'a> Drop for TextureUploader<'a> {

@@ -85,7 +85,7 @@ const URL_ROOT_ORG_SSL = CHROME_URL_ROOT.replace(
 );
 const URL_ROOT_NET = CHROME_URL_ROOT.replace(
   "chrome://mochitests/content/",
-  "http://example.org/"
+  "http://example.net/"
 );
 // mochi.test:8888 is the actual primary location where files are served.
 const URL_ROOT_MOCHI_8888 = CHROME_URL_ROOT.replace(
@@ -493,17 +493,6 @@ async function navigateTo(uri, { isErrorPage = false } = {}) {
   const switchedToAnotherProcess =
     currentPID !== browser.browsingContext.currentWindowGlobal.osPid;
 
-  // If we switched to another process and the target switching pref is false,
-  // the toolbox will close and reopen.
-  // For now, this helper doesn't support this case
-  if (switchedToAnotherProcess && !isTargetSwitchingEnabled()) {
-    ok(
-      false,
-      `navigateTo(${uri}) navigated to another process, but the target switching is disabled`
-    );
-    return;
-  }
-
   if (onPanelReloaded) {
     info(`Waiting for ${toolbox.currentToolId} to be reloaded…`);
     await onPanelReloaded();
@@ -560,10 +549,6 @@ function waitForPanelReload(currentToolId, target, panel) {
 
 function isFissionEnabled() {
   return SpecialPowers.useRemoteSubframes;
-}
-
-function isTargetSwitchingEnabled() {
-  return Services.prefs.getBoolPref("devtools.target-switching.enabled", false);
 }
 
 /**

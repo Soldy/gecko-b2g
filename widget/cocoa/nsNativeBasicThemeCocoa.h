@@ -23,6 +23,9 @@ class nsNativeBasicThemeCocoa : public nsNativeBasicTheme {
                                   mozilla::LayoutDeviceIntSize* aResult,
                                   bool* aIsOverridable) override;
 
+  ScrollbarSizes GetScrollbarSizes(nsPresContext*, StyleScrollbarWidth,
+                                   Overlay) override;
+
   void PaintScrollbarThumb(DrawTarget* aDrawTarget,
                            const LayoutDeviceRect& aRect, bool aHorizontal,
                            nsIFrame* aFrame, const ComputedStyle& aStyle,
@@ -33,16 +36,16 @@ class nsNativeBasicThemeCocoa : public nsNativeBasicTheme {
                            const LayoutDeviceRect& aRect, bool aHorizontal,
                            nsIFrame* aFrame, const ComputedStyle& aStyle,
                            const EventStates& aDocumentState,
-                           DPIRatio aDpiRatio, bool aIsRoot) override;
+                           DPIRatio aDpiRatio) override;
   void PaintScrollbar(DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect,
                       bool aHorizontal, nsIFrame* aFrame,
                       const ComputedStyle& aStyle,
-                      const EventStates& aDocumentState, DPIRatio aDpiRatio,
-                      bool aIsRoot) override;
+                      const EventStates& aDocumentState,
+                      DPIRatio aDpiRatio) override;
   void PaintScrollCorner(DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect,
                          nsIFrame* aFrame, const ComputedStyle& aStyle,
-                         const EventStates& aDocumentState, DPIRatio aDpiRatio,
-                         bool aIsRoot) override;
+                         const EventStates& aDocumentState,
+                         DPIRatio aDpiRatio) override;
 
  protected:
   virtual ~nsNativeBasicThemeCocoa() = default;

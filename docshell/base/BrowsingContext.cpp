@@ -97,6 +97,13 @@ struct ParamTraits<mozilla::dom::DisplayMode>
                                       mozilla::dom::DisplayMode::EndGuard_> {};
 
 template <>
+struct ParamTraits<mozilla::dom::PrefersColorSchemeOverride>
+    : public ContiguousEnumSerializer<
+          mozilla::dom::PrefersColorSchemeOverride,
+          mozilla::dom::PrefersColorSchemeOverride::None,
+          mozilla::dom::PrefersColorSchemeOverride::EndGuard_> {};
+
+template <>
 struct ParamTraits<mozilla::dom::ExplicitActiveStatus>
     : public ContiguousEnumSerializer<
           mozilla::dom::ExplicitActiveStatus,
@@ -1798,6 +1805,19 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
                                     aLoadState->GetLoadIdentifier());
 
   const auto& sourceBC = aLoadState->SourceBrowsingContext();
+
+  if (net::SchemeIsJavascript(aLoadState->URI())) {
+    if (!XRE_IsParentProcess()) {
+      // Web content should only be able to load javascript: URIs into documents
+      // whose principals the caller principal subsumes, which by definition
+      // excludes any document in a cross-process BrowsingContext.
+      return NS_ERROR_DOM_BAD_CROSS_ORIGIN_URI;
+    }
+    MOZ_DIAGNOSTIC_ASSERT(!sourceBC,
+                          "Should never see a cross-process javascript: load "
+                          "triggered from content");
+  }
+
   MOZ_DIAGNOSTIC_ASSERT(!sourceBC || sourceBC->Group() == Group());
   if (sourceBC && sourceBC->IsInProcess()) {
     if (!sourceBC->CanAccess(this)) {
@@ -1868,26 +1888,8 @@ nsresult BrowsingContext::InternalLoad(nsDocShellLoadState* aLoadState) {
   MOZ_DIAGNOSTIC_ASSERT(aLoadState->TargetBrowsingContext() == this,
                         "must be targeting this BrowsingContext");
 
-  const auto& sourceBC = aLoadState->SourceBrowsingContext();
-  bool isActive =
-      sourceBC && sourceBC->IsActive() && !IsActive() &&
-      !Preferences::GetBool("browser.tabs.loadDivertedInBackground", false);
   if (mDocShell) {
-    nsresult rv = nsDocShell::Cast(mDocShell)->InternalLoad(aLoadState);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    // Switch to target tab if we're currently focused window.
-    // Take loadDivertedInBackground into account so the behavior would be
-    // the same as how the tab first opened.
-    nsCOMPtr<nsPIDOMWindowOuter> domWin = GetDOMWindow();
-    if (isActive && domWin) {
-      nsFocusManager::FocusWindow(domWin, CallerType::System);
-    }
-
-    // Else we ran out of memory, or were a popup and got blocked,
-    // or something.
-
-    return rv;
+    return nsDocShell::Cast(mDocShell)->InternalLoad(aLoadState);
   }
 
   // Note: We do this check both here and in `nsDocShell::InternalLoad`, since
@@ -1897,6 +1899,20 @@ nsresult BrowsingContext::InternalLoad(nsDocShellLoadState* aLoadState) {
   // BrowsingContext's sandbox flags.
   MOZ_TRY(CheckSandboxFlags(aLoadState));
 
+  const auto& sourceBC = aLoadState->SourceBrowsingContext();
+
+  if (net::SchemeIsJavascript(aLoadState->URI())) {
+    if (!XRE_IsParentProcess()) {
+      // Web content should only be able to load javascript: URIs into documents
+      // whose principals the caller principal subsumes, which by definition
+      // excludes any document in a cross-process BrowsingContext.
+      return NS_ERROR_DOM_BAD_CROSS_ORIGIN_URI;
+    }
+    MOZ_DIAGNOSTIC_ASSERT(!sourceBC,
+                          "Should never see a cross-process javascript: load "
+                          "triggered from content");
+  }
+
   if (XRE_IsParentProcess()) {
     ContentParent* cp = Canonical()->GetContentParent();
     if (!cp || !cp->CanSend()) {
@@ -1905,7 +1921,7 @@ nsresult BrowsingContext::InternalLoad(nsDocShellLoadState* aLoadState) {
 
     MOZ_ALWAYS_SUCCEEDS(
         SetCurrentLoadIdentifier(Some(aLoadState->GetLoadIdentifier())));
-    Unused << cp->SendInternalLoad(aLoadState, isActive);
+    Unused << cp->SendInternalLoad(aLoadState);
   } else {
     MOZ_DIAGNOSTIC_ASSERT(sourceBC);
     MOZ_DIAGNOSTIC_ASSERT(sourceBC->Group() == Group());
@@ -2066,6 +2082,10 @@ PopupBlocker::PopupControlState BrowsingContext::RevisePopupAbuseLevel(
   }
 
   return abuse;
+}
+
+void BrowsingContext::IncrementHistoryEntryCountForBrowsingContext() {
+  Unused << SetHistoryEntryCount(GetHistoryEntryCount() + 1);
 }
 
 std::tuple<bool, bool> BrowsingContext::CanFocusCheck(CallerType aCallerType) {
@@ -2433,7 +2453,7 @@ void BrowsingContext::DidSet(FieldIndex<IDX_ExplicitActive>,
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_HasMainMediaController>,
                              bool aNewValue, ContentParent* aSource) {
-  return IsTop() && CheckOnlyOwningProcessCanSet(aSource);
+  return IsTop() && LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_HasMainMediaController>,
@@ -2455,17 +2475,48 @@ bool BrowsingContext::InactiveForSuspend() const {
   return !IsActive() && !GetHasMainMediaController();
 }
 
-bool BrowsingContext::CanSet(
-    FieldIndex<IDX_TouchEventsOverrideInternal>,
-    const enum TouchEventsOverride& aTouchEventsOverride,
-    ContentParent* aSource) {
-  return CheckOnlyOwningProcessCanSet(aSource);
+bool BrowsingContext::CanSet(FieldIndex<IDX_TouchEventsOverrideInternal>,
+                             dom::TouchEventsOverride, ContentParent*) {
+  // TODO: Bug 1688948 - Should only be set in the parent process.
+  return true;
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_DisplayMode>,
-                             const enum DisplayMode& aDisplayMOde,
-                             ContentParent* aSource) {
-  return IsTop();
+void BrowsingContext::DidSet(FieldIndex<IDX_PrefersColorSchemeOverride>,
+                             dom::PrefersColorSchemeOverride aOldValue) {
+  MOZ_ASSERT(IsTop());
+  if (PrefersColorSchemeOverride() == aOldValue) {
+    return;
+  }
+  PreOrderWalk([&](BrowsingContext* aContext) {
+    if (nsIDocShell* shell = aContext->GetDocShell()) {
+      if (nsPresContext* pc = shell->GetPresContext()) {
+        // This is a bit of a lie, but it's the code-path that gets taken for
+        // regular system metrics changes via ThemeChanged().
+        // TODO(emilio): The JustThisDocument is a bit suspect here,
+        // prefers-color-scheme also applies to images or such, but the override
+        // means that we could need to render the same image both with "light"
+        // and "dark" appearance, so we just don't bother.
+        pc->MediaFeatureValuesChanged(
+            {MediaFeatureChangeReason::SystemMetricsChange},
+            MediaFeatureChangePropagation::JustThisDocument);
+      }
+    }
+  });
+}
+
+void BrowsingContext::DidSet(FieldIndex<IDX_MediumOverride>,
+                             nsString&& aOldValue) {
+  MOZ_ASSERT(IsTop());
+  if (GetMediumOverride() == aOldValue) {
+    return;
+  }
+  PreOrderWalk([&](BrowsingContext* aContext) {
+    if (nsIDocShell* shell = aContext->GetDocShell()) {
+      if (nsPresContext* pc = shell->GetPresContext()) {
+        pc->RecomputeBrowsingContextDependentData();
+      }
+    }
+  });
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_DisplayMode>,
@@ -2541,7 +2592,8 @@ void BrowsingContext::DidSet(FieldIndex<IDX_PlatformOverride>) {
   });
 }
 
-bool BrowsingContext::CheckOnlyOwningProcessCanSet(ContentParent* aSource) {
+bool BrowsingContext::LegacyCheckOnlyOwningProcessCanSet(
+    ContentParent* aSource) {
   if (aSource) {
     MOZ_ASSERT(XRE_IsParentProcess());
 
@@ -2592,19 +2644,19 @@ void BrowsingContext::DidSet(FieldIndex<IDX_IsActiveBrowserWindowInternal>,
 bool BrowsingContext::CanSet(FieldIndex<IDX_AllowContentRetargeting>,
                              const bool& aAllowContentRetargeting,
                              ContentParent* aSource) {
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_AllowContentRetargetingOnChildren>,
                              const bool& aAllowContentRetargetingOnChildren,
                              ContentParent* aSource) {
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_AllowPlugins>,
                              const bool& aAllowPlugins,
                              ContentParent* aSource) {
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_FullscreenAllowedByOwner>,
@@ -2633,16 +2685,9 @@ mozilla::dom::TouchEventsOverride BrowsingContext::TouchEventsOverride() const {
   return mozilla::dom::TouchEventsOverride::None;
 }
 
-void BrowsingContext::SetTouchEventsOverride(
-    const enum TouchEventsOverride aTouchEventsOverride, ErrorResult& aRv) {
-  SetTouchEventsOverrideInternal(aTouchEventsOverride, aRv);
-}
-
-nsresult BrowsingContext::SetTouchEventsOverride(
-    const enum TouchEventsOverride aTouchEventsOverride) {
-  ErrorResult rv;
-  SetTouchEventsOverride(aTouchEventsOverride, rv);
-  return rv.StealNSResult();
+void BrowsingContext::SetTouchEventsOverride(dom::TouchEventsOverride aOverride,
+                                             ErrorResult& aRv) {
+  SetTouchEventsOverrideInternal(aOverride, aRv);
 }
 
 // We map `watchedByDevTools` WebIDL attribute to `watchedByDevToolsInternal`
@@ -2673,7 +2718,7 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_DefaultLoadFlags>,
                              ContentParent* aSource) {
   // Bug 1623565 - Are these flags only used by the debugger, which makes it
   // possible that this field can only be settable by the parent process?
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_DefaultLoadFlags>) {
@@ -2707,7 +2752,7 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_UserAgentOverride>,
     return false;
   }
 
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_PlatformOverride>,
@@ -2717,7 +2762,7 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_PlatformOverride>,
     return false;
   }
 
-  return CheckOnlyOwningProcessCanSet(aSource);
+  return LegacyCheckOnlyOwningProcessCanSet(aSource);
 }
 
 bool BrowsingContext::CheckOnlyEmbedderCanSet(ContentParent* aSource) {
@@ -3159,11 +3204,11 @@ void BrowsingContext::RemoveDynEntriesFromActiveSessionHistoryEntry() {
   }
 }
 
-void BrowsingContext::RemoveFromSessionHistory() {
+void BrowsingContext::RemoveFromSessionHistory(const nsID& aChangeID) {
   if (XRE_IsContentProcess()) {
-    ContentChild::GetSingleton()->SendRemoveFromSessionHistory(this);
+    ContentChild::GetSingleton()->SendRemoveFromSessionHistory(this, aChangeID);
   } else {
-    Canonical()->RemoveFromSessionHistory();
+    Canonical()->RemoveFromSessionHistory(aChangeID);
   }
 }
 

@@ -72,6 +72,7 @@
 #include "mozilla/HangDetails.h"
 #include "mozilla/LoginReputationIPC.h"
 #include "mozilla/LookAndFeel.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/PerformanceMetricsCollector.h"
 #include "mozilla/Preferences.h"
@@ -176,6 +177,9 @@
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/PCookieServiceParent.h"
 #include "mozilla/plugins/PluginBridge.h"
+#include "mozilla/Telemetry.h"
+#include "mozilla/TelemetryComms.h"
+#include "mozilla/TelemetryEventEnums.h"
 #include "mozilla/RemoteLazyInputStreamParent.h"
 #include "mozilla/widget/RemoteLookAndFeel.h"
 #include "mozilla/widget/ScreenManager.h"
@@ -306,6 +310,7 @@
 using namespace mozilla::system;
 #  include "nsISystemWorkerManager.h"
 #  include "SystemWorkerManager.h"
+#  include "mozilla/dom/time/DateCacheCleaner.h"
 #endif
 
 #ifdef MOZ_WIDGET_GTK
@@ -346,7 +351,6 @@ using namespace mozilla::system;
 #endif
 
 #ifdef XP_WIN
-#  include "mozilla/audio/AudioNotificationSender.h"
 #  include "mozilla/widget/AudioSession.h"
 #  include "mozilla/widget/WinContentSystemParameters.h"
 #  include "mozilla/WinDllServices.h"
@@ -409,6 +413,7 @@ using namespace mozilla::layout;
 using namespace mozilla::net;
 using namespace mozilla::psm;
 using namespace mozilla::widget;
+using namespace mozilla::Telemetry;
 using mozilla::loader::PScriptCacheParent;
 using mozilla::Telemetry::ProcessID;
 
@@ -435,6 +440,12 @@ LazyLogModule gProcessLog("Process");
 
 static std::map<RemoteDecodeIn, PDMFactory::MediaCodecsSupported>
     sCodecsSupported;
+
+/* static */
+uint32_t ContentParent::sMaxContentProcesses = 0;
+
+/* static */
+Maybe<TimeStamp> ContentParent::sLastContentProcessLaunch = Nothing();
 
 /* static */
 LogModule* ContentParent::GetLog() { return gProcessLog; }
@@ -770,6 +781,10 @@ void ContentParent::StartUp() {
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
   sMacSandboxParams = MakeUnique<std::vector<std::string>>();
+#endif
+
+#ifdef MOZ_WIDGET_GONK
+  DateCacheCleaner::InitializeSingleton();
 #endif
 }
 
@@ -1383,25 +1398,50 @@ mozilla::ipc::IPCResult ContentParent::RecvUngrabPointer(
 #endif
 }
 
+Atomic<bool, mozilla::Relaxed> sContentParentTelemetryEventEnabled(false);
+
 static void LogFailedPrincipalValidationInfo(nsIPrincipal* aPrincipal,
                                              const char* aMethod) {
-  // no need to do the dance if logging is disabled
-  if (MOZ_LOG_TEST(ContentParent::GetLog(), LogLevel::Error)) {
-    nsAutoCString spec;
-    if (!aPrincipal) {
-      spec.AssignLiteral("NullPtr");
-    } else if (aPrincipal->IsSystemPrincipal()) {
-      spec.AssignLiteral("SystemPrincipal");
-    } else if (aPrincipal->GetIsExpandedPrincipal()) {
-      spec.AssignLiteral("ExpandedPrincipal");
-    } else if (aPrincipal->GetIsContentPrincipal()) {
-      aPrincipal->GetSpec(spec);
-    }
-
-    MOZ_LOG(ContentParent::GetLog(), LogLevel::Error,
-            ("  Receiving unexpected Principal (%s) within %s", spec.get(),
-             aMethod));
+  // nsContentSecurityManager may also enable this same event, but that's okay
+  if (!sContentParentTelemetryEventEnabled.exchange(true)) {
+    sContentParentTelemetryEventEnabled = true;
+    Telemetry::SetEventRecordingEnabled("security"_ns, true);
   }
+
+  // Send Telemetry
+  nsAutoCString principalScheme, principalType, spec;
+  CopyableTArray<EventExtraEntry> extra(2);
+
+  if (!aPrincipal) {
+    principalType.AssignLiteral("NullPtr");
+  } else if (aPrincipal->IsSystemPrincipal()) {
+    principalType.AssignLiteral("SystemPrincipal");
+  } else if (aPrincipal->GetIsExpandedPrincipal()) {
+    principalType.AssignLiteral("ExpandedPrincipal");
+  } else if (aPrincipal->GetIsContentPrincipal()) {
+    principalType.AssignLiteral("ContentPrincipal");
+    aPrincipal->GetSpec(spec);
+    aPrincipal->GetScheme(principalScheme);
+
+    extra.AppendElement(EventExtraEntry{"scheme"_ns, principalScheme});
+  } else {
+    principalType.AssignLiteral("Unknown");
+  }
+
+  extra.AppendElement(EventExtraEntry{"principalType"_ns, principalType});
+
+  Telemetry::EventID eventType =
+      Telemetry::EventID::Security_Fissionprincipals_Contentparent;
+  Telemetry::RecordEvent(eventType, mozilla::Some(aMethod),
+                         mozilla::Some(extra));
+
+  // And log it
+  MOZ_LOG(
+      ContentParent::GetLog(), LogLevel::Error,
+      ("  Receiving unexpected Principal (%s) within %s",
+       aPrincipal && aPrincipal->GetIsContentPrincipal() ? spec.get()
+                                                         : principalType.get(),
+       aMethod));
 }
 
 bool ContentParent::ValidatePrincipal(
@@ -2780,6 +2820,7 @@ bool ContentParent::LaunchSubprocessSync(
   }
   const bool ok = mSubprocess->WaitForProcessHandle();
   if (ok && LaunchSubprocessResolve(/* aIsSync = */ true, aInitialPriority)) {
+    ContentParent::DidLaunchSubprocess();
     return true;
   }
   LaunchSubprocessReject();
@@ -2809,6 +2850,7 @@ RefPtr<ContentParent::LaunchPromise> ContentParent::LaunchSubprocessAsync(
         if (aValue.IsResolve() &&
             self->LaunchSubprocessResolve(/* aIsSync = */ false,
                                           aInitialPriority)) {
+          ContentParent::DidLaunchSubprocess();
           return LaunchPromise::CreateAndResolve(self, __func__);
         }
         self->LaunchSubprocessReject();
@@ -2855,9 +2897,6 @@ ContentParent::ContentParent(const nsACString& aRemoteType, int32_t aJSPluginID)
   mMessageManager = nsFrameMessageManager::NewProcessMessageManager(true);
 
 #if defined(XP_WIN)
-  if (XRE_IsParentProcess()) {
-    audio::AudioNotificationSender::Init();
-  }
   // Request Windows message deferral behavior on our side of the PContent
   // channel. Generally only applies to the situation where we get caught in
   // a deadlock with the plugin process when sending CPOWs.
@@ -5184,6 +5223,10 @@ mozilla::ipc::IPCResult ContentParent::RecvConsoleMessage(
 mozilla::ipc::IPCResult ContentParent::RecvReportFrameTimingData(
     uint64_t aInnerWindowId, const nsString& entryName,
     const nsString& initiatorType, UniquePtr<PerformanceTimingData>&& aData) {
+  if (!aData) {
+    return IPC_FAIL(this, "aData should not be null");
+  }
+
   RefPtr<WindowGlobalParent> parent =
       WindowGlobalParent::GetByInnerWindowId(aInnerWindowId);
   if (!parent || !parent->GetContentParent()) {
@@ -7970,9 +8013,9 @@ ContentParent::RecvRemoveDynEntriesFromActiveSessionHistoryEntry(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvRemoveFromSessionHistory(
-    const MaybeDiscarded<BrowsingContext>& aContext) {
+    const MaybeDiscarded<BrowsingContext>& aContext, const nsID& aChangeID) {
   if (!aContext.IsDiscarded()) {
-    aContext.get_canonical()->RemoveFromSessionHistory();
+    aContext.get_canonical()->RemoveFromSessionHistory(aChangeID);
   }
   return IPC_OK();
 }
@@ -8096,6 +8139,28 @@ NS_IMETHODIMP ContentParent::GetCanSend(bool* aCanSend) {
 ContentParent* ContentParent::AsContentParent() { return this; }
 
 JSActorManager* ContentParent::AsJSActorManager() { return this; }
+
+/* static */
+void ContentParent::DidLaunchSubprocess() {
+  TimeStamp now = TimeStamp::Now();
+  uint32_t count = 0;
+  for (auto* parent : ContentParent::AllProcesses(ContentParent::eLive)) {
+    Unused << parent;
+    count += 1;
+  }
+
+  if (count > sMaxContentProcesses) {
+    Telemetry::Accumulate(Telemetry::CONTENT_PROCESS_MAX, count);
+  }
+
+  if (sLastContentProcessLaunch) {
+    TimeStamp last = *sLastContentProcessLaunch;
+
+    Telemetry::AccumulateTimeDelta(
+        Telemetry::CONTENT_PROCESS_TIME_SINCE_LAST_LAUNCH_MS, last, now);
+  }
+  sLastContentProcessLaunch = Some(now);
+}
 
 }  // namespace dom
 }  // namespace mozilla

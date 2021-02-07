@@ -123,12 +123,6 @@ class ResponsiveUI {
     return this.resourceWatcher.watcherFront;
   }
 
-  get hasResourceWatcherSupport() {
-    return this.resourceWatcher.hasResourceWatcherSupport(
-      this.resourceWatcher.TYPES.NETWORK_EVENT
-    );
-  }
-
   /**
    * Open RDM while preserving the state of the page.
    */
@@ -151,8 +145,6 @@ class ResponsiveUI {
     // Listen to FullZoomChange events coming from the browser window,
     // so that we can zoom the size of the viewport by the same amount.
     this.browserWindow.addEventListener("FullZoomChange", this);
-
-    this.tab.addEventListener("BeforeTabRemotenessChange", this);
 
     // Get the protocol ready to speak with responsive emulation actor
     debug("Wait until RDP server connect");
@@ -278,13 +270,9 @@ class ResponsiveUI {
     // So, skip any waiting when we're about to close the tab.
     const isTabDestroyed =
       !this.tab.linkedBrowser || this.responsiveFront.isDestroyed();
-    const isWindowClosing =
-      (options && options.reason === "unload") || isTabDestroyed;
+    const isWindowClosing = options?.reason === "unload" || isTabDestroyed;
     const isTabContentDestroying =
-      isWindowClosing ||
-      (options &&
-        (options.reason === "TabClose" ||
-          options.reason === "BeforeTabRemotenessChange"));
+      isWindowClosing || options?.reason === "TabClose";
 
     let currentTarget;
 
@@ -307,22 +295,9 @@ class ResponsiveUI {
       // Resseting the throtting needs to be done before the
       // network events watching is stopped.
       await this.updateNetworkThrottling();
-
-      this.targetList.unwatchTargets(
-        [this.targetList.TYPES.FRAME],
-        this.onTargetAvailable
-      );
-
-      this.resourceWatcher.unwatchResources(
-        [this.resourceWatcher.TYPES.NETWORK_EVENT],
-        { onAvailable: this.onNetworkResourceAvailable }
-      );
-
-      this.targetList.destroy();
     }
 
     this.tab.removeEventListener("TabClose", this);
-    this.tab.removeEventListener("BeforeTabRemotenessChange", this);
     this.browserWindow.removeEventListener("unload", this);
     this.tab.linkedBrowser.leaveResponsiveMode();
 
@@ -357,6 +332,22 @@ class ResponsiveUI {
       if (reloadNeeded && currentTarget) {
         await currentTarget.reload();
       }
+
+      // Unwatch targets & resources as the last step. If we are not waching for
+      // any resource & target anymore, the JSWindowActors will be unregistered
+      // which will trigger an early destruction of the RDM target, before we
+      // could finalize the cleanup.
+      this.targetList.unwatchTargets(
+        [this.targetList.TYPES.FRAME],
+        this.onTargetAvailable
+      );
+
+      this.resourceWatcher.unwatchResources(
+        [this.resourceWatcher.TYPES.NETWORK_EVENT],
+        { onAvailable: this.onNetworkResourceAvailable }
+      );
+
+      this.targetList.destroy();
     }
 
     // Show the browser UI now.
@@ -395,7 +386,10 @@ class ResponsiveUI {
     this.client = new DevToolsClient(DevToolsServer.connectPipe());
     await this.client.connect();
 
-    const descriptor = await this.client.mainRoot.getTab();
+    // Pass a proper `tab` filter option to getTab in order to create a
+    // "local" TabDescriptor, which handles target switching autonomously with
+    // its corresponding target-list.
+    const descriptor = await this.client.mainRoot.getTab({ tab: this.tab });
     const targetFront = await descriptor.getTarget();
 
     this.targetList = new TargetList(this.client.mainRoot, targetFront);
@@ -415,9 +409,7 @@ class ResponsiveUI {
       { onAvailable: this.onNetworkResourceAvailable }
     );
 
-    if (this.hasResourceWatcherSupport) {
-      this.networkFront = await this.watcherFront.getNetworkParentActor();
-    }
+    this.networkFront = await this.watcherFront.getNetworkParentActor();
   }
 
   /**
@@ -460,9 +452,6 @@ class ResponsiveUI {
         // will pick up changes to the zoom.
         const { width, height } = this.getViewportSize();
         this.updateViewportSize(width, height);
-        break;
-      case "BeforeTabRemotenessChange":
-        this.onRemotenessChange(event);
         break;
       case "TabClose":
       case "unload":
@@ -851,18 +840,13 @@ class ResponsiveUI {
    *         (This is always immediate, so it's always false.)
    */
   async updateNetworkThrottling(enabled, profile) {
-    const throttlingFront =
-      this.hasResourceWatcherSupport && this.networkFront
-        ? this.networkFront
-        : this.responsiveFront;
-
     if (!enabled) {
-      await throttlingFront.clearNetworkThrottling();
+      await this.networkFront.clearNetworkThrottling();
       return false;
     }
     const data = throttlingProfiles.find(({ id }) => id == profile);
     const { download, upload, latency } = data;
-    await throttlingFront.setNetworkThrottling({
+    await this.networkFront.setNetworkThrottling({
       downloadThroughput: download,
       uploadThroughput: upload,
       latency,
@@ -1070,17 +1054,6 @@ class ResponsiveUI {
   // This just needed to setup watching for network resources,
   // to support network throttling.
   onNetworkResourceAvailable() {}
-
-  async onRemotenessChange(event) {
-    // The current tab target will be destroyed by the process change.
-    // Wait for the target to be fully destroyed so that the cache of the
-    // corresponding TabDescriptorFront has been cleared. Otherwise, getTab()
-    // might return the soon to be destroyed target again.
-    await this.targetList.targetFront.once("target-destroyed");
-    const descriptor = await this.client.mainRoot.getTab();
-    const newTarget = await descriptor.getTarget();
-    await this.targetList.switchToTarget(newTarget);
-  }
 
   /**
    * Reload the current tab.

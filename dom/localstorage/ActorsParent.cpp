@@ -466,7 +466,7 @@ Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateStorageConnection(
           .orElse([&aUsageFile, &aDBFile, &aCorruptedFileHandler,
                    &storageService](const nsresult rv)
                       -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
-            if (rv == NS_ERROR_FILE_CORRUPTED) {
+            if (IsDatabaseCorruptionError(rv)) {
               // Remove the usage file first (it might not exist at all due
               // to corrupted state, which is ignored here).
               LS_TRY(ToResult(aUsageFile.Remove(false))
@@ -678,7 +678,7 @@ CreateArchiveStorageConnection(const nsAString& aStoragePath) {
                                  OpenUnsharedDatabase, archiveFile)
           .orElse([](const nsresult rv)
                       -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
-            if (rv == NS_ERROR_FILE_CORRUPTED) {
+            if (IsDatabaseCorruptionError(rv)) {
               // Don't throw an error, leave a corrupted ls-archive database as
               // it is.
               return nsCOMPtr<mozIStorageConnection>{};
@@ -814,7 +814,7 @@ Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateShadowStorageConnection(
                                  OpenUnsharedDatabase, shadowFile)
           .orElse([&shadowFile, &ss](const nsresult rv)
                       -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
-            if (rv == NS_ERROR_FILE_CORRUPTED) {
+            if (IsDatabaseCorruptionError(rv)) {
               LS_TRY(shadowFile->Remove(false));
 
               LS_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(
@@ -2696,8 +2696,9 @@ class nsCStringHashKeyDM : public nsCStringHashKey {
 typedef std::conditional<DiagnosticAssertEnabled::value, nsCStringHashKeyDM,
                          nsCStringHashKey>::type DatastoreHashKey;
 
-typedef nsDataHashtable<DatastoreHashKey, CheckedUnsafePtr<Datastore>>
-    DatastoreHashtable;
+using DatastoreHashtable =
+    nsBaseHashtable<DatastoreHashKey, NotNull<CheckedUnsafePtr<Datastore>>,
+                    MovingNotNull<CheckedUnsafePtr<Datastore>>>;
 
 StaticAutoPtr<DatastoreHashtable> gDatastores;
 
@@ -2775,11 +2776,9 @@ already_AddRefed<Datastore> GetDatastore(const nsACString& aOrigin) {
   AssertIsOnBackgroundThread();
 
   if (gDatastores) {
-    CheckedUnsafePtr<Datastore> datastore;
-    if (gDatastores->Get(aOrigin, &datastore)) {
-      MOZ_ASSERT(datastore);
-
-      RefPtr<Datastore> result(datastore);
+    auto maybeDatastore = gDatastores->MaybeGet(aOrigin);
+    if (maybeDatastore) {
+      RefPtr<Datastore> result(std::move(*maybeDatastore).unwrapBasePtr());
       return result.forget();
     }
   }
@@ -3396,8 +3395,6 @@ bool RecvLSClearPrivateBrowsing() {
   if (gDatastores) {
     for (const auto& entry : *gDatastores) {
       const auto& datastore = entry.GetData();
-      MOZ_ASSERT(datastore);
-
       if (datastore->PrivateBrowsingId()) {
         datastore->Clear(nullptr);
       }
@@ -5071,8 +5068,8 @@ void Datastore::CleanupMetadata() {
   AssertIsOnBackgroundThread();
 
   MOZ_ASSERT(gDatastores);
-  MOZ_ASSERT(gDatastores->Get(mGroupAndOrigin.mOrigin));
-  gDatastores->Remove(mGroupAndOrigin.mOrigin);
+  const DebugOnly<bool> removed = gDatastores->Remove(mGroupAndOrigin.mOrigin);
+  MOZ_ASSERT(removed);
 
   QuotaManager::GetRef().MaybeRecordShutdownStep(quota::Client::LS,
                                                  "Datastore removed"_ns);
@@ -6688,10 +6685,18 @@ nsresult PrepareDatastoreOp::OpenDirectory() {
   MOZ_ASSERT(MayProceed());
   MOZ_ASSERT(QuotaManager::Get());
 
-  mNestedState = NestedState::DirectoryOpenPending;
-  mPendingDirectoryLock = QuotaManager::Get()->OpenDirectory(
+  mPendingDirectoryLock = QuotaManager::Get()->CreateDirectoryLock(
       PERSISTENCE_TYPE_DEFAULT, mQuotaInfo, mozilla::dom::quota::Client::LS,
-      /* aExclusive */ false, this);
+      /* aExclusive */ false);
+
+  mNestedState = NestedState::DirectoryOpenPending;
+
+  {
+    // Pin the directory lock, because Acquire might clear mPendingDirectoryLock
+    // during the Acquire call.
+    RefPtr pinnedDirectoryLock = mPendingDirectoryLock;
+    pinnedDirectoryLock->Acquire(this);
+  }
 
   return NS_OK;
 }
@@ -7236,8 +7241,8 @@ void PrepareDatastoreOp::GetResponse(LSRequestResponse& aResponse) {
       gDatastores = new DatastoreHashtable();
     }
 
-    MOZ_ASSERT(!gDatastores->Get(Origin()));
-    gDatastores->Put(Origin(), mDatastore);
+    MOZ_ASSERT(!gDatastores->MaybeGet(Origin()));
+    gDatastores->Put(Origin(), WrapMovingNotNullUnchecked(mDatastore));
   }
 
   if (mPrivateBrowsingId && !mInvalidated) {
@@ -8520,8 +8525,6 @@ nsCString QuotaClient::GetShutdownStatus() const {
     nsTHashtable<nsCStringHashKey> ids;
 
     for (const auto& entry : *gDatastores) {
-      MOZ_ASSERT(entry.GetData());
-
       nsCString id;
       entry.GetData()->Stringify(id);
 

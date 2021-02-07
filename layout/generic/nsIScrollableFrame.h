@@ -382,6 +382,13 @@ class nsIScrollableFrame : public nsIScrollbarMediator {
   virtual bool IsScrollingActive(nsDisplayListBuilder* aBuilder) = 0;
 
   /**
+   * The same as IsScrollingActive but minimal display ports are not considered
+   * active.
+   */
+  virtual bool IsScrollingActiveNotMinimalDisplayPort(
+      nsDisplayListBuilder* aBuilder) = 0;
+
+  /**
    * Returns true if this scroll frame might be scrolled
    * asynchronously by the compositor.
    */
@@ -495,6 +502,11 @@ class nsIScrollableFrame : public nsIScrollbarMediator {
    * Mark the scrollbar frames for reflow.
    */
   virtual void MarkScrollbarsDirtyForReflow() const = 0;
+
+  /**
+   * Invalidate the scrollbar after the marks have been changed.
+   */
+  virtual void InvalidateVerticalScrollbar() const = 0;
 
   virtual void UpdateScrollbarPosition() = 0;
 

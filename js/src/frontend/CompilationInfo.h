@@ -10,15 +10,18 @@
 #include "mozilla/AlreadyAddRefed.h"  // already_AddRefed
 #include "mozilla/Assertions.h"       // MOZ_ASSERT
 #include "mozilla/Attributes.h"
-#include "mozilla/RefPtr.h"  // RefPtr
+#include "mozilla/HashTable.h"  // mozilla::HashMap
+#include "mozilla/Maybe.h"      // mozilla::Maybe
+#include "mozilla/RefPtr.h"     // RefPtr
 #include "mozilla/Span.h"
 
 #include "builtin/ModuleObject.h"
 #include "ds/LifoAlloc.h"
-#include "frontend/ParserAtom.h"
+#include "frontend/ParserAtom.h"  // ParserAtom, ParserAtomsTable, TaggedParserAtomIndex
 #include "frontend/ScriptIndex.h"  // ScriptIndex
 #include "frontend/SharedContext.h"
 #include "frontend/Stencil.h"
+#include "frontend/TaggedParserAtomIndexHasher.h"  // TaggedParserAtomIndexHasher
 #include "frontend/UsedNameTracker.h"
 #include "js/GCVector.h"
 #include "js/HashTable.h"
@@ -32,6 +35,7 @@
 #include "vm/JSFunction.h"  // JSFunction
 #include "vm/JSScript.h"    // SourceExtent
 #include "vm/Realm.h"
+#include "vm/ScopeKind.h"      // ScopeKind
 #include "vm/SharedStencil.h"  // SharedImmutableScriptData
 
 namespace js {
@@ -40,19 +44,48 @@ class JSONPrinter;
 
 namespace frontend {
 
+struct CompilationInput;
+
 // ScopeContext hold information derivied from the scope and environment chains
 // to try to avoid the parser needing to traverse VM structures directly.
 struct ScopeContext {
-  // If this eval is in response to Debugger.Frame.eval, we may have an
-  // incomplete scope chain. In order to provide a better debugging experience,
-  // we inspect the (optional) environment chain to determine it's enclosing
-  // FunctionScope if there is one. If there is no such scope, we use the
-  // orignal scope provided.
-  //
-  // NOTE: This is used to compute the ThisBinding kind and to allow access to
-  //       private fields, while other contextual information only uses the
-  //       actual scope passed to the compile.
-  JS::Rooted<Scope*> effectiveScope;
+  // Class field initializer info if we are nested within a class constructor.
+  // We may be an combination of arrow and eval context within the constructor.
+  mozilla::Maybe<MemberInitializers> memberInitializers = {};
+
+  enum class EnclosingLexicalBindingKind {
+    Let,
+    Const,
+    CatchParameter,
+  };
+
+  using EnclosingLexicalBindingCache =
+      mozilla::HashMap<TaggedParserAtomIndex, EnclosingLexicalBindingKind,
+                       TaggedParserAtomIndexHasher>;
+
+  // Cache of enclosing lexical bindings.
+  // Used only for eval.
+  mozilla::Maybe<EnclosingLexicalBindingCache> enclosingLexicalBindingCache_;
+
+  using EffectiveScopePrivateFieldCache =
+      mozilla::HashSet<TaggedParserAtomIndex, TaggedParserAtomIndexHasher>;
+
+  // Cache of enclosing class's private fields.
+  // Used only for eval.
+  mozilla::Maybe<EffectiveScopePrivateFieldCache>
+      effectiveScopePrivateFieldCache_;
+
+  uint32_t enclosingScopeEnvironmentChainLength = 0;
+
+  // Eval and arrow scripts also inherit the "this" environment -- used by
+  // `super` expressions -- from their enclosing script. We count the number of
+  // environment hops needed to get from enclosing scope to the nearest
+  // appropriate environment. This value is undefined if the script we are
+  // compiling is not an eval or arrow-function.
+  uint32_t enclosingThisEnvironmentHops = 0;
+
+  // The kind of enclosing scope.
+  ScopeKind enclosingScopeKind = ScopeKind::Global;
 
   // The type of binding required for `this` of the top level context, as
   // indicated by the enclosing scopes of this parse.
@@ -67,37 +100,57 @@ struct ScopeContext {
   bool allowSuperCall = false;
   bool allowArguments = true;
 
-  // Eval and arrow scripts also inherit the "this" environment -- used by
-  // `super` expressions -- from their enclosing script. We count the number of
-  // environment hops needed to get from enclosing scope to the nearest
-  // appropriate environment. This value is undefined if the script we are
-  // compiling is not an eval or arrow-function.
-  uint32_t enclosingThisEnvironmentHops = 0;
-
-  // Class field initializer info if we are nested within a class constructor.
-  // We may be an combination of arrow and eval context within the constructor.
-  mozilla::Maybe<MemberInitializers> memberInitializers = {};
-
   // Indicates there is a 'class' or 'with' scope on enclosing scope chain.
   bool inClass = false;
   bool inWith = false;
 
-  explicit ScopeContext(JSContext* cx, InheritThis inheritThis, Scope* scope,
-                        JSObject* enclosingEnv = nullptr)
-      : effectiveScope(cx, determineEffectiveScope(scope, enclosingEnv)) {
-    if (inheritThis == InheritThis::Yes) {
-      computeThisBinding(effectiveScope);
-      computeThisEnvironment(scope);
-    }
-    computeInScope(scope);
-  }
+  // True if the enclosing scope is for FunctionScope of arrow function.
+  bool enclosingScopeIsArrow = false;
+
+  // True if the enclosing scope has environment.
+  bool enclosingScopeHasEnvironment = false;
+
+#ifdef DEBUG
+  // True if the enclosing scope has non-syntactic scope on chain.
+  bool hasNonSyntacticScopeOnChain = false;
+
+  // True if the enclosing scope has function scope where the function needs
+  // home object.
+  bool hasFunctionNeedsHomeObjectOnChain = false;
+#endif
+
+  bool init(JSContext* cx, CompilationInput& input,
+            ParserAtomsTable& parserAtoms, InheritThis inheritThis,
+            JSObject* enclosingEnv);
+
+  mozilla::Maybe<EnclosingLexicalBindingKind>
+  lookupLexicalBindingInEnclosingScope(TaggedParserAtomIndex name);
+
+  NameLocation searchInDelazificationEnclosingScope(
+      JSContext* cx, CompilationInput& input, ParserAtomsTable& parserAtoms,
+      TaggedParserAtomIndex name, uint8_t hops);
+
+  bool effectiveScopePrivateFieldCacheHas(TaggedParserAtomIndex name);
 
  private:
   void computeThisBinding(Scope* scope);
-  void computeThisEnvironment(Scope* scope);
-  void computeInScope(Scope* scope);
+  void computeThisEnvironment(Scope* enclosingScope);
+  void computeInScope(Scope* enclosingScope);
+  void cacheEnclosingScope(Scope* enclosingScope);
 
   static Scope* determineEffectiveScope(Scope* scope, JSObject* environment);
+
+  bool cacheEnclosingScopeBindingForEval(JSContext* cx, CompilationInput& input,
+                                         ParserAtomsTable& parserAtoms);
+
+  bool cachePrivateFieldsForEval(JSContext* cx, CompilationInput& input,
+                                 Scope* effectiveScope,
+                                 ParserAtomsTable& parserAtoms);
+
+  bool addToEnclosingLexicalBindingCache(JSContext* cx, CompilationInput& input,
+                                         ParserAtomsTable& parserAtoms,
+                                         JSAtom* name,
+                                         EnclosingLexicalBindingKind kind);
 };
 
 struct CompilationAtomCache {
@@ -130,6 +183,17 @@ struct CompilationAtomCache {
 
 // Input of the compilation, including source and enclosing context.
 struct CompilationInput {
+  enum class CompilationTarget {
+    Global,
+    SelfHosting,
+    StandaloneFunction,
+    StandaloneFunctionInNonSyntacticScope,
+    Eval,
+    Module,
+    Delazification,
+  };
+  CompilationTarget target = CompilationTarget::Global;
+
   const JS::ReadOnlyCompileOptions& options;
 
   CompilationAtomCache atomCache;
@@ -138,16 +202,19 @@ struct CompilationInput {
 
   ScriptSourceHolder source_;
 
-  //  * If we're compiling standalone function, the non-null enclosing scope of
-  //    the function
-  //  * If we're compiling eval, the non-null enclosing scope of the `eval`.
-  //  * If we're compiling module, null that means empty global scope
-  //    (See EmitterScope::checkEnvironmentChainLength)
-  //  * If we're compiling self-hosted JS, an empty global scope.
+  //  * If the target is Global, null.
+  //  * If the target is SelfHosting, an empty global scope.
   //    This scope is also used for EmptyGlobalScopeType in
   //    BaseCompilationStencil.gcThings.
   //    See the comment in initForSelfHostingGlobal.
-  //  * Null otherwise
+  //  * If the target is StandaloneFunction, an empty global scope.
+  //  * If the target is StandaloneFunctionInNonSyntacticScope, the non-null
+  //    enclosing scope of the function
+  //  * If the target is Eval, the non-null enclosing scope of the `eval`.
+  //  * If the target is Module, null that means empty global scope
+  //    (See EmitterScope::checkEnvironmentChainLength)
+  //  * If the target is Delazification, the non-null enclosing scope of
+  //    the function
   Scope* enclosingScope = nullptr;
 
   explicit CompilationInput(const JS::ReadOnlyCompileOptions& options)
@@ -157,9 +224,13 @@ struct CompilationInput {
   bool initScriptSource(JSContext* cx);
 
  public:
-  bool initForGlobal(JSContext* cx) { return initScriptSource(cx); }
+  bool initForGlobal(JSContext* cx) {
+    target = CompilationTarget::Global;
+    return initScriptSource(cx);
+  }
 
   bool initForSelfHostingGlobal(JSContext* cx) {
+    target = CompilationTarget::SelfHosting;
     if (!initScriptSource(cx)) {
       return false;
     }
@@ -174,16 +245,20 @@ struct CompilationInput {
     return true;
   }
 
-  bool initForStandaloneFunction(JSContext* cx,
-                                 HandleScope functionEnclosingScope) {
+  bool initForStandaloneFunction(JSContext* cx) {
+    target = CompilationTarget::StandaloneFunction;
     if (!initScriptSource(cx)) {
       return false;
     }
-    enclosingScope = functionEnclosingScope;
+    enclosingScope = &cx->global()->emptyGlobalScope();
     return true;
   }
 
+  bool initForStandaloneFunctionInNonSyntacticScope(
+      JSContext* cx, HandleScope functionEnclosingScope);
+
   bool initForEval(JSContext* cx, HandleScope evalEnclosingScope) {
+    target = CompilationTarget::Eval;
     if (!initScriptSource(cx)) {
       return false;
     }
@@ -192,6 +267,7 @@ struct CompilationInput {
   }
 
   bool initForModule(JSContext* cx) {
+    target = CompilationTarget::Module;
     if (!initScriptSource(cx)) {
       return false;
     }
@@ -200,8 +276,26 @@ struct CompilationInput {
   }
 
   void initFromLazy(BaseScript* lazyScript) {
+    target = CompilationTarget::Delazification;
     lazy = lazyScript;
     enclosingScope = lazy->function()->enclosingScope();
+  }
+
+  // Returns true if enclosingScope field is provided to init* function,
+  // instead of setting to empty global internally.
+  bool hasNonDefaultEnclosingScope() const {
+    return target == CompilationTarget::StandaloneFunctionInNonSyntacticScope ||
+           target == CompilationTarget::Eval ||
+           target == CompilationTarget::Delazification;
+  }
+
+  // Returns the enclosing scope provided to init* function.
+  // nullptr otherwise.
+  Scope* maybeNonDefaultEnclosingScope() const {
+    if (hasNonDefaultEnclosingScope()) {
+      return enclosingScope;
+    }
+    return nullptr;
   }
 
   ScriptSource* source() { return source_.get(); }
@@ -236,6 +330,8 @@ struct MOZ_RAII CompilationState {
   //
   // See corresponding BaseCompilationStencil fields for desription.
   Vector<RegExpStencil, 0, js::SystemAllocPolicy> regExpData;
+  Vector<BigIntStencil, 0, js::SystemAllocPolicy> bigIntData;
+  Vector<ObjLiteralStencil, 0, js::SystemAllocPolicy> objLiteralData;
   Vector<ScriptStencil, 0, js::SystemAllocPolicy> scriptData;
   Vector<ScriptStencilExtra, 0, js::SystemAllocPolicy> scriptExtra;
   Vector<ScopeStencil, 0, js::SystemAllocPolicy> scopeData;
@@ -254,15 +350,14 @@ struct MOZ_RAII CompilationState {
 
   CompilationState(JSContext* cx, LifoAllocScope& frontendAllocScope,
                    const JS::ReadOnlyCompileOptions& options,
-                   CompilationStencil& stencil,
-                   InheritThis inheritThis = InheritThis::No,
-                   Scope* enclosingScope = nullptr,
-                   JSObject* enclosingEnv = nullptr);
+                   CompilationStencil& stencil);
+
+  bool init(JSContext* cx, InheritThis inheritThis = InheritThis::No,
+            JSObject* enclosingEnv = nullptr) {
+    return scopeContext.init(cx, input, parserAtoms, inheritThis, enclosingEnv);
+  }
 
   bool finish(JSContext* cx, CompilationStencil& stencil);
-
-  const ParserAtom* getParserAtomAt(JSContext* cx,
-                                    TaggedParserAtomIndex taggedIndex) const;
 
   // Allocate space for `length` gcthings, and return the address of the
   // first element to `cursor` to initialize on the caller.
@@ -357,8 +452,8 @@ struct BaseCompilationStencil {
   // Hold onto the RegExpStencil, BigIntStencil, and ObjLiteralStencil that are
   // allocated during parse to ensure correct destruction.
   mozilla::Span<RegExpStencil> regExpData;
-  Vector<BigIntStencil, 0, js::SystemAllocPolicy> bigIntData;
-  Vector<ObjLiteralStencil, 0, js::SystemAllocPolicy> objLiteralData;
+  mozilla::Span<BigIntStencil> bigIntData;
+  mozilla::Span<ObjLiteralStencil> objLiteralData;
 
   // Stencil for all function and non-function scripts. The TopLevelIndex is
   // reserved for the top-level script. This top-level may or may not be a
@@ -418,7 +513,6 @@ struct BaseCompilationStencil {
 
   bool isInitialStencil() const { return functionKey == NullFunctionKey; }
 
-  bool isCompilationStencil() const { return isInitialStencil(); }
   inline CompilationStencil& asCompilationStencil();
   inline const CompilationStencil& asCompilationStencil() const;
 
@@ -628,6 +722,10 @@ struct CompilationStencil : public BaseCompilationStencil {
     return ScriptStencilIterable(stencil, gcOutput);
   }
 
+  void setFunctionKey(BaseScript* lazy) {
+    functionKey = toFunctionKey(lazy->extent());
+  }
+
   void trace(JSTracer* trc);
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
@@ -638,14 +736,18 @@ struct CompilationStencil : public BaseCompilationStencil {
 };
 
 inline CompilationStencil& BaseCompilationStencil::asCompilationStencil() {
-  MOZ_ASSERT(isCompilationStencil());
+  MOZ_ASSERT(isInitialStencil(),
+             "cast from BaseCompilationStencil to CompilationStencil is "
+             "allowed only for initial stencil");
   return *static_cast<CompilationStencil*>(this);
 }
 
 inline const CompilationStencil& BaseCompilationStencil::asCompilationStencil()
     const {
-  MOZ_ASSERT(isCompilationStencil());
-  return *reinterpret_cast<const CompilationStencil*>(this);
+  MOZ_ASSERT(isInitialStencil(),
+             "cast from BaseCompilationStencil to CompilationStencil is "
+             "allowed only for initial stencil");
+  return *static_cast<const CompilationStencil*>(this);
 }
 
 inline ScriptStencilIterable::ScriptAndFunction

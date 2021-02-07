@@ -278,24 +278,6 @@ browser.engagement:
     record_in_processes:
       - 'main'
 
-  restored_pinned_tabs_count:
-    bug_numbers:
-      - 1373728
-      - 1451475
-    description: >
-      The count of the number of pinned tabs that were restored.
-    expires: '67'
-    kind: uint
-    notification_emails:
-      - chutten@mozilla.com
-      - jrediger@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'main'
-
   active_ticks:
     bug_numbers:
       - 1376942
@@ -2242,6 +2224,23 @@ media:
     record_in_processes:
       - 'main'
 
+  decode_error_per_mime_type:
+    bug_numbers:
+      - 1688775
+    description: >
+      Count the number of times the media with a specific mime type (Eg. audio/vorbis, that would be used as the key) encounters a decode error during playback.
+    expires: never
+    kind: uint
+    keyed: true
+    notification_emails:
+      - alwu@mozilla.com
+      - bvandyk@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - 'content'
+
 avif:
   dav1d_decode_error:
     bug_numbers:
@@ -3198,40 +3197,6 @@ telemetry:
     record_in_processes:
       - 'all'
 
-  profile_directory_scans:
-    bug_numbers:
-      - 1458574
-    description: >
-      The number of times a profile directory scan was initiated in ProfileAge.jsm
-    expires: "65"
-    kind: uint
-    notification_emails:
-      - jrediger@mozilla.com
-      - telemetry-client-dev@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'all'
-
-  profile_directory_scan_date:
-    bug_numbers:
-      - 1466518
-    description: >
-      The date of the profile scan to determine the profile creation date from the oldest file, in days since UNIX epoch.
-    expires: "65"
-    kind: uint
-    notification_emails:
-      - jrediger@mozilla.com
-      - telemetry-client-dev@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'main'
-
   data_upload_optin:
     bug_numbers:
       - 1445921
@@ -3329,6 +3294,52 @@ telemetry:
     kind: boolean
     notification_emails:
       - sync-team@mozilla.com
+    products:
+      - 'firefox'
+    release_channel_collection: opt-out
+    record_in_processes:
+      - main
+
+  state_file_save_errors:
+    bug_numbers:
+      - 1689438
+    description: >
+      How many times we errored out trying to save state.json
+    expires: "90"
+    kind: uint
+    notification_emails:
+      - chutten@mozilla.com
+    products:
+      - 'firefox'
+    release_channel_collection: opt-out
+    record_in_processes:
+      - main
+
+  generated_new_client_id:
+    bug_numbers:
+      - 1689438
+    description: >
+      Whether we generated a new client id this subsession.
+    expires: "90"
+    kind: boolean
+    notification_emails:
+      - chutten@mozilla.com
+    products:
+      - 'firefox'
+    release_channel_collection: opt-out
+    record_in_processes:
+      - main
+
+  loaded_client_id_doesnt_match_pref:
+    bug_numbers:
+      - 1689438
+    description: >
+      How often we loaded a client_id from disk that doesn't match
+      what's cached in the pref.
+    expires: "90"
+    kind: uint
+    notification_emails:
+      - chutten@mozilla.com
     products:
       - 'firefox'
     release_channel_collection: opt-out
@@ -4882,7 +4893,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4899,7 +4910,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4916,7 +4927,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4933,7 +4944,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4950,7 +4961,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4967,7 +4978,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -4984,7 +4995,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -5001,7 +5012,7 @@ browser.search.withads:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -5019,7 +5030,7 @@ browser.search.adclicks:
     kind: uint
     notification_emails:
       - fx-search@mozilla.com
-      - teon@mozilla.com
+      - rev-data@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -5328,6 +5339,86 @@ startup:
       - 'firefox'
     record_in_processes:
       - 'main'
+
+  skeleton_ui_disabled_reason:
+    bug_numbers:
+      - 1686301
+    description: >
+      The reason why the skeleton UI was not shown to the user. This should be
+      one of the following values:
+        None:
+          There was no reason for not showing the skeleton UI. This should not
+          be recorded.
+        Ineligible:
+          The user was ineligible for the skeleton UI due to information which
+          should already be trivially available via telemetry (i.e., the user
+          is running an OS version that doesn't support the skeleton UI.)
+        Disabled:
+          The registry specified "Enabled" as 0 for the skeleton UI.
+        EnabledKeyDoesNotExist:
+          The "Enabled" key in the registry does not exist.
+        OOM:
+          We encountered an allocation failure while trying to show the
+          skeleton UI.
+        Cmdline:
+          The skeleton UI was disabled due to the presence of an unsupported
+          command line argument.
+        EnvVars:
+          The skeleton UI was disabled due to an explicitly unsupported
+          environment variable.
+        FailedToOpenRegistryKey:
+          We were unable to open the skeleton UI Windows registry key.
+        RegistryError:
+          We encountered an error trying to read/write a skeleton UI registry
+          value.
+        FailedLoadingDynamicProcs:
+          We were unable to dynamically load one of the functions we require in
+          order to show the skeleton UI.
+        FailedGettingLock:
+          We were unable to acquire the skeleton UI lock - this should mean
+          that an existing instance of the application is already running.
+        FilesystemFailure:
+          Encountered some error getting the path to a file or reading from a
+          particular file while trying to show the skeleton UI.
+        NoStartWithLastProfile:
+          The user has set up their profiles so Firefox always shows the
+          profile manager during startup.
+        FailedRegisteringWindowClass:
+          We failed to register the window class needed to show the skeleton UI
+          window.
+        CorruptData:
+          Clearly invalid data was found when trying to load the necessary
+          information to show the skeleton UI in the right place.
+        BadWindowDimensions:
+          Window dimensions outside of the supported size for the skeleton UI.
+        FailedGettingMonitorInfo:
+          Couldn't get the monitor information when trying to display the
+          skeleton UI.
+        CreateWindowFailed:
+          The call to CreateWindow failed.
+        FailedGettingDC:
+          We failed to get the HDC to draw into.
+        FailedBlitting:
+          We failed blitting the actual skeleton UI to the HDC.
+        FailedFillingBottomRect:
+          We failed filling the solid color of the main browser below the
+          browser chrome.
+        CrashedOnce:
+          At some point the skeleton UI crashed, so we've disabled it for the
+          user.
+        Unknown:
+          An unknown error occurred - this generally should not happen.
+    expires: "92"
+    keyed: false
+    kind: string
+    notification_emails:
+      - dothayer@mozilla.com
+      - emalysz@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - main
 
 script.preloader:
   mainthread_recompile:
@@ -5921,6 +6012,42 @@ urlbar:
       - fx-search@mozilla.com
       - tbrooks@mozilla.com
     release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - main
+
+urlbar.tabtosearch:
+  impressions:
+    bug_numbers:
+      - 1686330
+    description: >
+      A keyed uint recording how many times non-onboarding tab-to-search results
+      are shown in the Urlbar for a particular search engine.
+    expires: never
+    kind: uint
+    keyed: true
+    notification_emails:
+      - fx-search@mozilla.com
+      - tbrooks@mozilla.com
+    release_channel_collection: opt-in
+    products:
+      - 'firefox'
+    record_in_processes:
+      - main
+  impressions_onboarding:
+    bug_numbers:
+      - 1686330
+    description: >
+      A keyed uint recording how many times onboarding tab-to-search results
+      are shown in the Urlbar for a particular search engine.
+    expires: never
+    kind: uint
+    keyed: true
+    notification_emails:
+      - fx-search@mozilla.com
+      - tbrooks@mozilla.com
+    release_channel_collection: opt-in
     products:
       - 'firefox'
     record_in_processes:

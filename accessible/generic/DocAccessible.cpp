@@ -16,6 +16,7 @@
 #include "nsEventShell.h"
 #include "nsLayoutUtils.h"
 #include "nsTextEquivUtils.h"
+#include "Pivot.h"
 #include "Role.h"
 #include "RootAccessible.h"
 #include "TreeWalker.h"
@@ -395,6 +396,9 @@ void DocAccessible::Shutdown() {
 
   RemoveEventListeners();
 
+  // mParent->RemoveChild clears mParent, but we need to know whether we were a
+  // child later, so use a flag.
+  const bool isChild = !!mParent;
   if (mParent) {
     DocAccessible* parentDocument = mParent->Document();
     if (parentDocument) parentDocument->RemoveChildDocument(this);
@@ -402,6 +406,9 @@ void DocAccessible::Shutdown() {
     mParent->RemoveChild(this);
     MOZ_ASSERT(!mParent, "Parent has to be null!");
   }
+
+  mPresShell->SetDocAccessible(nullptr);
+  mPresShell = nullptr;  // Avoid reentrancy
 
   // Walk the array backwards because child documents remove themselves from the
   // array as they are shutdown.
@@ -423,9 +430,6 @@ void DocAccessible::Shutdown() {
     mVirtualCursor = nullptr;
   }
 
-  mPresShell->SetDocAccessible(nullptr);
-  mPresShell = nullptr;  // Avoid reentrancy
-
   mDependentIDsHashes.Clear();
   mNodeToAccessibleMap.Clear();
 
@@ -445,7 +449,13 @@ void DocAccessible::Shutdown() {
 
   HyperTextAccessibleWrap::Shutdown();
 
-  GetAccService()->NotifyOfDocumentShutdown(this, mDocumentNode);
+  MOZ_ASSERT(GetAccService());
+  GetAccService()->NotifyOfDocumentShutdown(
+      this, mDocumentNode,
+      // Make sure we don't shut down AccService while a parent document is
+      // still shutting down. The parent will allow service shutdown when it
+      // reaches this point.
+      /* aAllowServiceShutdown */ !isChild);
   mDocumentNode = nullptr;
 }
 
@@ -851,15 +861,50 @@ void DocAccessible::AttributeChangedImpl(Accessible* aAccessible,
     return;
   }
 
+  dom::Element* elm = aAccessible->GetContent()->AsElement();
   if (aAttribute == nsGkAtoms::aria_describedby) {
     FireDelayedEvent(nsIAccessibleEvent::EVENT_DESCRIPTION_CHANGE, aAccessible);
+    if (aModType == dom::MutationEvent_Binding::MODIFICATION ||
+        aModType == dom::MutationEvent_Binding::ADDITION) {
+      // The subtrees of the new aria-describedby targets might be used to
+      // compute the description for aAccessible. Therefore, we need to set
+      // the eHasDescriptionDependent flag on all Accessibles in these subtrees.
+      IDRefsIterator iter(this, aAccessible->Elm(),
+                          nsGkAtoms::aria_describedby);
+      while (Accessible* target = iter.Next()) {
+        Pivot pivot(target);
+        LocalAccInSameDocRule rule;
+        for (AccessibleOrProxy anchor(target); !anchor.IsNull();
+             anchor = pivot.Next(anchor, rule)) {
+          Accessible* acc = anchor.AsAccessible();
+          MOZ_ASSERT(acc);
+          acc->mContextFlags |= eHasDescriptionDependent;
+        }
+      }
+    }
     return;
   }
 
-  dom::Element* elm = aAccessible->GetContent()->AsElement();
   if (aAttribute == nsGkAtoms::aria_labelledby &&
       !elm->HasAttr(kNameSpaceID_None, nsGkAtoms::aria_label)) {
     FireDelayedEvent(nsIAccessibleEvent::EVENT_NAME_CHANGE, aAccessible);
+    if (aModType == dom::MutationEvent_Binding::MODIFICATION ||
+        aModType == dom::MutationEvent_Binding::ADDITION) {
+      // The subtrees of the new aria-labelledby targets might be used to
+      // compute the name for aAccessible. Therefore, we need to set
+      // the eHasNameDependent flag on all Accessibles in these subtrees.
+      IDRefsIterator iter(this, aAccessible->Elm(), nsGkAtoms::aria_labelledby);
+      while (Accessible* target = iter.Next()) {
+        Pivot pivot(target);
+        LocalAccInSameDocRule rule;
+        for (AccessibleOrProxy anchor(target); !anchor.IsNull();
+             anchor = pivot.Next(anchor, rule)) {
+          Accessible* acc = anchor.AsAccessible();
+          MOZ_ASSERT(acc);
+          acc->mContextFlags |= eHasNameDependent;
+        }
+      }
+    }
     return;
   }
 
@@ -883,6 +928,18 @@ void DocAccessible::AttributeChangedImpl(Accessible* aAccessible,
                        aAccessible);
 
     return;
+  }
+
+  // These attributes can change whether or not a table is a layout table.
+  // We currently cache that information on Mac, so we fire a
+  // EVENT_OBJECT_ATTRIBUTE_CHANGED, which Mac listens for, to invalidate.
+  if (aAccessible->IsTable() || aAccessible->IsTableRow() ||
+      aAccessible->IsTableCell()) {
+    if (aAttribute == nsGkAtoms::summary || aAttribute == nsGkAtoms::headers ||
+        aAttribute == nsGkAtoms::scope || aAttribute == nsGkAtoms::abbr) {
+      FireDelayedEvent(nsIAccessibleEvent::EVENT_OBJECT_ATTRIBUTE_CHANGED,
+                       aAccessible);
+    }
   }
 
   if (aAttribute == nsGkAtoms::aria_busy) {
@@ -1492,6 +1549,13 @@ bool DocAccessible::PruneOrInsertSubtree(nsIContent* aRoot) {
     // old frame.
     if (aRoot->IsElement() && FocusMgr()->HasDOMFocus(aRoot)) {
       SelectionMgr()->SetControlSelectionListener(aRoot->AsElement());
+    }
+
+    // If the accessible is a table, or table part, its layout table
+    // status may have changed. We need to invalidate the associated
+    // cache, which listens for the following event.
+    if (acc->IsTable() || acc->IsTableRow() || acc->IsTableCell()) {
+      FireDelayedEvent(nsIAccessibleEvent::EVENT_TABLE_STYLING_CHANGED, acc);
     }
 
     // The accessible can be reparented or reordered in its parent.

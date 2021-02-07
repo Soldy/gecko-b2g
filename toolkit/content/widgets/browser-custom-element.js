@@ -546,7 +546,7 @@
       }
 
       return this.docShell
-        .QueryInterface(Ci.nsIInterfaceRequestor)
+        ?.QueryInterface(Ci.nsIInterfaceRequestor)
         .getInterface(Ci.nsIWebProgress);
     }
 
@@ -876,11 +876,11 @@
         aNotifyMask = Ci.nsIWebProgress.NOTIFY_ALL;
       }
 
-      this.webProgress.addProgressListener(aListener, aNotifyMask);
+      this.webProgress?.addProgressListener(aListener, aNotifyMask);
     }
 
     removeProgressListener(aListener) {
-      this.webProgress.removeProgressListener(aListener);
+      this.webProgress?.removeProgressListener(aListener);
     }
 
     onPageHide(aEvent) {

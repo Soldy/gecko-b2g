@@ -1213,6 +1213,9 @@ pref("font.name-list.emoji", "KaiOS Emoji");
 // Disable the path check in file system.
 pref("dom.filesystem.pathcheck.disabled", true);
 
+// Disable the native font source of freetype.
+pref("gfx.font_rendering.native_font_source_none", true);
+
 // KaiOS Captive Portal URL
 pref("captivedetect.canonicalURL", "http://detectportal.kaiostech.com/success.txt");
 pref("captivedetect.canonicalContent", "success");
@@ -1224,5 +1227,9 @@ pref("externalAPI.websocket.url", "ws://localhost/");
 #if B2G_CCUSTOM_MODULES == C001
 pref("device.mvs", true);
 #endif
+
+pref("voice-input.enabled", false);
+pref("voice-input.icon-url", "http://shared.localhost/style/voice-input/icons/voice-input.svg");
+pref("voice-input.supported-types", "text, search, url, tel, number, month, week");
 
 pref("dom.popup_allowed_events", "change click dblclick auxclick mouseup pointerup notificationclick reset submit touchend contextmenu keydown keyup");

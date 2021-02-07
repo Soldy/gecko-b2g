@@ -14,6 +14,7 @@
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "mozilla/dom/XULFrameElement.h"
 #include "mozilla/dom/XULFrameElementBinding.h"
+#include "nsAttrValueOrString.h"
 
 namespace mozilla {
 namespace dom {
@@ -197,6 +198,19 @@ nsresult XULFrameElement::AfterSetAttr(int32_t aNamespaceID, nsAtom* aName,
 
   return nsXULElement::AfterSetAttr(aNamespaceID, aName, aValue, aOldValue,
                                     aSubjectPrincipal, aNotify);
+}
+
+nsresult XULFrameElement::OnAttrSetButNotChanged(
+    int32_t aNamespaceID, nsAtom* aName, const nsAttrValueOrString& aValue,
+    bool aNotify) {
+  if (aNamespaceID == kNameSpaceID_None) {
+    if (aName == nsGkAtoms::src && !aValue.IsEmpty()) {
+      LoadSrc();
+    }
+  }
+
+  return nsXULElement::OnAttrSetButNotChanged(aNamespaceID, aName, aValue,
+                                              aNotify);
 }
 
 }  // namespace dom

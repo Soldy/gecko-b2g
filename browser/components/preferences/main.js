@@ -647,13 +647,7 @@ var gMainPane = {
     }
 
     if (AppConstants.MOZ_UPDATER) {
-      // XXX Workaround bug 1523453 -- changing selectIndex of a <deck> before
-      // frame construction could confuse nsDeckFrame::RemoveFrame().
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          gAppUpdater = new appUpdater();
-        });
-      });
+      gAppUpdater = new appUpdater();
       setEventListener("showUpdateHistory", "command", gMainPane.showUpdates);
 
       let updateDisabled =
@@ -1294,9 +1288,9 @@ var gMainPane = {
         defaultBrowserBox.hidden = true;
         return;
       }
-      let setDefaultPane = document.getElementById("setDefaultPane");
       let isDefault = shellSvc.isDefaultBrowser(false, true);
-      setDefaultPane.selectedIndex = isDefault ? 1 : 0;
+      let setDefaultPane = document.getElementById("setDefaultPane");
+      setDefaultPane.classList.toggle("is-default", isDefault);
       let alwaysCheck = document.getElementById("alwaysCheckDefault");
       let alwaysCheckPref = Preferences.get(
         "browser.shell.checkDefaultBrowser"
@@ -1329,8 +1323,9 @@ var gMainPane = {
         return;
       }
 
-      let selectedIndex = shellSvc.isDefaultBrowser(false, true) ? 1 : 0;
-      document.getElementById("setDefaultPane").selectedIndex = selectedIndex;
+      let isDefault = shellSvc.isDefaultBrowser(false, true);
+      let setDefaultPane = document.getElementById("setDefaultPane");
+      setDefaultPane.classList.toggle("is-default", isDefault);
     }
   },
 

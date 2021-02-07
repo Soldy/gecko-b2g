@@ -196,7 +196,19 @@ SharedBufferManagerParent::~SharedBufferManagerParent()
 {
   MonitorAutoLock lock(*sManagerMonitor.get());
   sManagers.erase(mOwner);
-  delete mThread;
+
+  // delete mThread invokes Thread::Stop, it should wait Thread::ThreadMain
+  // to finish before actually destroy mThread instance. If we do it not
+  // in main thread, mThread instance will be destroyed before
+  // Thread::ThreadMain finishes it's CleanUp. Crash occurres here.
+  // Check and post DeleteTask to main thread once we need it.
+  if (NS_IsMainThread()) {
+    delete mThread;
+  } else {
+    RefPtr<DeleteTask<base::Thread>> task =
+        new DeleteTask<base::Thread>(mThread);
+    mMainMessageLoop->PostTask(task.forget());
+  }
 }
 
 void

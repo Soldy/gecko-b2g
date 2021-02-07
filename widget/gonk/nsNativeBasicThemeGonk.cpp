@@ -68,10 +68,13 @@ static const CSSCoord kTextFieldBorderWidth = 1.0f;
 
 NS_IMPL_ISUPPORTS_INHERITED(nsNativeBasicThemeGonk, nsNativeTheme, nsITheme)
 
+static uint32_t GetDPIRatio(nsPresContext* aPresContext) {
+  return AppUnitsPerCSSPixel() /
+         aPresContext->DeviceContext()->AppUnitsPerDevPixelAtUnitFullZoom();
+}
+
 static uint32_t GetDPIRatio(nsIFrame* aFrame) {
-  return AppUnitsPerCSSPixel() / aFrame->PresContext()
-                                     ->DeviceContext()
-                                     ->AppUnitsPerDevPixelAtUnitFullZoom();
+  return GetDPIRatio(aFrame->PresContext());
 }
 
 static bool IsDateTimeResetButton(nsIFrame* aFrame) {
@@ -589,9 +592,11 @@ static void PaintRangeThumb(DrawTarget* aDrawTarget, const Rect& aRect,
 }
 
 NS_IMETHODIMP
-nsNativeBasicThemeGonk::DrawWidgetBackground(
-    gfxContext* aContext, nsIFrame* aFrame, StyleAppearance aAppearance,
-    const nsRect& aRect, const nsRect& /* aDirtyRect */) {
+nsNativeBasicThemeGonk::DrawWidgetBackground(gfxContext* aContext,
+                                             nsIFrame* aFrame,
+                                             StyleAppearance aAppearance,
+                                             const nsRect& aRect,
+                                             const nsRect& /* aDirtyRect */) {
   DrawTarget* dt = aContext->GetDrawTarget();
   const nscoord twipsPerPixel = aFrame->PresContext()->AppUnitsPerDevPixel();
   EventStates eventState = GetContentState(aFrame, aAppearance);
@@ -724,9 +729,10 @@ LayoutDeviceIntMargin nsNativeBasicThemeGonk::GetWidgetBorder(
   }
 }
 
-bool nsNativeBasicThemeGonk::GetWidgetPadding(
-    nsDeviceContext* aContext, nsIFrame* aFrame, StyleAppearance aAppearance,
-    LayoutDeviceIntMargin* aResult) {
+bool nsNativeBasicThemeGonk::GetWidgetPadding(nsDeviceContext* aContext,
+                                              nsIFrame* aFrame,
+                                              StyleAppearance aAppearance,
+                                              LayoutDeviceIntMargin* aResult) {
   uint32_t dpiRatio = GetDPIRatio(aFrame);
   switch (aAppearance) {
     // Radios and checkboxes return a fixed size in GetMinimumWidgetSize
@@ -777,9 +783,9 @@ bool nsNativeBasicThemeGonk::GetWidgetPadding(
 }
 
 bool nsNativeBasicThemeGonk::GetWidgetOverflow(nsDeviceContext* aContext,
-                                                  nsIFrame* aFrame,
-                                                  StyleAppearance aAppearance,
-                                                  nsRect* aOverflowRect) {
+                                               nsIFrame* aFrame,
+                                               StyleAppearance aAppearance,
+                                               nsRect* aOverflowRect) {
   // TODO(bug 1620360): This should return non-zero for
   // StyleAppearance::FocusOutline, if we implement outline-style: auto.
   return false;
@@ -787,10 +793,10 @@ bool nsNativeBasicThemeGonk::GetWidgetOverflow(nsDeviceContext* aContext,
 
 NS_IMETHODIMP
 nsNativeBasicThemeGonk::GetMinimumWidgetSize(nsPresContext* aPresContext,
-                                                nsIFrame* aFrame,
-                                                StyleAppearance aAppearance,
-                                                LayoutDeviceIntSize* aResult,
-                                                bool* aIsOverridable) {
+                                             nsIFrame* aFrame,
+                                             StyleAppearance aAppearance,
+                                             LayoutDeviceIntSize* aResult,
+                                             bool* aIsOverridable) {
   uint32_t dpiRatio = GetDPIRatio(aFrame);
   aResult->width = aResult->height =
       static_cast<uint32_t>(kMinimumWidgetSize) * dpiRatio;
@@ -809,10 +815,10 @@ nsITheme::Transparency nsNativeBasicThemeGonk::GetWidgetTransparency(
 
 NS_IMETHODIMP
 nsNativeBasicThemeGonk::WidgetStateChanged(nsIFrame* aFrame,
-                                              StyleAppearance aAppearance,
-                                              nsAtom* aAttribute,
-                                              bool* aShouldRepaint,
-                                              const nsAttrValue* aOldValue) {
+                                           StyleAppearance aAppearance,
+                                           nsAtom* aAttribute,
+                                           bool* aShouldRepaint,
+                                           const nsAttrValue* aOldValue) {
   if (!aAttribute) {
     // Hover/focus/active changed.  Always repaint.
     *aShouldRepaint = true;
@@ -844,15 +850,14 @@ bool nsNativeBasicThemeGonk::WidgetAppearanceDependsOnWindowFocus(
   return false;
 }
 
-nsITheme::ThemeGeometryType
-nsNativeBasicThemeGonk::ThemeGeometryTypeForWidget(
+nsITheme::ThemeGeometryType nsNativeBasicThemeGonk::ThemeGeometryTypeForWidget(
     nsIFrame* aFrame, StyleAppearance aAppearance) {
   return eThemeGeometryTypeUnknown;
 }
 
-bool nsNativeBasicThemeGonk::ThemeSupportsWidget(
-    nsPresContext* aPresContext, nsIFrame* aFrame,
-    StyleAppearance aAppearance) {
+bool nsNativeBasicThemeGonk::ThemeSupportsWidget(nsPresContext* aPresContext,
+                                                 nsIFrame* aFrame,
+                                                 StyleAppearance aAppearance) {
   if (IsWidgetScrollbarPart(aAppearance)) {
     const auto* style = nsLayoutUtils::StyleForScrollbar(aFrame);
     // We don't currently handle custom scrollbars on nsNativeBasicThemeGonk.
@@ -877,7 +882,6 @@ bool nsNativeBasicThemeGonk::ThemeSupportsWidget(
     case StyleAppearance::ScrollbarthumbHorizontal:
     case StyleAppearance::ScrollbarthumbVertical:
     case StyleAppearance::ScrollbarHorizontal:
-    case StyleAppearance::ScrollbarNonDisappearing:
     case StyleAppearance::ScrollbarVertical:
     case StyleAppearance::Scrollcorner:
     case StyleAppearance::Button:
@@ -928,6 +932,14 @@ already_AddRefed<nsITheme> do_GetBasicNativeThemeDoNotUseDirectly() {
     ClearOnShutdown(&gInstance);
   }
   return do_AddRef(gInstance);
+}
+
+auto nsNativeBasicThemeGonk::GetScrollbarSizes(nsPresContext* aPresContext,
+                                               StyleScrollbarWidth aWidth,
+                                               Overlay aOverlay)
+    -> ScrollbarSizes {
+  int32_t size = kMinimumWidgetSize * int32_t(GetDPIRatio(aPresContext));
+  return {size, size};
 }
 
 // On Gonk there's no native theme.

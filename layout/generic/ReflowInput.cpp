@@ -2314,17 +2314,9 @@ void ReflowInput::InitConstraints(
           mComputeSizeFlags += ComputeSizeFlag::ShrinkWrap;
         }
       } else {
-        // Make sure legend frames with display:block and width:auto still
-        // shrink-wrap.
-        // Also shrink-wrap blocks that are orthogonal to their container.
-        if (isBlockLevel &&
-            ((aFrameType == LayoutFrameType::Legend &&
-              mFrame->Style()->GetPseudoType() !=
-                  PseudoStyleType::scrolledContent) ||
-             (aFrameType == LayoutFrameType::Scroll &&
-              mFrame->GetContentInsertionFrame()->IsLegendFrame()) ||
-             (mCBReflowInput &&
-              mCBReflowInput->GetWritingMode().IsOrthogonalTo(mWritingMode)))) {
+        // Shrink-wrap blocks that are orthogonal to their container.
+        if (isBlockLevel && mCBReflowInput &&
+            mCBReflowInput->GetWritingMode().IsOrthogonalTo(mWritingMode)) {
           mComputeSizeFlags += ComputeSizeFlag::ShrinkWrap;
         }
 
@@ -2369,11 +2361,11 @@ void ReflowInput::InitConstraints(
       // items from block margin calculations.
       if (isBlockLevel && !IsSideCaption(mFrame, mStyleDisplay, cbwm) &&
           mStyleDisplay->mDisplay != StyleDisplay::InlineTable &&
-          !alignCB->IsFlexOrGridContainer() &&
+          !mFrame->IsTableFrame() && !alignCB->IsFlexOrGridContainer() &&
           !(mFrame->Style()->GetPseudoType() == PseudoStyleType::marker &&
             mFrame->GetParent()->StyleList()->mListStylePosition ==
                 NS_STYLE_LIST_STYLE_POSITION_OUTSIDE)) {
-        CalculateBlockSideMargins(aFrameType);
+        CalculateBlockSideMargins();
       }
     }
   }
@@ -2534,7 +2526,10 @@ void SizeComputationInput::InitOffsets(WritingMode aCBWM, nscoord aPercentBasis,
 //   = width of containing block
 //
 // Note: the width unit is not auto when this is called
-void ReflowInput::CalculateBlockSideMargins(LayoutFrameType aFrameType) {
+void ReflowInput::CalculateBlockSideMargins() {
+  MOZ_ASSERT(!mFrame->IsTableFrame(),
+             "Inner table frame cannot have computed margins!");
+
   // Calculations here are done in the containing block's writing mode,
   // which is where margins will eventually be applied: we're calculating
   // margins that will be used by the container in its inline direction,
@@ -2595,13 +2590,6 @@ void ReflowInput::CalculateBlockSideMargins(LayoutFrameType aFrameType) {
     // ignore
     // First check if there is an HTML alignment that we should honor
     const ReflowInput* pri = mParentReflowInput;
-    if (aFrameType == LayoutFrameType::Table) {
-      NS_ASSERTION(pri->mFrame->IsTableWrapperFrame(),
-                   "table not inside table wrapper");
-      // Center the table within the table wrapper based on the alignment
-      // of the table wrapper's parent.
-      pri = pri->mParentReflowInput;
-    }
     if (pri && (pri->mStyleText->mTextAlign == StyleTextAlign::MozLeft ||
                 pri->mStyleText->mTextAlign == StyleTextAlign::MozCenter ||
                 pri->mStyleText->mTextAlign == StyleTextAlign::MozRight)) {

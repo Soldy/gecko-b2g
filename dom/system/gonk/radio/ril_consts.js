@@ -4343,5 +4343,10 @@ this.CDMA_OTA_PROVISION_STATUS_TO_GECKO = [
   GECKO_OTA_STATUS_OTAPA_ABORTED,
 ];
 
+// Sim refresh type
+this.SIM_FILE_UPDATE = 0; // A file on SIM has been updated.
+this.SIM_INIT = 1; // SIM initialized. All files should be re-read.
+this.SIM_RESET = 2; // SIM reset. SIM power required, SIM may be locked a
+
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);

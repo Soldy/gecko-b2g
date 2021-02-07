@@ -98,31 +98,18 @@ status_t FramebufferSurface::prepareFrame(CompositionType /*compositionType*/) {
 }
 
 status_t FramebufferSurface::advanceFrame() {
-  sp<GraphicBuffer> buf;
-  sp<Fence> acquireFence;
-  status_t result = nextBuffer(buf, acquireFence);
-  if (result != NO_ERROR) {
-    ALOGE("error latching next FramebufferSurface buffer: %s (%d)",
-          strerror(-result), result);
-  }
-
-  if (acquireFence.get() && acquireFence->isValid()) {
-    mPrevFBAcquireFence = new Fence(acquireFence->dup());
-  } else {
-    mPrevFBAcquireFence = Fence::NO_FENCE;
-  }
-
-  lastHandle = buf->handle;
-
-  return result;
+  // Once we remove FB HAL support, we can call nextBuffer() from here
+  // instead of using onFrameAvailable(). No real benefit, except it'll be
+  // more like VirtualDisplaySurface.
+  return NO_ERROR;
 }
 
 status_t FramebufferSurface::nextBuffer(sp<GraphicBuffer>& outBuffer,
                                         sp<Fence>& outFence) {
   Mutex::Autolock lock(mMutex);
+
   BufferItem item;
   status_t err = acquireBufferLocked(&item, 0);
-
   if (err == BufferQueue::NO_BUFFER_AVAILABLE) {
     outBuffer = mCurrentBuffer;
     return NO_ERROR;
@@ -150,10 +137,10 @@ status_t FramebufferSurface::nextBuffer(sp<GraphicBuffer>& outBuffer,
     mPreviousBufferSlot = mCurrentSlot;
     mPreviousBuffer = mCurrentBuffer;
   }
-
   mCurrentSlot = slot;
   outBuffer = mCurrentBuffer = buffer;
   outFence = acquireFence;
+
   return NO_ERROR;
 }
 
@@ -171,7 +158,7 @@ void FramebufferSurface::onFrameAvailable(const BufferItem& item) {
     }
 
     if (acquireFence.get() && acquireFence->isValid()) {
-      mPrevFBAcquireFence = acquireFence;
+      mPrevFBAcquireFence = new Fence(acquireFence->dup());
     } else {
       mPrevFBAcquireFence = Fence::NO_FENCE;
     }

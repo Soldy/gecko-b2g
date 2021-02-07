@@ -87,8 +87,7 @@ interface nsIDataCallHandler : nsISupports
   void updatePcoData(in long cid,
                       in AString bearerProto,
                       in long pcoId,
-                      [const, array, size_is(byteLength)] in uint8_t contents,
-                      in unsigned long byteLength);
+                      in Array<uint8_t> contents);
 };
 
 [scriptable, uuid(00333a9e-e80b-44be-8da3-dffb92999d47)]

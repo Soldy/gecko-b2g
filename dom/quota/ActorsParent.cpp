@@ -7,6 +7,7 @@
 #include "ActorsParent.h"
 
 // Local includes
+#include "Flatten.h"
 #include "InitializationTypes.h"
 #include "OriginScope.h"
 #include "QuotaCommon.h"
@@ -494,7 +495,7 @@ Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateWebAppsStoreConnection(
                                  &aWebAppsStoreFile)
           .orElse([](const nsresult rv)
                       -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
-            if (rv == NS_ERROR_FILE_CORRUPTED) {
+            if (IsDatabaseCorruptionError(rv)) {
               // Don't throw an error, leave a corrupted webappsstore database
               // as it is.
               return nsCOMPtr<mozIStorageConnection>{};
@@ -629,8 +630,6 @@ Result<mozilla::Ok, nsresult> CollectEachFileEntry(
 
 }  // namespace
 
-enum class ShouldUpdateLockIdTableFlag { No, Yes };
-
 class DirectoryLockImpl final : public DirectoryLock {
   const NotNull<RefPtr<QuotaManager>> mQuotaManager;
 
@@ -660,14 +659,13 @@ class DirectoryLockImpl final : public DirectoryLock {
   FlippedOnce<false> mInvalidated;
 
  public:
-  DirectoryLockImpl(MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
-                    const int64_t aId,
-                    const Nullable<PersistenceType>& aPersistenceType,
-                    const nsACString& aGroup, const OriginScope& aOriginScope,
-                    const Nullable<Client::Type>& aClientType, bool aExclusive,
-                    bool aInternal,
-                    ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
-                    RefPtr<OpenDirectoryListener> aOpenListener);
+  DirectoryLockImpl(
+      MovingNotNull<RefPtr<QuotaManager>> aQuotaManager, const int64_t aId,
+      const Nullable<PersistenceType>& aPersistenceType,
+      const nsACString& aGroup, const OriginScope& aOriginScope,
+      const Nullable<Client::Type>& aClientType, bool aExclusive,
+      bool aInternal,
+      QuotaManager::ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag);
 
   void AssertIsOnOwningThread() const
 #ifdef DEBUG
@@ -700,7 +698,7 @@ class DirectoryLockImpl final : public DirectoryLock {
   // The problem is that directory locks for eviction must be currently created
   // while the mutex lock is already acquired. So we decided to have two tables
   // for now and to not register directory locks for eviction in
-  // QuotaMnaager::mDirectoryLockIdTable. This can be improved in future after
+  // QuotaManager::mDirectoryLockIdTable. This can be improved in future after
   // some refactoring of the mutex locking.
   bool ShouldUpdateLockIdTable() const { return mShouldUpdateLockIdTable; }
 
@@ -777,10 +775,13 @@ class DirectoryLockImpl final : public DirectoryLock {
     return mClientType.Value();
   }
 
-  already_AddRefed<DirectoryLock> Specialize(
-      PersistenceType aPersistenceType,
-      const quota::GroupAndOrigin& aGroupAndOrigin,
-      Client::Type aClientType) const;
+  void Acquire(RefPtr<OpenDirectoryListener> aOpenListener);
+
+  void Acquire();
+
+  RefPtr<DirectoryLock> Specialize(PersistenceType aPersistenceType,
+                                   const quota::GroupAndOrigin& aGroupAndOrigin,
+                                   Client::Type aClientType) const;
 
   void Log() const;
 
@@ -788,11 +789,17 @@ class DirectoryLockImpl final : public DirectoryLock {
   ~DirectoryLockImpl();
 };
 
-const DirectoryLockImpl* GetDirectoryLockImpl(
+const DirectoryLockImpl* AsDirectoryLockImpl(
     const DirectoryLock* aDirectoryLock) {
   MOZ_ASSERT(aDirectoryLock);
 
   return static_cast<const DirectoryLockImpl*>(aDirectoryLock);
+}
+
+DirectoryLockImpl* AsDirectoryLockImpl(DirectoryLock* aDirectoryLock) {
+  MOZ_ASSERT(aDirectoryLock);
+
+  return static_cast<DirectoryLockImpl*>(aDirectoryLock);
 }
 
 class QuotaManager::Observer final : public nsIObserver {
@@ -942,15 +949,15 @@ class OriginInfo final {
   bool mDirectoryExists;
 };
 
-class OriginInfoLRUComparator {
+class OriginInfoAccessTimeComparator {
  public:
-  bool Equals(const NotNull<RefPtr<OriginInfo>>& a,
-              const NotNull<RefPtr<OriginInfo>>& b) const {
+  bool Equals(const NotNull<RefPtr<const OriginInfo>>& a,
+              const NotNull<RefPtr<const OriginInfo>>& b) const {
     return a->LockedAccessTime() == b->LockedAccessTime();
   }
 
-  bool LessThan(const NotNull<RefPtr<OriginInfo>>& a,
-                const NotNull<RefPtr<OriginInfo>>& b) const {
+  bool LessThan(const NotNull<RefPtr<const OriginInfo>>& a,
+                const NotNull<RefPtr<const OriginInfo>>& b) const {
     return a->LockedAccessTime() < b->LockedAccessTime();
   }
 };
@@ -1015,14 +1022,11 @@ class GroupInfoPair {
   MOZ_COUNTED_DTOR(GroupInfoPair)
 
  private:
-  already_AddRefed<GroupInfo> LockedGetGroupInfo(
-      PersistenceType aPersistenceType) {
+  RefPtr<GroupInfo> LockedGetGroupInfo(PersistenceType aPersistenceType) {
     AssertCurrentThreadOwnsQuotaMutex();
     MOZ_ASSERT(aPersistenceType != PERSISTENCE_TYPE_PERSISTENT);
 
-    RefPtr<GroupInfo> groupInfo =
-        GetGroupInfoForPersistenceType(aPersistenceType);
-    return groupInfo.forget();
+    return GetGroupInfoForPersistenceType(aPersistenceType);
   }
 
   void LockedSetGroupInfo(PersistenceType aPersistenceType,
@@ -2695,41 +2699,45 @@ bool RecvShutdownQuotaManager() {
  * Directory lock
  ******************************************************************************/
 
-int64_t DirectoryLock::Id() const { return GetDirectoryLockImpl(this)->Id(); }
+int64_t DirectoryLock::Id() const { return AsDirectoryLockImpl(this)->Id(); }
 
 PersistenceType DirectoryLock::GetPersistenceType() const {
-  return GetDirectoryLockImpl(this)->GetPersistenceType();
+  return AsDirectoryLockImpl(this)->GetPersistenceType();
 }
 
 quota::GroupAndOrigin DirectoryLock::GroupAndOrigin() const {
-  return GetDirectoryLockImpl(this)->GroupAndOrigin();
+  return AsDirectoryLockImpl(this)->GroupAndOrigin();
 }
 
 const nsACString& DirectoryLock::Origin() const {
-  return GetDirectoryLockImpl(this)->Origin();
+  return AsDirectoryLockImpl(this)->Origin();
 }
 
 Client::Type DirectoryLock::ClientType() const {
-  return GetDirectoryLockImpl(this)->ClientType();
+  return AsDirectoryLockImpl(this)->ClientType();
 }
 
-already_AddRefed<DirectoryLock> DirectoryLock::Specialize(
+void DirectoryLock::Acquire(RefPtr<OpenDirectoryListener> aOpenListener) {
+  AsDirectoryLockImpl(this)->Acquire(std::move(aOpenListener));
+}
+
+RefPtr<DirectoryLock> DirectoryLock::Specialize(
     PersistenceType aPersistenceType,
     const quota::GroupAndOrigin& aGroupAndOrigin,
     Client::Type aClientType) const {
-  return GetDirectoryLockImpl(this)->Specialize(aPersistenceType,
-                                                aGroupAndOrigin, aClientType);
+  return AsDirectoryLockImpl(this)->Specialize(aPersistenceType,
+                                               aGroupAndOrigin, aClientType);
 }
 
-void DirectoryLock::Log() const { GetDirectoryLockImpl(this)->Log(); }
+void DirectoryLock::Log() const { AsDirectoryLockImpl(this)->Log(); }
 
 DirectoryLockImpl::DirectoryLockImpl(
     MovingNotNull<RefPtr<QuotaManager>> aQuotaManager, const int64_t aId,
     const Nullable<PersistenceType>& aPersistenceType, const nsACString& aGroup,
     const OriginScope& aOriginScope, const Nullable<Client::Type>& aClientType,
     const bool aExclusive, const bool aInternal,
-    const ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
-    RefPtr<OpenDirectoryListener> aOpenListener)
+    const QuotaManager::ShouldUpdateLockIdTableFlag
+        aShouldUpdateLockIdTableFlag)
     : mQuotaManager(std::move(aQuotaManager)),
       mPersistenceType(aPersistenceType),
       mGroup(aGroup),
@@ -2739,7 +2747,7 @@ DirectoryLockImpl::DirectoryLockImpl(
       mExclusive(aExclusive),
       mInternal(aInternal),
       mShouldUpdateLockIdTable(aShouldUpdateLockIdTableFlag ==
-                               ShouldUpdateLockIdTableFlag::Yes),
+                               QuotaManager::ShouldUpdateLockIdTableFlag::Yes),
       mRegistered(false) {
   AssertIsOnOwningThread();
   MOZ_ASSERT_IF(aOriginScope.IsOrigin(), !aOriginScope.GetOrigin().IsEmpty());
@@ -2750,11 +2758,6 @@ DirectoryLockImpl::DirectoryLockImpl(
   MOZ_ASSERT_IF(!aInternal, aOriginScope.IsOrigin());
   MOZ_ASSERT_IF(!aInternal, !aClientType.IsNull());
   MOZ_ASSERT_IF(!aInternal, aClientType.Value() < Client::TypeMax());
-  MOZ_ASSERT_IF(!aInternal, aOpenListener);
-
-  if (aOpenListener) {
-    mOpenListener.init(WrapNotNullUnchecked(std::move(aOpenListener)));
-  }
 }
 
 DirectoryLockImpl::~DirectoryLockImpl() {
@@ -2835,7 +2838,79 @@ void DirectoryLockImpl::NotifyOpenListener() {
   mPending.Flip();
 }
 
-already_AddRefed<DirectoryLock> DirectoryLockImpl::Specialize(
+void DirectoryLockImpl::Acquire(RefPtr<OpenDirectoryListener> aOpenListener) {
+  AssertIsOnOwningThread();
+  MOZ_ASSERT(aOpenListener);
+
+  mOpenListener.init(WrapNotNullUnchecked(std::move(aOpenListener)));
+
+  mQuotaManager->AddPendingDirectoryLock(*this);
+
+  // See if this lock needs to wait.
+  bool blocked = false;
+
+  // XXX It is probably unnecessary to iterate this in reverse order.
+  for (DirectoryLockImpl* const existingLock :
+       Reversed(mQuotaManager->mDirectoryLocks)) {
+    if (MustWaitFor(*existingLock)) {
+      existingLock->AddBlockingLock(*this);
+      AddBlockedOnLock(*existingLock);
+      blocked = true;
+    }
+  }
+
+  mQuotaManager->RegisterDirectoryLock(*this);
+
+  // Otherwise, notify the open listener immediately.
+  if (!blocked) {
+    NotifyOpenListener();
+    return;
+  }
+
+  if (!mExclusive || !mInternal) {
+    return;
+  }
+
+  // All the locks that block this new exclusive internal lock need to be
+  // invalidated. We also need to notify clients to abort operations for them.
+  QuotaManager::DirectoryLockIdTableArray lockIds;
+  lockIds.SetLength(Client::TypeMax());
+
+  const auto& blockedOnLocks = GetBlockedOnLocks();
+  MOZ_ASSERT(!blockedOnLocks.IsEmpty());
+
+  for (DirectoryLockImpl* blockedOnLock : blockedOnLocks) {
+    if (!blockedOnLock->IsInternal()) {
+      blockedOnLock->Invalidate();
+
+      // Clients don't have to handle pending locks. Invalidation is sufficient
+      // in that case (once a lock is ready and the listener needs to be
+      // notified, we will call DirectoryLockFailed instead of
+      // DirectoryLockAcquired which should release any remaining references to
+      // the lock).
+      if (!blockedOnLock->IsPending()) {
+        lockIds[blockedOnLock->ClientType()].Put(blockedOnLock->Id());
+      }
+    }
+  }
+
+  mQuotaManager->AbortOperationsForLocks(lockIds);
+}
+
+void DirectoryLockImpl::Acquire() {
+  AssertIsOnOwningThread();
+
+#ifdef DEBUG
+  for (const DirectoryLockImpl* const existingLock :
+       mQuotaManager->mDirectoryLocks) {
+    MOZ_ASSERT(!MustWaitFor(*existingLock));
+  }
+#endif
+
+  mQuotaManager->RegisterDirectoryLock(*this);
+}
+
+RefPtr<DirectoryLock> DirectoryLockImpl::Specialize(
     PersistenceType aPersistenceType,
     const quota::GroupAndOrigin& aGroupAndOrigin,
     Client::Type aClientType) const {
@@ -2856,16 +2931,15 @@ already_AddRefed<DirectoryLock> DirectoryLockImpl::Specialize(
       Nullable<PersistenceType>(aPersistenceType), aGroupAndOrigin.mGroup,
       OriginScope::FromOrigin(aGroupAndOrigin.mOrigin),
       Nullable<Client::Type>(aClientType),
-      /* aExclusive */ false, mInternal, ShouldUpdateLockIdTableFlag::Yes,
-      /* aOpenListener */ nullptr);
+      /* aExclusive */ false, mInternal,
+      QuotaManager::ShouldUpdateLockIdTableFlag::Yes);
   if (NS_WARN_IF(!Overlaps(*lock))) {
     return nullptr;
   }
 
 #ifdef DEBUG
-  for (uint32_t index = mQuotaManager->mDirectoryLocks.Length(); index > 0;
-       index--) {
-    DirectoryLockImpl* existingLock = mQuotaManager->mDirectoryLocks[index - 1];
+  for (DirectoryLockImpl* const existingLock :
+       Reversed(mQuotaManager->mDirectoryLocks)) {
     if (existingLock != this && !existingLock->MustWaitFor(*this)) {
       MOZ_ASSERT(!existingLock->MustWaitFor(*lock));
     }
@@ -2885,7 +2959,7 @@ already_AddRefed<DirectoryLock> DirectoryLockImpl::Specialize(
     lock->Invalidate();
   }
 
-  return lock.forget();
+  return lock;
 }
 
 void DirectoryLockImpl::Log() const {
@@ -3582,12 +3656,11 @@ bool QuotaManager::IsDotFile(const nsAString& aFileName) {
   return aFileName.First() == char16_t('.');
 }
 
-auto QuotaManager::CreateDirectoryLock(
+RefPtr<DirectoryLockImpl> QuotaManager::CreateDirectoryLock(
     const Nullable<PersistenceType>& aPersistenceType, const nsACString& aGroup,
     const OriginScope& aOriginScope, const Nullable<Client::Type>& aClientType,
     bool aExclusive, bool aInternal,
-    RefPtr<OpenDirectoryListener> aOpenListener, bool& aBlockedOut)
-    -> already_AddRefed<DirectoryLockImpl> {
+    const ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag) {
   AssertIsOnOwningThread();
   MOZ_ASSERT_IF(aOriginScope.IsOrigin(), !aOriginScope.GetOrigin().IsEmpty());
   MOZ_ASSERT_IF(!aInternal, !aPersistenceType.IsNull());
@@ -3597,74 +3670,37 @@ auto QuotaManager::CreateDirectoryLock(
   MOZ_ASSERT_IF(!aInternal, aOriginScope.IsOrigin());
   MOZ_ASSERT_IF(!aInternal, !aClientType.IsNull());
   MOZ_ASSERT_IF(!aInternal, aClientType.Value() < Client::TypeMax());
-  MOZ_ASSERT_IF(!aInternal, aOpenListener);
 
-  RefPtr<DirectoryLockImpl> lock = new DirectoryLockImpl(
+  return MakeRefPtr<DirectoryLockImpl>(
       WrapNotNullUnchecked(this), GenerateDirectoryLockId(), aPersistenceType,
       aGroup, aOriginScope, aClientType, aExclusive, aInternal,
-      ShouldUpdateLockIdTableFlag::Yes, std::move(aOpenListener));
-
-  mPendingDirectoryLocks.AppendElement(lock);
-
-  // See if this lock needs to wait.
-  bool blocked = false;
-
-  // XXX It is probably unnecessary to iterate this in reverse order.
-  for (DirectoryLockImpl* const existingLock : Reversed(mDirectoryLocks)) {
-    if (lock->MustWaitFor(*existingLock)) {
-      existingLock->AddBlockingLock(*lock);
-      lock->AddBlockedOnLock(*existingLock);
-      blocked = true;
-    }
-  }
-
-  RegisterDirectoryLock(*lock);
-
-  // Otherwise, notify the open listener immediately.
-  if (!blocked) {
-    lock->NotifyOpenListener();
-  }
-
-  aBlockedOut = blocked;
-  return lock.forget();
+      aShouldUpdateLockIdTableFlag);
 }
 
-auto QuotaManager::CreateDirectoryLockForEviction(
-    PersistenceType aPersistenceType, const GroupAndOrigin& aGroupAndOrigin)
-    -> already_AddRefed<DirectoryLockImpl> {
+RefPtr<DirectoryLockImpl> QuotaManager::CreateDirectoryLockForEviction(
+    PersistenceType aPersistenceType, const GroupAndOrigin& aGroupAndOrigin) {
   AssertIsOnOwningThread();
   MOZ_ASSERT(aPersistenceType != PERSISTENCE_TYPE_INVALID);
   MOZ_ASSERT(!aGroupAndOrigin.mOrigin.IsEmpty());
 
-  RefPtr<DirectoryLockImpl> lock = new DirectoryLockImpl(
-      WrapNotNullUnchecked(this), GenerateDirectoryLockId(),
-      Nullable<PersistenceType>(aPersistenceType), aGroupAndOrigin.mGroup,
-      OriginScope::FromOrigin(aGroupAndOrigin.mOrigin),
-      Nullable<Client::Type>(),
-      /* aExclusive */ true, /* aInternal */ true,
-      ShouldUpdateLockIdTableFlag::No, nullptr);
-
-#ifdef DEBUG
-  for (const DirectoryLockImpl* const existingLock : mDirectoryLocks) {
-    MOZ_ASSERT(!lock->MustWaitFor(*existingLock));
-  }
-#endif
-
-  RegisterDirectoryLock(*lock);
-
-  return lock.forget();
+  return CreateDirectoryLock(Nullable<PersistenceType>(aPersistenceType),
+                             aGroupAndOrigin.mGroup,
+                             OriginScope::FromOrigin(aGroupAndOrigin.mOrigin),
+                             Nullable<Client::Type>(),
+                             /* aExclusive */ true, /* aInternal */ true,
+                             QuotaManager::ShouldUpdateLockIdTableFlag::No);
 }
 
 void QuotaManager::RegisterDirectoryLock(DirectoryLockImpl& aLock) {
   AssertIsOnOwningThread();
 
-  mDirectoryLocks.AppendElement(&aLock);
+  mDirectoryLocks.AppendElement(WrapNotNullUnchecked(&aLock));
 
   if (aLock.ShouldUpdateLockIdTable()) {
     MutexAutoLock lock(mQuotaMutex);
 
-    MOZ_DIAGNOSTIC_ASSERT(!mDirectoryLockIdTable.Get(aLock.Id()));
-    mDirectoryLockIdTable.Put(aLock.Id(), &aLock);
+    MOZ_DIAGNOSTIC_ASSERT(!mDirectoryLockIdTable.Contains(aLock.Id()));
+    mDirectoryLockIdTable.Put(aLock.Id(), WrapNotNullUnchecked(&aLock));
   }
 
   if (aLock.ShouldUpdateLockTable()) {
@@ -3699,7 +3735,7 @@ void QuotaManager::UnregisterDirectoryLock(DirectoryLockImpl& aLock) {
   if (aLock.ShouldUpdateLockIdTable()) {
     MutexAutoLock lock(mQuotaMutex);
 
-    MOZ_DIAGNOSTIC_ASSERT(mDirectoryLockIdTable.Get(aLock.Id()));
+    MOZ_DIAGNOSTIC_ASSERT(mDirectoryLockIdTable.Contains(aLock.Id()));
     mDirectoryLockIdTable.Remove(aLock.Id());
   }
 
@@ -3724,6 +3760,12 @@ void QuotaManager::UnregisterDirectoryLock(DirectoryLockImpl& aLock) {
   aLock.SetRegistered(false);
 }
 
+void QuotaManager::AddPendingDirectoryLock(DirectoryLockImpl& aLock) {
+  AssertIsOnOwningThread();
+
+  mPendingDirectoryLocks.AppendElement(&aLock);
+}
+
 void QuotaManager::RemovePendingDirectoryLock(DirectoryLockImpl& aLock) {
   AssertIsOnOwningThread();
 
@@ -3735,12 +3777,15 @@ uint64_t QuotaManager::CollectOriginsForEviction(
   AssertIsOnOwningThread();
   MOZ_ASSERT(aLocks.IsEmpty());
 
+  // XXX This looks as if this could/should also use CollectLRUOriginInfosUntil,
+  // or maybe a generalization if that.
+
   struct MOZ_STACK_CLASS Helper final {
     static void GetInactiveOriginInfos(
         const nsTArray<NotNull<RefPtr<OriginInfo>>>& aOriginInfos,
-        const nsTArray<DirectoryLockImpl*>& aLocks,
-        nsTArray<NotNull<RefPtr<OriginInfo>>>& aInactiveOriginInfos) {
-      for (const NotNull<RefPtr<OriginInfo>>& originInfo : aOriginInfos) {
+        const nsTArray<NotNull<const DirectoryLockImpl*>>& aLocks,
+        OriginInfosFlatTraversable& aInactiveOriginInfos) {
+      for (const auto& originInfo : aOriginInfos) {
         MOZ_ASSERT(originInfo->mGroupInfo->mPersistenceType !=
                    PERSISTENCE_TYPE_PERSISTENT);
 
@@ -3759,8 +3804,8 @@ uint64_t QuotaManager::CollectOriginsForEviction(
         if (!match) {
           MOZ_ASSERT(!originInfo->mQuotaObjects.Count(),
                      "Inactive origin shouldn't have open files!");
-          aInactiveOriginInfos.InsertElementSorted(originInfo,
-                                                   OriginInfoLRUComparator());
+          aInactiveOriginInfos.InsertElementSorted(
+              originInfo, OriginInfoAccessTimeComparator());
         }
       }
     }
@@ -3768,74 +3813,86 @@ uint64_t QuotaManager::CollectOriginsForEviction(
 
   // Split locks into separate arrays and filter out locks for persistent
   // storage, they can't block us.
-  nsTArray<DirectoryLockImpl*> temporaryStorageLocks;
-  nsTArray<DirectoryLockImpl*> defaultStorageLocks;
-  for (DirectoryLockImpl* lock : mDirectoryLocks) {
-    const Nullable<PersistenceType>& persistenceType =
-        lock->NullablePersistenceType();
+  const auto [temporaryStorageLocks, defaultStorageLocks] = [this] {
+    nsTArray<NotNull<const DirectoryLockImpl*>> temporaryStorageLocks;
+    nsTArray<NotNull<const DirectoryLockImpl*>> defaultStorageLocks;
+    for (NotNull<const DirectoryLockImpl*> const lock : mDirectoryLocks) {
+      const Nullable<PersistenceType>& persistenceType =
+          lock->NullablePersistenceType();
 
-    if (persistenceType.IsNull()) {
-      temporaryStorageLocks.AppendElement(lock);
-      defaultStorageLocks.AppendElement(lock);
-    } else if (persistenceType.Value() == PERSISTENCE_TYPE_TEMPORARY) {
-      temporaryStorageLocks.AppendElement(lock);
-    } else if (persistenceType.Value() == PERSISTENCE_TYPE_DEFAULT) {
-      defaultStorageLocks.AppendElement(lock);
-    } else {
-      MOZ_ASSERT(persistenceType.Value() == PERSISTENCE_TYPE_PERSISTENT);
+      if (persistenceType.IsNull()) {
+        temporaryStorageLocks.AppendElement(lock);
+        defaultStorageLocks.AppendElement(lock);
+      } else if (persistenceType.Value() == PERSISTENCE_TYPE_TEMPORARY) {
+        temporaryStorageLocks.AppendElement(lock);
+      } else if (persistenceType.Value() == PERSISTENCE_TYPE_DEFAULT) {
+        defaultStorageLocks.AppendElement(lock);
+      } else {
+        MOZ_ASSERT(persistenceType.Value() == PERSISTENCE_TYPE_PERSISTENT);
 
-      // Do nothing here, persistent origins don't need to be collected ever.
+        // Do nothing here, persistent origins don't need to be collected ever.
+      }
     }
-  }
 
-  nsTArray<NotNull<RefPtr<OriginInfo>>> inactiveOrigins;
+    return std::pair(std::move(temporaryStorageLocks),
+                     std::move(defaultStorageLocks));
+  }();
 
   // Enumerate and process inactive origins. This must be protected by the
   // mutex.
   MutexAutoLock lock(mQuotaMutex);
 
-  for (const auto& entry : mGroupInfoPairs) {
-    const auto& pair = entry.GetData();
+  const auto [inactiveOrigins, sizeToBeFreed] =
+      [this, &temporaryStorageLocks = temporaryStorageLocks,
+       &defaultStorageLocks = defaultStorageLocks, aMinSizeToBeFreed] {
+        nsTArray<NotNull<RefPtr<const OriginInfo>>> inactiveOrigins;
+        for (const auto& entry : mGroupInfoPairs) {
+          const auto& pair = entry.GetData();
 
-    MOZ_ASSERT(!entry.GetKey().IsEmpty());
-    MOZ_ASSERT(pair);
+          MOZ_ASSERT(!entry.GetKey().IsEmpty());
+          MOZ_ASSERT(pair);
 
-    RefPtr<GroupInfo> groupInfo =
-        pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY);
-    if (groupInfo) {
-      Helper::GetInactiveOriginInfos(groupInfo->mOriginInfos,
-                                     temporaryStorageLocks, inactiveOrigins);
-    }
+          RefPtr<GroupInfo> groupInfo =
+              pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY);
+          if (groupInfo) {
+            Helper::GetInactiveOriginInfos(groupInfo->mOriginInfos,
+                                           temporaryStorageLocks,
+                                           inactiveOrigins);
+          }
 
-    groupInfo = pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT);
-    if (groupInfo) {
-      Helper::GetInactiveOriginInfos(groupInfo->mOriginInfos,
-                                     defaultStorageLocks, inactiveOrigins);
-    }
-  }
+          groupInfo = pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT);
+          if (groupInfo) {
+            Helper::GetInactiveOriginInfos(
+                groupInfo->mOriginInfos, defaultStorageLocks, inactiveOrigins);
+          }
+        }
 
 #ifdef DEBUG
-  // Make sure the array is sorted correctly.
-  const bool inactiveOriginsSorted =
-      std::is_sorted(inactiveOrigins.cbegin(), inactiveOrigins.cend(),
-                     [](const auto& lhs, const auto& rhs) {
-                       return lhs->mAccessTime < rhs->mAccessTime;
-                     });
-  MOZ_ASSERT(inactiveOriginsSorted);
+        // Make sure the array is sorted correctly.
+        const bool inactiveOriginsSorted =
+            std::is_sorted(inactiveOrigins.cbegin(), inactiveOrigins.cend(),
+                           [](const auto& lhs, const auto& rhs) {
+                             return lhs->mAccessTime < rhs->mAccessTime;
+                           });
+        MOZ_ASSERT(inactiveOriginsSorted);
 #endif
 
-  // Create a list of inactive and the least recently used origins
-  // whose aggregate size is greater or equals the minimal size to be freed.
-  uint64_t sizeToBeFreed = 0;
-  for (uint32_t count = inactiveOrigins.Length(), index = 0; index < count;
-       index++) {
-    if (sizeToBeFreed >= aMinSizeToBeFreed) {
-      inactiveOrigins.TruncateLength(index);
-      break;
-    }
+        // Create a list of inactive and the least recently used origins
+        // whose aggregate size is greater or equals the minimal size to be
+        // freed.
+        uint64_t sizeToBeFreed = 0;
+        for (uint32_t count = inactiveOrigins.Length(), index = 0;
+             index < count; index++) {
+          if (sizeToBeFreed >= aMinSizeToBeFreed) {
+            inactiveOrigins.TruncateLength(index);
+            break;
+          }
 
-    sizeToBeFreed += inactiveOrigins[index]->LockedUsage();
-  }
+          sizeToBeFreed += inactiveOrigins[index]->LockedUsage();
+        }
+
+        return std::pair(std::move(inactiveOrigins), sizeToBeFreed);
+      }();
 
   if (sizeToBeFreed >= aMinSizeToBeFreed) {
     // Success, add directory locks for these origins, so any other
@@ -3845,6 +3902,9 @@ uint64_t QuotaManager::CollectOriginsForEviction(
       RefPtr<DirectoryLockImpl> lock = CreateDirectoryLockForEviction(
           originInfo->mGroupInfo->mPersistenceType,
           GroupAndOrigin{originInfo->mGroupInfo->mGroup, originInfo->mOrigin});
+
+      lock->Acquire();
+
       aLocks.AppendElement(lock.forget());
     }
 
@@ -4761,20 +4821,21 @@ already_AddRefed<QuotaObject> QuotaManager::GetQuotaObject(
     lock.emplace(mQuotaMutex);
   }
 
-  DirectoryLockImpl* directoryLock;
-  if (!mDirectoryLockIdTable.Get(aDirectoryLockId, &directoryLock)) {
-    MOZ_CRASH("Getting quota object for an unregistered directory lock?");
+  if (auto maybeDirectoryLock =
+          mDirectoryLockIdTable.MaybeGet(aDirectoryLockId)) {
+    const auto& directoryLock = *maybeDirectoryLock;
+    MOZ_DIAGNOSTIC_ASSERT(directoryLock->ShouldUpdateLockIdTable());
+
+    const PersistenceType persistenceType = directoryLock->GetPersistenceType();
+    const GroupAndOrigin& groupAndOrigin = directoryLock->GroupAndOrigin();
+    const Client::Type clientType = directoryLock->ClientType();
+
+    lock.reset();
+
+    return GetQuotaObject(persistenceType, groupAndOrigin, clientType, aPath);
   }
-  MOZ_DIAGNOSTIC_ASSERT(directoryLock);
-  MOZ_DIAGNOSTIC_ASSERT(directoryLock->ShouldUpdateLockIdTable());
 
-  const PersistenceType persistenceType = directoryLock->GetPersistenceType();
-  const GroupAndOrigin& groupAndOrigin = directoryLock->GroupAndOrigin();
-  const Client::Type clientType = directoryLock->ClientType();
-
-  lock.reset();
-
-  return GetQuotaObject(persistenceType, groupAndOrigin, clientType, aPath);
+  MOZ_CRASH("Getting quota object for an unregistered directory lock?");
 }
 
 Nullable<bool> QuotaManager::OriginPersisted(
@@ -4801,6 +4862,15 @@ void QuotaManager::PersistOrigin(const GroupAndOrigin& aGroupAndOrigin) {
       LockedGetOriginInfo(PERSISTENCE_TYPE_DEFAULT, aGroupAndOrigin);
   if (originInfo && !originInfo->LockedPersisted()) {
     originInfo->LockedPersist();
+  }
+}
+
+void QuotaManager::AbortOperationsForLocks(
+    const DirectoryLockIdTableArray& aLockIds) {
+  for (Client::Type type : AllClientTypes()) {
+    if (aLockIds[type].Filled()) {
+      (*mClients)[type]->AbortOperationsForLocks(aLockIds[type]);
+    }
   }
 }
 
@@ -5808,8 +5878,8 @@ QuotaManager::CreateLocalStorageArchiveConnectionFromWebAppsStore() {
       QM_TRY(lsArchiveTmpConnection->ExecuteSimpleSQL(
           "PRAGMA journal_mode = DELETE;"_ns));
 
-      // The connection will be now implicitely closed (it's always safer to
-      // close database connection before we manipulate underlying file)
+      // Close the connection explicitly. We are going to rename the file below.
+      QM_TRY(lsArchiveTmpConnection->Close());
     }
 
     // Finally, rename ls-archive-tmp.sqlite to ls-archive.sqlite
@@ -5887,7 +5957,7 @@ QuotaManager::CreateLocalStorageArchiveConnection() {
                                    OpenUnsharedDatabase, lsArchiveFile)
             .orElse([&removed, &lsArchiveFile, &ss](const nsresult rv)
                         -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
-              if (!removed && rv == NS_ERROR_FILE_CORRUPTED) {
+              if (!removed && IsDatabaseCorruptionError(rv)) {
                 QM_TRY(lsArchiveFile->Remove(false));
 
                 removed = true;
@@ -6023,8 +6093,11 @@ nsresult QuotaManager::EnsureStorageIsInitialized() {
       Initialization::Storage,
       [&self = *this] { return static_cast<bool>(self.mStorageConnection); });
 
-  const auto contextLogExtraInfo = ScopedLogExtraInfo{
-      ScopedLogExtraInfo::kTagContext, "Initialization::Storage"_ns};
+  const auto contextLogExtraInfo =
+      autoRecord.IsFirstInitializationAttempt()
+          ? Some(ScopedLogExtraInfo{ScopedLogExtraInfo::kTagContext,
+                                    "Initialization::Storage"_ns})
+          : Nothing{};
 
   QM_TRY_INSPECT(const auto& storageFile, QM_NewLocalFile(mBasePath));
 
@@ -6066,8 +6139,8 @@ nsresult QuotaManager::EnsureStorageIsInitialized() {
   QM_TRY_UNWRAP(auto connection,
                 MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>, ss,
                                            OpenUnsharedDatabase, storageFile)
-                    .orElse(ErrToOkOrErr<NS_ERROR_FILE_CORRUPTED, nullptr,
-                                         nsCOMPtr<mozIStorageConnection>>));
+                    .orElse(FilterDatabaseCorruptionError<
+                            nullptr, nsCOMPtr<mozIStorageConnection>>));
 
   if (!connection) {
     // Nuke the database file.
@@ -6311,69 +6384,27 @@ nsresult QuotaManager::EnsureStorageIsInitialized() {
   return NS_OK;
 }
 
-already_AddRefed<DirectoryLock> QuotaManager::OpenDirectory(
+RefPtr<DirectoryLock> QuotaManager::CreateDirectoryLock(
     PersistenceType aPersistenceType, const GroupAndOrigin& aGroupAndOrigin,
-    Client::Type aClientType, bool aExclusive,
-    RefPtr<OpenDirectoryListener> aOpenListener) {
+    Client::Type aClientType, bool aExclusive) {
   AssertIsOnOwningThread();
 
-  bool blocked;
-  RefPtr<DirectoryLockImpl> lock = CreateDirectoryLock(
-      Nullable<PersistenceType>(aPersistenceType), aGroupAndOrigin.mGroup,
-      OriginScope::FromOrigin(aGroupAndOrigin.mOrigin),
-      Nullable<Client::Type>(aClientType), aExclusive, false,
-      std::move(aOpenListener), blocked);
-  MOZ_ASSERT(lock);
-
-  return blocked ? lock.forget() : nullptr;
+  return CreateDirectoryLock(Nullable<PersistenceType>(aPersistenceType),
+                             aGroupAndOrigin.mGroup,
+                             OriginScope::FromOrigin(aGroupAndOrigin.mOrigin),
+                             Nullable<Client::Type>(aClientType), aExclusive,
+                             false, ShouldUpdateLockIdTableFlag::Yes);
 }
 
-already_AddRefed<DirectoryLock> QuotaManager::OpenDirectoryInternal(
+RefPtr<DirectoryLock> QuotaManager::CreateDirectoryLockInternal(
     const Nullable<PersistenceType>& aPersistenceType,
     const OriginScope& aOriginScope, const Nullable<Client::Type>& aClientType,
-    bool aExclusive, OpenDirectoryListener* aOpenListener) {
+    bool aExclusive) {
   AssertIsOnOwningThread();
 
-  bool blocked;
-  RefPtr<DirectoryLockImpl> lock =
-      CreateDirectoryLock(aPersistenceType, ""_ns, aOriginScope,
-                          Nullable<Client::Type>(aClientType), aExclusive, true,
-                          aOpenListener, blocked);
-  MOZ_ASSERT(lock);
-
-  if (!aExclusive) {
-    return blocked ? lock.forget() : nullptr;
-  }
-
-  // All the locks that block this new exclusive lock need to be invalidated.
-  // We also need to notify clients to abort operations for them.
-  AutoTArray<Client::DirectoryLockIdTable, Client::TYPE_MAX> lockIds;
-  lockIds.SetLength(Client::TypeMax());
-
-  const auto& blockedOnLocks = lock->GetBlockedOnLocks();
-
-  for (DirectoryLockImpl* blockedOnLock : blockedOnLocks) {
-    if (!blockedOnLock->IsInternal()) {
-      blockedOnLock->Invalidate();
-
-      // Clients don't have to handle pending locks. Invalidation is sufficient
-      // in that case (once a lock is ready and the listener needs to be
-      // notified, we will call DirectoryLockFailed instead of
-      // DirectoryLockAcquired which should release any remaining references to
-      // the lock).
-      if (!blockedOnLock->IsPending()) {
-        lockIds[blockedOnLock->ClientType()].Put(blockedOnLock->Id());
-      }
-    }
-  }
-
-  for (Client::Type type : AllClientTypes()) {
-    if (lockIds[type].Filled()) {
-      (*mClients)[type]->AbortOperationsForLocks(lockIds[type]);
-    }
-  }
-
-  return blocked ? lock.forget() : nullptr;
+  return CreateDirectoryLock(aPersistenceType, ""_ns, aOriginScope,
+                             Nullable<Client::Type>(aClientType), aExclusive,
+                             true, ShouldUpdateLockIdTableFlag::Yes);
 }
 
 Result<std::pair<nsCOMPtr<nsIFile>, bool>, nsresult>
@@ -6425,8 +6456,8 @@ QuotaManager::EnsurePersistentOriginIsInitialized(const QuotaInfo& aQuotaInfo) {
     return std::pair(std::move(directory), created);
   }();
 
-  auto& info = mOriginInitializationInfos.GetOrInsert(aQuotaInfo.mOrigin);
-  if (!info.mPersistentOriginAttempted) {
+  if (auto& info = mOriginInitializationInfos.GetOrInsert(aQuotaInfo.mOrigin);
+      !info.mPersistentOriginAttempted) {
     Telemetry::Accumulate(Telemetry::QM_FIRST_INITIALIZATION_ATTEMPT,
                           kPersistentOriginTelemetryKey,
                           static_cast<uint32_t>(res.isOk()));
@@ -6501,8 +6532,11 @@ nsresult QuotaManager::EnsureTemporaryStorageIsInitialized() {
       Initialization::TemporaryStorage,
       [&self = *this] { return self.mTemporaryStorageInitialized; });
 
-  const auto contextLogExtraInfo = ScopedLogExtraInfo{
-      ScopedLogExtraInfo::kTagContext, "Initialization::TemporaryStorage"_ns};
+  const auto contextLogExtraInfo =
+      autoRecord.IsFirstInitializationAttempt()
+          ? Some(ScopedLogExtraInfo{ScopedLogExtraInfo::kTagContext,
+                                    "Initialization::TemporaryStorage"_ns})
+          : Nothing{};
 
   QM_TRY_INSPECT(
       const auto& storageDir,
@@ -6535,7 +6569,7 @@ nsresult QuotaManager::EnsureTemporaryStorageIsInitialized() {
   mTemporaryStorageLimit = GetTemporaryStorageLimit(
       /* aAvailableSpaceBytes */ diskSpaceAvailable + mTemporaryStorageUsage);
 
-  CheckTemporaryStorageLimits();
+  CleanupTemporaryStorage();
 
   return NS_OK;
 }
@@ -7026,8 +7060,8 @@ void QuotaManager::LockedRemoveQuotaForOrigin(
 
   MOZ_ASSERT(pair);
 
-  RefPtr<GroupInfo> groupInfo = pair->LockedGetGroupInfo(aPersistenceType);
-  if (groupInfo) {
+  if (RefPtr<GroupInfo> groupInfo =
+          pair->LockedGetGroupInfo(aPersistenceType)) {
     groupInfo->LockedRemoveOriginInfo(aGroupAndOrigin.mOrigin);
 
     if (!groupInfo->LockedHasOriginInfos()) {
@@ -7077,150 +7111,186 @@ already_AddRefed<OriginInfo> QuotaManager::LockedGetOriginInfo(
   return nullptr;
 }
 
-void QuotaManager::CheckTemporaryStorageLimits() {
-  AssertIsOnIOThread();
+template <typename Iterator>
+void QuotaManager::MaybeInsertNonPersistedOriginInfos(
+    Iterator aDest, const RefPtr<GroupInfo>& aTemporaryGroupInfo,
+    const RefPtr<GroupInfo>& aDefaultGroupInfo) {
+  const auto copy = [&aDest](const GroupInfo& groupInfo) {
+    std::copy_if(
+        groupInfo.mOriginInfos.cbegin(), groupInfo.mOriginInfos.cend(), aDest,
+        [](const auto& originInfo) { return !originInfo->LockedPersisted(); });
+  };
 
-  const auto doomedOrigins = [this] {
-    const auto doomedOriginInfos = [this] {
-      nsTArray<NotNull<RefPtr<OriginInfo>>> doomedOriginInfos;
-      MutexAutoLock lock(mQuotaMutex);
+  if (aTemporaryGroupInfo) {
+    MOZ_ASSERT(PERSISTENCE_TYPE_TEMPORARY ==
+               aTemporaryGroupInfo->GetPersistenceType());
 
-      for (const auto& entry : mGroupInfoPairs) {
-        const auto& pair = entry.GetData();
+    copy(*aTemporaryGroupInfo);
+  }
+  if (aDefaultGroupInfo) {
+    MOZ_ASSERT(PERSISTENCE_TYPE_DEFAULT ==
+               aDefaultGroupInfo->GetPersistenceType());
 
-        MOZ_ASSERT(!entry.GetKey().IsEmpty());
-        MOZ_ASSERT(pair);
+    copy(*aDefaultGroupInfo);
+  }
+}
 
-        uint64_t groupUsage = 0;
+template <typename Collect, typename Pred>
+QuotaManager::OriginInfosFlatTraversable
+QuotaManager::CollectLRUOriginInfosUntil(Collect&& aCollect, Pred&& aPred) {
+  OriginInfosFlatTraversable originInfos;
 
-        RefPtr<GroupInfo> temporaryGroupInfo =
-            pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY);
-        if (temporaryGroupInfo) {
-          groupUsage += temporaryGroupInfo->mUsage;
-        }
+  std::forward<Collect>(aCollect)(MakeBackInserter(originInfos));
 
-        RefPtr<GroupInfo> defaultGroupInfo =
-            pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT);
-        if (defaultGroupInfo) {
-          groupUsage += defaultGroupInfo->mUsage;
-        }
+  originInfos.Sort(OriginInfoAccessTimeComparator());
 
-        if (groupUsage > 0) {
-          QuotaManager* quotaManager = QuotaManager::Get();
-          MOZ_ASSERT(quotaManager, "Shouldn't be null!");
+  const auto foundIt = std::find_if(originInfos.cbegin(), originInfos.cend(),
+                                    std::forward<Pred>(aPred));
 
-          if (groupUsage > quotaManager->GetGroupLimit()) {
-            nsTArray<NotNull<RefPtr<OriginInfo>>> originInfos;
-            if (temporaryGroupInfo) {
-              originInfos.AppendElements(temporaryGroupInfo->mOriginInfos);
-            }
-            if (defaultGroupInfo) {
-              originInfos.AppendElements(defaultGroupInfo->mOriginInfos);
-            }
-            originInfos.Sort(OriginInfoLRUComparator());
+  originInfos.TruncateLength(foundIt - originInfos.cbegin());
 
-            for (uint32_t i = 0; i < originInfos.Length(); i++) {
-              const NotNull<RefPtr<OriginInfo>>& originInfo = originInfos[i];
-              if (originInfo->LockedPersisted()) {
-                continue;
-              }
+  return originInfos;
+}
 
-              doomedOriginInfos.AppendElement(originInfo);
+QuotaManager::OriginInfosNestedTraversable
+QuotaManager::GetOriginInfosExceedingGroupLimit() const {
+  MutexAutoLock lock(mQuotaMutex);
+
+  OriginInfosNestedTraversable originInfos;
+
+  for (const auto& entry : mGroupInfoPairs) {
+    const auto& pair = entry.GetData();
+
+    MOZ_ASSERT(!entry.GetKey().IsEmpty());
+    MOZ_ASSERT(pair);
+
+    uint64_t groupUsage = 0;
+
+    const RefPtr<GroupInfo> temporaryGroupInfo =
+        pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY);
+    if (temporaryGroupInfo) {
+      groupUsage += temporaryGroupInfo->mUsage;
+    }
+
+    const RefPtr<GroupInfo> defaultGroupInfo =
+        pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT);
+    if (defaultGroupInfo) {
+      groupUsage += defaultGroupInfo->mUsage;
+    }
+
+    if (groupUsage > 0) {
+      QuotaManager* quotaManager = QuotaManager::Get();
+      MOZ_ASSERT(quotaManager, "Shouldn't be null!");
+
+      if (groupUsage > quotaManager->GetGroupLimit()) {
+        originInfos.AppendElement(CollectLRUOriginInfosUntil(
+            [&temporaryGroupInfo, &defaultGroupInfo](auto inserter) {
+              MaybeInsertNonPersistedOriginInfos(
+                  std::move(inserter), temporaryGroupInfo, defaultGroupInfo);
+            },
+            [&groupUsage, quotaManager](const auto& originInfo) {
               groupUsage -= originInfo->LockedUsage();
 
-              if (groupUsage <= quotaManager->GetGroupLimit()) {
-                break;
-              }
-            }
-          }
-        }
+              return groupUsage <= quotaManager->GetGroupLimit();
+            }));
       }
+    }
+  }
 
-      uint64_t usage = std::accumulate(
-          doomedOriginInfos.cbegin(), doomedOriginInfos.cend(), uint64_t(0),
-          [](uint64_t oldValue, const auto& originInfo) {
-            return oldValue + originInfo->LockedUsage();
-          });
+  return originInfos;
+}
 
-      if (mTemporaryStorageUsage - usage > mTemporaryStorageLimit) {
-        nsTArray<NotNull<RefPtr<OriginInfo>>> originInfos;
+QuotaManager::OriginInfosNestedTraversable
+QuotaManager::GetOriginInfosExceedingGlobalLimit() const {
+  MutexAutoLock lock(mQuotaMutex);
 
+  QuotaManager::OriginInfosNestedTraversable res;
+  res.AppendElement(CollectLRUOriginInfosUntil(
+      // XXX The lambda only needs to capture this, but due to Bug 1421435 it
+      // can't.
+      [&](auto inserter) {
         for (const auto& entry : mGroupInfoPairs) {
           const auto& pair = entry.GetData();
 
           MOZ_ASSERT(!entry.GetKey().IsEmpty());
           MOZ_ASSERT(pair);
 
-          RefPtr<GroupInfo> groupInfo =
-              pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY);
-          if (groupInfo) {
-            originInfos.AppendElements(groupInfo->mOriginInfos);
-          }
-
-          groupInfo = pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT);
-          if (groupInfo) {
-            originInfos.AppendElements(groupInfo->mOriginInfos);
-          }
+          MaybeInsertNonPersistedOriginInfos(
+              inserter, pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY),
+              pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT));
+        }
+      },
+      [temporaryStorageUsage = mTemporaryStorageUsage,
+       temporaryStorageLimit = mTemporaryStorageLimit,
+       doomedUsage = uint64_t{0}](const auto& originInfo) mutable {
+        if (temporaryStorageUsage - doomedUsage <= temporaryStorageLimit) {
+          return true;
         }
 
-        originInfos.RemoveElementsBy(
-            [&doomedOriginInfos](const auto& originInfo) {
-              return doomedOriginInfos.Contains(originInfo) ||
-                     originInfo->LockedPersisted();
-            });
+        doomedUsage += originInfo->LockedUsage();
+        return false;
+      }));
 
-        originInfos.Sort(OriginInfoLRUComparator());
+  return res;
+}
 
-        for (uint32_t i = 0; i < originInfos.Length(); i++) {
-          if (mTemporaryStorageUsage - usage <= mTemporaryStorageLimit) {
-            originInfos.TruncateLength(i);
-            break;
-          }
+void QuotaManager::ClearOrigins(
+    const OriginInfosNestedTraversable& aDoomedOriginInfos) {
+  AssertIsOnIOThread();
 
-          usage += originInfos[i]->LockedUsage();
-        }
-
-        doomedOriginInfos.AppendElements(originInfos);
-      }
-
-      return doomedOriginInfos;
-    }();
-
-    for (const auto& doomedOriginInfo : doomedOriginInfos) {
+  // XXX Does this need to be done a) in order and/or b) sequentially?
+  for (const auto& doomedOriginInfo :
+       Flatten<OriginInfosFlatTraversable::elem_type>(aDoomedOriginInfos)) {
 #ifdef DEBUG
-      {
-        MutexAutoLock lock(mQuotaMutex);
-        MOZ_ASSERT(!doomedOriginInfo->LockedPersisted());
-      }
-#endif
-
-      DeleteFilesForOrigin(doomedOriginInfo->mGroupInfo->mPersistenceType,
-                           doomedOriginInfo->mOrigin);
-    }
-
-    nsTArray<OriginParams> doomedOrigins;
     {
       MutexAutoLock lock(mQuotaMutex);
-
-      for (const auto& doomedOriginInfo : doomedOriginInfos) {
-        PersistenceType persistenceType =
-            doomedOriginInfo->mGroupInfo->mPersistenceType;
-        const GroupAndOrigin groupAndOrigin = {
-            doomedOriginInfo->mGroupInfo->mGroup, doomedOriginInfo->mOrigin};
-        LockedRemoveQuotaForOrigin(persistenceType, groupAndOrigin);
-
-        doomedOrigins.EmplaceBack(
-            OriginParams(persistenceType, groupAndOrigin.mOrigin));
-      }
+      MOZ_ASSERT(!doomedOriginInfo->LockedPersisted());
     }
+#endif
 
-    return doomedOrigins;
-  }();
+    DeleteFilesForOrigin(doomedOriginInfo->mGroupInfo->mPersistenceType,
+                         doomedOriginInfo->mOrigin);
+  }
 
-  for (const OriginParams& doomedOrigin : doomedOrigins) {
-    OriginClearCompleted(doomedOrigin.mPersistenceType, doomedOrigin.mOrigin,
+  struct OriginParams {
+    nsCString mOrigin;
+    PersistenceType mPersistenceType;
+  };
+
+  nsTArray<OriginParams> clearedOrigins;
+
+  {
+    MutexAutoLock lock(mQuotaMutex);
+
+    for (const auto& doomedOriginInfo :
+         Flatten<OriginInfosFlatTraversable::elem_type>(aDoomedOriginInfos)) {
+      // LockedRemoveQuotaForOrigin might remove the group info;
+      // OriginInfo::mGroupInfo is only a raw pointer, so we need to store the
+      // information for calling OriginClearCompleted below in a separate array.
+      clearedOrigins.AppendElement(
+          OriginParams{doomedOriginInfo->mOrigin,
+                       doomedOriginInfo->mGroupInfo->mPersistenceType});
+
+      LockedRemoveQuotaForOrigin(
+          doomedOriginInfo->mGroupInfo->mPersistenceType,
+          {doomedOriginInfo->mGroupInfo->mGroup, doomedOriginInfo->mOrigin});
+    }
+  }
+
+  for (const auto& clearedOrigin : clearedOrigins) {
+    OriginClearCompleted(clearedOrigin.mPersistenceType, clearedOrigin.mOrigin,
                          Nullable<Client::Type>());
   }
+}
+
+void QuotaManager::CleanupTemporaryStorage() {
+  AssertIsOnIOThread();
+
+  // Evicting origins that exceed their group limit also affects the global
+  // temporary storage usage, so these steps have to be taken sequentially.
+  // Combining them doesn't seem worth the added complexity.
+  ClearOrigins(GetOriginInfosExceedingGroupLimit());
+  ClearOrigins(GetOriginInfosExceedingGlobalLimit());
 
   if (mTemporaryStorageUsage > mTemporaryStorageLimit) {
     // If disk space is still low after origin clear, notify storage pressure.
@@ -7295,8 +7365,8 @@ bool QuotaManager::IsSanitizedOriginValid(const nsACString& aSanitizedOrigin) {
 int64_t QuotaManager::GenerateDirectoryLockId() {
   const int64_t directorylockId = mNextDirectoryLockId;
 
-  CheckedInt64 result = CheckedInt64(mNextDirectoryLockId) + 1;
-  if (result.isValid()) {
+  if (CheckedInt64 result = CheckedInt64(mNextDirectoryLockId) + 1;
+      result.isValid()) {
     mNextDirectoryLockId = result.value();
   } else {
     NS_WARNING("Quota manager has run out of ids for directory locks!");
@@ -7806,9 +7876,11 @@ void NormalOriginOperationBase::Open() {
   AdvanceState();
 
   if (mNeedsDirectoryLocking) {
-    RefPtr<DirectoryLock> pendingDirectoryLock =
-        QuotaManager::Get()->OpenDirectoryInternal(
-            mPersistenceType, mOriginScope, mClientType, mExclusive, this);
+    RefPtr<DirectoryLock> directoryLock =
+        QuotaManager::Get()->CreateDirectoryLockInternal(
+            mPersistenceType, mOriginScope, mClientType, mExclusive);
+
+    directoryLock->Acquire(this);
   } else {
     QM_TRY(DirectoryOpen(), QM_VOID, [this](const nsresult rv) { Finish(rv); });
   }

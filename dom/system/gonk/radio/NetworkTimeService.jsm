@@ -309,8 +309,14 @@ NetworkTimeService.prototype = {
         break;
 
       case kNetworkActiveChangedTopic:
+        if (!aSubject) {
+          return;
+        }
         let networkInfo = aSubject.QueryInterface(Ci.nsINetworkInfo);
-        if (networkInfo.state != Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED) {
+        if (
+          !networkInfo ||
+          networkInfo.state != Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED
+        ) {
           return;
         }
 
@@ -560,7 +566,7 @@ NetworkTimeService.prototype = {
   _deinitObservers() {
     this._deinitTopicObservers();
     this._deinitSettingsObservers();
-    gTime.addObserver(Ci.nsITime.TIME_CHANGED, this, this);
+    gTime.removeObserver(Ci.nsITime.TIME_CHANGED, this, this);
   },
 
   _initTopicObservers() {

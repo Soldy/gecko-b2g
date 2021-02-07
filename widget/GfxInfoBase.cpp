@@ -901,7 +901,7 @@ int32_t GfxInfoBase::FindBlocklistedDeviceInList(
     return 0;
   }
 
-#if defined(XP_WIN) || defined(ANDROID) || defined(MOZ_X11)
+#if defined(XP_WIN) || defined(ANDROID) || defined(MOZ_WIDGET_GTK)
   uint64_t driverVersion[2] = {0, 0};
   if (!adapterInfoFailed[0]) {
     ParseDriverVersion(adapterDriverVersionString[0], &driverVersion[0]);
@@ -998,7 +998,7 @@ int32_t GfxInfoBase::FindBlocklistedDeviceInList(
       continue;
     }
 
-#if defined(XP_WIN) || defined(ANDROID) || defined(MOZ_X11)
+#if defined(XP_WIN) || defined(ANDROID) || defined(MOZ_WIDGET_GTK)
     switch (info[i].mComparisonOp) {
       case DRIVER_LESS_THAN:
         match = driverVersion[infoIndex] < info[i].mDriverVersion;
@@ -1472,6 +1472,9 @@ GfxInfoBase::GetMonitors(JSContext* aCx, JS::MutableHandleValue aResult) {
   aResult.setObject(*array);
   return NS_OK;
 }
+
+NS_IMETHODIMP
+GfxInfoBase::RefreshMonitors() { return NS_ERROR_NOT_IMPLEMENTED; }
 
 static inline bool SetJSPropertyString(JSContext* aCx,
                                        JS::Handle<JSObject*> aObj,

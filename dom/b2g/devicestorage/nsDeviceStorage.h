@@ -69,6 +69,7 @@ enum DeviceStorageRequestType {
   DEVICE_STORAGE_REQUEST_CREATE,
   DEVICE_STORAGE_REQUEST_DELETE,
   DEVICE_STORAGE_REQUEST_WATCH,
+  DEVICE_STORAGE_REQUEST_IS_DISK_FULL,
   DEVICE_STORAGE_REQUEST_FREE_SPACE,
   DEVICE_STORAGE_REQUEST_USED_SPACE,
   DEVICE_STORAGE_REQUEST_AVAILABLE,
@@ -237,6 +238,7 @@ class DeviceStorageRequestManager final {
   nsresult Resolve(uint32_t aId, bool aForceDispatch);
   nsresult Resolve(uint32_t aId, const nsString& aValue, bool aForceDispatch);
   nsresult Resolve(uint32_t aId, uint64_t aValue, bool aForceDispatch);
+  nsresult Resolve(uint32_t aId, bool aValue, bool aForceDispatch);
   nsresult Resolve(uint32_t aId, DeviceStorageFile* aValue,
                    bool aForceDispatch);
   nsresult Resolve(uint32_t aId, mozilla::dom::BlobImpl* aValue,

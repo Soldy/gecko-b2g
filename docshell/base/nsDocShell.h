@@ -1050,6 +1050,11 @@ class nsDocShell final : public nsDocLoader,
 
   void SetCacheKeyOnHistoryEntry(nsISHEntry* aSHEntry, uint32_t aCacheKey);
 
+  // If the LoadState's URI is a javascript: URI, checks that the triggering
+  // principal subsumes the principal of the current document, and returns
+  // NS_ERROR_DOM_BAD_CROSS_ORIGIN_URI if it does not.
+  nsresult CheckDisallowedJavascriptLoad(nsDocShellLoadState* aLoadState);
+
   nsresult LoadURI(nsDocShellLoadState* aLoadState, bool aSetNavigating,
                    bool aContinueHandlingSubframeHistory);
 
@@ -1058,6 +1063,12 @@ class nsDocShell final : public nsDocLoader,
   void MoveLoadingToActiveEntry(bool aPersist);
 
   void ActivenessMaybeChanged();
+
+  /**
+   * Returns true if `noopener` will be force-enabled by any attempt to create
+   * a popup window, even if rel="opener" is requested.
+   */
+  bool NoopenerForceEnabled();
 
  private:  // data members
   nsString mTitle;

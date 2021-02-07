@@ -181,12 +181,10 @@ class AbstractBindingName<frontend::TaggedParserAtomIndex> {
 
   AbstractBindingName(TaggedParserAtomIndex name, bool closedOver,
                       bool isTopLevelFunction = false)
-      : bits_(*name.rawData() | (closedOver ? ClosedOverFlag : 0x0) |
+      : bits_(name.rawData() | (closedOver ? ClosedOverFlag : 0x0) |
               (isTopLevelFunction ? TopLevelFunctionFlag : 0x0)) {}
 
  public:
-  uint32_t* rawData() { return &bits_; }
-
   NamePointerT name() const {
     return TaggedParserAtomIndex::fromRaw(bits_ & ~FlagMask);
   }
@@ -732,6 +730,9 @@ class FunctionScope : public Scope {
   uint32_t nextFrameSlot() const { return data().slotInfo.nextFrameSlot; }
 
   JSFunction* canonicalFunction() const { return data().canonicalFunction; }
+  void initCanonicalFunction(JSFunction* fun) {
+    data().canonicalFunction.init(fun);
+  }
 
   JSScript* script() const;
 
@@ -885,8 +886,7 @@ class GlobalScope : public Scope {
     return create(cx, kind, nullptr);
   }
 
-  static GlobalScope* clone(JSContext* cx, Handle<GlobalScope*> scope,
-                            ScopeKind kind);
+  static GlobalScope* clone(JSContext* cx, Handle<GlobalScope*> scope);
 
   template <XDRMode mode>
   static XDRResult XDR(XDRState<mode>* xdr, ScopeKind kind,
@@ -1107,6 +1107,7 @@ class ModuleScope : public Scope {
   uint32_t nextFrameSlot() const { return data().slotInfo.nextFrameSlot; }
 
   ModuleObject* module() const { return data().module; }
+  void initModule(ModuleObject* mod) { return data().module.init(mod); }
 
   // Off-thread compilation needs to calculate environmentChainLength for
   // an emptyGlobalScope where the global may not be available.

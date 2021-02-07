@@ -1892,11 +1892,33 @@ fn translate_declaration(
         syntax::Declaration::FunctionPrototype(p) => {
             Declaration::FunctionPrototype(translate_function_prototype(state, p))
         }
-        syntax::Declaration::Global(_ty, _ids) => {
-            panic!();
-            // glsl non-es supports requalifying variables
-            // we don't right now
-            //Declaration::Global(..)
+        syntax::Declaration::Global(ty, ids) => {
+            // glsl non-es supports requalifying variables, but we don't yet.
+            // However, we still want to allow global layout qualifiers for
+            // KHR_advanced_blend_equation.
+            if !ids.is_empty() {
+                panic!();
+            }
+            let _ = for qual in &ty.qualifiers {
+                match qual {
+                    syntax::TypeQualifierSpec::Layout(l) => {
+                        for id in &l.ids {
+                            match id {
+                                syntax::LayoutQualifierSpec::Identifier(key, _) => {
+                                    match key.as_str() {
+                                        "blend_support_all_equations" => (),
+                                        _ => panic!(),
+                                    }
+                                }
+                                _ => panic!(),
+                            }
+                        }
+                    }
+                    syntax::TypeQualifierSpec::Storage(syntax::StorageQualifier::Out) => (),
+                    _ => panic!(),
+                }
+            };
+            Declaration::Global(lift_type_qualifier_for_declaration(state, &Some(ty.clone())).unwrap(), ids.clone())
         }
         syntax::Declaration::InitDeclaratorList(dl) => {
             translate_init_declarator_list(state, dl, default_run_class)
@@ -2967,6 +2989,13 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         "bvec4",
         Some("make_bvec4"),
         Type::new(BVec4),
+        vec![Type::new(Bool)],
+    );
+    declare_function(
+        state,
+        "bvec4",
+        Some("make_bvec4"),
+        Type::new(BVec4),
         vec![Type::new(BVec2), Type::new(BVec2)],
     );
 
@@ -3706,6 +3735,28 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(Void),
         vec![Type::new(Sampler2D), Type::new(Vec2), Type::new(Vec2), Type::new(Vec2)],
+    );
+    declare_function_ext(
+        state,
+        "swgl_validateGradient",
+        None,
+        Type::new(Int),
+        vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int)],
+        RunClass::Scalar,
+    );
+    declare_function(
+        state,
+        "swgl_commitGradientRGBA8",
+        None,
+        Type::new(Void),
+        vec![Type::new(Sampler2D), Type::new(Int), Type::new(Float)],
+    );
+    declare_function(
+        state,
+        "swgl_commitGradientColorRGBA8",
+        None,
+        Type::new(Void),
+        vec![Type::new(Sampler2D), Type::new(Int), Type::new(Float), Type::new(Float)],
     );
     for s in &[Sampler2D, Sampler2DRect, Sampler2DArray] {
         declare_function_ext(

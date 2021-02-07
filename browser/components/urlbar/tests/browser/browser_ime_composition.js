@@ -63,7 +63,9 @@ add_task(async function() {
     await test_composition(val);
     await test_composition_searchMode_preview(val);
     await test_composition_tabToSearch(val);
+    await test_composition_autofill(val);
   }
+  await UrlbarTestUtils.promisePopupClose(window, () => gURLBar.blur());
 });
 
 async function test_composition(keepPanelOpenDuringImeComposition) {
@@ -264,6 +266,7 @@ async function test_composition_tabToSearch(keepPanelOpenDuringImeComposition) {
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
     value: "exa",
+    fireInputEvent: true,
   });
 
   while (gURLBar.searchMode?.engineName != "Test") {
@@ -286,4 +289,36 @@ async function test_composition_tabToSearch(keepPanelOpenDuringImeComposition) {
     entry: "tabtosearch",
   });
   await UrlbarTestUtils.exitSearchMode(window);
+}
+
+async function test_composition_autofill(keepPanelOpenDuringImeComposition) {
+  info("Check whether autofills or not");
+  await UrlbarTestUtils.promisePopupClose(window);
+
+  info("Check the urlbar value during composition");
+  composeAndCheckPanel("m", false);
+
+  if (keepPanelOpenDuringImeComposition) {
+    info("Wait for search suggestions");
+    await UrlbarTestUtils.promiseSearchComplete(window);
+  }
+
+  Assert.equal(
+    gURLBar.value,
+    "m",
+    "The urlbar value is not autofilled while turning IME on"
+  );
+
+  info("Check the urlbar value after committing composition");
+  await UrlbarTestUtils.promisePopupOpen(window, () => {
+    EventUtils.synthesizeComposition({
+      type: "compositioncommitasis",
+      key: { key: "KEY_Enter" },
+    });
+  });
+  await UrlbarTestUtils.promiseSearchComplete(window);
+  Assert.equal(gURLBar.value, "mozilla.org/", "The urlbar value is autofilled");
+
+  // Clean-up.
+  gURLBar.value = "";
 }

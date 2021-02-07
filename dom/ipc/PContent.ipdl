@@ -224,6 +224,12 @@ struct SystemFontListEntry {
 };
 #endif
 
+struct DeviceStorageIsDiskFullParams
+{
+  nsString type;
+  nsString storageName;
+};
+
 struct DeviceStorageFreeSpaceParams
 {
   nsString type;
@@ -320,6 +326,7 @@ union DeviceStorageParams
   DeviceStorageGetParams;
   DeviceStorageDeleteParams;
   DeviceStorageEnumerationParams;
+  DeviceStorageIsDiskFullParams;
   DeviceStorageFreeSpaceParams;
   DeviceStorageUsedSpaceParams;
   DeviceStorageAvailableParams;
@@ -745,8 +752,6 @@ child:
       Endpoint<PRemoteDecoderManagerChild> video,
       uint32_t[] namespaces);
 
-    async AudioDefaultDeviceChange();
-
     async SpeakerManagerNotify();
 
     async NetworkLinkTypeChange(uint32_t type);
@@ -1054,8 +1059,6 @@ child:
     async ShareCodeCoverageMutex(CrossProcessMutexHandle handle);
     async FlushCodeCoverageCounters() returns (bool unused);
 
-    async GetMemoryUniqueSetSize() returns (int64_t uss);
-
     /*
      * IPC message to enable the input event queue on the main thread of the
      * content process.
@@ -1159,7 +1162,7 @@ child:
     async LoadURI(MaybeDiscardedBrowsingContext aContext, nsDocShellLoadState aLoadState, bool aSetNavigating)
         returns (bool aSuccess);
 
-    async InternalLoad(nsDocShellLoadState aLoadState, bool aTakeFocus);
+    async InternalLoad(nsDocShellLoadState aLoadState);
 
     async DisplayLoadError(MaybeDiscardedBrowsingContext aContext, nsString aURI);
 
@@ -2051,7 +2054,7 @@ parent:
         MaybeDiscardedBrowsingContext aContext);
 
     async RemoveFromSessionHistory(
-        MaybeDiscardedBrowsingContext aContext);
+        MaybeDiscardedBrowsingContext aContext, nsID changeID);
 
 both:
     async ScriptError(nsString message, nsString sourceName, nsString sourceLine,
@@ -2064,6 +2067,7 @@ both:
      * another process. Child frame will send data to its ContentParent which
      * will then identify the ContentParent for the innerWindowId and pass
      * the data to the correct process.
+     * aData must be non-null.
      */
     async ReportFrameTimingData(uint64_t innerWindowId, nsString entryName,
                                 nsString initiatorType,

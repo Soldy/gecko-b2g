@@ -1524,6 +1524,7 @@ Return<void> nsRilResponse::setDataProfileResponse(
   rspInfo = info;
   mRIL->processResponse(rspInfo.type);
 
+  defaultResponse(rspInfo, u"setDataProfile"_ns);
   return Void();
 }
 

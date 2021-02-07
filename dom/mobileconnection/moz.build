@@ -94,6 +94,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gonk" and CONFIG["MOZ_B2G_RIL"]:
         "gonk/interfaces/nsIGonkMobileConnectionService.idl",
         "gonk/interfaces/nsIImsCallSession.idl",
         "gonk/interfaces/nsIImsConfig.idl",
+        "gonk/interfaces/nsIImsEcbm.idl",
         "gonk/interfaces/nsIImsMMTelFeature.idl",
         "gonk/interfaces/nsIImsRegistration.idl",
         "gonk/interfaces/nsIImsServiceManager.idl",

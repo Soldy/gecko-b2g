@@ -48,7 +48,7 @@
   list-style-image: url(chrome://browser/skin/import.svg);
 }
 
-#appMenu-taskmanager-button {
+#appMenu_help_taskManager {
   list-style-image: url(chrome://global/skin/icons/performance.svg);
 }
 
@@ -76,19 +76,23 @@
   list-style-image: url(chrome://browser/skin/quit.svg);
 }
 
-#appMenu-zoomEnlarge-button {
+#appMenu-zoomEnlarge-button,
+#appMenu-zoomEnlarge-button2 {
   list-style-image: url(chrome://browser/skin/zoom-in.svg);
 }
 
-#appMenu-zoomReduce-button {
+#appMenu-zoomReduce-button,
+#appMenu-zoomReduce-button2 {
   list-style-image: url(chrome://browser/skin/zoom-out.svg);
 }
 
-#appMenu-fullscreen-button {
+#appMenu-fullscreen-button,
+#appMenu-fullscreen-button2 {
   list-style-image: url(chrome://browser/skin/fullscreen.svg);
 }
 
-#appMenu-fullscreen-button[checked] {
+#appMenu-fullscreen-button[checked],
+#appMenu-fullscreen-button2[checked] {
   list-style-image: url(chrome://browser/skin/fullscreen-exit.svg);
 }
 
@@ -101,8 +105,7 @@
 }
 
 #PanelUI-fxa-menu-remotetabs-button,
-#appMenuRecentlyClosedTabs,
-#appMenu-library-remotetabs-button {
+#appMenuRecentlyClosedTabs {
   list-style-image: url("chrome://browser/skin/tab.svg");
 }
 

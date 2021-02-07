@@ -332,6 +332,10 @@ pref("browser.urlbar.suggest.searches",             true);
 pref("browser.urlbar.suggest.topsites",             true);
 pref("browser.urlbar.suggest.engines",              true);
 
+// Whether to show search suggestions before general results like history and
+// bookmarks.
+pref("browser.urlbar.showSearchSuggestionsFirst", true);
+
 // As a user privacy measure, don't fetch search suggestions if a pasted string
 // is longer than this.
 pref("browser.urlbar.maxCharsForSearchSuggestions", 100);
@@ -378,7 +382,7 @@ pref("browser.urlbar.extension.timeout", 400);
 pref("browser.urlbar.dnsResolveSingleWordsAfterSearch", 1);
 
 // Whether the results panel should be kept open during IME composition.
-// The default value is true because some IME open a picker panel, and we end
+// The default value is false because some IME open a picker panel, and we end
 // up with two panels on top of each other. Since for now we can't detect that
 // we leave this choice to the user, hopefully in the future this can be flipped
 // for everyone.
@@ -578,9 +582,7 @@ pref("browser.tabs.tooltipsShowPidAndActiveness", false);
 pref("security.allow_eval_with_system_principal", false);
 pref("security.allow_eval_in_parent_process", false);
 
-#if defined(NIGHTLY_BUILD)
-  pref("security.allow_parent_unrestricted_js_loads", false);
-#endif
+pref("security.allow_parent_unrestricted_js_loads", false);
 
 // Unload tabs when available memory is running low
 pref("browser.tabs.unloadOnLowMemory", false);
@@ -819,8 +821,6 @@ pref("browser.preferences.experimental", false);
 #endif
 pref("browser.preferences.experimental.hidden", false);
 pref("browser.preferences.defaultPerformanceSettings.enabled", true);
-
-pref("browser.preferences.exposeHTTPSOnly", true);
 
 pref("browser.proton.enabled", false);
 
@@ -1260,6 +1260,7 @@ pref("services.sync.prefs.sync.browser.tabs.warnOnOpen", true);
 pref("services.sync.prefs.sync.browser.taskbar.previews.enable", true);
 pref("services.sync.prefs.sync.browser.urlbar.matchBuckets", true);
 pref("services.sync.prefs.sync.browser.urlbar.maxRichResults", true);
+pref("services.sync.prefs.sync.browser.urlbar.showSearchSuggestionsFirst", true);
 pref("services.sync.prefs.sync.browser.urlbar.suggest.bookmark", true);
 pref("services.sync.prefs.sync.browser.urlbar.suggest.history", true);
 pref("services.sync.prefs.sync.browser.urlbar.suggest.openpage", true);
@@ -1341,7 +1342,11 @@ pref("browser.menu.showCharacterEncoding", "chrome://browser/locale/browser.prop
 // This is a fallback value for when prompt callers do not specify a modalType.
 pref("prompts.defaultModalType", 3);
 
-pref("browser.topsites.useRemoteSetting", false);
+#ifdef NIGHTLY_BUILD
+  pref("browser.topsites.useRemoteSetting", true);
+#else
+  pref("browser.topsites.useRemoteSetting", false);
+#endif
 
 // The base URL for the Quick Suggest anonymizing proxy. To make a request to
 // the proxy, include a campaign ID in the path.
@@ -1370,14 +1375,12 @@ pref("browser.newtabpage.activity-stream.newNewtabExperience.enabled", false);
 // A preference which allows us to enable the fly out customization overlay
 // on the newtab page.
 pref("browser.newtabpage.activity-stream.customizationMenu.enabled", false);
-pref("browser.newtabpage.activity-stream.newNewtabExperience.colors", "#0090ED,#FF4F5F,#2AC3A2,#FF7139,#A172FF,#FFA437,#FF2A8A,#FFD567");
+pref("browser.newtabpage.activity-stream.newNewtabExperience.colors", "#0090ED,#FF4F5F,#2AC3A2,#FF7139,#A172FF,#FFA437,#FF2A8A");
 
 // Activity Stream prefs that control to which page to redirect
 #ifndef RELEASE_OR_BETA
   pref("browser.newtabpage.activity-stream.debug", false);
 #endif
-
-pref("browser.library.activity-stream.enabled", true);
 
 // The remote FxA root content URL for the Activity Stream firstrun page.
 pref("browser.newtabpage.activity-stream.fxaccounts.endpoint", "https://accounts.firefox.com/");
@@ -1393,7 +1396,7 @@ pref("browser.newtabpage.activity-stream.asrouter.providers.message-groups", "{\
 // this page over http opens us up to a man-in-the-middle attack that we'd rather not face. If you are a downstream
 // repackager of this code using an alternate snippet url, please keep your users safe
 pref("browser.newtabpage.activity-stream.asrouter.providers.snippets", "{\"id\":\"snippets\",\"enabled\":true,\"type\":\"remote\",\"url\":\"https://snippets.cdn.mozilla.net/%STARTPAGE_VERSION%/%NAME%/%VERSION%/%APPBUILDID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/\",\"updateCycleInMs\":14400000}");
-pref("browser.newtabpage.activity-stream.asrouter.providers.messaging-experiments", "{\"id\":\"messaging-experiments\",\"enabled\":true,\"type\":\"remote-experiments\",\"messageGroups\":[\"cfr\",\"whats-new-panel\",\"moments-page\",\"snippets\",\"cfr-fxa\",\"aboutwelcome\"],\"updateCycleInMs\":3600000}");
+pref("browser.newtabpage.activity-stream.asrouter.providers.messaging-experiments", "{\"id\":\"messaging-experiments\",\"enabled\":true,\"type\":\"remote-experiments\",\"messageGroups\":[\"cfr\",\"whats-new-panel\",\"moments-page\",\"snippets\",\"cfr-fxa\",\"aboutwelcome\",\"infobar\"],\"updateCycleInMs\":3600000}");
 
 // ASRouter user prefs
 pref("browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons", true);
@@ -2115,14 +2118,6 @@ pref("devtools.browsertoolbox.fission", true);
 #else
 pref("devtools.browsertoolbox.fission", false);
 #endif
-
-// This pref is also related to fission, but not only. It allows the toolbox
-// to stay open even if the debugged tab switches to another process.
-// It can happen between two documents, one running in the parent process like
-// about:sessionrestore and another one running in the content process like
-// any web page. Or between two distinct domain when running with fission turned
-// on. See bug 1565263.
-pref("devtools.target-switching.enabled", true);
 
 // Toolbox Button preferences
 pref("devtools.command-button-pick.enabled", true);

@@ -318,10 +318,6 @@ class EventStateManager : public nsSupportsWeakReference, public nsIObserver {
   // frozen at the last mouse position while the pointer is locked.
   static CSSIntPoint sLastClientPoint;
 
-  static bool sIsPointerLocked;
-  static nsWeakPtr sPointerLockedElement;
-  static nsWeakPtr sPointerLockedDoc;
-
   static bool sDispatchKeyToContentFirst;
   static void SetDispatchKeyToContentFirst(bool aEnable) {
     sDispatchKeyToContentFirst = aEnable;

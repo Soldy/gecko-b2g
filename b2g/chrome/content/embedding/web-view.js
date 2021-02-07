@@ -556,6 +556,12 @@
     }
 
     disconnectedCallback() {
+      if (!this._cleanedUp) {
+        this.cleanup();
+      }
+    }
+
+    cleanup() {
       kRelayedEvents.forEach(name => {
         this.browser.removeEventListener(name, this);
       });
@@ -571,6 +577,7 @@
         "oop-frameloader-crashed"
       );
       Services.obs.removeObserver(this.crashObserver, "ipc:content-shutdown");
+      this.cleanedUp = true;
     }
 
     dispatchCustomEvent(name, detail) {
@@ -651,11 +658,6 @@
         this.attrs.push({ name: "src", new_value: url });
       } else {
         this.browser.setAttribute("src", url);
-        // Setting the "src" attribute doesn't trigger a load if the urls
-        // are the same, so we trigger a reload instead.
-        if (url == this.browser.currentURI?.spec) {
-          this.reload();
-        }
       }
     }
 

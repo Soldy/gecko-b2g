@@ -98,6 +98,15 @@ void DeviceStorageRequestParent::Dispatch() {
       break;
     }
 
+    case DeviceStorageParams::TDeviceStorageIsDiskFullParams: {
+      DeviceStorageIsDiskFullParams p = mParams;
+
+      RefPtr<DeviceStorageFile> dsf =
+          new DeviceStorageFile(p.type(), p.storageName());
+      r = new IsDiskFullFileEvent(this, dsf.forget());
+      break;
+    }
+
     case DeviceStorageParams::TDeviceStorageFreeSpaceParams: {
       DeviceStorageFreeSpaceParams p = mParams;
 
@@ -194,6 +203,23 @@ void DeviceStorageRequestParent::ActorDestroy(ActorDestroyReason) {
   // corresponding thread should still hold a reference to it, and thus
   // the runnable will end up being released in that thread, not here.
   mRunnables.Clear();
+}
+
+DeviceStorageRequestParent::PostIsDiskFullResultEvent::
+    PostIsDiskFullResultEvent(DeviceStorageRequestParent* aParent,
+                              bool aIsDiskFull)
+    : CancelableRunnable(aParent), mIsDiskFull(aIsDiskFull) {}
+
+DeviceStorageRequestParent::PostIsDiskFullResultEvent::
+    ~PostIsDiskFullResultEvent() {}
+
+nsresult
+DeviceStorageRequestParent::PostIsDiskFullResultEvent::CancelableRun() {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  IsDiskFullStorageResponse response(mIsDiskFull);
+  Unused << mParent->Send__delete__(mParent, response);
+  return NS_OK;
 }
 
 DeviceStorageRequestParent::PostFreeSpaceResultEvent::PostFreeSpaceResultEvent(
@@ -420,6 +446,18 @@ nsresult DeviceStorageRequestParent::DeleteFileEvent::CancelableRun() {
   }
 
   return NS_DispatchToMainThread(r.forget());
+}
+
+nsresult DeviceStorageRequestParent::IsDiskFullFileEvent::CancelableRun() {
+  MOZ_ASSERT(!NS_IsMainThread());
+
+  bool isDiskFull = false;
+  if (mFile) {
+    mFile->GetStorageIsDiskFull(&isDiskFull);
+  }
+
+  return NS_DispatchToMainThread(
+      new PostIsDiskFullResultEvent(mParent, static_cast<bool>(isDiskFull)));
 }
 
 nsresult DeviceStorageRequestParent::FreeSpaceFileEvent::CancelableRun() {

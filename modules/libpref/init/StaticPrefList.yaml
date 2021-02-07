@@ -256,6 +256,31 @@
 # The apz prefs are explained in AsyncPanZoomController.cpp
 #---------------------------------------------------------------------------
 
+- name: apz.wr.activate_all_scroll_frames
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+- name: apz.wr.activate_all_scroll_frames_when_fission
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+- name: apz.nonwr.activate_all_scroll_frames
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+- name: apz.nonwr.activate_all_scroll_frames_when_fission
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+- name: apz.prefer_jank_minimal_displayports
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 - name: apz.allow_double_tap_zooming
   type: RelaxedAtomicBool
   value: true
@@ -482,7 +507,7 @@
     type: RelaxedAtomicBool
     value: true
     mirror: always
-    
+
 -   name: apz.gtk.touchpad_pinch.enabled
     type: RelaxedAtomicBool
     value: false
@@ -788,20 +813,10 @@
   value: 256000
   mirror: always
 
-# Enable/Disable Origin based cache isolation
-- name: browser.cache.cache_isolation
-  type: RelaxedAtomicBool
-  value: false
-  mirror: always
-
 # -1 = determine dynamically, 0 = none, n = memory capacity in kilobytes.
 - name: browser.cache.memory.capacity
   type: RelaxedAtomicInt32
-#ifdef ANDROID
-  value: 1024
-#else
   value: -1
-#endif
   mirror: always
 
 # When smartsizing is disabled we could potentially fill all disk space by
@@ -992,9 +1007,7 @@
 #
 # This behavior matches both historical and GTK / Windows focus behavior.
 #
-# :focus-visible is intended to provide better heuristics than this, so for now
-# we make this false whenever layout.css.focus-visible.enabled is enabled by
-# default.
+# :focus-visible is intended to provide better heuristics than this.
 - name: browser.display.always_show_rings_after_key_focus
   type: bool
   value: false
@@ -1941,6 +1954,12 @@
   value: false
   mirror: always
 
+# Only trusted submit event could trigger form submission.
+- name: dom.forms.submit.trusted_event_only
+  type: bool
+  value: false
+  mirror: always
+
 # This pref just controls whether we format the number with grouping separator
 # characters when the internal value is set or updated. It does not stop the
 # user from typing in a number and using grouping separators.
@@ -2068,7 +2087,7 @@
 
 - name: dom.input_events.beforeinput.enabled
   type: bool
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
   mirror: always
 
 # Whether innerWidth / innerHeight return rounded or fractional sizes.
@@ -3867,8 +3886,6 @@
 # Callers which cannot use `useRemoteSubframes` must use
 # `Services.appinfo.fissionAutostart` or `mozilla::FissionAutostart()` to check
 # if fission is enabled by default.
-# Note: This is overridden in all.js on RELEASE_OR_BETA in order to add the
-# locked attribute.
 - name: fission.autostart
   type: bool
   value: false
@@ -4557,6 +4574,12 @@
   value: true
   mirror: always
 
+# Disable using native font source of freetype, for use in tests.
+- name: gfx.font_rendering.native_font_source_none
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 #  Whether to enable LayerScope tool and default listening port.
 - name: gfx.layerscope.enabled
   type: RelaxedAtomicBool
@@ -4885,6 +4908,26 @@
   type: bool
   value: true
   mirror: once
+
+# Whether or not to fallback from WebRender/WebRender Software to Basic.
+- name: gfx.webrender.fallback.basic
+  type: bool
+  value: true
+  mirror: once
+
+# Whether or not to fallback from WebRender to Software WebRender.
+- name: gfx.webrender.fallback.software
+  type: bool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: once
+
+#ifdef XP_WIN
+  # Whether or not to fallback from WebRender to Software WebRender + D3D11.
+-   name: gfx.webrender.fallback.software-d3d11
+    type: bool
+    value: @IS_NIGHTLY_BUILD@
+    mirror: once
+#endif
 
 - name: gfx.webrender.use-optimized-shaders
   type: bool
@@ -5512,14 +5555,6 @@
 #endif
   mirror: always
 
-# True if off-thread parsing should use a parse GlobalObject in order to
-# directly allocate to the GC from a helper thread. If false, transfer the
-# CompilationStencil back to main thread before allocating GC objects.
-- name: javascript.options.off_thread_parse_global
-  type: bool
-  value: false
-  mirror: once
-
 - name: javascript.options.wasm_optimizingjit
   type: bool
 #if defined(MOZ_AARCH64) && !defined(ENABLE_WASM_CRANELIFT)
@@ -5548,6 +5583,11 @@
   value: false
   mirror: always
 #endif
+
+- name: javascript.options.large_arraybuffers
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
 
 #---------------------------------------------------------------------------
 # Prefs starting with "layers."
@@ -6276,17 +6316,6 @@
 - name: layout.css.prefers-color-scheme-no-preference.enabled
   type: RelaxedAtomicBool
   value: false
-  mirror: always
-  rust: true
-
-# Whether the `:focus-visible` pseudo-class is enabled.
-#
-# NOTE: You probably want to change the default value of
-# browser.display.always_show_rings_after_key_focus whenever you change the
-# default value of this pref.
-- name: layout.css.focus-visible.enabled
-  type: RelaxedAtomicBool
-  value: true
   mirror: always
   rust: true
 
@@ -8925,6 +8954,14 @@
   value: false
   mirror: always
 
+# If we should wait for TRR service confirmation to complete before enabling
+# TRR for lookups when fallback is enabled. Confirmation is always skipped when
+# global mode is TRR-only (no fallback).
+- name: network.trr.wait-for-confirmation
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # Use GET (rather than POST)
 - name: network.trr.useGET
   type: RelaxedAtomicBool
@@ -9004,6 +9041,30 @@
   type: RelaxedAtomicBool
   value: true
   mirror: always
+
+# Whether to enable odoh.
+- name: network.trr.odoh.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+# The uri of Oblivious Proxy.
+- name: network.trr.odoh.proxy_uri
+  type: String
+  value: ""
+  mirror: never
+
+# The host name of Oblivious Target.
+- name: network.trr.odoh.target_host
+  type: String
+  value: ""
+  mirror: never
+
+# The uri path of the odoh uri.
+- name: network.trr.odoh.target_path
+  type: String
+  value: ""
+  mirror: never
 
 # Allow the network changed event to get sent when a network topology or setup
 # change is noticed while running.
@@ -9850,6 +9911,36 @@
     value: true
     mirror: always
 
+  # Whether CET Shadow Stacks Strict mode is enabled for the content processes.
+-   name: security.sandbox.content.shadow-stacks-strict
+    type: RelaxedAtomicBool
+    value: false
+    mirror: always
+
+  # Whether CET Shadow Stacks Strict mode is enabled for the RDD processes.
+-   name: security.sandbox.rdd.shadow-stacks-strict
+    type: RelaxedAtomicBool
+    value: false
+    mirror: always
+
+  # Whether CET Shadow Stacks Strict mode is enabled for the socket processes.
+-   name: security.sandbox.socket.shadow-stacks-strict
+    type: RelaxedAtomicBool
+    value: false
+    mirror: always
+
+  # Whether CET Shadow Stacks Strict mode is enabled for the GPU processes.
+-   name: security.sandbox.gpu.shadow-stacks-strict
+    type: RelaxedAtomicBool
+    value: false
+    mirror: always
+
+  # Whether CET Shadow Stacks Strict mode is enabled for the GMP processes.
+-   name: security.sandbox.gmp.shadow-stacks-strict
+    type: RelaxedAtomicBool
+    value: false
+    mirror: always
+
   # This controls the depth of stack trace that is logged when Windows sandbox
   # logging is turned on. This is only currently available for the content
   # process because the only other sandbox (for GMP) has too strict a policy to
@@ -10009,6 +10100,18 @@
   mirror: always
   rust: true
 
+- name: telemetry.fog.test.activity_limit
+  type: RelaxedAtomicUint32
+  value: 120
+  mirror: always
+  rust: true
+
+- name: telemetry.fog.test.inactivity_limit
+  type: RelaxedAtomicUint32
+  value: 1200
+  mirror: always
+  rust: true
+
 #---------------------------------------------------------------------------
 # Prefs starting with "test."
 #---------------------------------------------------------------------------
@@ -10030,6 +10133,21 @@
 - name: threads.medium_high_event_queue.enabled
   type: RelaxedAtomicBool
   value: true
+  mirror: always
+
+#---------------------------------------------------------------------------
+# Prefs starting with "timer."
+#---------------------------------------------------------------------------
+
+# Since our timestamp on macOS does not increment while the system is asleep, we
+# should ignore sleep/wake notifications to make timer thread process timers.
+- name: timer.ignore_sleep_wake_notifications
+  type: RelaxedAtomicBool
+#ifdef XP_MACOSX
+  value: true
+#else
+  value: false
+#endif
   mirror: always
 
 #---------------------------------------------------------------------------
@@ -10070,7 +10188,7 @@
 # for this pref means we call _exit(0) earlier during shutdown.
 - name: toolkit.shutdown.fastShutdownStage
   type: int32_t
-#if !defined(DEBUG) && !defined(MOZ_ASAN) && !defined(MOZ_TSAN) && !defined(MOZ_CODE_COVERAGE) && !defined(MOZ_VALGRIND) && !defined(MOZ_PROFILE_GENERATE)
+#if !defined(DEBUG) && !defined(MOZ_ASAN) && !defined(MOZ_TSAN) && !defined(MOZ_CODE_COVERAGE) && !defined(MOZ_VALGRIND) && !defined(MOZ_PROFILE_GENERATE) && !defined(JS_STRUCTURED_SPEW)
   #ifdef NIGHTLY_BUILD
   value: 3
   #else
@@ -10632,6 +10750,47 @@
 # Global user preference for disabling native theme in content processes.
 - name: widget.disable-native-theme-for-content
   type: RelaxedAtomicBool
+#if defined(XP_LINUX) && defined(NIGHTLY_BUILD) && !defined(ANDROID)
+  value: true
+#else
+  value: false
+#endif
+  mirror: always
+
+# The size in CSS pixels at full zoom of the minimum scrollbar width.
+- name: widget.gtk.non-native.scrollbar.normal-size
+  type: uint32_t
+  value: 12
+  mirror: always
+
+# The size in CSS pixels at full zoom of the "thin" scrollbars.
+- name: widget.gtk.non-native.scrollbar.thin-size
+  type: uint32_t
+  value: 6
+  mirror: always
+
+# The amount of space that the thumb should fill the scrollbar, from zero to
+# one.
+- name: widget.gtk.non-native.scrollbar.thumb-size
+  type: float
+  value: 0.75
+  mirror: always
+
+# The minimum size of the scroll thumb, in the scrollbar direction.
+- name: widget.gtk.non-native.scrollbar.thumb-cross-size
+  type: uint32_t
+  value: 40
+  mirror: always
+
+# Whether the thumb should be rounded for the non-native scrollbars.
+- name: widget.gtk.non-native.round-thumb
+  type: bool
+  value: true
+  mirror: always
+
+# Whether buttons shouldn't be suppressed for non-native scrollbars.
+- name: widget.gtk.non-native.scrollbar.allow-buttons
+  type: bool
   value: false
   mirror: always
 

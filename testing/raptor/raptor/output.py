@@ -23,17 +23,17 @@ LOG = RaptorLogger(component="perftest-output")
 class PerftestOutput(object):
     """Abstract base class to handle output of perftest results"""
 
-    def __init__(self, results, supporting_data, subtest_alert_on):
+    def __init__(self, results, supporting_data, subtest_alert_on, app):
         """
         - results : list of RaptorTestResult instances
         """
+        self.app = app
         self.results = results
         self.summarized_results = {}
         self.supporting_data = supporting_data
         self.summarized_supporting_data = []
         self.summarized_screenshots = []
         self.subtest_alert_on = subtest_alert_on
-        self.mozproxy_data = False
         self.browser_name = None
         self.browser_version = None
 
@@ -95,10 +95,6 @@ class PerftestOutput(object):
 
             data_type = data_set["type"]
             LOG.info("summarizing %s data" % data_type)
-
-            if "mozproxy" in data_type:
-                self.mozproxy_data = True
-                LOG.info("data: {}".format(self.supporting_data))
 
             if data_type not in support_data_by_type:
                 support_data_by_type[data_type] = {
@@ -252,7 +248,7 @@ class PerftestOutput(object):
             # dumped out. TODO: Bug 1515406 - Add option to output both supplementary
             # data (i.e. power) and the regular Raptor test result
             # Both are already available as separate PERFHERDER_DATA json blobs
-            if len(self.summarized_supporting_data) == 0 or self.mozproxy_data:
+            if len(self.summarized_supporting_data) == 0:
                 LOG.info("PERFHERDER_DATA: %s" % json.dumps(self.summarized_results))
                 total_perfdata = 1
             else:
@@ -1521,7 +1517,9 @@ class BrowsertimeOutput(PerftestOutput):
                     "subtests": {},
                 },
             )
-
+            # Setting shouldAlert to False whenever self.app is either chrome, chrome-m, chromium
+            if self.app in ("chrome", "chrome-m", "chromium"):
+                suite["shouldAlert"] = False
             # Check if the test has set optional properties
             if "alert_change_type" in test and "alertChangeType" not in suite:
                 suite["alertChangeType"] = test["alert_change_type"]
@@ -1544,6 +1542,8 @@ class BrowsertimeOutput(PerftestOutput):
                                     % measurement_name
                                 )
                                 subtest["shouldAlert"] = True
+                                if self.app in ("chrome", "chrome-m", "chromium"):
+                                    subtest["shouldAlert"] = False
                         subtest["replicates"] = []
                         suite["subtests"][measurement_name] = subtest
                     else:

@@ -17,7 +17,7 @@ interface nsIRilCallback : nsISupports
   void handleRilIndication(in nsIRilIndicationResult response);
 };
 
-[scriptable, uuid(4ffd8555-b03f-4822-9363-e02e36828c9e)]
+[scriptable, uuid(96d07089-9800-4600-9df6-a50de9d7eea8)]
 interface nsIRilWorker : nsISupports
 {
   void sendRilRequest(in jsval message);
@@ -57,6 +57,7 @@ interface nsIRilWorker : nsISupports
   void setNetworkSelectionModeManual(in long serial, in AString operatorNumeric);
   void getAvailableNetworks(in long serial);
   void setInitialAttachApn(in long serial, in nsIDataProfile profile, in boolean isRoaming);
+  void setDataProfile(in long serial, in Array<nsIDataProfile> profileList, in boolean isRoaming);
   void setupDataCall(in long serial, in long radioTechnology, in nsIDataProfile profile
                      , in boolean isRoaming, in boolean allowRoaming);
   void deactivateDataCall(in long serial, in long cid, in long reason);

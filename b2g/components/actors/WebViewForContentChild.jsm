@@ -74,6 +74,7 @@ class WebViewForContentChild extends JSWindowActorChild {
 
     // Prepare the prototype we want to export.
     const classWebView = this.customElements.classes["web-view"];
+    const classBrowser = this.customElements.classes.browser;
 
     // Add closures
     classWebView.__doPollyfill = aObj => {
@@ -83,7 +84,6 @@ class WebViewForContentChild extends JSWindowActorChild {
       );
     };
     classWebView.__doPollyfillForBrowser = aBrowser => {
-      const classBrowser = this.customElements.classes.browser;
       Object.defineProperties(
         aBrowser,
         Object.getOwnPropertyDescriptors(classBrowser.prototype)

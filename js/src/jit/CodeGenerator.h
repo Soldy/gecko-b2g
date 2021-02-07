@@ -65,7 +65,7 @@ class OutOfLineRegExpPrototypeOptimizable;
 class OutOfLineRegExpInstanceOptimizable;
 class OutOfLineNaNToZero;
 class OutOfLineZeroIfNaN;
-class OutOfLineTypedArrayIndexToInt32;
+class OutOfLineGuardNumberToIntPtrIndex;
 class OutOfLineBoxNonStrictThis;
 
 class CodeGenerator final : public CodeGeneratorSpecific {
@@ -151,8 +151,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void visitOutOfLineNewArray(OutOfLineNewArray* ool);
   void visitOutOfLineNewObject(OutOfLineNewObject* ool);
 
-  void visitOutOfLineTypedArrayIndexToInt32(
-      OutOfLineTypedArrayIndexToInt32* ool);
+  void visitOutOfLineGuardNumberToIntPtrIndex(
+      OutOfLineGuardNumberToIntPtrIndex* ool);
 
  private:
   void emitPostWriteBarrier(const LAllocation* obj);
@@ -306,7 +306,7 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void emitStoreHoleCheck(Register elements, const LAllocation* index,
                           LSnapshot* snapshot);
 
-  void emitAssertRangeI(const Range* r, Register input);
+  void emitAssertRangeI(MIRType type, const Range* r, Register input);
   void emitAssertRangeD(const Range* r, FloatRegister input,
                         FloatRegister temp);
 

@@ -1732,7 +1732,7 @@ JS_FRIEND_API bool JS::IsDetachedArrayBufferObject(JSObject* obj) {
   return aobj->isDetached();
 }
 
-JS_FRIEND_API JSObject* JS::NewArrayBuffer(JSContext* cx, uint32_t nbytes) {
+JS_FRIEND_API JSObject* JS::NewArrayBuffer(JSContext* cx, size_t nbytes) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
 
@@ -1846,6 +1846,10 @@ JS_PUBLIC_API void* JS::StealArrayBufferContents(JSContext* cx,
   return ArrayBufferObject::stealMallocedContents(cx, unwrappedBuffer);
 }
 
+JS_PUBLIC_API void JS::SetLargeArrayBuffersEnabled(bool enable) {
+  ArrayBufferObject::supportLargeBuffers = enable;
+}
+
 JS_PUBLIC_API JSObject* JS::NewMappedArrayBufferWithContents(JSContext* cx,
                                                              size_t nbytes,
                                                              void* data) {
@@ -1880,25 +1884,25 @@ JS_FRIEND_API bool JS::IsMappedArrayBufferObject(JSObject* obj) {
 }
 
 JS_FRIEND_API JSObject* JS::GetObjectAsArrayBuffer(JSObject* obj,
-                                                   uint32_t* length,
+                                                   size_t* length,
                                                    uint8_t** data) {
   ArrayBufferObject* aobj = obj->maybeUnwrapIf<ArrayBufferObject>();
   if (!aobj) {
     return nullptr;
   }
 
-  *length = aobj->byteLength().deprecatedGetUint32();
+  *length = aobj->byteLength().get();
   *data = aobj->dataPointer();
 
   return aobj;
 }
 
 JS_FRIEND_API void JS::GetArrayBufferLengthAndData(JSObject* obj,
-                                                   uint32_t* length,
+                                                   size_t* length,
                                                    bool* isSharedMemory,
                                                    uint8_t** data) {
   MOZ_ASSERT(IsArrayBuffer(obj));
-  *length = AsArrayBuffer(obj).byteLength().deprecatedGetUint32();
+  *length = AsArrayBuffer(obj).byteLength().get();
   *data = AsArrayBuffer(obj).dataPointer();
   *isSharedMemory = false;
 }

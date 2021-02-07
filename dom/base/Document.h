@@ -34,6 +34,7 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/NotNull.h"
+#include "mozilla/PointerLockManager.h"
 #include "mozilla/PreloadService.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Result.h"
@@ -43,6 +44,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/UseCounter.h"
 #include "mozilla/WeakPtr.h"
+#include "mozilla/css/StylePreloadKind.h"
 #include "mozilla/dom/DispatcherTrait.h"
 #include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/Element.h"
@@ -2008,12 +2010,6 @@ class Document : public nsINode,
    */
   static bool HandlePendingFullscreenRequests(Document* aDocument);
 
-  void RequestPointerLock(Element* aElement, CallerType);
-  MOZ_CAN_RUN_SCRIPT bool SetPointerLock(Element* aElement, StyleCursorKind);
-
-  MOZ_CAN_RUN_SCRIPT_BOUNDARY
-  static void UnlockPointer(Document* aDoc = nullptr);
-
   // ScreenOrientation related APIs
 
   void ClearOrientationPendingPromise();
@@ -2956,14 +2952,14 @@ class Document : public nsINode,
   void ForgetImagePreload(nsIURI* aURI);
 
   /**
-   * Called by nsParser to preload style sheets.  aCrossOriginAttr should be a
-   * void string if the attr is not present.
+   * Called by the parser or the preload service to preload style sheets.
+   * aCrossOriginAttr should be a void string if the attr is not present.
    */
   SheetPreloadStatus PreloadStyle(nsIURI* aURI, const Encoding* aEncoding,
                                   const nsAString& aCrossOriginAttr,
                                   ReferrerPolicyEnum aReferrerPolicy,
                                   const nsAString& aIntegrity,
-                                  bool aIsLinkPreload);
+                                  css::StylePreloadKind);
 
   /**
    * Called by the chrome registry to load style sheets.
@@ -3407,7 +3403,7 @@ class Document : public nsINode,
   Element* GetUnretargetedFullScreenElement();
   bool Fullscreen() { return !!GetFullscreenElement(); }
   already_AddRefed<Promise> ExitFullscreen(ErrorResult&);
-  void ExitPointerLock() { UnlockPointer(this); }
+  void ExitPointerLock() { PointerLockManager::Unlock(this); }
   void GetFgColor(nsAString& aFgColor);
   void SetFgColor(const nsAString& aFgColor);
   void GetLinkColor(nsAString& aLinkColor);
@@ -3616,6 +3612,9 @@ class Document : public nsINode,
   // effect once per document, and so is called during document destruction.
   void ReportDocumentUseCounters();
 
+  // Report how lazyload performs for this document.
+  void ReportDocumentLazyLoadCounters();
+
   // Sends page use counters to the parent process to accumulate against the
   // top-level document.  Must be called while we still have access to our
   // WindowContext.  This method has an effect each time it is called, and we
@@ -3729,7 +3728,18 @@ class Document : public nsINode,
   DOMIntersectionObserver* GetLazyLoadImageObserver() {
     return mLazyLoadImageObserver;
   }
+  DOMIntersectionObserver* GetLazyLoadImageObserverViewport() {
+    return mLazyLoadImageObserverViewport;
+  }
   DOMIntersectionObserver& EnsureLazyLoadImageObserver();
+  DOMIntersectionObserver& EnsureLazyLoadImageObserverViewport();
+  void IncLazyLoadImageCount() { ++mLazyLoadImageCount; }
+  void DecLazyLoadImageCount() {
+    MOZ_DIAGNOSTIC_ASSERT(mLazyLoadImageCount > 0);
+    --mLazyLoadImageCount;
+  }
+  void IncLazyLoadImageStarted() { ++mLazyLoadImageStarted; }
+  void IncLazyLoadImageReachViewport(bool aLoading);
 
   // Dispatch a runnable related to the document.
   nsresult Dispatch(TaskCategory aCategory,
@@ -4714,6 +4724,19 @@ class Document : public nsINode,
   // finishes processing that script.
   uint32_t mWriteLevel;
 
+  // The amount of images that have `loading="lazy"` on the page or have loaded
+  // lazily already.
+  uint32_t mLazyLoadImageCount;
+  // Number of lazy-loaded images that we've started loading as a result of
+  // triggering the lazy-load observer threshold.
+  uint32_t mLazyLoadImageStarted;
+  // Number of lazy-loaded images that reached the viewport which were not done
+  // loading when they did so.
+  uint32_t mLazyLoadImageReachViewportLoading;
+  // Number of lazy-loaded images that reached the viewport and were done
+  // loading when they did so.
+  uint32_t mLazyLoadImageReachViewportLoaded;
+
   uint32_t mContentEditableCount;
   EditingState mEditingState;
 
@@ -5009,6 +5032,8 @@ class Document : public nsINode,
   nsTHashtable<nsPtrHashKey<DOMIntersectionObserver>> mIntersectionObservers;
 
   RefPtr<DOMIntersectionObserver> mLazyLoadImageObserver;
+  // Used to measure how effective the lazyload thresholds are.
+  RefPtr<DOMIntersectionObserver> mLazyLoadImageObserverViewport;
 
   // Stack of top layer elements.
   nsTArray<nsWeakPtr> mTopLayer;

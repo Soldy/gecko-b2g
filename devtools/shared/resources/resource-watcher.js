@@ -367,9 +367,6 @@ class ResourceWatcher {
 
       if (watcherFront) {
         targetFront = await this._getTargetForWatcherResource(resource);
-        if (!targetFront) {
-          continue;
-        }
       }
 
       // Put the targetFront on the resource for easy retrieval.
@@ -589,6 +586,14 @@ class ResourceWatcher {
   _getTargetForWatcherResource(resource) {
     const { browsingContextID, resourceType } = resource;
 
+    // Some privileged resources aren't related to any BrowsingContext
+    // and so aren't bound to any Target Front.
+    // Server watchers should pass an explicit "-1" value in order to prevent
+    // silently ignoring an undefined browsingContextID attribute.
+    if (browsingContextID == -1) {
+      return null;
+    }
+
     // Resource emitted from the Watcher Actor should all have a
     // browsingContextID attribute
     if (!browsingContextID) {
@@ -668,15 +673,9 @@ class ResourceWatcher {
     if (this.hasResourceWatcherSupport(resourceType)) {
       await this.watcherFront.watchResources([resourceType]);
 
-      // Bug 1678385: In order to support watching for JS Source resource
-      // for service workers and parent process workers, which aren't supported yet
-      // by the watcher actor, we do not bail out here and allow to execute
-      // the legacy listener for these targets.
-      // Once bug 1608848 is fixed, we can remove this and always return.
-      // If this isn't fixed soon, we may add other resources we want to see
-      // being fetched from these targets.
-      const shouldRunLegacyListeners =
-        resourceType == ResourceWatcher.TYPES.SOURCE;
+      const shouldRunLegacyListeners = this._shouldRunLegacyListenerEvenWithWatcherSupport(
+        resourceType
+      );
       if (!shouldRunLegacyListeners) {
         return;
       }
@@ -694,6 +693,27 @@ class ResourceWatcher {
     await Promise.all(promises);
   }
 
+  /**
+   * Return true if the resource should be watched via legacy listener,
+   * even when watcher supports this resource type.
+   *
+   * Bug 1678385: In order to support watching for JS Source resource
+   * for service workers and parent process workers, which aren't supported yet
+   * by the watcher actor, we do not bail out here and allow to execute
+   * the legacy listener for these targets.
+   * Once bug 1608848 is fixed, we can remove this and never trigger
+   * the legacy listeners codepath for these resource types.
+   *
+   * If this isn't fixed soon, we may add other resources we want to see
+   * being fetched from these targets.
+   */
+  _shouldRunLegacyListenerEvenWithWatcherSupport(resourceType) {
+    return (
+      resourceType == ResourceWatcher.TYPES.SOURCE ||
+      resourceType == ResourceWatcher.TYPES.THREAD_STATE
+    );
+  }
+
   async _forwardCachedResources(resourceTypes, onAvailable) {
     const cachedResources = this._cache.filter(resource =>
       resourceTypes.includes(resource.resourceType)
@@ -707,15 +727,15 @@ class ResourceWatcher {
    * Call backward compatibility code from `LegacyListeners` in order to listen for a given
    * type of resource from a given target.
    */
-  _watchResourcesForTarget(targetFront, resourceType) {
+  async _watchResourcesForTarget(targetFront, resourceType) {
     if (this._hasResourceWatcherSupportForTarget(resourceType, targetFront)) {
       // This resource / target pair should already be handled by the watcher,
       // no need to start legacy listeners.
-      return Promise.resolve();
+      return;
     }
 
     if (targetFront.isDestroyed()) {
-      return Promise.resolve();
+      return;
     }
 
     const onAvailable = this._onResourceAvailable.bind(this, { targetFront });
@@ -732,20 +752,32 @@ class ResourceWatcher {
       console.error(
         `Already started legacy listener for ${resourceType} on ${targetFront.actorID}`
       );
-      return Promise.resolve();
+      return;
     }
     this._existingLegacyListeners.set(
       targetFront,
       legacyListeners.concat(resourceType)
     );
 
-    return LegacyListeners[resourceType]({
-      targetList: this.targetList,
-      targetFront,
-      onAvailable,
-      onDestroyed,
-      onUpdated,
-    });
+    try {
+      await LegacyListeners[resourceType]({
+        targetList: this.targetList,
+        targetFront,
+        onAvailable,
+        onDestroyed,
+        onUpdated,
+      });
+    } catch (e) {
+      // Swallow the error to avoid breaking calls to watchResources which will
+      // loop on all existing targets to create legacy listeners.
+      // If a legacy listener fails to handle a target for some reason, we
+      // should still try to process other targets as much as possible.
+      // See Bug 1687645.
+      console.error(
+        `Failed to start [${resourceType}] legacy listener for target ${targetFront.actorID}`,
+        e
+      );
+    }
   }
 
   /**
@@ -781,9 +813,9 @@ class ResourceWatcher {
         this.watcherFront.unwatchResources([resourceType]);
       }
 
-      // See comment in `_startListening`
-      const shouldRunLegacyListeners =
-        resourceType == ResourceWatcher.TYPES.SOURCE;
+      const shouldRunLegacyListeners = this._shouldRunLegacyListenerEvenWithWatcherSupport(
+        resourceType
+      );
       if (!shouldRunLegacyListeners) {
         return;
       }
@@ -847,7 +879,8 @@ ResourceWatcher.TYPES = ResourceWatcher.prototype.TYPES = {
   INDEXED_DB: "indexed-db",
   NETWORK_EVENT_STACKTRACE: "network-event-stacktrace",
   SOURCE: "source",
-  BREAKPOINT: "breakpoint",
+  THREAD_STATE: "thread-state",
+  SERVER_SENT_EVENT: "server-sent-event",
 };
 module.exports = { ResourceWatcher, TYPES: ResourceWatcher.TYPES };
 
@@ -907,7 +940,9 @@ const LegacyListeners = {
   [ResourceWatcher.TYPES
     .SOURCE]: require("devtools/shared/resources/legacy-listeners/source"),
   [ResourceWatcher.TYPES
-    .BREAKPOINT]: require("devtools/shared/resources/legacy-listeners/breakpoint"),
+    .THREAD_STATE]: require("devtools/shared/resources/legacy-listeners/thread-states"),
+  [ResourceWatcher.TYPES
+    .SERVER_SENT_EVENT]: require("devtools/shared/resources/legacy-listeners/server-sent-events"),
 };
 
 // Optional transformers for each type of resource.
@@ -925,4 +960,6 @@ const ResourceTransformers = {
     .SESSION_STORAGE]: require("devtools/shared/resources/transformers/storage-session-storage.js"),
   [ResourceWatcher.TYPES
     .NETWORK_EVENT]: require("devtools/shared/resources/transformers/network-events"),
+  [ResourceWatcher.TYPES
+    .THREAD_STATE]: require("devtools/shared/resources/transformers/thread-states"),
 };

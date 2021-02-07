@@ -27,7 +27,6 @@
 #include "nsIAuthPromptProvider.h"
 #include "nsIBrowserDOMWindow.h"
 #include "nsIDOMEventListener.h"
-#include "nsIKeyEventInPluginCallback.h"
 #include "nsIRemoteTab.h"
 #include "nsIWidget.h"
 #include "nsWeakReference.h"
@@ -84,7 +83,6 @@ class StructuredCloneData;
 class BrowserParent final : public PBrowserParent,
                             public nsIDOMEventListener,
                             public nsIAuthPromptProvider,
-                            public nsIKeyEventInPluginCallback,
                             public nsSupportsWeakReference,
                             public TabContext,
                             public LiveResizeListener {
@@ -118,8 +116,6 @@ class BrowserParent final : public PBrowserParent,
   static BrowserParent* GetFocused();
 
   static BrowserParent* GetLastMouseRemoteTarget();
-
-  static BrowserParent* GetPointerLockedRemoteTarget();
 
   static BrowserParent* GetFrom(nsFrameLoader* aFrameLoader);
 
@@ -387,13 +383,6 @@ class BrowserParent final : public PBrowserParent,
       const widget::InputContext& aContext,
       const widget::InputContextAction& aAction);
 
-  // See nsIKeyEventInPluginCallback
-  virtual void HandledWindowedPluginKeyEvent(
-      const NativeEventData& aKeyEventData, bool aIsConsumed) override;
-
-  mozilla::ipc::IPCResult RecvOnWindowedPluginKeyEvent(
-      const NativeEventData& aKeyEventData);
-
   mozilla::ipc::IPCResult RecvRequestFocus(const bool& aCanRaise,
                                            const CallerType aCallerType);
 
@@ -528,9 +517,10 @@ class BrowserParent final : public PBrowserParent,
 
   LayoutDeviceToCSSScale GetLayoutDeviceToCSSScale();
 
-  mozilla::ipc::IPCResult RecvRequestNativeKeyBindings(
-      const uint32_t& aType, const mozilla::WidgetKeyboardEvent& aEvent,
-      nsTArray<mozilla::CommandInt>* aCommands);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult
+  RecvRequestNativeKeyBindings(const uint32_t& aType,
+                               const mozilla::WidgetKeyboardEvent& aEvent,
+                               nsTArray<mozilla::CommandInt>* aCommands);
 
   mozilla::ipc::IPCResult RecvSynthesizeNativeKeyEvent(
       const int32_t& aNativeKeyboardLayout, const int32_t& aNativeKeyCode,
@@ -578,7 +568,12 @@ class BrowserParent final : public PBrowserParent,
 
   void SendMouseWheelEvent(WidgetWheelEvent& aEvent);
 
-  void SendRealKeyEvent(WidgetKeyboardEvent& aEvent);
+  /**
+   * Only when the event is synthesized, retrieving writing mode may flush
+   * the layout.
+   */
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void SendRealKeyEvent(
+      WidgetKeyboardEvent& aEvent);
 
   void SendRealTouchEvent(WidgetTouchEvent& aEvent);
 
@@ -785,7 +780,6 @@ class BrowserParent final : public PBrowserParent,
   mozilla::ipc::IPCResult RecvMaybeFireEmbedderLoadEvents(
       EmbedderElementEventType aFireEventAtEmbeddingElement);
 
-  bool SetPointerLock();
   mozilla::ipc::IPCResult RecvRequestPointerLock(
       RequestPointerLockResolver&& aResolve);
   mozilla::ipc::IPCResult RecvReleasePointerLock();
@@ -868,13 +862,6 @@ class BrowserParent final : public PBrowserParent,
   // Unsetter for LastMouseRemoteTarget; only unsets if argument matches
   // current sLastMouseRemoteTarget.
   static void UnsetLastMouseRemoteTarget(BrowserParent* aBrowserParent);
-
-  // Keeps track of which BrowserParent requested pointer lock.
-  static BrowserParent* sPointerLockedRemoteTarget;
-
-  // Unsetter for sPointerLockedRemoteTarget; only unsets if argument matches
-  // current sPointerLockedRemoteTarget.
-  static void UnsetPointerLockedRemoteTarget(BrowserParent* aBrowserParent);
 
   struct APZData {
     bool operator==(const APZData& aOther) {

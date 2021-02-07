@@ -173,6 +173,15 @@ class DeviceStorageRequestParent : public PDeviceStorageRequestParent {
     virtual nsresult CancelableRun();
   };
 
+  class IsDiskFullFileEvent : public CancelableFileEvent {
+   public:
+    IsDiskFullFileEvent(DeviceStorageRequestParent* aParent,
+                        already_AddRefed<DeviceStorageFile>&& aFile)
+        : CancelableFileEvent(aParent, std::move(aFile)) {}
+    virtual ~IsDiskFullFileEvent() {}
+    virtual nsresult CancelableRun();
+  };
+
   class FreeSpaceFileEvent : public CancelableFileEvent {
    public:
     FreeSpaceFileEvent(DeviceStorageRequestParent* aParent,
@@ -237,6 +246,17 @@ class DeviceStorageRequestParent : public PDeviceStorageRequestParent {
 
    private:
     FileDescriptor mFileDescriptor;
+  };
+
+  class PostIsDiskFullResultEvent : public CancelableRunnable {
+   public:
+    PostIsDiskFullResultEvent(DeviceStorageRequestParent* aParent,
+                              bool aIsDiskFull);
+    virtual ~PostIsDiskFullResultEvent();
+    virtual nsresult CancelableRun();
+
+   private:
+    bool mIsDiskFull;
   };
 
   class PostFreeSpaceResultEvent : public CancelableRunnable {

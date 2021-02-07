@@ -1235,6 +1235,64 @@ void CodeGenerator::visitFloat32ToIntegerInt32(LFloat32ToIntegerInt32* lir) {
   masm.bind(ool->rejoin());
 }
 
+void CodeGenerator::visitInt32ToIntPtr(LInt32ToIntPtr* lir) {
+  Register input = ToRegister(lir->input());
+  Register output = ToRegister(lir->output());
+
+  // Zero-extension is more efficient than sign-extension, so use that if the
+  // input can't be negative.
+  if (lir->mir()->canBeNegative()) {
+    masm.move32SignExtendToPtr(input, output);
+  } else {
+#ifdef DEBUG
+    Label ok;
+    masm.branch32(Assembler::NotSigned, input, input, &ok);
+    masm.assumeUnreachable("LInt32ToIntPtr: Unexpected negative input");
+    masm.bind(&ok);
+#endif
+    masm.move32ZeroExtendToPtr(input, output);
+  }
+}
+
+void CodeGenerator::visitNonNegativeIntPtrToInt32(
+    LNonNegativeIntPtrToInt32* lir) {
+  Register output = ToRegister(lir->output());
+  MOZ_ASSERT(ToRegister(lir->input()) == output);
+
+#ifdef DEBUG
+  Label ok;
+  masm.branchPtr(Assembler::NotSigned, output, output, &ok);
+  masm.assumeUnreachable("Unexpected negative value");
+  masm.bind(&ok);
+#endif
+
+#ifdef JS_64BIT
+  Label bail;
+  masm.branchPtr(Assembler::Above, output, Imm32(INT32_MAX), &bail);
+  bailoutFrom(&bail, lir->snapshot());
+#else
+  mozilla::Unused << output;
+#endif
+}
+
+void CodeGenerator::visitAdjustDataViewLength(LAdjustDataViewLength* lir) {
+  Register output = ToRegister(lir->output());
+  MOZ_ASSERT(ToRegister(lir->input()) == output);
+
+  uint32_t byteSize = lir->mir()->byteSize();
+
+#ifdef DEBUG
+  Label ok;
+  masm.branchTestPtr(Assembler::NotSigned, output, output, &ok);
+  masm.assumeUnreachable("Unexpected negative value in LAdjustDataViewLength");
+  masm.bind(&ok);
+#endif
+
+  Label bail;
+  masm.branchSubPtr(Assembler::Signed, Imm32(byteSize - 1), output, &bail);
+  bailoutFrom(&bail, lir->snapshot());
+}
+
 void CodeGenerator::emitOOLTestObject(Register objreg,
                                       Label* ifEmulatesUndefined,
                                       Label* ifDoesntEmulateUndefined,
@@ -1435,6 +1493,21 @@ void CodeGenerator::testValueTruthy(const ValueOperand& value,
   testValueTruthyKernel(value, scratch1, scratch2, fr, ifTruthy, ifFalsy, ool,
                         valueMIR);
   masm.jump(ifTruthy);
+}
+
+void CodeGenerator::visitTestBIAndBranch(LTestBIAndBranch* lir) {
+  Label* ifTrueLabel = getJumpLabelForBranch(lir->ifTrue());
+  Label* ifFalseLabel = getJumpLabelForBranch(lir->ifFalse());
+  Register input = ToRegister(lir->input());
+
+  if (isNextBlock(lir->ifFalse()->lir())) {
+    masm.branchIfBigIntIsNonZero(input, ifTrueLabel);
+  } else if (isNextBlock(lir->ifTrue()->lir())) {
+    masm.branchIfBigIntIsZero(input, ifFalseLabel);
+  } else {
+    masm.branchIfBigIntIsZero(input, ifFalseLabel);
+    jumpToBlock(lir->ifTrue());
+  }
 }
 
 void CodeGenerator::visitTestOAndBranch(LTestOAndBranch* lir) {
@@ -6691,7 +6764,10 @@ void CodeGenerator::visitNewTypedArray(LNewTypedArray* lir) {
   gc::InitialHeap initialHeap = lir->mir()->initialHeap();
 
   TypedArrayObject* ttemplate = &templateObject->as<TypedArrayObject>();
-  uint32_t n = ttemplate->length().deprecatedGetUint32();
+
+  size_t n = ttemplate->length().get();
+  MOZ_ASSERT(n <= INT32_MAX,
+             "Template objects are only created for int32 lengths");
 
   using Fn = TypedArrayObject* (*)(JSContext*, HandleObject, int32_t length);
   OutOfLineCode* ool = oolCallVM<Fn, NewTypedArrayWithTemplateAndLength>(
@@ -7771,20 +7847,30 @@ void CodeGenerator::visitArrayBufferByteLengthInt32(
     LArrayBufferByteLengthInt32* lir) {
   Register obj = ToRegister(lir->object());
   Register out = ToRegister(lir->output());
-  masm.loadArrayBufferByteLengthInt32(obj, out);
+
+  Label bail;
+  masm.loadArrayBufferByteLengthInt32(obj, out, &bail);
+  if (bail.used()) {
+    bailoutFrom(&bail, lir->snapshot());
+  }
 }
 
 void CodeGenerator::visitArrayBufferViewLength(LArrayBufferViewLength* lir) {
   Register obj = ToRegister(lir->object());
   Register out = ToRegister(lir->output());
-  masm.loadArrayBufferViewLengthInt32(obj, out);
+  masm.loadArrayBufferViewLengthPtr(obj, out);
 }
 
 void CodeGenerator::visitArrayBufferViewByteOffset(
     LArrayBufferViewByteOffset* lir) {
   Register obj = ToRegister(lir->object());
   Register out = ToRegister(lir->output());
-  masm.loadArrayBufferViewByteOffsetInt32(obj, out);
+
+  Label bail;
+  masm.loadArrayBufferViewByteOffsetInt32(obj, out, &bail);
+  if (bail.used()) {
+    bailoutFrom(&bail, lir->snapshot());
+  }
 }
 
 void CodeGenerator::visitArrayBufferViewElements(
@@ -7801,38 +7887,43 @@ void CodeGenerator::visitTypedArrayElementShift(LTypedArrayElementShift* lir) {
   masm.typedArrayElementShift(obj, out);
 }
 
-class OutOfLineTypedArrayIndexToInt32
+class OutOfLineGuardNumberToIntPtrIndex
     : public OutOfLineCodeBase<CodeGenerator> {
-  LTypedArrayIndexToInt32* lir_;
+  LGuardNumberToIntPtrIndex* lir_;
 
  public:
-  explicit OutOfLineTypedArrayIndexToInt32(LTypedArrayIndexToInt32* lir)
+  explicit OutOfLineGuardNumberToIntPtrIndex(LGuardNumberToIntPtrIndex* lir)
       : lir_(lir) {}
 
   void accept(CodeGenerator* codegen) override {
-    codegen->visitOutOfLineTypedArrayIndexToInt32(this);
+    codegen->visitOutOfLineGuardNumberToIntPtrIndex(this);
   }
-  LTypedArrayIndexToInt32* lir() const { return lir_; }
+  LGuardNumberToIntPtrIndex* lir() const { return lir_; }
 };
 
-void CodeGenerator::visitTypedArrayIndexToInt32(LTypedArrayIndexToInt32* lir) {
-  FloatRegister index = ToFloatRegister(lir->index());
+void CodeGenerator::visitGuardNumberToIntPtrIndex(
+    LGuardNumberToIntPtrIndex* lir) {
+  FloatRegister input = ToFloatRegister(lir->input());
   Register output = ToRegister(lir->output());
 
-  auto* ool = new (alloc()) OutOfLineTypedArrayIndexToInt32(lir);
+  if (!lir->mir()->supportOOB()) {
+    Label bail;
+    masm.convertDoubleToPtr(input, output, &bail, false);
+    bailoutFrom(&bail, lir->snapshot());
+    return;
+  }
+
+  auto* ool = new (alloc()) OutOfLineGuardNumberToIntPtrIndex(lir);
   addOutOfLineCode(ool, lir->mir());
 
-  MOZ_ASSERT(TypedArrayObject::maxByteLength() <= INT32_MAX,
-             "Double exceeding Int32 range can't be in-bounds array access");
-
-  masm.convertDoubleToInt32(index, output, ool->entry(), false);
+  masm.convertDoubleToPtr(input, output, ool->entry(), false);
   masm.bind(ool->rejoin());
 }
 
-void CodeGenerator::visitOutOfLineTypedArrayIndexToInt32(
-    OutOfLineTypedArrayIndexToInt32* ool) {
+void CodeGenerator::visitOutOfLineGuardNumberToIntPtrIndex(
+    OutOfLineGuardNumberToIntPtrIndex* ool) {
   // Substitute the invalid index with an arbitrary out-of-bounds index.
-  masm.move32(Imm32(-1), ToRegister(ool->lir()->output()));
+  masm.movePtr(ImmWord(-1), ToRegister(ool->lir()->output()));
   masm.jump(ool->rejoin());
 }
 
@@ -7861,6 +7952,32 @@ void CodeGenerator::visitMinMaxI(LMinMaxI* ins) {
     Register second = ToRegister(ins->second());
     masm.cmp32Move32(cond, second, first, second, output);
   }
+}
+
+void CodeGenerator::visitMinMaxArrayI(LMinMaxArrayI* ins) {
+  Register array = ToRegister(ins->array());
+  Register output = ToRegister(ins->output());
+  Register temp1 = ToRegister(ins->temp1());
+  Register temp2 = ToRegister(ins->temp2());
+  Register temp3 = ToRegister(ins->temp3());
+  bool isMax = ins->isMax();
+
+  Label bail;
+  masm.minMaxArrayInt32(array, output, temp1, temp2, temp3, isMax, &bail);
+  bailoutFrom(&bail, ins->snapshot());
+}
+
+void CodeGenerator::visitMinMaxArrayD(LMinMaxArrayD* ins) {
+  Register array = ToRegister(ins->array());
+  FloatRegister output = ToFloatRegister(ins->output());
+  Register temp1 = ToRegister(ins->temp1());
+  Register temp2 = ToRegister(ins->temp2());
+  FloatRegister floatTemp = ToFloatRegister(ins->floatTemp());
+  bool isMax = ins->isMax();
+
+  Label bail;
+  masm.minMaxArrayNumber(array, output, floatTemp, temp1, temp2, isMax, &bail);
+  bailoutFrom(&bail, ins->snapshot());
 }
 
 void CodeGenerator::visitAbsI(LAbsI* ins) {
@@ -10157,6 +10274,14 @@ void CodeGenerator::visitSetInitializedLength(LSetInitializedLength* lir) {
   SetLengthFromIndex(masm, lir->index(), initLength);
 }
 
+void CodeGenerator::visitNotBI(LNotBI* lir) {
+  Register input = ToRegister(lir->input());
+  Register output = ToRegister(lir->output());
+
+  masm.cmp32Set(Assembler::Equal, Address(input, BigInt::offsetOfLength()),
+                Imm32(0), output);
+}
+
 void CodeGenerator::visitNotO(LNotO* lir) {
   auto* ool = new (alloc()) OutOfLineTestObjectWithLabels();
   addOutOfLineCode(ool, lir->mir());
@@ -10215,6 +10340,27 @@ void CodeGenerator::visitBoundsCheck(LBoundsCheck* lir) {
   const LAllocation* length = lir->length();
   LSnapshot* snapshot = lir->snapshot();
 
+  MIRType type = lir->mir()->type();
+
+  auto bailoutCmp = [&](Assembler::Condition cond, auto lhs, auto rhs) {
+    if (type == MIRType::Int32) {
+      bailoutCmp32(cond, lhs, rhs, snapshot);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      bailoutCmpPtr(cond, lhs, rhs, snapshot);
+    }
+  };
+
+  auto bailoutCmpConstant = [&](Assembler::Condition cond, auto lhs,
+                                int32_t rhs) {
+    if (type == MIRType::Int32) {
+      bailoutCmp32(cond, lhs, Imm32(rhs), snapshot);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      bailoutCmpPtr(cond, lhs, ImmWord(rhs), snapshot);
+    }
+  };
+
   if (index->isConstant()) {
     // Use uint32 so that the comparison is unsigned.
     uint32_t idx = ToInt32(index);
@@ -10228,25 +10374,20 @@ void CodeGenerator::visitBoundsCheck(LBoundsCheck* lir) {
     }
 
     if (length->isRegister()) {
-      bailoutCmp32(Assembler::BelowOrEqual, ToRegister(length), Imm32(idx),
-                   snapshot);
+      bailoutCmpConstant(Assembler::BelowOrEqual, ToRegister(length), idx);
     } else {
-      bailoutCmp32(Assembler::BelowOrEqual, ToAddress(length), Imm32(idx),
-                   snapshot);
+      bailoutCmpConstant(Assembler::BelowOrEqual, ToAddress(length), idx);
     }
     return;
   }
 
   Register indexReg = ToRegister(index);
   if (length->isConstant()) {
-    bailoutCmp32(Assembler::AboveOrEqual, indexReg, Imm32(ToInt32(length)),
-                 snapshot);
+    bailoutCmpConstant(Assembler::AboveOrEqual, indexReg, ToInt32(length));
   } else if (length->isRegister()) {
-    bailoutCmp32(Assembler::BelowOrEqual, ToRegister(length), indexReg,
-                 snapshot);
+    bailoutCmp(Assembler::BelowOrEqual, ToRegister(length), indexReg);
   } else {
-    bailoutCmp32(Assembler::BelowOrEqual, ToAddress(length), indexReg,
-                 snapshot);
+    bailoutCmp(Assembler::BelowOrEqual, ToAddress(length), indexReg);
   }
 }
 
@@ -10255,19 +10396,39 @@ void CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange* lir) {
   int32_t max = lir->mir()->maximum();
   MOZ_ASSERT(max >= min);
 
-  const LAllocation* length = lir->length();
   LSnapshot* snapshot = lir->snapshot();
+  MIRType type = lir->mir()->type();
+
+  const LAllocation* length = lir->length();
   Register temp = ToRegister(lir->getTemp(0));
+
+  auto bailoutCmp = [&](Assembler::Condition cond, auto lhs, auto rhs) {
+    if (type == MIRType::Int32) {
+      bailoutCmp32(cond, lhs, rhs, snapshot);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      bailoutCmpPtr(cond, lhs, rhs, snapshot);
+    }
+  };
+
+  auto bailoutCmpConstant = [&](Assembler::Condition cond, auto lhs,
+                                int32_t rhs) {
+    if (type == MIRType::Int32) {
+      bailoutCmp32(cond, lhs, Imm32(rhs), snapshot);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      bailoutCmpPtr(cond, lhs, ImmWord(rhs), snapshot);
+    }
+  };
+
   if (lir->index()->isConstant()) {
     int32_t nmin, nmax;
     int32_t index = ToInt32(lir->index());
     if (SafeAdd(index, min, &nmin) && SafeAdd(index, max, &nmax) && nmin >= 0) {
       if (length->isRegister()) {
-        bailoutCmp32(Assembler::BelowOrEqual, ToRegister(length), Imm32(nmax),
-                     snapshot);
+        bailoutCmpConstant(Assembler::BelowOrEqual, ToRegister(length), nmax);
       } else {
-        bailoutCmp32(Assembler::BelowOrEqual, ToAddress(length), Imm32(nmax),
-                     snapshot);
+        bailoutCmpConstant(Assembler::BelowOrEqual, ToAddress(length), nmax);
       }
       return;
     }
@@ -10282,18 +10443,26 @@ void CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange* lir) {
   if (min != max) {
     if (min != 0) {
       Label bail;
-      masm.branchAdd32(Assembler::Overflow, Imm32(min), temp, &bail);
+      if (type == MIRType::Int32) {
+        masm.branchAdd32(Assembler::Overflow, Imm32(min), temp, &bail);
+      } else {
+        masm.branchAddPtr(Assembler::Overflow, Imm32(min), temp, &bail);
+      }
       bailoutFrom(&bail, snapshot);
     }
 
-    bailoutCmp32(Assembler::LessThan, temp, Imm32(0), snapshot);
+    bailoutCmpConstant(Assembler::LessThan, temp, 0);
 
     if (min != 0) {
       int32_t diff;
       if (SafeSub(max, min, &diff)) {
         max = diff;
       } else {
-        masm.sub32(Imm32(min), temp);
+        if (type == MIRType::Int32) {
+          masm.sub32(Imm32(min), temp);
+        } else {
+          masm.subPtr(Imm32(min), temp);
+        }
       }
     }
   }
@@ -10306,17 +10475,25 @@ void CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange* lir) {
   if (max != 0) {
     if (max < 0) {
       Label bail;
-      masm.branchAdd32(Assembler::Overflow, Imm32(max), temp, &bail);
+      if (type == MIRType::Int32) {
+        masm.branchAdd32(Assembler::Overflow, Imm32(max), temp, &bail);
+      } else {
+        masm.branchAddPtr(Assembler::Overflow, Imm32(max), temp, &bail);
+      }
       bailoutFrom(&bail, snapshot);
     } else {
-      masm.add32(Imm32(max), temp);
+      if (type == MIRType::Int32) {
+        masm.add32(Imm32(max), temp);
+      } else {
+        masm.addPtr(Imm32(max), temp);
+      }
     }
   }
 
   if (length->isRegister()) {
-    bailoutCmp32(Assembler::BelowOrEqual, ToRegister(length), temp, snapshot);
+    bailoutCmp(Assembler::BelowOrEqual, ToRegister(length), temp);
   } else {
-    bailoutCmp32(Assembler::BelowOrEqual, ToAddress(length), temp, snapshot);
+    bailoutCmp(Assembler::BelowOrEqual, ToAddress(length), temp);
   }
 }
 
@@ -10333,10 +10510,19 @@ void CodeGenerator::visitSpectreMaskIndex(LSpectreMaskIndex* lir) {
   Register index = ToRegister(lir->index());
   Register output = ToRegister(lir->output());
 
-  if (length->isRegister()) {
-    masm.spectreMaskIndex32(index, ToRegister(length), output);
+  if (lir->mir()->type() == MIRType::Int32) {
+    if (length->isRegister()) {
+      masm.spectreMaskIndex32(index, ToRegister(length), output);
+    } else {
+      masm.spectreMaskIndex32(index, ToAddress(length), output);
+    }
   } else {
-    masm.spectreMaskIndex32(index, ToAddress(length), output);
+    MOZ_ASSERT(lir->mir()->type() == MIRType::IntPtr);
+    if (length->isRegister()) {
+      masm.spectreMaskIndexPtr(index, ToRegister(length), output);
+    } else {
+      masm.spectreMaskIndexPtr(index, ToAddress(length), output);
+    }
   }
 }
 
@@ -12197,14 +12383,13 @@ void CodeGenerator::visitLoadUnboxedScalar(LLoadUnboxedScalar* lir) {
   const MLoadUnboxedScalar* mir = lir->mir();
 
   Scalar::Type storageType = mir->storageType();
-  size_t width = Scalar::byteSize(storageType);
 
   Label fail;
   if (lir->index()->isConstant()) {
-    Address source(elements,
-                   ToInt32(lir->index()) * width + mir->offsetAdjustment());
+    Address source = ToAddress(elements, lir->index(), storageType);
     masm.loadFromTypedArray(storageType, source, out, temp, &fail);
   } else {
+    size_t width = Scalar::byteSize(storageType);
     BaseIndex source(elements, ToRegister(lir->index()),
                      ScaleFromElemWidth(width), mir->offsetAdjustment());
     masm.loadFromTypedArray(storageType, source, out, temp, &fail);
@@ -12224,13 +12409,13 @@ void CodeGenerator::visitLoadUnboxedBigInt(LLoadUnboxedBigInt* lir) {
   const MLoadUnboxedScalar* mir = lir->mir();
 
   Scalar::Type storageType = mir->storageType();
-  size_t width = Scalar::byteSize(storageType);
 
   if (lir->index()->isConstant()) {
-    Address source(elements,
-                   ToInt32(lir->index()) * width + mir->offsetAdjustment());
+    Address source =
+        ToAddress(elements, lir->index(), storageType, mir->offsetAdjustment());
     masm.load64(source, temp64);
   } else {
+    size_t width = Scalar::byteSize(storageType);
     BaseIndex source(elements, ToRegister(lir->index()),
                      ScaleFromElemWidth(width), mir->offsetAdjustment());
     masm.load64(source, temp64);
@@ -12388,11 +12573,11 @@ void CodeGenerator::visitLoadTypedArrayElementHole(
   Register scratch = out.scratchReg();
   Register scratch2 = ToRegister(lir->temp());
   Register index = ToRegister(lir->index());
-  masm.loadArrayBufferViewLengthInt32(object, scratch);
+  masm.loadArrayBufferViewLengthPtr(object, scratch);
 
   // Load undefined if index >= length.
   Label outOfBounds, done;
-  masm.spectreBoundsCheck32(index, scratch, scratch2, &outOfBounds);
+  masm.spectreBoundsCheckPtr(index, scratch, scratch2, &outOfBounds);
 
   // Load the elements vector.
   masm.loadPtr(Address(object, ArrayBufferViewObject::dataOffset()), scratch);
@@ -12433,11 +12618,11 @@ void CodeGenerator::visitLoadTypedArrayElementHoleBigInt(
   // Load the length.
   Register scratch = out.scratchReg();
   Register index = ToRegister(lir->index());
-  masm.loadArrayBufferViewLengthInt32(object, scratch);
+  masm.loadArrayBufferViewLengthPtr(object, scratch);
 
   // Load undefined if index >= length.
   Label outOfBounds, done;
-  masm.spectreBoundsCheck32(index, scratch, temp, &outOfBounds);
+  masm.spectreBoundsCheckPtr(index, scratch, temp, &outOfBounds);
 
   // Load the elements vector.
   masm.loadPtr(Address(object, ArrayBufferViewObject::dataOffset()), scratch);
@@ -12590,12 +12775,11 @@ void CodeGenerator::visitStoreUnboxedScalar(LStoreUnboxedScalar* lir) {
 
   Scalar::Type writeType = mir->writeType();
 
-  size_t width = Scalar::byteSize(mir->writeType());
-
   if (lir->index()->isConstant()) {
-    Address dest(elements, ToInt32(lir->index()) * width);
+    Address dest = ToAddress(elements, lir->index(), writeType);
     StoreToTypedArray(masm, writeType, value, dest);
   } else {
+    size_t width = Scalar::byteSize(mir->writeType());
     BaseIndex dest(elements, ToRegister(lir->index()),
                    ScaleFromElemWidth(width));
     StoreToTypedArray(masm, writeType, value, dest);
@@ -12609,14 +12793,14 @@ void CodeGenerator::visitStoreUnboxedBigInt(LStoreUnboxedBigInt* lir) {
 
   const MStoreUnboxedScalar* mir = lir->mir();
   Scalar::Type writeType = mir->writeType();
-  size_t width = Scalar::byteSize(mir->writeType());
 
   masm.loadBigInt64(value, temp);
 
   if (lir->index()->isConstant()) {
-    Address dest(elements, ToInt32(lir->index()) * width);
+    Address dest = ToAddress(elements, lir->index(), writeType);
     masm.storeToTypedBigIntArray(writeType, temp, dest);
   } else {
+    size_t width = Scalar::byteSize(mir->writeType());
     BaseIndex dest(elements, ToRegister(lir->index()),
                    ScaleFromElemWidth(width));
     masm.storeToTypedBigIntArray(writeType, temp, dest);
@@ -12761,9 +12945,9 @@ void CodeGenerator::visitStoreTypedArrayElementHole(
 
   Label skip;
   if (length->isRegister()) {
-    masm.spectreBoundsCheck32(index, ToRegister(length), spectreTemp, &skip);
+    masm.spectreBoundsCheckPtr(index, ToRegister(length), spectreTemp, &skip);
   } else {
-    masm.spectreBoundsCheck32(index, ToAddress(length), spectreTemp, &skip);
+    masm.spectreBoundsCheckPtr(index, ToAddress(length), spectreTemp, &skip);
   }
 
   BaseIndex dest(elements, index, ScaleFromElemWidth(width));
@@ -12787,9 +12971,9 @@ void CodeGenerator::visitStoreTypedArrayElementHoleBigInt(
 
   Label skip;
   if (length->isRegister()) {
-    masm.spectreBoundsCheck32(index, ToRegister(length), spectreTemp, &skip);
+    masm.spectreBoundsCheckPtr(index, ToRegister(length), spectreTemp, &skip);
   } else {
-    masm.spectreBoundsCheck32(index, ToAddress(length), spectreTemp, &skip);
+    masm.spectreBoundsCheckPtr(index, ToAddress(length), spectreTemp, &skip);
   }
 
   masm.loadBigInt64(value, temp);
@@ -13629,12 +13813,19 @@ void CodeGenerator::visitWasmReturnVoid(LWasmReturnVoid* lir) {
   }
 }
 
-void CodeGenerator::emitAssertRangeI(const Range* r, Register input) {
+void CodeGenerator::emitAssertRangeI(MIRType type, const Range* r,
+                                     Register input) {
   // Check the lower bound.
   if (r->hasInt32LowerBound() && r->lower() > INT32_MIN) {
     Label success;
-    masm.branch32(Assembler::GreaterThanOrEqual, input, Imm32(r->lower()),
-                  &success);
+    if (type == MIRType::Int32 || type == MIRType::Boolean) {
+      masm.branch32(Assembler::GreaterThanOrEqual, input, Imm32(r->lower()),
+                    &success);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      masm.branchPtr(Assembler::GreaterThanOrEqual, input, Imm32(r->lower()),
+                     &success);
+    }
     masm.assumeUnreachable(
         "Integer input should be equal or higher than Lowerbound.");
     masm.bind(&success);
@@ -13643,8 +13834,14 @@ void CodeGenerator::emitAssertRangeI(const Range* r, Register input) {
   // Check the upper bound.
   if (r->hasInt32UpperBound() && r->upper() < INT32_MAX) {
     Label success;
-    masm.branch32(Assembler::LessThanOrEqual, input, Imm32(r->upper()),
-                  &success);
+    if (type == MIRType::Int32 || type == MIRType::Boolean) {
+      masm.branch32(Assembler::LessThanOrEqual, input, Imm32(r->upper()),
+                    &success);
+    } else {
+      MOZ_ASSERT(type == MIRType::IntPtr);
+      masm.branchPtr(Assembler::LessThanOrEqual, input, Imm32(r->upper()),
+                     &success);
+    }
     masm.assumeUnreachable(
         "Integer input should be lower or equal than Upperbound.");
     masm.bind(&success);
@@ -13791,7 +13988,7 @@ void CodeGenerator::visitAssertRangeI(LAssertRangeI* ins) {
   Register input = ToRegister(ins->input());
   const Range* r = ins->range();
 
-  emitAssertRangeI(r, input);
+  emitAssertRangeI(ins->mir()->input()->type(), r, input);
 }
 
 void CodeGenerator::visitAssertRangeD(LAssertRangeD* ins) {
@@ -13829,7 +14026,7 @@ void CodeGenerator::visitAssertRangeV(LAssertRangeV* ins) {
         ScratchTagScopeRelease _(&tag);
         Register unboxInt32 = ToTempUnboxRegister(ins->temp());
         Register input = masm.extractInt32(value, unboxInt32);
-        emitAssertRangeI(r, input);
+        emitAssertRangeI(MIRType::Int32, r, input);
         masm.jump(&done);
       }
       masm.bind(&isNotInt32);

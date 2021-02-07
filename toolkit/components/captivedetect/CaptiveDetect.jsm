@@ -9,6 +9,9 @@ const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const { clearTimeout, setTimeout } = ChromeUtils.import(
+  "resource://gre/modules/Timer.jsm"
+);
 
 XPCOMUtils.defineLazyGlobalGetters(this, ["XMLHttpRequest"]);
 
@@ -22,6 +25,9 @@ const kOpenCaptivePortalLoginEvent = "captive-portal-login";
 const kAbortCaptivePortalLoginEvent = "captive-portal-login-abort";
 const kCaptivePortalLoginSuccessEvent = "captive-portal-login-success";
 const kCaptivePortalCheckComplete = "captive-portal-check-complete";
+
+const INITIAL_REEVALUATE_DELAY_MS = 1000;
+const MAX_REEVALUATE_DELAY_MS = 10 * 60 * 1000;
 
 function URLFetcher(url, timeout) {
   let self = this;
@@ -258,9 +264,6 @@ function CaptivePortalDetector() {
     "captivedetect.maxWaitingTime"
   );
   this._pollingTime = Services.prefs.getIntPref("captivedetect.pollingTime");
-  this._maxRetryCount = Services.prefs.getIntPref(
-    "captivedetect.maxRetryCount"
-  );
   debug(
     "Load Prefs {site=" +
       this._canonicalSiteURL +
@@ -268,14 +271,13 @@ function CaptivePortalDetector() {
       this._canonicalSiteExpectedContent +
       ",time=" +
       this._maxWaitingTime +
-      "max-retry=" +
-      this._maxRetryCount +
       "}"
   );
 
   // Create HttpObserver for monitoring the login procedure
   this._loginObserver = LoginObserver(this);
 
+  this._reevaluateId = null;
   this._nextRequestId = 0;
   this._runningRequest = null;
   this._requestQueue = []; // Maintain a progress table, store callbacks and the ongoing XHR
@@ -307,8 +309,8 @@ CaptivePortalDetector.prototype = {
     if (aCallback) {
       let callback = aCallback.QueryInterface(Ci.nsICaptivePortalCallback);
       request.callback = callback;
-      request.retryCount = 0;
     }
+    this._reevaluateDelayMs = INITIAL_REEVALUATE_DELAY_MS;
     this._addRequest(request);
   },
 
@@ -365,6 +367,8 @@ CaptivePortalDetector.prototype = {
         this._canonicalSiteExpectedContent +
         ",time=" +
         this._maxWaitingTime +
+        ",reevaluateDelayMs=" +
+        this._reevaluateDelayMs +
         "}"
     );
     let self = this;
@@ -374,10 +378,10 @@ CaptivePortalDetector.prototype = {
       this._maxWaitingTime
     );
 
-    let mayRetry = this._mayRetry.bind(this);
+    let reevaluate = this._reevaluate.bind(this);
 
-    urlFetcher.ontimeout = mayRetry;
-    urlFetcher.onerror = mayRetry;
+    urlFetcher.ontimeout = reevaluate;
+    urlFetcher.onerror = reevaluate;
     urlFetcher.onsuccess = function(content) {
       if (self.validateContent(content)) {
         self.executeCallback(true);
@@ -391,11 +395,15 @@ CaptivePortalDetector.prototype = {
         // The canonical website has been redirected to an unknown location
         self._startLogin();
       } else {
-        mayRetry();
+        reevaluate();
       }
     };
 
     this._runningRequest.urlFetcher = urlFetcher;
+    this._reevaluateDelayMs *= 2;
+    if (this._reevaluateDelayMs > MAX_REEVALUATE_DELAY_MS) {
+      this._reevaluateDelayMs = MAX_REEVALUATE_DELAY_MS;
+    }
   },
 
   _startLogin: function _startLogin() {
@@ -410,21 +418,11 @@ CaptivePortalDetector.prototype = {
     this._sendEvent(kOpenCaptivePortalLoginEvent, details);
   },
 
-  _mayRetry: function _mayRetry() {
-    if (
-      this._runningRequest &&
-      this._runningRequest.retryCount++ < this._maxRetryCount
-    ) {
-      debug(
-        "retry-Detection: " +
-          this._runningRequest.retryCount +
-          "/" +
-          this._maxRetryCount
-      );
-      this._startDetection();
-    } else {
-      this.executeCallback(false);
-    }
+  _reevaluate: function _reevaluate() {
+    this._reevaluateId = setTimeout(
+      this._startDetection.bind(this),
+      this._reevaluateDelayMs
+    );
   },
 
   executeCallback: function executeCallback(success) {
@@ -491,6 +489,11 @@ CaptivePortalDetector.prototype = {
     }
 
     delete this._interfaceNames[aInterfaceName];
+
+    if (this._reevaluateId) {
+      clearTimeout(this._reevaluateId);
+      this._reevaluateId = null;
+    }
 
     if (
       this._runningRequest &&

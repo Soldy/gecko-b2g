@@ -18,6 +18,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ToolbarBadgeHub: "resource://activity-stream/lib/ToolbarBadgeHub.jsm",
   ToolbarPanelHub: "resource://activity-stream/lib/ToolbarPanelHub.jsm",
   MomentsPageHub: "resource://activity-stream/lib/MomentsPageHub.jsm",
+  InfoBar: "resource://activity-stream/lib/InfoBar.jsm",
   ASRouterTargeting: "resource://activity-stream/lib/ASRouterTargeting.jsm",
   ASRouterPreferences: "resource://activity-stream/lib/ASRouterPreferences.jsm",
   TARGETING_PREFERENCES:
@@ -695,9 +696,11 @@ class _ASRouter {
    */
   _resetInitialization() {
     this.initialized = false;
+    this.initializing = false;
     this.waitForInitialized = new Promise(resolve => {
       this._finishInitializing = () => {
         this.initialized = true;
+        this.initializing = false;
         resolve();
       };
     });
@@ -899,6 +902,10 @@ class _ASRouter {
     updateAdminState,
     dispatchCFRAction,
   }) {
+    if (this.initializing || this.initialized) {
+      return null;
+    }
+    this.initializing = true;
     this._storage = storage;
     this.ALLOWLIST_HOSTS = this._loadSnippetsAllowHosts();
     this.clearChildMessages = this.toWaitForInitFunc(clearChildMessages);
@@ -1056,14 +1063,14 @@ class _ASRouter {
     return targetingParameters;
   }
 
-  _handleTargetingError(type, error, message) {
+  _handleTargetingError(error, message) {
     Cu.reportError(error);
     this.dispatchCFRAction(
       ac.ASRouterUserEvent({
         message_id: message.id,
         action: "asrouter_undesired_event",
         event: "TARGETING_EXPRESSION_ERROR",
-        event_context: type,
+        event_context: {},
       })
     );
   }
@@ -1225,6 +1232,9 @@ class _ASRouter {
         break;
       case "update_action":
         MomentsPageHub.executeAction(message);
+        break;
+      case "infobar":
+        InfoBar.showInfoBarMessage(browser, message, this.dispatchCFRAction);
         break;
     }
 

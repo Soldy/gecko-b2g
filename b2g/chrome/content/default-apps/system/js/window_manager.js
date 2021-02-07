@@ -99,11 +99,13 @@ class WindowManager extends HTMLElement {
   // Recognized configuration properties:
   // isHomescreen (bool) : the homescreen gets a transparent background and can't be closed.
   // activate (bool) : if true, selects this frame as the active one.
-  open_frame(url = "about:blank", config = {}) {
+  open_frame(url = "about:blank", config = {}, aOpenWindowInfo = null) {
     console.log(`WindowManager::open ${url} ${JSON.stringify(config)}`);
     let attr_id = `frame${this.frame_id}`;
     this.frame_id += 1;
     let webview = document.createElement("web-view");
+    // Bug 109000, we must set the openWindowInfo.
+    webview.openWindowInfo = aOpenWindowInfo;
     webview.setAttribute("remote", "true");
     webview.setAttribute("id", attr_id);
     if (config.isHomescreen) {

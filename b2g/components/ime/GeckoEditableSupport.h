@@ -83,6 +83,8 @@ class GeckoEditableSupport final : public TextEventDispatcherListener,
   // fully rely on focus/blur event due to the blur event may be suppressed in
   // some cases (e.g. content removed)
   bool mIsFocused;
+  bool mIsVoiceInputEnabled;
+  nsTArray<nsString> mVoiceInputSupportedTypes;
 };
 
 }  // namespace widget

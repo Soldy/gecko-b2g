@@ -69,6 +69,13 @@ mozilla::ipc::IPCResult DeviceStorageRequestChild::Recv__delete__(
       break;
     }
 
+    case DeviceStorageResponseValue::TIsDiskFullStorageResponse: {
+      DS_LOG_INFO("isdiskfull %u", mRequest->GetId());
+      IsDiskFullStorageResponse r = aValue;
+      mRequest->Resolve(r.isDiskFull());
+      break;
+    }
+
     case DeviceStorageResponseValue::TFreeSpaceStorageResponse: {
       DS_LOG_INFO("free %u", mRequest->GetId());
       FreeSpaceStorageResponse r = aValue;

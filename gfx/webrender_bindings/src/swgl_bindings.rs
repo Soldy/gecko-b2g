@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use bindings::{GeckoProfilerThreadListener, WrCompositor};
+use bindings::WrCompositor;
 use gleam::{gl, gl::GLenum, gl::Gl};
 use std::cell::{Cell, UnsafeCell};
 use std::collections::{hash_map::HashMap, VecDeque};
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ use std::thread;
 use webrender::{
     api::units::*, api::ColorDepth, api::ExternalImageId, api::ImageRendering, api::YuvColorSpace, Compositor,
     CompositorCapabilities, CompositorSurfaceTransform, NativeSurfaceId, NativeSurfaceInfo, NativeTileId,
-    ThreadListener,
+    host_utils::{thread_started, thread_stopped}
 };
 
 #[no_mangle]
@@ -91,6 +91,22 @@ pub extern "C" fn wr_swgl_set_texture_buffer(
     );
 }
 
+#[no_mangle]
+pub extern "C" fn wr_swgl_clear_color_rect(
+    ctx: *mut c_void,
+    fbo: u32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+) {
+    swgl::Context::from(ctx).clear_color_rect(fbo, x, y, width, height, r, g, b, a);
+}
+
 /// Descriptor for a locked surface that will be directly composited by SWGL.
 #[repr(C)]
 struct WrSWGLCompositeSurfaceInfo {
@@ -155,8 +171,16 @@ impl SwTile {
         }
     }
 
+    /// The offset of the tile in the local space of the surface before any
+    /// transform is applied.
     fn origin(&self, surface: &SwSurface) -> DeviceIntPoint {
         DeviceIntPoint::new(self.x * surface.tile_size.width, self.y * surface.tile_size.height)
+    }
+
+    /// The offset valid rect positioned within the local space of the surface
+    /// before any transform is applied.
+    fn local_bounds(&self, surface: &SwSurface) -> DeviceIntRect {
+        self.valid_rect.translate(self.origin(surface).to_vector())
     }
 
     /// Bounds used for determining overlap dependencies. This may either be the
@@ -169,14 +193,7 @@ impl SwTile {
         transform: &CompositorSurfaceTransform,
         clip_rect: &DeviceIntRect,
     ) -> Option<DeviceIntRect> {
-        let origin = self.origin(surface);
-        // If the tile was invalidated this frame, then we don't have precise
-        // bounds. Instead, just use the default surface tile size.
-        let bounds = if self.invalid.get() {
-            DeviceIntRect::new(origin, surface.tile_size)
-        } else {
-            self.valid_rect.translate(origin.to_vector())
-        };
+        let bounds = self.local_bounds(surface);
         let device_rect = transform.outer_transformed_rect(&bounds.to_f32())?.round_out().to_i32();
         device_rect.intersection(clip_rect)
     }
@@ -204,7 +221,7 @@ impl SwTile {
         clip_rect: &DeviceIntRect,
     ) -> Option<(DeviceIntRect, DeviceIntRect, bool)> {
         // Offset the valid rect to the appropriate surface origin.
-        let valid = self.valid_rect.translate(self.origin(surface).to_vector());
+        let valid = self.local_bounds(surface);
         // The destination rect is the valid rect transformed and then clipped.
         let dest_rect = transform.outer_transformed_rect(&valid.to_f32())?.round_out().to_i32();
         if !dest_rect.intersects(clip_rect) {
@@ -242,6 +259,28 @@ impl SwSurface {
             external_image: None,
             composite_surface: None,
         }
+    }
+
+    /// Conserative approximation of local bounds of the surface by combining
+    /// the local bounds of all enclosed tiles.
+    fn local_bounds(&self) -> DeviceIntRect {
+        let mut bounds = DeviceIntRect::zero();
+        for tile in &self.tiles {
+            bounds = bounds.union(&tile.local_bounds(self));
+        }
+        bounds
+    }
+
+    /// The transformed and clipped conservative device-space bounds of the
+    /// surface.
+    fn device_bounds(
+        &self,
+        transform: &CompositorSurfaceTransform,
+        clip_rect: &DeviceIntRect,
+    ) -> Option<DeviceIntRect> {
+        let bounds = self.local_bounds();
+        let device_rect = transform.outer_transformed_rect(&bounds.to_f32())?.round_out().to_i32();
+        device_rect.intersection(clip_rect)
     }
 }
 
@@ -720,15 +759,14 @@ impl SwCompositeThread {
             // overhead.
             .stack_size(32 * 1024)
             .spawn(move || {
-                let thread_listener = GeckoProfilerThreadListener::new();
-                thread_listener.thread_started(thread_name);
+                thread_started(thread_name);
                 // Process any available jobs. This will return a non-Ok
                 // result when the job queue is dropped, causing the thread
                 // to eventually exit.
                 while let Some((job, band)) = info.take_job(true) {
                     info.process_job(job, band);
                 }
-                thread_listener.thread_stopped(thread_name);
+                thread_stopped();
             })
             .expect("Failed creating SwComposite thread");
         result
@@ -923,6 +961,14 @@ impl SwCompositeThread {
     }
 }
 
+/// Parameters describing how to composite a surface within a frame
+type FrameSurface = (
+    NativeSurfaceId,
+    CompositorSurfaceTransform,
+    DeviceIntRect,
+    ImageRendering,
+);
+
 /// Adapter for RenderCompositors to work with SWGL that shuttles between
 /// WebRender and the RenderCompositr via the Compositor API.
 pub struct SwCompositor {
@@ -931,21 +977,11 @@ pub struct SwCompositor {
     compositor: WrCompositor,
     use_native_compositor: bool,
     surfaces: HashMap<NativeSurfaceId, SwSurface>,
-    frame_surfaces: Vec<(
-        NativeSurfaceId,
-        CompositorSurfaceTransform,
-        DeviceIntRect,
-        ImageRendering,
-    )>,
+    frame_surfaces: Vec<FrameSurface>,
     /// Any surface added after we're already compositing (i.e. debug overlay)
     /// needs to be processed after those frame surfaces. For simplicity we
     /// store them in a separate queue that gets processed later.
-    late_surfaces: Vec<(
-        NativeSurfaceId,
-        CompositorSurfaceTransform,
-        DeviceIntRect,
-        ImageRendering,
-    )>,
+    late_surfaces: Vec<FrameSurface>,
     cur_tile: NativeTileId,
     draw_tile: Option<DrawTileHelper>,
     /// The maximum tile size required for any of the allocated surfaces.
@@ -1019,6 +1055,97 @@ impl SwCompositor {
     fn deinit_surface(&self, surface: &SwSurface) {
         for tile in &surface.tiles {
             self.deinit_tile(tile);
+        }
+    }
+
+    /// Attempt to occlude any queued surfaces with an opaque occluder rect. If
+    /// an existing surface is occluded, we attempt to restrict its clip rect
+    /// so long as it can remain a single clip rect. Existing frame surfaces
+    /// that are opaque will be fused if possible with the supplied occluder
+    /// rect to further try and restrict any underlying surfaces.
+    fn occlude_surfaces(&mut self) {
+        // Check if inner rect is fully included in outer rect
+        fn includes(outer: &Range<i32>, inner: &Range<i32>) -> bool {
+            outer.start <= inner.start && outer.end >= inner.end
+        }
+
+        // Check if outer range overlaps either the start or end of a range. If
+        // there is overlap, return the portion of the inner range remaining
+        // after the overlap has been removed.
+        fn overlaps(outer: &Range<i32>, inner: &Range<i32>) -> Option<Range<i32>> {
+            if outer.start <= inner.start && outer.end >= inner.start {
+                Some(outer.end..inner.end.max(outer.end))
+            } else if outer.start <= inner.end && outer.end >= inner.end {
+                Some(inner.start..outer.start.max(inner.start))
+            } else {
+                None
+            }
+        }
+
+        fn set_x_range(rect: &mut DeviceIntRect, range: &Range<i32>) {
+            rect.origin.x = range.start;
+            rect.size.width = range.end - range.start;
+        }
+
+        fn set_y_range(rect: &mut DeviceIntRect, range: &Range<i32>) {
+            rect.origin.y = range.start;
+            rect.size.height = range.end - range.start;
+        }
+
+        fn union(base: Range<i32>, extra: Range<i32>) -> Range<i32> {
+            base.start.min(extra.start)..base.end.max(extra.end)
+        }
+
+        // Before we can try to occlude any surfaces, we need to fix their clip rects to tightly
+        // bound the valid region. The clip rect might otherwise enclose an invalid area that
+        // can't fully occlude anything even if the surface is opaque.
+        for &mut (ref id, ref transform, ref mut clip_rect, _) in &mut self.frame_surfaces {
+            if let Some(surface) = self.surfaces.get(id) {
+                // Restrict the clip rect to fall within the valid region of the surface.
+                *clip_rect = surface.device_bounds(transform, clip_rect).unwrap_or_default();
+            }
+        }
+
+        // For each frame surface, treat it as an occluder if it is non-empty and opaque. Look
+        // through the preceding surfaces to see if any can be occluded.
+        for occlude_index in 0..self.frame_surfaces.len() {
+            let (ref occlude_id, _, ref occlude_rect, _) = self.frame_surfaces[occlude_index];
+            match self.surfaces.get(occlude_id) {
+                Some(occluder) if occluder.is_opaque && !occlude_rect.is_empty() => {}
+                _ => continue,
+            }
+
+            // Traverse the queued surfaces for this frame in the reverse order of
+            // how they are composited, or rather, in order of visibility. For each
+            // surface, check if the occluder can restrict the clip rect such that
+            // the clip rect can remain a single rect. If the clip rect overlaps
+            // the occluder on one axis interval while remaining fully included in
+            // the occluder's other axis interval, then we can chop down the edge
+            // of the clip rect on the overlapped axis. Further, if the surface is
+            // opaque and its clip rect exactly matches the occluder rect on one
+            // axis interval while overlapping on the other, fuse it with the
+            // occluder rect before considering any underlying surfaces.
+            let (mut occlude_x, mut occlude_y) = (occlude_rect.x_range(), occlude_rect.y_range());
+            for &mut (ref id, _, ref mut clip_rect, _) in self.frame_surfaces[..occlude_index].iter_mut().rev() {
+                if let Some(surface) = self.surfaces.get(id) {
+                    let (clip_x, clip_y) = (clip_rect.x_range(), clip_rect.y_range());
+                    if includes(&occlude_x, &clip_x) {
+                        if let Some(visible) = overlaps(&occlude_y, &clip_y) {
+                            set_y_range(clip_rect, &visible);
+                            if surface.is_opaque && occlude_x == clip_x {
+                                occlude_y = union(occlude_y, visible);
+                            }
+                        }
+                    } else if includes(&occlude_y, &clip_y) {
+                        if let Some(visible) = overlaps(&occlude_x, &clip_x) {
+                            set_x_range(clip_rect, &visible);
+                            if surface.is_opaque && occlude_y == clip_y {
+                                occlude_x = union(occlude_x, visible);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1426,13 +1553,14 @@ impl Compositor for SwCompositor {
         }
     }
 
-    fn invalidate_tile(&mut self, id: NativeTileId) {
+    fn invalidate_tile(&mut self, id: NativeTileId, valid_rect: DeviceIntRect) {
         if self.use_native_compositor {
-            self.compositor.invalidate_tile(id);
+            self.compositor.invalidate_tile(id, valid_rect);
         }
         if let Some(surface) = self.surfaces.get_mut(&id.surface_id) {
             if let Some(tile) = surface.tiles.iter_mut().find(|t| t.x == id.x && t.y == id.y) {
                 tile.invalid.set(true);
+                tile.valid_rect = valid_rect;
             }
         }
     }
@@ -1448,7 +1576,7 @@ impl Compositor for SwCompositor {
         if let Some(surface) = self.surfaces.get_mut(&id.surface_id) {
             if let Some(tile) = surface.tiles.iter_mut().find(|t| t.x == id.x && t.y == id.y) {
                 tile.dirty_rect = dirty_rect;
-                tile.valid_rect = valid_rect;
+                assert_eq!(tile.valid_rect, valid_rect);
                 if valid_rect.is_empty() {
                     return surface_info;
                 }
@@ -1625,18 +1753,43 @@ impl Compositor for SwCompositor {
     /// frame will not have overlap dependencies assigned and so must instead
     /// be added to the late_surfaces queue to be processed at the end of the
     /// frame.
-    fn start_compositing(&mut self, dirty_rects: &[DeviceIntRect]) {
-        self.compositor.start_compositing(dirty_rects);
+    fn start_compositing(&mut self, dirty_rects: &[DeviceIntRect], _opaque_rects: &[DeviceIntRect]) {
+        // Opaque rects are currently only computed here, not by WR itself, so we
+        // ignore the passed parameter and forward our own version onto the native
+        // compositor.
+        let mut opaque_rects: Vec<DeviceIntRect> = Vec::new();
+        for &(ref id, ref transform, ref clip_rect, _filter) in &self.frame_surfaces {
+            if let Some(surface) = self.surfaces.get(id) {
+                if !surface.is_opaque {
+                    continue;
+                }
 
-        if dirty_rects.len() == 1 {
-            // Factor dirty rect into surface clip rects and discard surfaces that are
-            // entirely clipped out.
-            for &mut (ref _id, ref _transform, ref mut clip_rect, _filter) in &mut self.frame_surfaces {
-                *clip_rect = clip_rect.intersection(&dirty_rects[0]).unwrap_or_default();
+                for tile in &surface.tiles {
+                    if let Some(rect) = tile.overlap_rect(surface, transform, clip_rect) {
+                        opaque_rects.push(rect);
+                    }
+                }
             }
-            self.frame_surfaces
-                .retain(|&(_, _, clip_rect, _)| !clip_rect.is_empty());
         }
+
+        self.compositor.start_compositing(dirty_rects, &opaque_rects);
+
+        if let Some(dirty_rect) = dirty_rects
+            .iter()
+            .fold(DeviceIntRect::zero(), |acc, dirty_rect| acc.union(dirty_rect))
+            .to_non_empty()
+        {
+            // Factor dirty rect into surface clip rects
+            for &mut (_, _, ref mut clip_rect, _) in &mut self.frame_surfaces {
+                *clip_rect = clip_rect.intersection(&dirty_rect).unwrap_or_default();
+            }
+        }
+
+        self.occlude_surfaces();
+
+        // Discard surfaces that are entirely clipped out
+        self.frame_surfaces
+            .retain(|&(_, _, clip_rect, _)| !clip_rect.is_empty());
 
         if let Some(ref composite_thread) = self.composite_thread {
             // Compute overlap dependencies for surfaces.

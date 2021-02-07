@@ -5,6 +5,7 @@
 
 #include "nsNativeBasicThemeCocoa.h"
 #include "mozilla/gfx/Helpers.h"
+#include "mozilla/LookAndFeel.h"
 
 already_AddRefed<nsITheme> do_GetBasicNativeThemeDoNotUseDirectly() {
   static mozilla::StaticRefPtr<nsITheme> gInstance;
@@ -19,31 +20,26 @@ NS_IMETHODIMP
 nsNativeBasicThemeCocoa::GetMinimumWidgetSize(
     nsPresContext* aPresContext, nsIFrame* aFrame, StyleAppearance aAppearance,
     mozilla::LayoutDeviceIntSize* aResult, bool* aIsOverridable) {
-  DPIRatio dpiRatio = GetDPIRatio(aFrame);
-
-  switch (aAppearance) {
-    case StyleAppearance::ScrollbarthumbHorizontal:
-    case StyleAppearance::ScrollbarthumbVertical:
-    case StyleAppearance::ScrollbarHorizontal:
-    case StyleAppearance::ScrollbarVertical:
-    case StyleAppearance::ScrollbartrackVertical:
-    case StyleAppearance::ScrollbartrackHorizontal:
-    case StyleAppearance::ScrollbarbuttonUp:
-    case StyleAppearance::ScrollbarbuttonDown:
-    case StyleAppearance::ScrollbarbuttonLeft:
-    case StyleAppearance::ScrollbarbuttonRight: {
-      *aIsOverridable = false;
-      *aResult = ScrollbarDrawingMac::GetMinimumWidgetSize(aAppearance, aFrame,
-                                                           dpiRatio.scale);
-      break;
-    }
-
-    default:
-      return nsNativeBasicTheme::GetMinimumWidgetSize(
-          aPresContext, aFrame, aAppearance, aResult, aIsOverridable);
+  if (!IsWidgetScrollbarPart(aAppearance)) {
+    return nsNativeBasicTheme::GetMinimumWidgetSize(
+        aPresContext, aFrame, aAppearance, aResult, aIsOverridable);
   }
 
+  DPIRatio dpiRatio = GetDPIRatioForScrollbarPart(aPresContext);
+  *aIsOverridable = false;
+  *aResult = ScrollbarDrawingMac::GetMinimumWidgetSize(aAppearance, aFrame,
+                                                       dpiRatio.scale);
   return NS_OK;
+}
+
+auto nsNativeBasicThemeCocoa::GetScrollbarSizes(nsPresContext* aPresContext,
+                                                StyleScrollbarWidth aWidth,
+                                                Overlay aOverlay)
+    -> ScrollbarSizes {
+  auto size = ScrollbarDrawingMac::GetScrollbarSize(
+      aWidth, aOverlay == Overlay::Yes,
+      GetDPIRatioForScrollbarPart(aPresContext).scale);
+  return {size, size};
 }
 
 void nsNativeBasicThemeCocoa::PaintScrollbarThumb(
@@ -67,7 +63,7 @@ void nsNativeBasicThemeCocoa::PaintScrollbarThumb(
 void nsNativeBasicThemeCocoa::PaintScrollbarTrack(
     DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect, bool aHorizontal,
     nsIFrame* aFrame, const ComputedStyle& aStyle,
-    const EventStates& aDocumentState, DPIRatio aDpiRatio, bool aIsRoot) {
+    const EventStates& aDocumentState, DPIRatio aDpiRatio) {
   ScrollbarParams params =
       ScrollbarDrawingMac::ComputeScrollbarParams(aFrame, aStyle, aHorizontal);
   auto rect = aRect.ToUnknownRect();
@@ -86,14 +82,14 @@ void nsNativeBasicThemeCocoa::PaintScrollbar(DrawTarget* aDrawTarget,
                                              bool aHorizontal, nsIFrame* aFrame,
                                              const ComputedStyle& aStyle,
                                              const EventStates& aDocumentState,
-                                             DPIRatio aDpiRatio, bool aIsRoot) {
+                                             DPIRatio aDpiRatio) {
   // Draw nothing; the scrollbar track is drawn in PaintScrollbarTrack.
 }
 
 void nsNativeBasicThemeCocoa::PaintScrollCorner(
     DrawTarget* aDrawTarget, const LayoutDeviceRect& aRect, nsIFrame* aFrame,
     const ComputedStyle& aStyle, const EventStates& aDocumentState,
-    DPIRatio aDpiRatio, bool aIsRoot) {
+    DPIRatio aDpiRatio) {
   ScrollbarParams params =
       ScrollbarDrawingMac::ComputeScrollbarParams(aFrame, aStyle, false);
   if (aDpiRatio.scale >= 2.0f) {

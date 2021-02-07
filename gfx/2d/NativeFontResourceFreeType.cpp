@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/Preferences.h"
 #include "NativeFontResourceFreeType.h"
 #include "UnscaledFontFreeType.h"
 #include "Logging.h"
@@ -23,6 +24,10 @@ NativeFontResourceFreeType::~NativeFontResourceFreeType() = default;
 template <class T>
 already_AddRefed<T> NativeFontResourceFreeType::CreateInternal(
     uint8_t* aFontData, uint32_t aDataLength, FT_Library aFTLibrary) {
+  if (Preferences::GetBool(
+          "gfx.font_rendering.native_font_source_none", false)) {
+    return nullptr;
+  }
   if (!aFontData || !aDataLength) {
     return nullptr;
   }

@@ -6,11 +6,13 @@
 #include "nsIImsRegistration.idl"
 #include "nsIImsConfig.idl"
 #include "nsIImsMMTelFeature.idl"
+#include "nsIImsEcbm.idl"
 
 interface nsIImsRegistration;
 interface nsIImsConfig;
 interface nsIImsMMTelFeature;
 interface nsIImsFeatureStatusListener;
+interface nsIImsEcbm;
 
 [scriptable, uuid(7c3398f3-0407-4ba3-ba98-693a47ec4ab8)]
 interface nsIImsFeatureStatusListener : nsISupports
@@ -30,6 +32,8 @@ interface nsIImsServiceManager : nsISupports
   nsIImsConfig getConfig(in unsigned long aSlotId);
 
   nsIImsMMTelFeature createMmTelFeature(in unsigned long aSlotId, in nsIImsFeatureStatusListener aListener);
+
+  nsIImsEcbm getEcbm(in unsigned long aSlotId);
 
   bool isBinderReady();
 };

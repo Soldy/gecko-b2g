@@ -865,7 +865,7 @@ CreateStorageConnection(nsIFile& aDBFile, nsIFile& aFMDirectory,
             // If we're just opening the database during origin initialization,
             // then we don't want to erase any files. The failure here will fail
             // origin initialization too.
-            if (aValue != NS_ERROR_FILE_CORRUPTED || aName.IsVoid()) {
+            if (!IsDatabaseCorruptionError(aValue) || aName.IsVoid()) {
               return Err(aValue);
             }
 
@@ -1253,7 +1253,8 @@ class DatabaseConnection::UpdateRefcountFunction final
   DatabaseConnection* const mConnection;
   FileManager& mFileManager;
   nsClassHashtable<nsUint64HashKey, FileInfoEntry> mFileInfoEntries;
-  nsDataHashtable<nsUint64HashKey, FileInfoEntry*> mSavepointEntriesIndex;
+  nsDataHashtable<nsUint64HashKey, NotNull<FileInfoEntry*>>
+      mSavepointEntriesIndex;
 
   nsTArray<int64_t> mJournalsToCreateBeforeCommit;
   nsTArray<int64_t> mJournalsToRemoveAfterCommit;
@@ -7589,8 +7590,7 @@ void DatabaseConnection::UpdateRefcountFunction::RollbackSavepoint() {
   MOZ_ASSERT(mInSavepoint);
 
   for (const auto& entry : mSavepointEntriesIndex) {
-    auto* const value = entry.GetData();
-    value->DecBySavepointDelta();
+    entry.GetData()->DecBySavepointDelta();
   }
 
   mInSavepoint = false;
@@ -7649,8 +7649,8 @@ nsresult DatabaseConnection::UpdateRefcountFunction::ProcessValue(
     const int64_t id = file.FileInfo().Id();
     MOZ_ASSERT(id > 0);
 
-    FileInfoEntry* const entry = mFileInfoEntries.LookupOrAddFromFactory(
-        id, [&file] { return MakeUnique<FileInfoEntry>(file.FileInfoPtr()); });
+    const auto entry = WrapNotNull(mFileInfoEntries.LookupOrAddFromFactory(
+        id, [&file] { return MakeUnique<FileInfoEntry>(file.FileInfoPtr()); }));
 
     if (mInSavepoint) {
       mSavepointEntriesIndex.Put(id, entry);
@@ -12220,8 +12220,8 @@ nsresult FileManager::Init(nsIFile* aDirectory,
         // object alive.
         MOZ_ASSERT(dbRefCnt > 0);
         mFileInfos.Put(
-            id, new FileInfo(FileManagerGuard{}, SafeRefPtrFromThis(), id,
-                             static_cast<nsrefcnt>(dbRefCnt)));
+            id, MakeNotNull<FileInfo*>(FileManagerGuard{}, SafeRefPtrFromThis(),
+                                       id, static_cast<nsrefcnt>(dbRefCnt)));
 
         mLastFileId = std::max(id, mLastFileId);
 
@@ -13229,11 +13229,12 @@ void DeleteFilesRunnable::Open() {
     return;
   }
 
-  mState = State_DirectoryOpenPending;
-
-  RefPtr<DirectoryLock> pendingDirectoryLock = quotaManager->OpenDirectory(
+  RefPtr<DirectoryLock> directoryLock = quotaManager->CreateDirectoryLock(
       mFileManager->Type(), mFileManager->GroupAndOrigin(), quota::Client::IDB,
-      /* aExclusive */ false, this);
+      /* aExclusive */ false);
+
+  mState = State_DirectoryOpenPending;
+  directoryLock->Acquire(this);
 }
 
 void DeleteFilesRunnable::DoDatabaseWork() {
@@ -13428,12 +13429,14 @@ nsresult Maintenance::OpenDirectory() {
 
   // Get a shared lock for <profile>/storage/*/*/idb
 
-  mState = State::DirectoryOpenPending;
-  RefPtr<DirectoryLock> pendingDirectoryLock =
-      QuotaManager::Get()->OpenDirectoryInternal(
+  RefPtr<DirectoryLock> directoryLock =
+      QuotaManager::Get()->CreateDirectoryLockInternal(
           Nullable<PersistenceType>(), OriginScope::FromNull(),
           Nullable<Client::Type>(Client::IDB),
-          /* aExclusive */ false, this);
+          /* aExclusive */ false);
+
+  mState = State::DirectoryOpenPending;
+  directoryLock->Acquire(this);
 
   return NS_OK;
 }
@@ -14983,18 +14986,19 @@ already_AddRefed<nsISupports> MutableFile::CreateStream(bool aReadOnly) {
   nsCOMPtr<nsISupports> result;
 
   if (aReadOnly) {
-    RefPtr<FileInputStream> stream =
+    IDB_TRY_INSPECT(
+        const auto& stream,
         CreateFileInputStream(persistenceType, groupAndOrigin, Client::IDB,
-                              mFile, -1, -1, nsIFileInputStream::DEFER_OPEN);
-    result = NS_ISUPPORTS_CAST(nsIFileInputStream*, stream);
+                              mFile, -1, -1, nsIFileInputStream::DEFER_OPEN),
+        nullptr);
+    result = NS_ISUPPORTS_CAST(nsIFileInputStream*, stream.get());
   } else {
-    RefPtr<FileStream> stream =
+    IDB_TRY_INSPECT(
+        const auto& stream,
         CreateFileStream(persistenceType, groupAndOrigin, Client::IDB, mFile,
-                         -1, -1, nsIFileStream::DEFER_OPEN);
-    result = NS_ISUPPORTS_CAST(nsIFileStream*, stream);
-  }
-  if (NS_WARN_IF(!result)) {
-    return nullptr;
+                         -1, -1, nsIFileStream::DEFER_OPEN),
+        nullptr);
+    result = NS_ISUPPORTS_CAST(nsIFileStream*, stream.get());
   }
 
   return result.forget();
@@ -15745,11 +15749,13 @@ nsresult FactoryOp::OpenDirectory() {
         IDB_TRY_RETURN(MOZ_TO_RESULT_INVOKE_TYPED(nsString, dbFile, GetPath));
       }()));
 
+  RefPtr<DirectoryLock> directoryLock = quotaManager->CreateDirectoryLock(
+      persistenceType, mQuotaInfo, Client::IDB,
+      /* aExclusive */ false);
+
   mState = State::DirectoryOpenPending;
 
-  RefPtr<DirectoryLock> pendingDirectoryLock =
-      quotaManager->OpenDirectory(persistenceType, mQuotaInfo, Client::IDB,
-                                  /* aExclusive */ false, this);
+  directoryLock->Acquire(this);
 
   return NS_OK;
 }
@@ -21616,11 +21622,13 @@ nsresult FileHelper::CreateFileFromStream(nsIFile& aFile, nsIFile& aJournalFile,
   IDB_TRY(aJournalFile.Create(nsIFile::NORMAL_FILE_TYPE, 0644));
 
   // Now try to copy the stream.
-  nsCOMPtr<nsIOutputStream> fileOutputStream = CreateFileOutputStream(
-      mFileManager->Type(), mFileManager->GroupAndOrigin(), Client::IDB,
-      &aFile);
-
-  IDB_TRY(OkIf(fileOutputStream), NS_ERROR_FAILURE);
+  IDB_TRY_UNWRAP(auto fileOutputStream,
+                 CreateFileOutputStream(mFileManager->Type(),
+                                        mFileManager->GroupAndOrigin(),
+                                        Client::IDB, &aFile)
+                     .map([](NotNull<RefPtr<FileOutputStream>>&& stream) {
+                       return nsCOMPtr<nsIOutputStream>{stream.get()};
+                     }));
 
   AutoTArray<char, kFileCopyBufferSize> buffer;
   const auto actualOutputStream =

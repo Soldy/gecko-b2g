@@ -2,7 +2,7 @@
 
 The **WebActivity API** provides a way for applications to delegate an activity to another application. An *activity* is something a user wants to do: pick an image, play a video, etc. Apps can declare themselves as an activity hander, for example, Gallery App and installed 3rd-party photo-manage Apps can all be candidates when users request to pick photos. Usually such list of choices are provided to users.
 
-The `WebActivity` interface exposes to both *Window* and *Worker* scope, in the window scope, creation of WebActivity is allowed when the requester application is visible (in the foreground), in the worker scope, creation of WebActivity is allowed only when handling a notification click event (TODO: this restriction is not yet implemented).
+The `WebActivity` interface exposes to both *Window* and *Worker* scope, in the window scope, creation of WebActivity is allowed when the requester application is visible (in the foreground). In the worker scope, WebActivity is allowed iff permission **worker-activity** is declared and granted, otherwise an insecure error will throw and the creation of WebActivity returns nullptr.
 
 ## Starting an activity
 
@@ -56,7 +56,7 @@ Please note that per spec of ServiceWorkerGlobalScope[1], the activity handler i
 
 >[1] Developers should keep in mind that the ServiceWorker state is not persisted across the termination/restart cycle, so each event handler should assume it's being invoked with a bare, default global state.
 
-When handling `systemmessage` event of name *activity*, handler can decide whether to launch the application window to perform user interaction, by using ServiceWorker API, `Clients.openWindow()` (TODO: enable openWindow on gonk platform). Or can pass back results with `WebActivityRequestHandler.postResult()` directly. Suggest using `postMessage()` method to communicate between main scripts and service worker script.
+When handling `systemmessage` event of name *activity*, handler can decide whether to launch the application window to perform user interaction, by using ServiceWorker API, `Clients.openWindow()`. Or can pass back results with `WebActivityRequestHandler.postResult()` directly. Suggest using `postMessage()` method to communicate between main scripts and service worker script.
 
 Use `WebActivityRequestHandler.postError()` to send back an error message if something goes wrong.
 
@@ -127,7 +127,7 @@ In general, please reference  [Registering an App as an activity handler](https:
 ~~<code>**disposition**</code>~~
 <br>No need to specify the disposition anymore.
 
-<code>**filter**</code> |Optional
+<code>**filters**</code> |Optional
 <br>Same as before.
 
 <code>**returnValue**</code> |Optional

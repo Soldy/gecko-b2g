@@ -378,6 +378,8 @@ class ScrollFrameHelper : public nsIReflowCallback {
  public:
   bool IsScrollbarOnRight() const;
   bool IsScrollingActive(nsDisplayListBuilder* aBuilder) const;
+  bool IsScrollingActiveNotMinimalDisplayPort(
+      nsDisplayListBuilder* aBuilder) const;
   bool IsMaybeAsynchronouslyScrolled() const {
     // If this is true, then we'll build an ASR, and that's what we want
     // to know I think.
@@ -404,11 +406,12 @@ class ScrollFrameHelper : public nsIReflowCallback {
       nsIFrame* aFrame, nsPresContext* aPresContext, nsRect& aRect,
       bool aHasResizer, mozilla::layers::ScrollDirection aDirection);
   // returns true if a resizer should be visible
-  bool HasResizer() { return mResizerBox && !mCollapsedResizer; }
+  bool HasResizer() { return mResizerBox; }
   void LayoutScrollbars(nsBoxLayoutState& aState, const nsRect& aContentArea,
                         const nsRect& aOldScrollArea);
 
   void MarkScrollbarsDirtyForReflow() const;
+  void InvalidateVerticalScrollbar() const;
 
   bool IsAlwaysActive() const;
   void MarkEverScrolled();
@@ -441,6 +444,7 @@ class ScrollFrameHelper : public nsIReflowCallback {
   ScrollSnapInfo GetScrollSnapInfo(
       const mozilla::Maybe<nsPoint>& aDestination) const;
 
+  static bool ShouldActivateAllScrollFrames();
   nsRect RestrictToRootDisplayPort(const nsRect& aDisplayportBase);
   bool DecideScrollableLayer(nsDisplayListBuilder* aBuilder,
                              nsRect* aVisibleRect, nsRect* aDirtyRect,
@@ -665,8 +669,6 @@ class ScrollFrameHelper : public nsIReflowCallback {
   // If true, we should be prepared to scroll using this scrollframe
   // by placing descendant content into its own layer(s)
   bool mHasBeenScrolledRecently : 1;
-  // If true, the resizer is collapsed and not displayed
-  bool mCollapsedResizer : 1;
 
   // If true, the scroll frame should always be active because we always build
   // a scrollable layer. Used for asynchronous scrolling.
@@ -1042,6 +1044,10 @@ class nsHTMLScrollFrame : public nsContainerFrame,
   bool IsScrollingActive(nsDisplayListBuilder* aBuilder) final {
     return mHelper.IsScrollingActive(aBuilder);
   }
+  bool IsScrollingActiveNotMinimalDisplayPort(
+      nsDisplayListBuilder* aBuilder) final {
+    return mHelper.IsScrollingActiveNotMinimalDisplayPort(aBuilder);
+  }
   bool IsMaybeScrollingActive() const final {
     return mHelper.IsMaybeScrollingActive();
   }
@@ -1094,6 +1100,10 @@ class nsHTMLScrollFrame : public nsContainerFrame,
   void MarkScrollbarsDirtyForReflow() const final {
     mHelper.MarkScrollbarsDirtyForReflow();
   }
+  void InvalidateVerticalScrollbar() const final {
+    mHelper.InvalidateVerticalScrollbar();
+  }
+
   void UpdateScrollbarPosition() final { mHelper.UpdateScrollbarPosition(); }
   bool DecideScrollableLayer(nsDisplayListBuilder* aBuilder,
                              nsRect* aVisibleRect, nsRect* aDirtyRect,
@@ -1521,6 +1531,10 @@ class nsXULScrollFrame final : public nsBoxFrame,
   bool IsScrollingActive(nsDisplayListBuilder* aBuilder) final {
     return mHelper.IsScrollingActive(aBuilder);
   }
+  bool IsScrollingActiveNotMinimalDisplayPort(
+      nsDisplayListBuilder* aBuilder) final {
+    return mHelper.IsScrollingActiveNotMinimalDisplayPort(aBuilder);
+  }
   bool IsMaybeScrollingActive() const final {
     return mHelper.IsMaybeScrollingActive();
   }
@@ -1572,6 +1586,9 @@ class nsXULScrollFrame final : public nsBoxFrame,
   }
   void MarkScrollbarsDirtyForReflow() const final {
     mHelper.MarkScrollbarsDirtyForReflow();
+  }
+  void InvalidateVerticalScrollbar() const final {
+    mHelper.InvalidateVerticalScrollbar();
   }
   void UpdateScrollbarPosition() final { mHelper.UpdateScrollbarPosition(); }
 

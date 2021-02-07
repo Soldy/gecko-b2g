@@ -27,6 +27,7 @@
 #include "mozilla/FileUtils.h"
 #include "mozilla/HalTypes.h"
 #include "mozilla/LinkedList.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/MemoryReportingProcess.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/TimeStamp.h"
@@ -1529,7 +1530,7 @@ class ContentParent final
       const MaybeDiscarded<BrowsingContext>& aContext);
 
   mozilla::ipc::IPCResult RecvRemoveFromSessionHistory(
-      const MaybeDiscarded<BrowsingContext>& aContext);
+      const MaybeDiscarded<BrowsingContext>& aContext, const nsID& aChangeID);
 
   mozilla::ipc::IPCResult RecvHistoryReload(
       const MaybeDiscarded<BrowsingContext>& aContext,
@@ -1587,6 +1588,17 @@ class ContentParent final
   void AssertNotInPool();
 
   void AssertAlive();
+
+  /**
+   * Called when a subprocess succesfully launches.
+   *
+   * May submit telemetry if the new number of content processes is greater
+   * than the previous maximum.
+   *
+   * This will submit telemetry about the time delta between this content
+   * process launch and the last content process launch.
+   */
+  static void DidLaunchSubprocess();
 
  private:
   // Released in ActorDealloc; deliberately not exposed to the CC.
@@ -1748,6 +1760,9 @@ class ContentParent final
   // A preference serializer used to share preferences with the process.
   // Cleared once startup is complete.
   UniquePtr<mozilla::ipc::SharedPreferenceSerializer> mPrefSerializer;
+
+  static uint32_t sMaxContentProcesses;
+  static Maybe<TimeStamp> sLastContentProcessLaunch;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(ContentParent, NS_CONTENTPARENT_IID)

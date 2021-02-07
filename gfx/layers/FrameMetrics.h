@@ -100,7 +100,9 @@ struct FrameMetrics {
         mVisualScrollUpdateType(eNone),
         mCompositionSizeWithoutDynamicToolbar(),
         mIsRootContent(false),
-        mIsScrollInfoLayer(false) {}
+        mIsScrollInfoLayer(false),
+        mHasNonZeroDisplayPortMargins(false),
+        mMinimalDisplayPort(false) {}
 
   // Default copy ctor and operator= are fine
 
@@ -126,6 +128,9 @@ struct FrameMetrics {
            mVisualScrollUpdateType == aOther.mVisualScrollUpdateType &&
            mIsRootContent == aOther.mIsRootContent &&
            mIsScrollInfoLayer == aOther.mIsScrollInfoLayer &&
+           mHasNonZeroDisplayPortMargins ==
+               aOther.mHasNonZeroDisplayPortMargins &&
+           mMinimalDisplayPort == aOther.mMinimalDisplayPort &&
            mFixedLayerMargins == aOther.mFixedLayerMargins &&
            mCompositionSizeWithoutDynamicToolbar ==
                aOther.mCompositionSizeWithoutDynamicToolbar;
@@ -252,7 +257,10 @@ struct FrameMetrics {
            aContentFrameMetrics.GetVisualScrollOffset();
   }
 
-  void ApplyScrollUpdateFrom(const ScrollPositionUpdate& aUpdate);
+  /*
+   * Returns true if the layout scroll offset or visual scroll offset changed.
+   */
+  bool ApplyScrollUpdateFrom(const ScrollPositionUpdate& aUpdate);
 
   /**
    * Applies the relative scroll offset update contained in aOther to the
@@ -320,13 +328,19 @@ struct FrameMetrics {
   bool IsRootContent() const { return mIsRootContent; }
 
   // Set scroll offset, first clamping to the scroll range.
-  void ClampAndSetVisualScrollOffset(const CSSPoint& aScrollOffset) {
+  // Return true if it changed.
+  bool ClampAndSetVisualScrollOffset(const CSSPoint& aScrollOffset) {
+    CSSPoint offsetBefore = GetVisualScrollOffset();
     SetVisualScrollOffset(CalculateScrollRange().ClampPoint(aScrollOffset));
+    return (offsetBefore != GetVisualScrollOffset());
   }
 
   CSSPoint GetLayoutScrollOffset() const { return mLayoutViewport.TopLeft(); }
-  void SetLayoutScrollOffset(const CSSPoint& aLayoutScrollOffset) {
+  // Returns true if it changed.
+  bool SetLayoutScrollOffset(const CSSPoint& aLayoutScrollOffset) {
+    CSSPoint offsetBefore = GetLayoutScrollOffset();
     mLayoutViewport.MoveTo(aLayoutScrollOffset);
+    return (offsetBefore != GetLayoutScrollOffset());
   }
 
   const CSSPoint& GetVisualScrollOffset() const { return mScrollOffset; }
@@ -401,6 +415,18 @@ struct FrameMetrics {
     mIsScrollInfoLayer = aIsScrollInfoLayer;
   }
   bool IsScrollInfoLayer() const { return mIsScrollInfoLayer; }
+
+  void SetHasNonZeroDisplayPortMargins(bool aHasNonZeroDisplayPortMargins) {
+    mHasNonZeroDisplayPortMargins = aHasNonZeroDisplayPortMargins;
+  }
+  bool HasNonZeroDisplayPortMargins() const {
+    return mHasNonZeroDisplayPortMargins;
+  }
+
+  void SetMinimalDisplayPort(bool aMinimalDisplayPort) {
+    mMinimalDisplayPort = aMinimalDisplayPort;
+  }
+  bool IsMinimalDisplayPort() const { return mMinimalDisplayPort; }
 
   void SetVisualDestination(const CSSPoint& aVisualDestination) {
     mVisualDestination = aVisualDestination;
@@ -606,6 +632,15 @@ struct FrameMetrics {
   // metrics are still sent to and updated by the compositor, with the updates
   // being reflected on the next paint rather than the next composite.
   bool mIsScrollInfoLayer : 1;
+
+  // Whether there are non-zero display port margins set on this element.
+  bool mHasNonZeroDisplayPortMargins : 1;
+
+  // Whether this scroll frame is using a minimal display port, which means that
+  // any set display port margins are ignored when calculating the display port
+  // and instead zero margins are used and further no tile or alignment
+  // boundaries are used that could potentially expand the size.
+  bool mMinimalDisplayPort : 1;
 
   // WARNING!!!!
   //

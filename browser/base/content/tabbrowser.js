@@ -292,11 +292,10 @@
         gSharedTabWarning.willShowSharedTabWarning(val) ||
         (gNavToolbox.collapsed && !this._allowTabChange)
       ) {
-        return this.tabbox.selectedTab;
+        return;
       }
       // Update the tab
       this.tabbox.selectedTab = val;
-      return val;
     },
 
     get selectedTab() {
@@ -1302,7 +1301,9 @@
 
       if (newBrowser.hasAttribute("tabDialogShowing")) {
         newBrowser.tabDialogBox.focus();
-      } else if (newBrowser.hasAttribute("tabmodalPromptShowing")) {
+        return;
+      }
+      if (newBrowser.hasAttribute("tabmodalPromptShowing")) {
         // If there's a tabmodal prompt showing, focus it.
         let prompts = newBrowser.tabModalPromptBox.listPrompts();
         let prompt = prompts[prompts.length - 1];
@@ -5450,7 +5451,7 @@
               return;
             }
 
-            // For non-system/expanded principals, we bail and show the checkbox
+            // For non-system/expanded principals without permission, we bail and show the checkbox.
             if (promptPrincipal.URI && !promptPrincipal.isSystemPrincipal) {
               let permission = Services.perms.testPermissionFromPrincipal(
                 promptPrincipal,
@@ -5458,9 +5459,12 @@
               );
               if (permission != Services.perms.ALLOW_ACTION) {
                 // Tell the prompt box we want to show the user a checkbox:
-                let tabPrompt = this.getTabModalPromptBox(
-                  tabForEvent.linkedBrowser
-                );
+                let tabPrompt = Services.prefs.getBoolPref(
+                  "prompts.contentPromptSubDialog"
+                )
+                  ? this.getTabDialogBox(tabForEvent.linkedBrowser)
+                  : this.getTabModalPromptBox(tabForEvent.linkedBrowser);
+
                 tabPrompt.onNextPromptShowAllowFocusCheckboxFor(
                   promptPrincipal
                 );
@@ -6448,8 +6452,6 @@ var StatusPanel = {
       this.panel.setAttribute("inactive", "true");
       MousePosTracker.removeListener(this);
     }
-
-    return val;
   },
 
   getMouseTargetRect() {

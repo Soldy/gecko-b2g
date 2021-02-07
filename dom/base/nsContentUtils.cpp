@@ -6321,7 +6321,7 @@ nsresult nsContentUtils::CreateArrayBuffer(JSContext* aCx,
     return NS_ERROR_FAILURE;
   }
 
-  int32_t dataLen = aData.Length();
+  size_t dataLen = aData.Length();
   *aResult = JS::NewArrayBuffer(aCx, dataLen);
   if (!*aResult) {
     return NS_ERROR_FAILURE;
@@ -6962,24 +6962,6 @@ Document* nsContentUtils::GetRootDocument(Document* aDoc) {
   return doc;
 }
 
-/* static */
-bool nsContentUtils::IsInPointerLockContext(BrowsingContext* aContext) {
-  if (!aContext) {
-    return false;
-  }
-
-  nsCOMPtr<Document> pointerLockedDoc =
-      do_QueryReferent(EventStateManager::sPointerLockedDoc);
-  if (!pointerLockedDoc || !pointerLockedDoc->GetBrowsingContext()) {
-    return false;
-  }
-
-  BrowsingContext* lockTop = pointerLockedDoc->GetBrowsingContext()->Top();
-  BrowsingContext* top = aContext->Top();
-
-  return top == lockTop;
-}
-
 // static
 int32_t nsContentUtils::GetAdjustedOffsetInTextControl(nsIFrame* aOffsetFrame,
                                                        int32_t aOffset) {
@@ -7454,7 +7436,8 @@ uint64_t nsContentUtils::GetInnerWindowID(nsILoadGroup* aLoadGroup) {
   return inner ? inner->WindowID() : 0;
 }
 
-static void MaybeFixIPv6Host(nsACString& aHost) {
+// static
+void nsContentUtils::MaybeFixIPv6Host(nsACString& aHost) {
   if (aHost.FindChar(':') != -1) {  // Escape IPv6 address
     MOZ_ASSERT(!aHost.Length() ||
                (aHost[0] != '[' && aHost[aHost.Length() - 1] != ']'));

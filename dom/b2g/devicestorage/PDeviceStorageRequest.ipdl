@@ -43,6 +43,11 @@ struct EnumerationResponse
   DeviceStorageFileValue[] paths;
 };
 
+struct IsDiskFullStorageResponse
+{
+  bool isDiskFull;
+};
+
 struct FreeSpaceStorageResponse
 {
   uint64_t freeBytes;
@@ -75,6 +80,7 @@ union DeviceStorageResponseValue
   FileDescriptorResponse;
   BlobResponse;
   EnumerationResponse;
+  IsDiskFullStorageResponse;
   FreeSpaceStorageResponse;
   UsedSpaceStorageResponse;
   FormatStorageResponse;

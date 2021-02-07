@@ -916,7 +916,7 @@ public class WebExtensionController {
 
         WebExtension.DownloadRequest request = WebExtension.DownloadRequest.fromBundle(optionsBundle);
 
-        GeckoResult<WebExtension.Download> result = delegate.onDownload(extension, request);
+        GeckoResult<WebExtension.DownloadInitData> result = delegate.onDownload(extension, request);
         if (result == null) {
             message.callback.sendError("downloads.download is not supported");
             return;
@@ -924,10 +924,14 @@ public class WebExtensionController {
 
         message.callback.resolveTo(result.map(value -> {
             if (value == null) {
-                Log.e(LOGTAG, "onDownload returned invalid null id");
+                Log.e(LOGTAG, "onDownload returned invalid null value");
                 throw new IllegalArgumentException("downloads.download is not supported");
             }
-            return value.id;
+
+            GeckoBundle returnMessage = WebExtension.Download.downloadInfoToBundle(value.initData);
+            returnMessage.putInt("id", value.download.id);
+
+            return returnMessage;
         }));
     }
 
@@ -1227,6 +1231,7 @@ public class WebExtensionController {
 
         final WebExtension.Action action = new WebExtension.Action(
                 actionType, message.bundle.getBundle("action"), extension);
+        final String popupUri = message.bundle.getString("popupUri");
 
         final WebExtension.ActionDelegate delegate = actionDelegateFor(extension, message.session);
         if (delegate == null) {
@@ -1234,7 +1239,7 @@ public class WebExtensionController {
         }
 
         final GeckoResult<GeckoSession> popup = delegate.onOpenPopup(extension, action);
-        action.openPopup(popup);
+        action.openPopup(popup, popupUri);
     }
 
     private WebExtension.ActionDelegate actionDelegateFor(final WebExtension extension,

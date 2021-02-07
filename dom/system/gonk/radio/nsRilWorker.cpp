@@ -503,6 +503,25 @@ NS_IMETHODIMP nsRilWorker::SetInitialAttachApn(int32_t serial,
   return NS_OK;
 }
 
+NS_IMETHODIMP nsRilWorker::SetDataProfile(
+    int32_t serial, const nsTArray<RefPtr<nsIDataProfile>>& profileList,
+    bool isRoaming) {
+  DEBUG("nsRilWorker: [%d] > RIL_REQUEST_SET_DATA_PROFILE", serial);
+  GetRadioProxy();
+  if (mRadioProxy == nullptr) {
+    ERROR("No Radio HAL exist");
+  }
+
+  std::vector<DataProfileInfo> dataProfileInfoList;
+  for (uint32_t i = 0; i < profileList.Length(); i++) {
+    DataProfileInfo profile = convertToHalDataProfile(profileList[i]);
+    dataProfileInfoList.push_back(profile);
+  }
+  mRadioProxy->setDataProfile(serial, dataProfileInfoList, isRoaming);
+
+  return NS_OK;
+}
+
 NS_IMETHODIMP nsRilWorker::SetupDataCall(int32_t serial,
                                          int32_t radioTechnology,
                                          nsIDataProfile* profile,

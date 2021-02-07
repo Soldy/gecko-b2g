@@ -4,47 +4,52 @@
 
 "use strict";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const startURL = "https://duckduckgo.com/";
+document.addEventListener(
+  "DOMContentLoaded",
+  () => {
+    const startURL = "https://duckduckgo.com/";
 
-  let browser = document.createElement("web-view");
-  browser.openWindowInfo = null;
-  browser.setAttribute("id", "browser");
-  browser.setAttribute("src", startURL);
-  //browser.setAttribute("remote", "true"); // do not work yet.
+    let browser = document.createElement("web-view");
+    // Bug 109000, we must set the openWindowInfo.
+    browser.openWindowInfo = null;
+    browser.setAttribute("id", "browser");
+    browser.setAttribute("src", startURL);
+    //browser.setAttribute("remote", "true"); // do not work yet.
 
-  console.log("append browser");
-  document.body.append(browser);
+    console.log("append browser");
+    document.body.append(browser);
 
-  browser.go = function() {
-    browser.src = document.getElementById("url").value;
-  };
+    browser.go = function() {
+      browser.src = document.getElementById("url").value;
+    };
 
-  // Binding Actions
-  ["action-back", "action-forward", "action-go"].forEach(id => {
-    let btn = document.getElementById(id);
-    let action = btn.dataset.cmd;
+    // Binding Actions
+    ["action-back", "action-forward", "action-go"].forEach(id => {
+      let btn = document.getElementById(id);
+      let action = btn.dataset.cmd;
 
-    btn.addEventListener("click", () => {
-      browser[action]();
+      btn.addEventListener("click", () => {
+        browser[action]();
+      });
     });
-  });
 
-  // Binding events
-  browser.addEventListener("mozbrowserlocationchange", aEvent => {
-    UpdateActionsUI(aEvent.detail);
-  });
+    // Binding events
+    browser.addEventListener("mozbrowserlocationchange", aEvent => {
+      UpdateActionsUI(aEvent.detail);
+    });
 
-  // Init UI
-  UpdateActionsUI({ canGoBack: false, canGoForward: false, url: startURL });
+    // Init UI
+    UpdateActionsUI({ canGoBack: false, canGoForward: false, url: startURL });
 
-  function UpdateActionsUI({ canGoBack, canGoForward, url }) {
-    document
-      .getElementById("action-back")
-      .toggleAttribute("disabled", !canGoBack);
-    document
-      .getElementById("action-forward")
-      .toggleAttribute("disabled", !canGoForward);
-    document.getElementById("url").value = url;
-  }
-});
+    function UpdateActionsUI({ canGoBack, canGoForward, url }) {
+      document
+        .getElementById("action-back")
+        .toggleAttribute("disabled", !canGoBack);
+      document
+        .getElementById("action-forward")
+        .toggleAttribute("disabled", !canGoForward);
+      document.getElementById("url").value = url;
+    }
+  },
+  { once: true }
+);

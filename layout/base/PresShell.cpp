@@ -26,6 +26,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PerfStats.h"
+#include "mozilla/PointerLockManager.h"
 #include "mozilla/PresShellInlines.h"
 #include "mozilla/RangeUtils.h"
 #include "mozilla/ScopeExit.h"
@@ -4089,6 +4090,11 @@ void PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush) {
   MOZ_ASSERT(NeedFlush(flushType), "Why did we get called?");
 
 #ifdef MOZ_GECKO_PROFILER
+  AUTO_PROFILER_MARKER_TEXT(
+      "DoFlushPendingNotifications", LAYOUT,
+      MarkerOptions(MarkerStack::Capture(), MarkerInnerWindowIdFromDocShell(
+                                                mPresContext->GetDocShell())),
+      nsDependentCString(kFlushTypeNames[flushType]));
   AUTO_PROFILER_LABEL_DYNAMIC_CSTR_NONSENSITIVE(
       "PresShell::DoFlushPendingNotifications", LAYOUT,
       kFlushTypeNames[flushType]);
@@ -7011,7 +7017,7 @@ nsresult PresShell::EventHandler::HandleEventUsingCoordinates(
       EventHandler::GetCapturingContentFor(aGUIEvent);
 
   if (GetDocument() && aGUIEvent->mClass == eTouchEventClass) {
-    Document::UnlockPointer();
+    PointerLockManager::Unlock();
   }
 
   nsIFrame* frameForPresShell = MaybeFlushThrottledStyles(aFrameForPresShell);
@@ -8491,8 +8497,7 @@ void PresShell::EventHandler::MaybeHandleKeyboardEventBeforeDispatch(
     }
   }
 
-  nsCOMPtr<Document> pointerLockedDoc =
-      do_QueryReferent(EventStateManager::sPointerLockedDoc);
+  nsCOMPtr<Document> pointerLockedDoc = PointerLockManager::GetLockedDocument();
   if (!mPresShell->mIsLastChromeOnlyEscapeKeyConsumed && pointerLockedDoc) {
     // XXX See above comment to understand the reason why this needs
     //     to claim that the Escape key event is consumed by content
@@ -8500,7 +8505,7 @@ void PresShell::EventHandler::MaybeHandleKeyboardEventBeforeDispatch(
     aKeyboardEvent->PreventDefaultBeforeDispatch(CrossProcessForwarding::eStop);
     aKeyboardEvent->mFlags.mOnlyChromeDispatch = true;
     if (aKeyboardEvent->mMessage == eKeyUp) {
-      Document::UnlockPointer();
+      PointerLockManager::Unlock();
     }
   }
 }

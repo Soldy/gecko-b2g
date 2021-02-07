@@ -44,8 +44,7 @@ ac_add_options --with-android-ndk=$ANDROID_NDK
 ac_add_options --with-android-version=$PLATFORM_VERSION
 
 # Use sccache
-# Disabled to figure out CI issues. :(
-# ac_add_options --with-ccache=sccache
+ac_add_options --with-ccache=sccache
 
 # Auto-clobber
 mk_add_options AUTOCLOBBER=1
@@ -108,6 +107,10 @@ fi
 if [ "$TARGET_ARCH" = "x86_64" ]; then
   ac_add_options --enable-wasm-simd
 fi;
+
+if [ "$ENABLE_RSU" = "true" ]; then
+  ac_add_options --enable-rsu
+fi
 
 # Disable until we figure out CI issues
 # ac_add_options --enable-clang-plugin

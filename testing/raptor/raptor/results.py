@@ -191,10 +191,6 @@ class PerftestResultsHandler(object):
 
         expected_perfherder = 1
 
-        if output.mozproxy_data:
-            # Check if we have mozproxy data available.
-            expected_perfherder += 1
-
         if is_resource_test():
             # when resource tests are run, no perfherder data is output
             # for the regular raptor tests (i.e. speedometer) so we
@@ -274,7 +270,10 @@ class RaptorResultsHandler(PerftestResultsHandler):
         # summarize the result data, write to file and output PERFHERDER_DATA
         LOG.info("summarizing raptor test results")
         output = RaptorOutput(
-            self.results, self.supporting_data, test_config["subtest_alert_on"]
+            self.results,
+            self.supporting_data,
+            test_config["subtest_alert_on"],
+            self.app,
         )
         output.set_browser_meta(self.browser_name, self.browser_version)
         output.summarize(test_names)
@@ -823,7 +822,10 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
 
         # now have all results gathered from all browsertime test URLs; format them for output
         output = BrowsertimeOutput(
-            self.results, self.supporting_data, test_config["subtest_alert_on"]
+            self.results,
+            self.supporting_data,
+            test_config["subtest_alert_on"],
+            self.app,
         )
         output.set_browser_meta(self.browser_name, self.browser_version)
         output.summarize(test_names)

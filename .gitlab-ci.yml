@@ -7,11 +7,10 @@
 
 variables:
   GIT_DEPTH: 1
-  # specify '1.48.0_1' in favor of the ambiguous 'latest' since pull_policy of runners are 'if-not-present'
-  # in this way unnecessary `docker pull` can be prevented.
-  DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0"
   # GIT_CLONE_PATH would be overidden with "koost" if pipeline gets triggered from within koost
-  GIT_CLONE_PATH: ${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko
+  # also, in order for sccache, perisitent path is preferred
+  GIT_CLONE_PATH: ${CI_BUILDS_DIR}/kaios/gecko
+  SCCACHE_REDIS_BASEURL: redis://10.81.70.108
 
 .global_setup: &global_setup
   - export CI_USE_MIRROR=${CI_USE_MIRROR:-false} # in case not set in config.toml
@@ -23,6 +22,8 @@ variables:
       echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
       git config --global url."${LOCAL_GIT_MIRROR}".insteadOf "${CI_SERVER_URL}"
     fi
+  - export SCCACHE_REDIS=${SCCACHE_REDIS_BASEURL}/${SCCACHE_REDIS_DB}
+  - sccache -z
 
 .koost_setup: &koost_setup
   - |
@@ -36,27 +37,31 @@ variables:
     else
       cd ${GIT_CLONE_PATH}
       git clone ${CI_SERVER_URL}/KaiOS/koost.git -b next --depth 1
+      pushd koost
+      git log -1
+      popd
     fi
   - |
     rm -rf gonk-q
     if [ "${CI_JOB_NAME}" == "build:arm" ]; then
-      git clone ${CI_SERVER_URL}/KaiOS/dummy/gonk-q.git --depth 1
+      git clone ${CI_SERVER_URL}/KaiOS/dummy/gonk-q.git
+      pushd gonk-q
+      git log -1
+      popd
     fi
 
 default:
-  image: $DEFAULT_DOCKER_IMAGE
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
   tags:
     - gecko-dev
   before_script:
     - *global_setup
     - *koost_setup
 
-stages:
-  - lint
-  - build
-
 .lint_base:
-  stage: lint
+  stage: .pre
+  tags:
+    - hk-fantastic4
   script:
     - 'check_format_opt="--against HEAD~${mr_commits} -v"'
     - *koost_setup
@@ -109,47 +114,20 @@ lint:
       - $CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/
       - $GITLAB_API_KEY
 
-.get_mozbuild: &get_mozbuild
-  - |
-    case "${PREFERRED_MOZBUILD_VER}" in
-    "3"|"4"|"5")
-      if [ "$(cat ${HOME}/.mozbuild/ver)" != "${PREFERRED_MOZBUILD_VER}" ]; then
-        echo -e "\033[1;33mNeed mozbuild at ver ${PREFERRED_MOZBUILD_VER}.\033[0m"
-        remote_mozbuild="https://packages.preprod.kaiostech.com/ndk/v${PREFERRED_MOZBUILD_VER}/mozbuild.tar.bz2"
-        if ${CI_USE_MIRROR}; then
-          local_mozbuild="${LOCAL_GIT_MIRROR}/ndk/v${PREFERRED_MOZBUILD_VER}/mozbuild.tar.bz2"
-          if [[ -f ${local_mozbuild} ]]; then
-            echo "Directly decompress ${local_mozbuild}..."
-            tar xjf ${local_mozbuild} -C ${HOME}/
-          else
-            echo "${local_mozbuild} not found, try curl"
-            curl ${remote_mozbuild} | tar -C ${HOME}/ -xj
-          fi
-        else
-          curl ${remote_mozbuild} | tar -C ${HOME}/ -xj
-        fi
-      fi
-      ;;
-    *)
-      echo "Unsupported mozbuild version."
-      exit 1
-      ;;
-    esac
-
 build:desktop:
+  image: ${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0_1
   variables:
-    DEFAULT_DOCKER_IMAGE: "${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0"
     MOZ_OBJDIR: 'objdir-desktop-gecko'
     MOZCONFIG: 'mozconfig-b2g-desktop'
-    PREFERRED_MOZBUILD_VER: '5'
+    SCCACHE_REDIS_DB: 4 # use DB #4 as sccache
+    SCCACHE_CACHE_SIZE: 6G
   stage: build
-  before_script:
-    - *global_setup
-    - *get_mozbuild
-    - *koost_setup
+  tags:
+    - gecko-dev-desktop
   script:
     - ./mach build
     - ./mach package
+    - sccache -s
   artifacts:
     expire_in: 1 week
     paths:
@@ -173,10 +151,15 @@ build:emulator:
     TARGET_CPU_VARIANT: generic
     BINSUFFIX: 64
     B2G_DEBUG: 1
+    SCCACHE_REDIS_DB: 2 # use DB #2 as sccache
+    SCCACHE_CACHE_SIZE: 2G
   stage: build
+  tags:
+    - gecko-dev-emu
   script:
     - ./build-b2g.sh
     - ./build-b2g.sh package
+    - sccache -s
   only:
     - merge_requests
     - pipelines
@@ -185,12 +168,9 @@ build:emulator:
       - $GIT_CLONE_PATH =~ /koost$/
 
 build:arm:
-  before_script:
-    - *global_setup
-    - *koost_setup
   variables:
-    GONK_PATH: "${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko/gonk-q"
-    GECKO_OBJDIR: "${CI_BUILDS_DIR}/${CI_PROJECT_NAMESPACE}/gecko/objdir-arm-gecko"
+    GONK_PATH: "${CI_BUILDS_DIR}/kaios/gecko/gonk-q"
+    GECKO_OBJDIR: "${CI_BUILDS_DIR}/kaios/gecko/objdir-arm-gecko"
     GONK_PRODUCT_NAME: msm8937_32go
     GET_FRAMEBUFFER_FORMAT_FROM_HWC: 1
     PLATFORM_VERSION: 29
@@ -199,12 +179,15 @@ build:arm:
     TARGET_CPU_VARIANT: cortex-a53
     ANDROID_NDK: '~/.mozbuild/android-ndk-r20b-canary'
     PRODUCT_MANUFACTURER: QUALCOMM
+    SCCACHE_REDIS_DB: 3 # use DB #3 as sccache
+    SCCACHE_CACHE_SIZE: 2G
   stage: build
+  tags:
+    - gecko-dev-arm
   script:
     - ./build-b2g.sh
     - ./build-b2g.sh package
-  after_script:
-    - ls -al ~/.cache/sccache || true
+    - sccache -s
   only:
     - merge_requests
     - pipelines

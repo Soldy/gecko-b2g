@@ -6041,12 +6041,15 @@ bool Debugger::isCompilableUnit(JSContext* cx, unsigned argc, Value* vp) {
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
   frontend::CompilationState compilationState(cx, allocScope, options,
                                               stencil.get());
+  if (!compilationState.init(cx)) {
+    return false;
+  }
 
   JS::AutoSuppressWarningReporter suppressWarnings(cx);
   frontend::Parser<frontend::FullParseHandler, char16_t> parser(
       cx, options, chars.twoByteChars(), length,
-      /* foldConstants = */ true, stencil.get(), compilationState, nullptr,
-      nullptr);
+      /* foldConstants = */ true, stencil.get(), compilationState,
+      /* syntaxParser = */ nullptr);
   if (!parser.checkOptions() || !parser.parse()) {
     // We ran into an error. If it was because we ran out of memory we report
     // it in the usual way.

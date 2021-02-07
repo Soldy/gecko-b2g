@@ -19,14 +19,16 @@ const { XPCOMUtils } = ChromeUtils.import(
 XPCOMUtils.defineLazyModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.jsm",
   ClientID: "resource://gre/modules/ClientID.jsm",
-  BrowserUtils: "resource://gre/modules/BrowserUtils.jsm",
+  BrowserTelemetryUtils: "resource://gre/modules/BrowserTelemetryUtils.jsm",
   CustomizableUI: "resource:///modules/CustomizableUI.jsm",
   PageActions: "resource:///modules/PageActions.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   SearchSERPTelemetry: "resource:///modules/SearchSERPTelemetry.jsm",
   Services: "resource://gre/modules/Services.jsm",
   setTimeout: "resource://gre/modules/Timer.jsm",
+  setInterval: "resource://gre/modules/Timer.jsm",
   clearTimeout: "resource://gre/modules/Timer.jsm",
+  clearInterval: "resource://gre/modules/Timer.jsm",
 });
 
 // This pref is in seconds!
@@ -65,7 +67,10 @@ const UNFILTERED_URI_COUNT_SCALAR_NAME =
 const TOTAL_URI_COUNT_NORMAL_AND_PRIVATE_MODE_SCALAR_NAME =
   "browser.engagement.total_uri_count_normal_and_private_mode";
 
+const CONTENT_PROCESS_COUNT = "CONTENT_PROCESS_COUNT";
+
 const MINIMUM_TAB_COUNT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes, in ms
+const CONTENT_PROCESS_COUNT_INTERVAL_MS = 5 * 60 * 1000;
 
 // The elements we consider to be interactive.
 const UI_TARGET_ELEMENTS = [
@@ -426,6 +431,10 @@ let BrowserUsageTelemetry = {
     Services.prefs.addObserver("browser.tabs.drawInTitlebar", this);
 
     this._recordUITelemetry();
+    this._contentProcessCountInterval = setInterval(
+      () => this._recordContentProcessCount(),
+      CONTENT_PROCESS_COUNT_INTERVAL_MS
+    );
   },
 
   /**
@@ -467,6 +476,9 @@ let BrowserUsageTelemetry = {
     }
     Services.obs.removeObserver(this, DOMWINDOW_OPENED_TOPIC);
     Services.obs.removeObserver(this, TELEMETRY_SUBSESSIONSPLIT_TOPIC);
+
+    clearInterval(this._recordContentProcessCountInterval);
+    this._recordContentProcessCountDelayed = null;
   },
 
   observe(subject, topic, data) {
@@ -1176,6 +1188,82 @@ let BrowserUsageTelemetry = {
   },
 
   /**
+   * Check if this is the first run of this profile since installation,
+   * if so then send installation telemetry.
+   *
+   * @param {nsIFile} [dataPathOverride] Optional, full data file path, for tests.
+   * @return {Promise}
+   * @resolves When the event has been recorded, or if the data file was not found.
+   * @rejects JavaScript exception on any failure.
+   */
+  async reportInstallationTelemetry(dataPathOverride) {
+    if (AppConstants.platform != "win") {
+      // This is a windows-only feature.
+      return;
+    }
+
+    let dataPath = dataPathOverride;
+    if (!dataPath) {
+      dataPath = Services.dirsvc.get("GreD", Ci.nsIFile);
+      dataPath.append("installation_telemetry.json");
+    }
+
+    let dataBytes;
+    try {
+      dataBytes = await IOUtils.read(dataPath.path);
+    } catch (ex) {
+      if (ex.name == "NotFoundError") {
+        // Many systems will not have the data file, return silently if not found as
+        // there is nothing to record.
+        return;
+      }
+      throw ex;
+    }
+    const dataString = new TextDecoder("utf-16").decode(dataBytes);
+    const data = JSON.parse(dataString);
+
+    const TIMESTAMP_PREF = "app.installation.timestamp";
+    const lastInstallTime = Services.prefs.getStringPref(TIMESTAMP_PREF, null);
+
+    if (lastInstallTime && data.install_timestamp == lastInstallTime) {
+      // We've already seen this install
+      return;
+    }
+
+    // First time seeing this install, record the timestamp.
+    Services.prefs.setStringPref(TIMESTAMP_PREF, data.install_timestamp);
+
+    // Installation timestamp is not intended to be sent with telemetry,
+    // remove it to emphasize this point.
+    delete data.install_timestamp;
+
+    // Build the extra event data
+    let extra = {
+      version: data.version,
+      build_id: data.build_id,
+      admin_user: data.admin_user.toString(),
+      install_existed: data.install_existed.toString(),
+      profdir_existed: data.profdir_existed.toString(),
+    };
+
+    if (data.installer_type == "full") {
+      extra.silent = data.silent.toString();
+      extra.from_msi = data.from_msi.toString();
+      extra.default_path = data.default_path.toString();
+    }
+
+    // Record the event
+    Services.telemetry.setEventRecordingEnabled("installation", true);
+    Services.telemetry.recordEvent(
+      "installation",
+      "first_seen",
+      data.installer_type,
+      null,
+      extra
+    );
+  },
+
+  /**
    * Record telemetry about the ratio of number of site origins per number of
    * loaded tabs.
    *
@@ -1196,7 +1284,7 @@ let BrowserUsageTelemetry = {
       }
 
       const { loadedTabCount } = getOpenTabsAndWinsCounts();
-      const siteOrigins = BrowserUtils.computeSiteOriginCount(
+      const siteOrigins = BrowserTelemetryUtils.computeSiteOriginCount(
         Services.wm.getEnumerator("navigator:browser"),
         false
       );
@@ -1237,6 +1325,16 @@ let BrowserUsageTelemetry = {
       }
     }
     return "FX_NUMBER_OF_UNIQUE_SITE_ORIGINS_PER_LOADED_TABS_50_PLUS";
+  },
+
+  /**
+   * Record the number of content processes.
+   */
+  _recordContentProcessCount() {
+    // All DOM processes includes the parent.
+    const count = ChromeUtils.getAllDOMProcesses().length - 1;
+
+    Services.telemetry.getHistogramById(CONTENT_PROCESS_COUNT).add(count);
   },
 };
 

@@ -45,6 +45,7 @@ const kPrefDefaultServiceId = "dom.telephony.defaultServiceId";
 const kPrefTwoDigitShortCodes = "ussd.exceptioncode";
 const kPrefRilNumRadioInterfaces = "ril.numRadioInterfaces";
 const kPrefAlwaysTryImsForEcc = "ril.alwaysTryImsForEcc";
+const kPrefImsEnabled = "b2g.ims.enabled";
 
 const nsITelephonyAudioService = Ci.nsITelephonyAudioService;
 const nsITelephonyService = Ci.nsITelephonyService;
@@ -319,6 +320,7 @@ MMI_KS_SERVICE_CLASS_MAPPING[
 ] = MMI_KS_SERVICE_CLASS_PAD;
 
 var ALWAYS_TRY_IMS_FOR_EMERGENCY = false;
+var IMS_ENABLED = false;
 
 var DEBUG;
 function debug(s) {
@@ -591,6 +593,8 @@ function TelephonyService() {
   this._currentCalls = {};
   this._audioStates = [];
   this._ussdSessions = [];
+
+  this._initConstByPrefs();
   this._initImsPhones();
 
   this._cdmaCallWaitingNumber = null;
@@ -599,7 +603,6 @@ function TelephonyService() {
   gAudioService.registerListener(this);
   this._applyTtyMode();
 
-  this._initConstByPrefs();
   // this.defaultServiceId = this._getDefaultServiceId();
   this.defaultServiceId = 0;
 
@@ -827,6 +830,7 @@ TelephonyService.prototype = {
   _initConstByPrefs() {
     this._updateDebugFlag();
     this._updateAlwaysTryImsForEcc();
+    this._updateImsEnable();
   },
 
   _updateDebugFlag() {
@@ -844,6 +848,14 @@ TelephonyService.prototype = {
         ALWAYS_TRY_IMS_FOR_EMERGENCY;
     } catch (e) {
       ALWAYS_TRY_IMS_FOR_EMERGENCY = true;
+    }
+  },
+
+  _updateImsEnable() {
+    try {
+      IMS_ENABLED = Services.prefs.getBoolPref(kPrefImsEnabled) || IMS_ENABLED;
+    } catch (e) {
+      IMS_ENABLED = false;
     }
   },
 
@@ -3616,10 +3628,11 @@ TelephonyService.prototype = {
   _initImsPhones() {
     this._imsPhones = [];
     for (let index = 0; index < this._numClients; index++) {
-      if (this._isImsClient(index)) {
-        let imsPhone = gImsPhoneService.getPhoneByServiceId(index);
-        this._imsPhones.push(imsPhone);
+      if (!IMS_ENABLED) {
+        return;
       }
+      let imsPhone = gImsPhoneService.getPhoneByServiceId(index);
+      this._imsPhones.push(imsPhone);
     }
   },
 

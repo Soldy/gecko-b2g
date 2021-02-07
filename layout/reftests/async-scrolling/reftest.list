@@ -6,7 +6,7 @@ skip-if(!asyncPan) == bg-fixed-child.html bg-fixed-child-ref.html
 skip-if(!asyncPan) == bg-fixed-child-clip-1.html bg-fixed-child-clip-ref.html
 skip-if(!asyncPan) == bg-fixed-child-clip-2.html bg-fixed-child-clip-ref.html
 fuzzy(0-1,0-246) fuzzy-if(skiaContent,0-2,0-170) fuzzy-if(browserIsRemote&&d2d,0-59,0-187) fuzzy-if(webrender,41-42,166-176) skip-if(!asyncPan) == bg-fixed-child-mask.html bg-fixed-child-mask-ref.html
-skip-if(!asyncPan) == bg-fixed-in-opacity.html bg-fixed-in-opacity-ref.html
+skip-if(!asyncPan) fuzzy-if(!webrender&&(gtkWidget||winWidget),0-1,0-10000) == bg-fixed-in-opacity.html bg-fixed-in-opacity-ref.html
 # Passing the test below without WebRender would require implementing CSS filters in the Gecko compositor.
 fails-if(!webrender) skip-if(!asyncPan) fuzzy-if(webrender&&gtkWidget,0-1,0-87) fuzzy-if(webrender&&!gtkWidget,0-1,0-3951) == bg-fixed-in-css-filter.html bg-fixed-in-css-filter-ref.html # bug 1454794 for webrender fuzziness
 skip-if(!asyncPan) == bg-fixed-child-no-culling-1.html bg-fixed-child-no-culling-1-ref.html
@@ -64,8 +64,8 @@ skip-if(Android||!asyncPan) != opaque-fractional-displayport-1.html about:blank
 skip-if(Android||!asyncPan) != opaque-fractional-displayport-2.html about:blank
 fuzzy-if(Android,0-19,0-4) fuzzy-if(webrender&&gtkWidget,19-19,28-32) fuzzy-if(webrender&&cocoaWidget,21-21,44-44) skip-if(!asyncPan) == fixed-pos-scrolled-clip-1.html fixed-pos-scrolled-clip-1-ref.html # Bug 1604338
 fuzzy-if(Android,0-44,0-10) fuzzy-if(webrender&&gtkWidget,26-26,56-64) fuzzy-if(webrender&&cocoaWidget,13-13,81-82) fuzzy-if(winWidget&&!nativeThemePref,0-4,0-36) skip-if(!asyncPan) == fixed-pos-scrolled-clip-2.html fixed-pos-scrolled-clip-2-ref.html # Bug 1604338
-fuzzy-if(Android,0-6,0-8) fuzzy-if(webrender&&gtkWidget,28-28,30-60) fuzzy-if(webrender&&cocoaWidget,18-19,70-75) skip-if(!asyncPan) == fixed-pos-scrolled-clip-3.html fixed-pos-scrolled-clip-3-ref.html # Bug 1604338
-fuzzy-if(Android,0-6,0-8) fuzzy-if(webrender&&gtkWidget,28-28,30-60) fuzzy-if(webrender&&cocoaWidget,18-19,70-75) skip-if(!asyncPan) == fixed-pos-scrolled-clip-4.html fixed-pos-scrolled-clip-4-ref.html # Bug 1604338
+fuzzy-if(Android,0-6,0-8) fuzzy-if(webrender&&gtkWidget,28-28,30-60) fuzzy-if(swgl&&gtkWidget&&!nativeThemePref,29-29,30-30) fuzzy-if(webrender&&cocoaWidget,18-19,70-75) skip-if(!asyncPan) == fixed-pos-scrolled-clip-3.html fixed-pos-scrolled-clip-3-ref.html # Bug 1604338
+fuzzy-if(Android,0-6,0-8) fuzzy-if(webrender&&gtkWidget,28-29,30-60) fuzzy-if(webrender&&cocoaWidget,18-19,70-75) skip-if(!asyncPan) == fixed-pos-scrolled-clip-4.html fixed-pos-scrolled-clip-4-ref.html # Bug 1604338
 skip-if(!asyncPan) == fixed-pos-scrolled-clip-5.html fixed-pos-scrolled-clip-5-ref.html
 skip-if(!asyncPan) == position-sticky-bug1434250.html position-sticky-bug1434250-ref.html
 fuzzy-if(Android,0-8,0-4) fuzzy-if(webrender&&gtkWidget,25-25,28-32) fuzzy-if(webrender&&cocoaWidget,16-16,44-44) skip-if(!asyncPan) == position-sticky-scrolled-clip-1.html position-sticky-scrolled-clip-1-ref.html # Bug 1604338
@@ -113,7 +113,7 @@ skip-if(!Android) pref(apz.allow_zooming,true) test-pref(apz.fixed-margin-overri
 # and "c" sets the main-thread scroll to the bottom of the page and async-scrolls
 # back up to the desired scroll offset. Therefore the reference page for three
 # variants is always the same.
-defaults fuzzy(0-1,0-120000)
+defaults fuzzy(0-2,0-120000)
 == dynamic-toolbar-sticky-1a.html dynamic-toolbar-sticky-1-ref.html
 == dynamic-toolbar-sticky-1b.html dynamic-toolbar-sticky-1-ref.html
 == dynamic-toolbar-sticky-1c.html dynamic-toolbar-sticky-1-ref.html

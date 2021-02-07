@@ -842,6 +842,7 @@ var WebViewChild = {
       !content.document.fullscreenElement
     ) {
       this.global.sendAsyncMessage(`WebView::fullscreen::exit`, {});
+      return;
     }
 
     let element = content.document.fullscreenElement;

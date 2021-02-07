@@ -506,6 +506,7 @@ nsDOMWindowUtils::SetDisplayPortForElement(float aXPx, float aYPx,
                      nsPresContext::CSSPixelsToAppUnits(aWidthPx),
                      nsPresContext::CSSPixelsToAppUnits(aHeightPx));
 
+  aElement->RemoveProperty(nsGkAtoms::MinimalDisplayPort);
   aElement->SetProperty(
       nsGkAtoms::DisplayPort,
       new DisplayPortPropertyData(displayport, aPriority, wasPainted),
@@ -564,7 +565,8 @@ nsDOMWindowUtils::SetDisplayPortMarginsForElement(
 
   DisplayPortUtils::SetDisplayPortMargins(
       aElement, presShell,
-      DisplayPortMargins::ForContent(aElement, displayportMargins), aPriority);
+      DisplayPortMargins::ForContent(aElement, displayportMargins),
+      DisplayPortUtils::ClearMinimalDisplayPortProperty::Yes, aPriority);
 
   return NS_OK;
 }
@@ -4062,26 +4064,6 @@ nsDOMWindowUtils::GetFramesReflowed(uint64_t* aResult) {
   }
 
   *aResult = presContext->FramesReflowedCount();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::SetServiceWorkersTestingEnabled(bool aEnabled) {
-  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
-  NS_ENSURE_STATE(window);
-
-  window->SetServiceWorkersTestingEnabled(aEnabled);
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::GetServiceWorkersTestingEnabled(bool* aEnabled) {
-  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
-  NS_ENSURE_STATE(window);
-
-  *aEnabled = window->GetServiceWorkersTestingEnabled();
-
   return NS_OK;
 }
 

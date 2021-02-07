@@ -726,7 +726,7 @@ interface nsIImsCallSession : nsISupports
   /**
    * Session modify request result codes.
    */
-  const long SESSION_MODIFY_REQUEST = 1;
+  const long SESSION_MODIFY_REQUEST_SUCCESS = 1;
   const long SESSION_MODIFY_REQUEST_FAIL = 2;
   const long SESSION_MODIFY_REQUEST_INVALID = 3;
   const long SESSION_MODIFY_REQUEST_TIMED_OUT = 4;

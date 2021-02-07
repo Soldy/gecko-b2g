@@ -61,6 +61,7 @@
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/LookAndFeel.h"
+#include "mozilla/PointerLockManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/Services.h"
@@ -1211,6 +1212,10 @@ nsFocusManager::BlurredElementInfo::~BlurredElementInfo() = default;
 static bool ShouldMatchFocusVisible(
     const Element& aElement, int32_t aFocusFlags,
     const Maybe<nsFocusManager::BlurredElementInfo>& aBlurredElementInfo) {
+  // If we were explicitly requested to show the ring, do it.
+  if (aFocusFlags & nsIFocusManager::FLAG_SHOWRING) {
+    return true;
+  }
   // Any element which supports keyboard input (such as an input element, or any
   // other element which may trigger a virtual keyboard to be shown on focus if
   // a physical keyboard is not present) should always match :focus-visible when
@@ -1264,31 +1269,6 @@ static bool ShouldMatchFocusVisible(
   return false;
 }
 
-static bool ShouldFocusRingBeVisible(
-    Element& aElement, int32_t aFlags,
-    const Maybe<nsFocusManager::BlurredElementInfo>& aBlurredElementInfo) {
-  if (aFlags & nsIFocusManager::FLAG_SHOWRING) {
-    return true;
-  }
-
-  const bool focusVisibleEnabled =
-      StaticPrefs::layout_css_focus_visible_enabled();
-
-#if defined(XP_MACOSX) || defined(ANDROID)
-  if (!focusVisibleEnabled) {
-    // Preserve historical behavior if the focus visible pseudo-class is not
-    // enabled.
-    if (aFlags & nsIFocusManager::FLAG_BYMOUSE) {
-      return !nsContentUtils::ContentIsLink(&aElement) &&
-             !aElement.IsAnyOfHTMLElements(nsGkAtoms::video, nsGkAtoms::audio);
-    }
-    return true;
-  }
-#endif
-  return focusVisibleEnabled &&
-         ShouldMatchFocusVisible(aElement, aFlags, aBlurredElementInfo);
-}
-
 /* static */
 void nsFocusManager::NotifyFocusStateChange(
     Element* aElement, Element* aElementToFocus,
@@ -1304,7 +1284,7 @@ void nsFocusManager::NotifyFocusStateChange(
   if (aGettingFocus) {
     EventStates eventStateToAdd = NS_EVENT_STATE_FOCUS;
     if (aWindowShouldShowFocusRing ||
-        ShouldFocusRingBeVisible(*aElement, aFlags, aBlurredElementInfo)) {
+        ShouldMatchFocusVisible(*aElement, aFlags, aBlurredElementInfo)) {
       eventStateToAdd |= NS_EVENT_STATE_FOCUSRING;
     }
     aElement->AddStates(eventStateToAdd);
@@ -4723,11 +4703,8 @@ void nsFocusManager::GetFocusInSelection(nsPIDOMWindowOuter* aWindow,
 }
 
 static void MaybeUnlockPointer(BrowsingContext* aCurrentFocusedContext) {
-  nsCOMPtr<Document> pointerLockedDoc =
-      do_QueryReferent(EventStateManager::sPointerLockedDoc);
-  if (pointerLockedDoc &&
-      !nsContentUtils::IsInPointerLockContext(aCurrentFocusedContext)) {
-    Document::UnlockPointer();
+  if (!PointerLockManager::IsInLockContext(aCurrentFocusedContext)) {
+    PointerLockManager::Unlock();
   }
 }
 
@@ -4957,8 +4934,8 @@ uint64_t nsFocusManager::GenerateFocusActionId() {
 }
 
 static bool IsInPointerLockContext(nsPIDOMWindowOuter* aWin) {
-  return nsContentUtils::IsInPointerLockContext(
-      aWin ? aWin->GetBrowsingContext() : nullptr);
+  return PointerLockManager::IsInLockContext(aWin ? aWin->GetBrowsingContext()
+                                                  : nullptr);
 }
 
 void nsFocusManager::SetFocusedWindowInternal(nsPIDOMWindowOuter* aWindow) {

@@ -204,6 +204,9 @@ bool RangeAnalysis::addBetaNodes() {
       continue;
     }
 
+    // isNumericComparison should return false for UIntPtr.
+    MOZ_ASSERT(compare->compareType() != MCompare::Compare_UIntPtr);
+
     MDefinition* left = compare->getOperand(0);
     MDefinition* right = compare->getOperand(1);
     double bound;
@@ -1800,11 +1803,15 @@ void MInitializedLength::computeRange(TempAllocator& alloc) {
 }
 
 void MArrayBufferViewLength::computeRange(TempAllocator& alloc) {
-  setRange(Range::NewUInt32Range(alloc, 0, INT32_MAX));
+  if (ArrayBufferObject::maxBufferByteLength() <= INT32_MAX) {
+    setRange(Range::NewUInt32Range(alloc, 0, INT32_MAX));
+  }
 }
 
 void MArrayBufferViewByteOffset::computeRange(TempAllocator& alloc) {
-  setRange(Range::NewUInt32Range(alloc, 0, INT32_MAX));
+  if (ArrayBufferObject::maxBufferByteLength() <= INT32_MAX) {
+    setRange(Range::NewUInt32Range(alloc, 0, INT32_MAX));
+  }
 }
 
 void MTypedArrayElementShift::computeRange(TempAllocator& alloc) {
@@ -1845,6 +1852,10 @@ void MBoundsCheck::computeRange(TempAllocator& alloc) {
 void MSpectreMaskIndex::computeRange(TempAllocator& alloc) {
   // Just transfer the incoming index range to the output for now.
   setRange(new (alloc) Range(index()));
+}
+
+void MInt32ToIntPtr::computeRange(TempAllocator& alloc) {
+  setRange(new (alloc) Range(input()));
 }
 
 void MArrayPush::computeRange(TempAllocator& alloc) {
@@ -2339,6 +2350,20 @@ bool RangeAnalysis::tryHoistBoundsCheck(MBasicBlock* header,
   lowerCheck->setBailoutKind(BailoutKind::HoistBoundsCheck);
   preLoop->insertBefore(preLoop->lastIns(), lowerCheck);
 
+  // A common pattern for iterating over typed arrays is this:
+  //
+  //   for (var i = 0; i < ta.length; i++) {
+  //     use ta[i];
+  //   }
+  //
+  // Here |upperTerm| (= ta.length) is a NonNegativeIntPtrToInt32 instruction.
+  // Unwrap this if |length| is also an IntPtr so that we don't add an
+  // unnecessary bounds check and Int32ToIntPtr below.
+  if (upperTerm->isNonNegativeIntPtrToInt32() &&
+      length->type() == MIRType::IntPtr) {
+    upperTerm = upperTerm->toNonNegativeIntPtrToInt32()->input();
+  }
+
   // Hoist the loop invariant upper bounds checks.
   if (upperTerm != length || upperConstant >= 0) {
     // Hoist the bound check's length if it isn't already loop invariant.
@@ -2346,6 +2371,16 @@ bool RangeAnalysis::tryHoistBoundsCheck(MBasicBlock* header,
       MOZ_ASSERT(length->isConstant());
       MInstruction* lengthIns = length->toInstruction();
       lengthIns->block()->moveBefore(preLoop->lastIns(), lengthIns);
+    }
+
+    // If the length is IntPtr, convert the upperTerm to that as well for the
+    // bounds check.
+    if (length->type() == MIRType::IntPtr &&
+        upperTerm->type() == MIRType::Int32) {
+      upperTerm = MInt32ToIntPtr::New(alloc(), upperTerm);
+      upperTerm->computeRange(alloc());
+      upperTerm->collectRangeInfoPreTrunc();
+      preLoop->insertBefore(preLoop->lastIns(), upperTerm->toInstruction());
     }
 
     MBoundsCheck* upperCheck = MBoundsCheck::New(alloc(), upperTerm, length);
@@ -2436,7 +2471,7 @@ bool RangeAnalysis::addRangeAssertions() {
 
       // Perform range checking for all numeric and numeric-like types.
       if (!IsNumberType(ins->type()) && ins->type() != MIRType::Boolean &&
-          ins->type() != MIRType::Value) {
+          ins->type() != MIRType::Value && ins->type() != MIRType::IntPtr) {
         continue;
       }
 
@@ -3281,6 +3316,13 @@ void MLoadElementHole::collectRangeInfoPreTrunc() {
   if (indexRange.isFiniteNonNegative()) {
     needsNegativeIntCheck_ = false;
     setNotGuard();
+  }
+}
+
+void MInt32ToIntPtr::collectRangeInfoPreTrunc() {
+  Range inputRange(input());
+  if (inputRange.isFiniteNonNegative()) {
+    canBeNegative_ = false;
   }
 }
 

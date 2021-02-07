@@ -16,6 +16,7 @@
 #include "nsIFileChannel.h"
 #include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
+#include "nsIPermissionManager.h"
 #include "nsISupportsPriority.h"
 #include "nsIThreadRetargetableRequest.h"
 #include "nsIUploadChannel2.h"
@@ -854,10 +855,29 @@ already_AddRefed<InternalResponse> FetchDriver::BeginAndGetFilteredResponse(
         filteredResponse = aResponse->CORSResponse();
         break;
       case LoadTainting::Opaque: {
-        filteredResponse = aResponse->OpaqueResponse();
-        nsresult rv = filteredResponse->GeneratePaddingInfo();
-        if (NS_WARN_IF(NS_FAILED(rv))) {
-          return nullptr;
+        // If the load is Opaque (when using no-cors) but the caller has the
+        // systemXHR permission, return a basic response instead to allow access
+        // to the response properties.
+        nsresult rv;
+        nsCOMPtr<nsIPermissionManager> permMgr =
+            do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+        bool isSystemXHR = false;
+        if (NS_SUCCEEDED(rv)) {
+          uint32_t perm;
+          rv = permMgr->TestPermissionFromPrincipal(mPrincipal, "systemXHR"_ns,
+                                                    &perm);
+          isSystemXHR =
+              NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION;
+        }
+
+        if (isSystemXHR) {
+          filteredResponse = aResponse->BasicResponse();
+        } else {
+          filteredResponse = aResponse->OpaqueResponse();
+          nsresult rv = filteredResponse->GeneratePaddingInfo();
+          if (NS_WARN_IF(NS_FAILED(rv))) {
+            return nullptr;
+          }
         }
         break;
       }

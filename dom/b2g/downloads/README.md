@@ -47,8 +47,8 @@ navigator.b2g.downloadManager.clearAllDone();
 navigator.b2g.downloadManager.adoptDownload(
   {
     "totalBytes": 1024,
-    "url": "", // This can be empty, or the app url that adopts this download.
-    "storageName": "data/usbmsc_mnt",
+    "url": "http://email.localhost", // This cannot be empty, or the download record cannot persist after b2g restart.
+    "storageName": "sdcard",
     "storagePath": "downloads/download.txt", // This file should actually exist.
     "contentType": "text/plain",
     "startTime": new Date(Date.now())
@@ -79,6 +79,6 @@ navigator.b2g.downloadManager.addEventListener(
 ```
 
 ## Notes
-1. The App permission of Download API is not yet handled.
-2. In Gecko48, user can click on the `Download` option from context menu on an image, to download that image. This is not supported yet.
-3. In Gecko48, Gaia also maintains a list of all completed downloads in its own db, and updates every time a download is completed. To avoid duplication, System App calls clearAllDone every time b2g starts. This behavior is not settled yet.
+1. Currently only core apps with `downloads` permission are allowed to use Download API.
+2. For allowing normal pages to see and access download objects for which it is the referrer, see follow-up bug 112699.
+3. In Gecko48, user can click on the `Download` option from context menu on an image, to download that image. This is not supported yet.

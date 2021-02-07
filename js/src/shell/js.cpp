@@ -286,7 +286,8 @@ class js::shell::OffThreadJob {
  public:
   using Source = mozilla::Variant<JS::UniqueTwoByteChars, JS::TranscodeBuffer>;
 
-  OffThreadJob(ShellContext* sc, ScriptKind kind, Source&& source);
+  OffThreadJob(ShellContext* sc, ScriptKind kind, bool useOffThreadParseGlobal,
+               Source&& source);
   ~OffThreadJob();
 
   void cancel();
@@ -299,6 +300,7 @@ class js::shell::OffThreadJob {
  public:
   const int32_t id;
   const ScriptKind kind;
+  const bool useOffThreadParseGlobal;
 
  private:
   js::Monitor& monitor;
@@ -308,10 +310,11 @@ class js::shell::OffThreadJob {
 };
 
 static OffThreadJob* NewOffThreadJob(JSContext* cx, ScriptKind kind,
+                                     CompileOptions& options,
                                      OffThreadJob::Source&& source) {
   ShellContext* sc = GetShellContext(cx);
-  UniquePtr<OffThreadJob> job(
-      cx->new_<OffThreadJob>(sc, kind, std::move(source)));
+  UniquePtr<OffThreadJob> job(cx->new_<OffThreadJob>(
+      sc, kind, options.useOffThreadParseGlobal, std::move(source)));
   if (!job) {
     return nullptr;
   }
@@ -441,9 +444,11 @@ static void CancelOffThreadJobsForRuntime(JSContext* cx) {
 
 mozilla::Atomic<int32_t> gOffThreadJobSerial(1);
 
-OffThreadJob::OffThreadJob(ShellContext* sc, ScriptKind kind, Source&& source)
+OffThreadJob::OffThreadJob(ShellContext* sc, ScriptKind kind,
+                           bool useOffThreadParseGlobal, Source&& source)
     : id(gOffThreadJobSerial++),
       kind(kind),
+      useOffThreadParseGlobal(useOffThreadParseGlobal),
       monitor(sc->offThreadMonitor),
       state(RUNNING),
       token(nullptr),
@@ -2430,7 +2435,9 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
       }
     }
 
-    if (!JS_ExecuteScript(cx, envChain, script, args.rval())) {
+    if (!(envChain.empty()
+              ? JS_ExecuteScript(cx, script, args.rval())
+              : JS_ExecuteScript(cx, envChain, script, args.rval()))) {
       if (catchTermination && !JS_IsExceptionPending(cx)) {
         JSAutoRealm ar1(cx, callerGlobal);
         JSString* str = JS_NewStringCopyZ(cx, "terminated");
@@ -5302,9 +5309,10 @@ static bool DumpAST(JSContext* cx, const JS::ReadOnlyCompileOptions& options,
                     js::frontend::ParseGoal goal) {
   using namespace js::frontend;
 
-  Parser<FullParseHandler, Unit> parser(cx, options, units, length, false,
-                                        stencil, compilationState, nullptr,
-                                        nullptr);
+  Parser<FullParseHandler, Unit> parser(cx, options, units, length,
+                                        /* foldConstants = */ false, stencil,
+                                        compilationState,
+                                        /* syntaxParser = */ nullptr);
   if (!parser.checkOptions()) {
     return false;
   }
@@ -5342,7 +5350,7 @@ static bool DumpAST(JSContext* cx, const JS::ReadOnlyCompileOptions& options,
 
 #if defined(DEBUG)
   js::Fprinter out(stderr);
-  DumpParseTree(pn, out);
+  DumpParseTree(&parser, pn, out);
 #endif
 
   return true;
@@ -5598,6 +5606,9 @@ static bool FrontendTest(JSContext* cx, unsigned argc, Value* vp,
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
   frontend::CompilationState compilationState(cx, allocScope, options,
                                               stencil.get());
+  if (!compilationState.init(cx)) {
+    return false;
+  }
 
   if (isAscii) {
     const Latin1Char* latin1 = stableChars.latin1Range().begin().get();
@@ -5671,10 +5682,14 @@ static bool SyntaxParse(JSContext* cx, unsigned argc, Value* vp) {
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
   frontend::CompilationState compilationState(cx, allocScope, options,
                                               stencil.get());
+  if (!compilationState.init(cx)) {
+    return false;
+  }
 
   Parser<frontend::SyntaxParseHandler, char16_t> parser(
-      cx, options, chars, length, false, stencil.get(), compilationState,
-      nullptr, nullptr);
+      cx, options, chars, length,
+      /* foldConstants = */ false, stencil.get(), compilationState,
+      /* syntaxParser = */ nullptr);
   if (!parser.checkOptions()) {
     return false;
   }
@@ -5772,8 +5787,9 @@ static bool OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  OffThreadJob* job = NewOffThreadJob(
-      cx, ScriptKind::Script, OffThreadJob::Source(std::move(ownedChars)));
+  OffThreadJob* job =
+      NewOffThreadJob(cx, ScriptKind::Script, options,
+                      OffThreadJob::Source(std::move(ownedChars)));
   if (!job) {
     return false;
   }
@@ -5795,14 +5811,15 @@ static bool OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp) {
 static bool runOffThreadScript(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  if (OffThreadParsingMustWaitForGC(cx->runtime())) {
-    gc::FinishGC(cx);
-  }
-
   OffThreadJob* job =
       LookupOffThreadJobForArgs(cx, ScriptKind::Script, args, 0);
   if (!job) {
     return false;
+  }
+
+  if (job->useOffThreadParseGlobal &&
+      OffThreadParsingMustWaitForGC(cx->runtime())) {
+    gc::FinishGC(cx);
   }
 
   JS::OffThreadToken* token = job->waitUntilDone(cx);
@@ -5861,8 +5878,9 @@ static bool OffThreadCompileModule(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  OffThreadJob* job = NewOffThreadJob(
-      cx, ScriptKind::Module, OffThreadJob::Source(std::move(ownedChars)));
+  OffThreadJob* job =
+      NewOffThreadJob(cx, ScriptKind::Module, options,
+                      OffThreadJob::Source(std::move(ownedChars)));
   if (!job) {
     return false;
   }
@@ -5884,14 +5902,15 @@ static bool OffThreadCompileModule(JSContext* cx, unsigned argc, Value* vp) {
 static bool FinishOffThreadModule(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  if (OffThreadParsingMustWaitForGC(cx->runtime())) {
-    gc::FinishGC(cx);
-  }
-
   OffThreadJob* job =
       LookupOffThreadJobForArgs(cx, ScriptKind::Module, args, 0);
   if (!job) {
     return false;
+  }
+
+  if (job->useOffThreadParseGlobal &&
+      OffThreadParsingMustWaitForGC(cx->runtime())) {
+    gc::FinishGC(cx);
   }
 
   JS::OffThreadToken* token = job->waitUntilDone(cx);
@@ -5937,6 +5956,14 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
   options.useStencilXDR =
       CacheEntry_getKind(cx, cacheEntry) == BytecodeCacheKind::Stencil;
 
+  // In browser, we always use off-thread parse global for decode task, for
+  // performance reason.
+  // (see ScriptLoader::AttemptAsyncScriptCompile)
+  //
+  // This code should be removed, and the above code should be used, once
+  // bug 1687973 gets fixed.
+  options.useOffThreadParseGlobal = true;
+
   if (args.length() >= 2) {
     if (args[1].isPrimitive()) {
       JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr,
@@ -5976,7 +6003,7 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   OffThreadJob* job =
-      NewOffThreadJob(cx, ScriptKind::DecodeScript,
+      NewOffThreadJob(cx, ScriptKind::DecodeScript, options,
                       OffThreadJob::Source(std::move(loadBuffer)));
   if (!job) {
     return false;
@@ -5996,14 +6023,15 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
 static bool runOffThreadDecodedScript(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  if (OffThreadParsingMustWaitForGC(cx->runtime())) {
-    gc::FinishGC(cx);
-  }
-
   OffThreadJob* job =
       LookupOffThreadJobForArgs(cx, ScriptKind::DecodeScript, args, 0);
   if (!job) {
     return false;
+  }
+
+  if (job->useOffThreadParseGlobal &&
+      OffThreadParsingMustWaitForGC(cx->runtime())) {
+    gc::FinishGC(cx);
   }
 
   JS::OffThreadToken* token = job->waitUntilDone(cx);
@@ -10830,11 +10858,15 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   }
 
   if (op.getBoolOption("enable-large-buffers")) {
-    ArrayBufferObject::supportLargeBuffers = true;
+    JS::SetLargeArrayBuffersEnabled(true);
   }
 
   if (op.getBoolOption("disable-bailout-loop-check")) {
     jit::JitOptions.disableBailoutLoopCheck = true;
+  }
+
+  if (op.getBoolOption("scalar-replace-arguments")) {
+    jit::JitOptions.scalarReplaceArguments = true;
   }
 
 #if defined(JS_CODEGEN_ARM)
@@ -11454,8 +11486,6 @@ int main(int argc, char** argv, char** envp) {
                         "Trace regexp interpreter") ||
       !op.addBoolOption('\0', "trace-regexp-peephole",
                         "Trace regexp peephole optimization") ||
-      !op.addBoolOption('\0', "no-unboxed-objects",
-                        "Disable creating unboxed plain objects") ||
       !op.addBoolOption('\0', "enable-streams",
                         "Enable WHATWG Streams (default)") ||
       !op.addBoolOption('\0', "no-streams", "Disable WHATWG Streams") ||
@@ -11542,6 +11572,8 @@ int main(int argc, char** argv, char** envp) {
           "On-Stack Replacement (default: on, off to disable)") ||
       !op.addBoolOption('\0', "disable-bailout-loop-check",
                         "Turn off bailout loop check") ||
+      !op.addBoolOption('\0', "scalar-replace-arguments",
+                        "Use scalar replacement to optimize ArgumentsObject") ||
       !op.addStringOption(
           '\0', "ion-limit-script-size", "on/off",
           "Don't compile very large scripts (default: on, off to disable)") ||

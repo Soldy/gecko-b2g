@@ -325,13 +325,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gonk":
     ]
 
 if CONFIG["OS_TARGET"] == "WINNT":
-    EXPORTS.mozilla.audio += [
-        "AudioNotificationReceiver.h",
-        "AudioNotificationSender.h",
-    ]
     SOURCES += [
-        "AudioNotificationReceiver.cpp",
-        "AudioNotificationSender.cpp",
         "ThreadPoolCOMListener.cpp",
     ]
 

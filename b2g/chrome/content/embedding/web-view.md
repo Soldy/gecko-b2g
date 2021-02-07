@@ -10,28 +10,30 @@ The <web-view> element supports the following attributes:
 
 ## Methods
 
-- `focus() : void` : focuses the browser.
+- `activateKeyForwarding() : void` : enable key forward to this web-view first.
 - `blur() : void` : blurs the browser.
+- `cleanup() : void` : releases resources before removing the <web-view> from the DOM. The <web-view> is not usable after this call.
+- `deactivateKeyForwarding() : void` : disable key forwarding.
+- `disableCursor() : void` : disables the virtual cursor.
+- `enableCursor() : void` : enables the virtual cursor.
+- `focus() : void` : focuses the browser.
 - `getBackgroundColor() : Promise<String>`: returns the CSS value of the page's background color.
+- `getCursorEnabled() : Promise<boolean>` : query whether the virtual cursor is enabled.
 - `getScreenshot(max_width, max_height, mime_type) : Promise<Blob>` : takes a screenshot of the current page.
 - `goForward() : void` : navigates one step forwared in the history.
 - `goBack() : void` : navigates one step back in the history.
 - `reload(forced) : void` : reload the patch, bypassing the cache if `forced` is true.
-- `stop() : void` : stops the current page loading.
-- `enableCursor() : void` : enables the virtual cursor.
-- `disableCursor() : void` : disables the virtual cursor.
-- `getCursorEnabled() : Promise<boolean>` : query whether the virtual cursor is enabled.
 - `scrollToTop(smooth = true) : void` : scrolls to the top of the document.
 - `scrollToBottom(smooth = true) : void` : scrolls to the bottom of the document.
-- `activateKeyForwarding() : void` : enable key forward to this web-view first.
-- `deactivateKeyForwarding() : void` : disable key forwarding.
+- `stop() : void` : stops the current page loading.
 
 ## Properties
 
+- `(readonly) allowedAudioChannels` : returns the list of audio channel supported for this element.
 - `(readonly) frame` : returns a handle to the underlying browser. Use with care!
 - `src : string` : mirror of the `src` attribute.
-- ` (readonly) canGoForward : boolean` : return `true` if calling `goForward()` would be effective.
-- ` (readonly) canGoBack : boolean` : return `true` if calling `goBack()` would be effective.
+- `(readonly) canGoForward : boolean` : return `true` if calling `goForward()` would be effective.
+- `(readonly) canGoBack : boolean` : return `true` if calling `goBack()` would be effective.
 - `active : boolean` : control the active state of the browser's docShell.
 - `(readonly) processid : int` : returns the process ID of its content process if there is, or -1 if there is not.
 - `visible : boolean`: currently similar to `active`.

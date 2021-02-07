@@ -1678,6 +1678,8 @@ class HTMLMediaElement::AudioChannelAgentCallback final
     // If we have started audio capturing before, we have to tell media element
     // to clear the output capturing track.
     mOwner->AudioCaptureTrackChange(false);
+    // Reset suspended state after the agent stops playing.
+    SetSuspended(false);
   }
 
   void SetSuspended(bool aSuspended) {
@@ -1692,8 +1694,13 @@ class HTMLMediaElement::AudioChannelAgentCallback final
 
     mSuspended = aSuspended;
     mOwner->SetSuspendedByAudioChannel(aSuspended);
-    mOwner->DispatchAsyncEvent(aSuspended ? u"mozinterruptbegin"_ns
-                                          : u"mozinterruptend"_ns);
+
+    // Only dispatch mozinterrupt events when the agent has started playing.
+    if (IsPlayingStarted()) {
+      mOwner->DispatchAsyncEvent(aSuspended ? u"mozinterruptbegin"_ns
+                                            : u"mozinterruptend"_ns);
+    }
+
     NotifyAudioPlaybackChanged(
         AudioChannelService::AudibleChangedReasons::ePauseStateChanged);
   }
@@ -1723,11 +1730,6 @@ class HTMLMediaElement::AudioChannelAgentCallback final
     // We should consider any bfcached page or inactive document as non-playing.
     if (!mOwner->OwnerDoc()->IsActive()) {
       return false;
-    }
-
-    // It might be resumed from remote, we should keep the audio channel agent.
-    if (IsSuspended()) {
-      return true;
     }
 
     // Media is suspended by the docshell.
