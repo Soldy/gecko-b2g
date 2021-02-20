@@ -510,8 +510,10 @@ max-width: ${width}px; max-height: ${height}px`;
     let msg = null;
 
     if (lhsCount != rhsCount) {
-      passed = false;
-      msg = `Got different numbers of pages; test has ${lhsCount}, ref has ${rhsCount}`;
+      passed = relation == "!=";
+      if (!passed) {
+        msg = `Got different numbers of pages; test has ${lhsCount}, ref has ${rhsCount}`;
+      }
     }
 
     let lhs = null;
@@ -635,11 +637,6 @@ max-width: ${width}px; max-height: ${height}px`;
 
       browser.changeRemoteness({ remoteType });
       browser.construct();
-
-      // XXX: This appears to be working fine as is, should we be reinitializing
-      // something here? If so, what? The listener.js framescript is registered
-      // on the reftest.xhtml chrome window (which shouldn't be changing?), and
-      // driver.js uses the global message manager to listen for messages.
     }
   }
 

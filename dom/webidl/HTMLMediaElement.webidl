@@ -138,9 +138,6 @@ partial interface HTMLMediaElement {
   // it is equal to the media duration.
   readonly attribute double mozFragmentEnd;
 
-  [ChromeOnly]
-  void reportCanPlayTelemetry();
-
   // Mozilla extension: an audio channel type for media elements.
   // Read AudioChannel.webidl for more information about this attribute.
   [SetterThrows, Pref="media.useAudioChannelAPI"]

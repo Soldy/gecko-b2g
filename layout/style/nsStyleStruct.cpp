@@ -497,6 +497,9 @@ nsChangeHint nsStyleBorder::CalcDifference(
     }
   }
 
+  // Note that border radius also controls the outline radius if the
+  // layout.css.outline-follows-border-radius.enabled pref is set. Any
+  // optimizations here should apply to both.
   if (mBorderRadius != aNewData.mBorderRadius) {
     return nsChangeHint_RepaintFrame;
   }
@@ -1355,7 +1358,7 @@ nsStyleTableBorder::nsStyleTableBorder(const Document& aDocument)
     : mBorderSpacingCol(0),
       mBorderSpacingRow(0),
       mBorderCollapse(StyleBorderCollapse::Separate),
-      mCaptionSide(NS_STYLE_CAPTION_SIDE_TOP),
+      mCaptionSide(StyleCaptionSide::Top),
       mEmptyCells(StyleEmptyCells::Show) {
   MOZ_COUNT_CTOR(nsStyleTableBorder);
 }
@@ -3083,16 +3086,8 @@ nsChangeHint nsStyleUI::CalcDifference(const nsStyleUI& aNewData) const {
     hint |= NS_STYLE_HINT_VISUAL;
   }
 
-  if (mUserInput != aNewData.mUserInput) {
-    if (StyleUserInput::None == mUserInput ||
-        StyleUserInput::None == aNewData.mUserInput) {
-      hint |= nsChangeHint_ReconstructFrame;
-    } else {
-      hint |= nsChangeHint_NeutralChange;
-    }
-  }
-
-  if (mUserFocus != aNewData.mUserFocus || mInert != aNewData.mInert) {
+  if (mUserFocus != aNewData.mUserFocus || mInert != aNewData.mInert ||
+      mUserInput != aNewData.mUserInput) {
     hint |= nsChangeHint_NeutralChange;
   }
 
@@ -3433,7 +3428,12 @@ ResultT StyleCalcNode::ResolveInternal(ResultT aPercentageBasis,
 
 template <>
 CSSCoord StyleCalcNode::ResolveToCSSPixels(CSSCoord aBasis) const {
-  return ResolveInternal(aBasis, [](CSSCoord aPercent) { return aPercent; });
+  CSSCoord result =
+      ResolveInternal(aBasis, [](CSSCoord aPercent) { return aPercent; });
+  if (IsNaN(float(result))) {
+    return 0.0f;  // This matches style::values::normalize
+  }
+  return result;
 }
 
 template <>

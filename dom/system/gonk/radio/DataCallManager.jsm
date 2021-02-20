@@ -1144,11 +1144,11 @@ DataCallHandler.prototype = {
     let pcoValueList = [];
     for (let i = 0; i < pcoDataCalls.length; i++) {
       let pcoDataCall = pcoDataCalls[i];
-      for (let i = 0; i < pcoDataCall.requestedNetworkIfaces.length; i++) {
+      for (let j = 0; j < pcoDataCall.requestedNetworkIfaces.length; j++) {
         let pcoValue = {
           clientId: this.clientId,
-          iccId: this.newIccid,
-          apnType: pcoDataCall.requestedNetworkIfaces[i].info.type,
+          iccId: pcoDataCall.requestedNetworkIfaces[j].info.iccId,
+          apnType: pcoDataCall.requestedNetworkIfaces[j].info.type,
           bearerProto: aBearerProtom,
           pcoId: aPcoId,
           contents: aContents,
@@ -1157,6 +1157,9 @@ DataCallHandler.prototype = {
       }
     }
     // Passing the pco value to pco server.
+    if (DEBUG) {
+      this.debug("updatePcoData pcoValueList=" + JSON.stringify(pcoValueList));
+    }
     gPCOService.updatePcoData(pcoValueList);
   },
 

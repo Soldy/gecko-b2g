@@ -62,6 +62,7 @@
 #include "vm/RegExpStaticsObject.h"
 #include "vm/Shape.h"
 #include "vm/TypedArrayObject.h"
+#include "vm/WellKnownAtom.h"  // js_*_str
 
 #include "builtin/Boolean-inl.h"
 #include "gc/Marking-inl.h"
@@ -975,7 +976,7 @@ JSObject* js::NewObjectWithGroupCommon(JSContext* cx, HandleObjectGroup group,
 }
 
 bool js::NewObjectScriptedCall(JSContext* cx, MutableHandleObject pobj) {
-  gc::AllocKind allocKind = NewObjectGCKind(&PlainObject::class_);
+  gc::AllocKind allocKind = NewObjectGCKind();
   NewObjectKind newKind = GenericObject;
 
   JSObject* obj = NewBuiltinClassInstance<PlainObject>(cx, allocKind, newKind);
@@ -994,7 +995,7 @@ JSObject* js::CreateThis(JSContext* cx, const JSClass* newclasp,
           cx, callee, JSCLASS_CACHED_PROTO_KEY(newclasp), &proto)) {
     return nullptr;
   }
-  gc::AllocKind kind = NewObjectGCKind(newclasp);
+  gc::AllocKind kind = NewObjectGCKind();
   return NewObjectWithClassProto(cx, newclasp, proto, kind);
 }
 
@@ -1310,7 +1311,7 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
     if (mode == XDR_ENCODE) {
       RootedArrayObject arr(cx, &obj->as<ArrayObject>());
       if (!GetScriptArrayObjectElements(arr, &values)) {
-        return xdr->fail(JS::TranscodeResult_Throw);
+        return xdr->fail(JS::TranscodeResult::Throw);
       }
     }
 
@@ -1321,7 +1322,7 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
     MOZ_TRY(xdr->codeUint32(&initialized));
     if (mode == XDR_DECODE &&
         !values.appendN(MagicValue(JS_ELEMENTS_HOLE), initialized)) {
-      return xdr->fail(JS::TranscodeResult_Throw);
+      return xdr->fail(JS::TranscodeResult::Throw);
     }
 
     // Recursively copy dense elements.
@@ -1333,7 +1334,7 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
       obj.set(NewDenseCopiedArray(cx, values.length(), values.begin(),
                                   /* proto = */ nullptr, TenuredObject));
       if (!obj) {
-        return xdr->fail(JS::TranscodeResult_Throw);
+        return xdr->fail(JS::TranscodeResult::Throw);
       }
     }
 
@@ -1343,14 +1344,14 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
   // Code the properties in the object.
   Rooted<IdValueVector> properties(cx, IdValueVector(cx));
   if (mode == XDR_ENCODE && !GetScriptPlainObjectProperties(obj, &properties)) {
-    return xdr->fail(JS::TranscodeResult_Throw);
+    return xdr->fail(JS::TranscodeResult::Throw);
   }
 
   uint32_t nproperties = properties.length();
   MOZ_TRY(xdr->codeUint32(&nproperties));
 
   if (mode == XDR_DECODE && !properties.appendN(IdValuePair(), nproperties)) {
-    return xdr->fail(JS::TranscodeResult_Throw);
+    return xdr->fail(JS::TranscodeResult::Throw);
   }
 
   for (size_t i = 0; i < nproperties; i++) {
@@ -1364,7 +1365,7 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
 
     if (mode == XDR_DECODE) {
       if (!PrimitiveValueToId<CanGC>(cx, tmpIdValue, &tmpId)) {
-        return xdr->fail(JS::TranscodeResult_Throw);
+        return xdr->fail(JS::TranscodeResult::Throw);
       }
       properties[i].get().id = tmpId;
       properties[i].get().value = tmpValue;
@@ -1375,7 +1376,7 @@ XDRResult js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj) {
     obj.set(NewPlainObjectWithProperties(cx, properties.begin(),
                                          properties.length(), TenuredObject));
     if (!obj) {
-      return xdr->fail(JS::TranscodeResult_Throw);
+      return xdr->fail(JS::TranscodeResult::Throw);
     }
   }
 
@@ -1469,7 +1470,7 @@ bool js::ObjectMayBeSwapped(const JSObject* obj) {
   return clasp->isProxy() || clasp->isDOMClass();
 }
 
-static MOZ_MUST_USE bool CopyProxyValuesBeforeSwap(
+[[nodiscard]] static bool CopyProxyValuesBeforeSwap(
     JSContext* cx, ProxyObject* proxy, MutableHandleValueVector values) {
   MOZ_ASSERT(values.empty());
 
@@ -1813,10 +1814,10 @@ static bool ReshapeForProtoMutation(JSContext* cx, HandleObject obj) {
   // Heuristics:
   //  - Set UNCACHEABLE_PROTO flag on shape to avoid creating too many private
   //    shape copies.
-  //  - Only propegate along proto chain if we are mark DELEGATE. This avoids
+  //  - Only propagate along proto chain if we are marked DELEGATE. This avoids
   //    reshaping in normal object access cases.
   //
-  // NOTE: We only handle NativeObjects and don't propegate reshapes through
+  // NOTE: We only handle NativeObjects and don't propagate reshapes through
   //       any non-native objects on the chain.
   //
   // See Also:
@@ -3800,7 +3801,7 @@ void JSObject::traceChildren(JSTracer* trc) {
 }
 
 // ES 2016 7.3.20.
-MOZ_MUST_USE JSObject* js::SpeciesConstructor(
+[[nodiscard]] JSObject* js::SpeciesConstructor(
     JSContext* cx, HandleObject obj, HandleObject defaultCtor,
     bool (*isDefaultSpecies)(JSContext*, JSFunction*)) {
   // Step 1 (implicit).
@@ -3867,7 +3868,7 @@ MOZ_MUST_USE JSObject* js::SpeciesConstructor(
   return nullptr;
 }
 
-MOZ_MUST_USE JSObject* js::SpeciesConstructor(
+[[nodiscard]] JSObject* js::SpeciesConstructor(
     JSContext* cx, HandleObject obj, JSProtoKey ctorKey,
     bool (*isDefaultSpecies)(JSContext*, JSFunction*)) {
   RootedObject defaultCtor(cx,

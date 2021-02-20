@@ -2253,11 +2253,6 @@ NetworkManager.prototype = {
               this._setTcpBufferSize(this.activeNetworkInfo.tcpbuffersizes);
             }
           }
-          Services.obs.notifyObservers(
-            this.activeNetworkInfo,
-            TOPIC_ACTIVE_CHANGED,
-            this.convertActiveConnectionType(this.activeNetworkInfo)
-          );
         }
 
         if (this._manageOfflineStatus) {
@@ -2267,6 +2262,14 @@ NetworkManager.prototype = {
               Ci.nsITetheringService.TETHERING_STATE_INACTIVE &&
             gTetheringService.usbState ===
               Ci.nsITetheringService.TETHERING_STATE_INACTIVE;
+        }
+
+        if (this._activeNetwork != oldActive) {
+          Services.obs.notifyObservers(
+            this.activeNetworkInfo,
+            TOPIC_ACTIVE_CHANGED,
+            this.convertActiveConnectionType(this.activeNetworkInfo)
+          );
         }
         return Promise.resolve();
       });

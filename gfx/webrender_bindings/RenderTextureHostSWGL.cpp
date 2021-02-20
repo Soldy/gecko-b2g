@@ -5,6 +5,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "RenderTextureHostSWGL.h"
+
+#include "mozilla/gfx/Logging.h"
 #include "RenderThread.h"
 
 namespace mozilla {
@@ -139,7 +141,7 @@ void RenderTextureHostSWGL::CleanupPlanes() {
 RenderTextureHostSWGL::~RenderTextureHostSWGL() { CleanupPlanes(); }
 
 bool RenderTextureHostSWGL::LockSWGLCompositeSurface(
-    void* aContext, wr::WrSWGLCompositeSurfaceInfo* aInfo) {
+    void* aContext, wr::SWGLCompositeSurfaceInfo* aInfo) {
   if (!SetContext(aContext)) {
     return false;
   }
@@ -170,6 +172,7 @@ bool RenderTextureHostSWGL::LockSWGLCompositeSurface(
     case gfx::SurfaceFormat::B8G8R8X8:
       break;
     default:
+      gfxCriticalNote << "Unhandled external image format: " << GetFormat();
       MOZ_RELEASE_ASSERT(false, "Unhandled external image format");
       break;
   }
@@ -179,7 +182,7 @@ bool RenderTextureHostSWGL::LockSWGLCompositeSurface(
 }
 
 bool wr_swgl_lock_composite_surface(void* aContext, wr::ExternalImageId aId,
-                                    wr::WrSWGLCompositeSurfaceInfo* aInfo) {
+                                    wr::SWGLCompositeSurfaceInfo* aInfo) {
   RenderTextureHost* texture = RenderThread::Get()->GetRenderTexture(aId);
   if (!texture) {
     return false;

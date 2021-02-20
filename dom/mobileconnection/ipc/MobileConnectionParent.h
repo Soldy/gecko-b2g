@@ -127,6 +127,8 @@ class MobileConnectionRequestParent : public PMobileConnectionRequestParent,
 
   bool DoRequest(const GetDeviceIdentitiesRequest& aRequest);
 
+  bool DoRequest(const StopNetworkScanRequest& aRequest);
+
  protected:
   virtual ~MobileConnectionRequestParent() {}
 

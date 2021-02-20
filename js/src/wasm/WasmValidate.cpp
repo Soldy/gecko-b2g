@@ -483,12 +483,6 @@ static bool DecodeFunctionBodyExprs(const ModuleEnvironment& env,
   if (!(c)) return false; \
   break
 
-#ifdef ENABLE_WASM_SIMD_EXPERIMENTAL
-#  define CHECK_SIMD_EXPERIMENTAL() (void)(0)
-#else
-#  define CHECK_SIMD_EXPERIMENTAL() return iter.unrecognizedOpcode(&op)
-#endif
-
   while (true) {
     OpBytes op;
     if (!iter.readOp(&op)) {
@@ -932,6 +926,7 @@ static bool DecodeFunctionBodyExprs(const ModuleEnvironment& env,
           case uint32_t(SimdOp::I16x8AllTrue):
           case uint32_t(SimdOp::I32x4AnyTrue):
           case uint32_t(SimdOp::I32x4AllTrue):
+          case uint32_t(SimdOp::I64x2AllTrue):
           case uint32_t(SimdOp::I8x16Bitmask):
           case uint32_t(SimdOp::I16x8Bitmask):
           case uint32_t(SimdOp::I32x4Bitmask):
@@ -987,6 +982,8 @@ static bool DecodeFunctionBodyExprs(const ModuleEnvironment& env,
           case uint32_t(SimdOp::I32x4LeU):
           case uint32_t(SimdOp::I32x4GeS):
           case uint32_t(SimdOp::I32x4GeU):
+          case uint32_t(SimdOp::I64x2Eq):
+          case uint32_t(SimdOp::I64x2Ne):
           case uint32_t(SimdOp::F32x4Eq):
           case uint32_t(SimdOp::F32x4Ne):
           case uint32_t(SimdOp::F32x4Lt):
@@ -1111,6 +1108,12 @@ static bool DecodeFunctionBodyExprs(const ModuleEnvironment& env,
           case uint32_t(SimdOp::F64x2Floor):
           case uint32_t(SimdOp::F64x2Trunc):
           case uint32_t(SimdOp::F64x2Nearest):
+          case uint32_t(SimdOp::F32x4DemoteF64x2Zero):
+          case uint32_t(SimdOp::F64x2PromoteLowF32x4):
+          case uint32_t(SimdOp::F64x2ConvertLowI32x4S):
+          case uint32_t(SimdOp::F64x2ConvertLowI32x4U):
+          case uint32_t(SimdOp::I32x4TruncSatF64x2SZero):
+          case uint32_t(SimdOp::I32x4TruncSatF64x2UZero):
             CHECK(iter.readUnary(ValType::V128, &nothing));
 
           case uint32_t(SimdOp::I8x16Shl):
@@ -1541,7 +1544,6 @@ static bool DecodeFunctionBodyExprs(const ModuleEnvironment& env,
   MOZ_CRASH("unreachable");
 
 #undef CHECK
-#undef CHECK_SIMD_EXPERIMENTAL
 }
 
 bool wasm::ValidateFunctionBody(const ModuleEnvironment& env,
@@ -3378,10 +3380,10 @@ bool wasm::DecodeModuleTail(Decoder& d, ModuleEnvironment* env) {
 // Validate algorithm.
 
 bool wasm::Validate(JSContext* cx, const ShareableBytes& bytecode,
-                    UniqueChars* error) {
+                    const FeatureOptions& options, UniqueChars* error) {
   Decoder d(bytecode.bytes, 0, error);
 
-  FeatureArgs features = FeatureArgs::build(cx);
+  FeatureArgs features = FeatureArgs::build(cx, options);
   ModuleEnvironment env(features);
   if (!DecodeModuleEnvironment(d, &env)) {
     return false;

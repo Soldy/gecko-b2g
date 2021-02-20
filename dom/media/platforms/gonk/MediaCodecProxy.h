@@ -183,6 +183,9 @@ class MediaCodecProxy : public RefBase,
   // android::MediaBuffer.
   Vector<sp<GraphicBuffer>> mOutputGraphicBuffers;
 
+  // Component name for debugging.
+  AString mComponentName;
+
 #ifdef DEBUG_BUFFER_USAGE
   void PrintBufferStats(const char* aFunc = NULL, const int aIndex = -1);
   std::vector<int> mInputBuffersCounter;

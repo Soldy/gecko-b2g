@@ -14,7 +14,7 @@ fuzzy(1,1) == shadow-huge.yaml shadow-huge-ref.yaml
 != shadow-clipped-text.yaml blank.yaml
 != non-opaque.yaml non-opaque-notref.yaml
 == decorations.yaml decorations-ref.yaml
-skip_on(android,device) fuzzy(1,3010) fuzzy-if(platform(swgl),3,14624) == decorations-suite.yaml decorations-suite.png  # Fails on Pixel2
+skip_on(android,device) fuzzy(1,3635) fuzzy-if(platform(swgl),3,14624) == decorations-suite.yaml decorations-suite.png  # Fails on Pixel2
 == 1658.yaml 1658-ref.yaml
 fuzzy(2,405) == split-batch.yaml split-batch-ref.yaml
 # Next 3 tests affected by bug 1548099 on Android
@@ -64,7 +64,7 @@ skip_on(android,device) == shadow-partial-glyph.yaml shadow-partial-glyph-ref.ya
 fuzzy(2,212) platform(linux) == shadow-transforms.yaml shadow-transforms.png
 fuzzy(2,370) platform(linux) == raster-space.yaml raster-space.png
 skip_on(android) skip_on(mac,>=10.14) != allow-subpixel.yaml allow-subpixel-ref.yaml  # Android: we don't enable sub-px aa on this platform.
-skip_on(android,device) == bg-color.yaml bg-color-ref.yaml  # Fails on Pixel2
+skip_on(android,device) fuzzy-if(platform(swgl),1,1085) == bg-color.yaml bg-color-ref.yaml  # Fails on Pixel2
 != large-glyphs.yaml blank.yaml
 != large-line-decoration.yaml blank.yaml
 skip_on(android,device) == snap-text-offset.yaml snap-text-offset-ref.yaml

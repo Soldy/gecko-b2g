@@ -1397,7 +1397,7 @@ void MacroAssembler::allTrueInt16x8(FloatRegister src, Register dest) {
   ScratchSimd128Scope xtmp(*this);
   // xtmp is all-00h
   vpxor(xtmp, xtmp, xtmp);
-  // Set FFFFh if byte==0 otherwise 0000h
+  // Set FFFFh if word==0 otherwise 0000h
   // Operand ordering constraint: lhs==output
   vpcmpeqw(Operand(src), xtmp, xtmp);
   // Get all bytes' high bits
@@ -1412,9 +1412,24 @@ void MacroAssembler::allTrueInt32x4(FloatRegister src, Register dest) {
   ScratchSimd128Scope xtmp(*this);
   // xtmp is all-00h
   vpxor(xtmp, xtmp, xtmp);
-  // Set FFFFFFFFh if byte==0 otherwise 00000000h
+  // Set FFFFFFFFh if doubleword==0 otherwise 00000000h
   // Operand ordering constraint: lhs==output
   vpcmpeqd(Operand(src), xtmp, xtmp);
+  // Get all bytes' high bits
+  vpmovmskb(xtmp, dest);
+  // Now set dest to 1 if it is zero, otherwise to zero.
+  testl(dest, dest);
+  setCC(Zero, dest);
+  movzbl(dest, dest);
+}
+
+void MacroAssembler::allTrueInt64x2(FloatRegister src, Register dest) {
+  ScratchSimd128Scope xtmp(*this);
+  // xtmp is all-00h
+  vpxor(xtmp, xtmp, xtmp);
+  // Set FFFFFFFFFFFFFFFFh if quadword==0 otherwise 0000000000000000h
+  // Operand ordering constraint: lhs==output
+  vpcmpeqq(Operand(src), xtmp, xtmp);
   // Get all bytes' high bits
   vpmovmskb(xtmp, dest);
   // Now set dest to 1 if it is zero, otherwise to zero.
@@ -2259,6 +2274,13 @@ void MacroAssembler::unsignedCompareInt32x4(Assembler::Condition cond,
                                                   lhsDest, temp1, temp2);
 }
 
+void MacroAssembler::compareInt64x2(Assembler::Condition cond,
+                                    FloatRegister rhs, FloatRegister lhsDest) {
+  MOZ_ASSERT(cond == Assembler::Condition::Equal ||
+             cond == Assembler::Condition::NotEqual);
+  MacroAssemblerX86Shared::compareInt64x2(lhsDest, Operand(rhs), cond, lhsDest);
+}
+
 void MacroAssembler::compareFloat32x4(Assembler::Condition cond,
                                       FloatRegister rhs,
                                       FloatRegister lhsDest) {
@@ -2582,6 +2604,16 @@ void MacroAssembler::unsignedConvertInt32x4ToFloat32x4(FloatRegister src,
   MacroAssemblerX86Shared::unsignedConvertInt32x4ToFloat32x4(src, dest);
 }
 
+void MacroAssembler::convertInt32x4ToFloat64x2(FloatRegister src,
+                                               FloatRegister dest) {
+  vcvtdq2pd(src, dest);
+}
+
+void MacroAssembler::unsignedConvertInt32x4ToFloat64x2(FloatRegister src,
+                                                       FloatRegister dest) {
+  MacroAssemblerX86Shared::unsignedConvertInt32x4ToFloat64x2(src, dest);
+}
+
 // Floating point to integer with saturation
 
 void MacroAssembler::truncSatFloat32x4ToInt32x4(FloatRegister src,
@@ -2593,6 +2625,30 @@ void MacroAssembler::unsignedTruncSatFloat32x4ToInt32x4(FloatRegister src,
                                                         FloatRegister dest,
                                                         FloatRegister temp) {
   MacroAssemblerX86Shared::unsignedTruncSatFloat32x4ToInt32x4(src, temp, dest);
+}
+
+void MacroAssembler::truncSatFloat64x2ToInt32x4(FloatRegister src,
+                                                FloatRegister dest,
+                                                FloatRegister temp) {
+  MacroAssemblerX86Shared::truncSatFloat64x2ToInt32x4(src, temp, dest);
+}
+
+void MacroAssembler::unsignedTruncSatFloat64x2ToInt32x4(FloatRegister src,
+                                                        FloatRegister dest,
+                                                        FloatRegister temp) {
+  MacroAssemblerX86Shared::unsignedTruncSatFloat64x2ToInt32x4(src, temp, dest);
+}
+
+// Floating point widening
+
+void MacroAssembler::convertFloat64x2ToFloat32x4(FloatRegister src,
+                                                 FloatRegister dest) {
+  vcvtpd2ps(src, dest);
+}
+
+void MacroAssembler::convertFloat32x4ToFloat64x2(FloatRegister src,
+                                                 FloatRegister dest) {
+  vcvtps2pd(src, dest);
 }
 
 // Integer to integer narrowing

@@ -429,14 +429,20 @@ void MacroAssembler::mul32(Register rhs, Register srcDest) {
 
 void MacroAssembler::mul32(Register src1, Register src2, Register dest,
                            Label* onOver) {
-  Smull(ARMRegister(dest, 64), ARMRegister(src1, 32), ARMRegister(src2, 32));
   if (onOver) {
+    Smull(ARMRegister(dest, 64), ARMRegister(src1, 32), ARMRegister(src2, 32));
     Cmp(ARMRegister(dest, 64), Operand(ARMRegister(dest, 32), vixl::SXTW));
     B(onOver, NotEqual);
-  }
 
-  // Clear upper 32 bits.
-  Mov(ARMRegister(dest, 32), ARMRegister(dest, 32));
+    // Clear upper 32 bits.
+    Mov(ARMRegister(dest, 32), ARMRegister(dest, 32));
+  } else {
+    Mul(ARMRegister(dest, 32), ARMRegister(src1, 32), ARMRegister(src2, 32));
+  }
+}
+
+void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
+  Mul(ARMRegister(srcDest, 64), ARMRegister(srcDest, 64), ARMRegister(rhs, 64));
 }
 
 void MacroAssembler::mul64(Imm64 imm, const Register64& dest) {
@@ -2582,6 +2588,16 @@ void MacroAssembler::allTrueInt32x4(FloatRegister src, Register dest_) {
   Cset(dest, Assembler::Zero);
 }
 
+void MacroAssembler::allTrueInt64x2(FloatRegister src, Register dest_) {
+  ScratchSimd128Scope scratch(*this);
+  ARMRegister dest(dest_, 64);
+  Cmeq(Simd2D(scratch), Simd2D(src), 0);
+  Addp(Simd1D(scratch), Simd2D(scratch));
+  Umov(dest, Simd1D(scratch), 0);
+  Cmp(dest, Operand(0));
+  Cset(dest, Assembler::Zero);
+}
+
 // Bitmask, ie extract and compress high bits of all lanes
 //
 // There's no direct support for this on the chip.  These implementations come
@@ -2650,6 +2666,11 @@ void MacroAssembler::compareInt16x8(Assembler::Condition cond,
 void MacroAssembler::compareInt32x4(Assembler::Condition cond,
                                     FloatRegister rhs, FloatRegister lhsDest) {
   compareSimd128Int(cond, Simd4S(lhsDest), Simd4S(lhsDest), Simd4S(rhs));
+}
+
+void MacroAssembler::compareInt64x2(Assembler::Condition cond,
+                                    FloatRegister rhs, FloatRegister lhsDest) {
+  compareSimd128Int(cond, Simd2D(lhsDest), Simd2D(lhsDest), Simd2D(rhs));
 }
 
 void MacroAssembler::compareFloat32x4(Assembler::Condition cond,
@@ -2780,6 +2801,18 @@ void MacroAssembler::unsignedConvertInt32x4ToFloat32x4(FloatRegister src,
   Ucvtf(Simd4S(dest), Simd4S(src));
 }
 
+void MacroAssembler::convertInt32x4ToFloat64x2(FloatRegister src,
+                                               FloatRegister dest) {
+  Sshll(Simd2D(dest), Simd2S(src), 0);
+  Scvtf(Simd2D(dest), Simd2D(dest));
+}
+
+void MacroAssembler::unsignedConvertInt32x4ToFloat64x2(FloatRegister src,
+                                                       FloatRegister dest) {
+  Ushll(Simd2D(dest), Simd2S(src), 0);
+  Ucvtf(Simd2D(dest), Simd2D(dest));
+}
+
 // Floating point to integer with saturation
 
 void MacroAssembler::truncSatFloat32x4ToInt32x4(FloatRegister src,
@@ -2791,6 +2824,32 @@ void MacroAssembler::unsignedTruncSatFloat32x4ToInt32x4(FloatRegister src,
                                                         FloatRegister dest,
                                                         FloatRegister temp) {
   Fcvtzu(Simd4S(dest), Simd4S(src));
+}
+
+void MacroAssembler::truncSatFloat64x2ToInt32x4(FloatRegister src,
+                                                FloatRegister dest,
+                                                FloatRegister temp) {
+  Fcvtzs(Simd2D(dest), Simd2D(src));
+  Sqxtn(Simd2S(dest), Simd2D(dest));
+}
+
+void MacroAssembler::unsignedTruncSatFloat64x2ToInt32x4(FloatRegister src,
+                                                        FloatRegister dest,
+                                                        FloatRegister temp) {
+  Fcvtzu(Simd2D(dest), Simd2D(src));
+  Uqxtn(Simd2S(dest), Simd2D(dest));
+}
+
+// Floating point widening
+
+void MacroAssembler::convertFloat64x2ToFloat32x4(FloatRegister src,
+                                                 FloatRegister dest) {
+  Fcvtn(Simd2S(dest), Simd2D(src));
+}
+
+void MacroAssembler::convertFloat32x4ToFloat64x2(FloatRegister src,
+                                                 FloatRegister dest) {
+  Fcvtl(Simd2D(dest), Simd2S(src));
 }
 
 // Integer to integer narrowing

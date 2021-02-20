@@ -2352,9 +2352,21 @@ class AssemblerX86Shared : public AssemblerShared {
     MOZ_ASSERT(HasSSE2());
     masm.vcvttps2dq_rr(src.encoding(), dest.encoding());
   }
+  void vcvttpd2dq(FloatRegister src, FloatRegister dest) {
+    masm.vcvttpd2dq_rr(src.encoding(), dest.encoding());
+  }
   void vcvtdq2ps(FloatRegister src, FloatRegister dest) {
     MOZ_ASSERT(HasSSE2());
     masm.vcvtdq2ps_rr(src.encoding(), dest.encoding());
+  }
+  void vcvtdq2pd(FloatRegister src, FloatRegister dest) {
+    masm.vcvtdq2pd_rr(src.encoding(), dest.encoding());
+  }
+  void vcvtps2pd(FloatRegister src, FloatRegister dest) {
+    masm.vcvtps2pd_rr(src.encoding(), dest.encoding());
+  }
+  void vcvtpd2ps(FloatRegister src, FloatRegister dest) {
+    masm.vcvtpd2ps_rr(src.encoding(), dest.encoding());
   }
   void vmovmskpd(FloatRegister src, Register dest) {
     MOZ_ASSERT(HasSSE2());
@@ -2490,6 +2502,24 @@ class AssemblerX86Shared : public AssemblerShared {
     switch (rhs.kind()) {
       case Operand::FPREG:
         masm.vpcmpgtq_rr(rhs.fpu(), lhs.encoding(), dest.encoding());
+        break;
+      default:
+        MOZ_CRASH("unexpected operand kind");
+    }
+  }
+
+  void vpcmpeqq(const Operand& rhs, FloatRegister lhs, FloatRegister dest) {
+    MOZ_ASSERT(HasSSE41());
+    switch (rhs.kind()) {
+      case Operand::FPREG:
+        masm.vpcmpeqq_rr(rhs.fpu(), lhs.encoding(), dest.encoding());
+        break;
+      case Operand::MEM_REG_DISP:
+        masm.vpcmpeqq_mr(rhs.disp(), rhs.base(), lhs.encoding(),
+                         dest.encoding());
+        break;
+      case Operand::MEM_ADDRESS32:
+        masm.vpcmpeqq_mr(rhs.address(), lhs.encoding(), dest.encoding());
         break;
       default:
         MOZ_CRASH("unexpected operand kind");

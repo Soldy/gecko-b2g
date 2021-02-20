@@ -17,7 +17,7 @@
 #include "mozilla/JSONWriter.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
@@ -1327,7 +1327,7 @@ ServiceWorkerNotificationObserver::Observe(nsISupports* aSubject,
     nsDependentString userAction(aData ? aData : u"");
     if (XRE_IsParentProcess() || !ServiceWorkerParentInterceptEnabled()) {
       nsCOMPtr<nsIServiceWorkerManager> swm =
-          mozilla::services::GetServiceWorkerManager();
+          mozilla::components::ServiceWorkerManager::Service();
       if (NS_WARN_IF(!swm)) {
         return NS_ERROR_FAILURE;
       }
@@ -1364,7 +1364,7 @@ ServiceWorkerNotificationObserver::Observe(nsISupports* aSubject,
 
     if (XRE_IsParentProcess() || !ServiceWorkerParentInterceptEnabled()) {
       nsCOMPtr<nsIServiceWorkerManager> swm =
-          mozilla::services::GetServiceWorkerManager();
+          mozilla::components::ServiceWorkerManager::Service();
       if (NS_WARN_IF(!swm)) {
         return NS_ERROR_FAILURE;
       }
@@ -1718,7 +1718,7 @@ NotificationPermission Notification::TestPermission(nsIPrincipal* aPrincipal) {
   uint32_t permission = nsIPermissionManager::UNKNOWN_ACTION;
 
   nsCOMPtr<nsIPermissionManager> permissionManager =
-      services::GetPermissionManager();
+      components::PermissionManager::Service();
   if (!permissionManager) {
     return NotificationPermission::Default;
   }
@@ -2439,7 +2439,7 @@ already_AddRefed<Notification> Notification::CreateAndShow(
 nsresult Notification::RemovePermission(nsIPrincipal* aPrincipal) {
   MOZ_ASSERT(XRE_IsParentProcess());
   nsCOMPtr<nsIPermissionManager> permissionManager =
-      mozilla::services::GetPermissionManager();
+      mozilla::components::PermissionManager::Service();
   if (!permissionManager) {
     return NS_ERROR_FAILURE;
   }

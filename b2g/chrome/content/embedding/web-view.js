@@ -446,10 +446,11 @@
 
       this.browser.setAttribute("src", "about:blank");
       this.browser.setAttribute("type", "content");
-      this.browser.setAttribute(
-        "style",
-        "border: none; width: 100%; height: 100%"
-      );
+
+      // We can't set the xul:browser style as an attribute because that is rejected by the CSP.
+      this.browser.style.border = "none";
+      this.browser.style.width = "100%";
+      this.browser.style.height = "100%";
 
       let src = null;
 
@@ -577,7 +578,7 @@
         "oop-frameloader-crashed"
       );
       Services.obs.removeObserver(this.crashObserver, "ipc:content-shutdown");
-      this.cleanedUp = true;
+      this._cleanedUp = true;
     }
 
     dispatchCustomEvent(name, detail) {

@@ -7,12 +7,12 @@
 #ifndef frontend_Stencil_h
 #define frontend_Stencil_h
 
-#include "mozilla/Assertions.h"  // MOZ_ASSERT
-#include "mozilla/Attributes.h"  // MOZ_MUST_USE
-#include "mozilla/Maybe.h"       // mozilla::{Maybe, Nothing}
-#include "mozilla/Range.h"       // mozilla::Range
-#include "mozilla/Span.h"        // mozilla::Span
-#include "mozilla/Variant.h"     // mozilla::Variant
+#include "mozilla/Assertions.h"       // MOZ_ASSERT
+#include "mozilla/Maybe.h"            // mozilla::{Maybe, Nothing}
+#include "mozilla/MemoryReporting.h"  // mozilla::MallocSizeOf
+#include "mozilla/Range.h"            // mozilla::Range
+#include "mozilla/Span.h"             // mozilla::Span
+#include "mozilla/Variant.h"          // mozilla::Variant
 
 #include <stddef.h>  // size_t
 #include <stdint.h>  // char16_t, uint8_t, uint16_t, uint32_t
@@ -20,7 +20,7 @@
 #include "frontend/AbstractScopePtr.h"    // AbstractScopePtr, ScopeIndex
 #include "frontend/FunctionSyntaxKind.h"  // FunctionSyntaxKind
 #include "frontend/ObjLiteral.h"          // ObjLiteralStencil
-#include "frontend/ParserAtom.h"          // ParserAtom, TaggedParserAtomIndex
+#include "frontend/ParserAtom.h"          // TaggedParserAtomIndex
 #include "frontend/ScriptIndex.h"         // ScriptIndex
 #include "frontend/TypedIndex.h"          // TypedIndex
 #include "js/AllocPolicy.h"               // SystemAllocPolicy
@@ -126,24 +126,24 @@ using ParserBindingIter = AbstractBindingIter<TaggedParserAtomIndex>;
 //      ...
 //  }
 //
+//  struct StencilDelazificationSet {
+//      Span<BaseCompilationStencil>    delazifications;
+//      ...
+//  }
+//
 //  struct CompilationStencil : BaseCompilationStencil {
 //      LifoAlloc                       alloc;
 //      CompilationInput                input;
 //      Span<ScriptStencilExtra>        scriptExtra;
-//      ...
-//  }
-//
-//  struct CompilationStencilSet : CompilationStencil {
-//      Span<BaseCompilationStencil>    delazifications;
+//      StencilDelazifcationSet*        delazificationSet;
 //      ...
 //  }
 //
 // When we delazify a function that was lazily parsed, we generate a new Stencil
 // at the point too. These delazifications can be cached as well. When loading
-// back from a cache we group these together in a `CompilationStencilSet`. Note
-// that the base class we inherit from provides storage for the initial lazy
-// parse and the `delazifications` field is the collection of delazified
-// function data that are available.
+// back from a cache we group these together in a `StencilDelazificationSet`
+// structure that hangs off the `CompilationStencil`. This delazification data
+// is only meaningful if we also have the initial parse stencil.
 //
 //
 // CompilationGCOutput
@@ -196,13 +196,14 @@ class RegExpStencil {
   // This is used by `Reflect.parse` when we need the RegExpObject but are not
   // doing a complete instantiation of the BaseCompilationStencil.
   RegExpObject* createRegExpAndEnsureAtom(
-      JSContext* cx, CompilationAtomCache& atomCache,
-      BaseCompilationStencil& stencil) const;
+      JSContext* cx, ParserAtomsTable& parserAtoms,
+      CompilationAtomCache& atomCache) const;
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json, BaseCompilationStencil* stencil);
-  void dumpFields(JSONPrinter& json, BaseCompilationStencil* stencil);
+  void dump() const;
+  void dump(JSONPrinter& json, const BaseCompilationStencil* stencil) const;
+  void dumpFields(JSONPrinter& json,
+                  const BaseCompilationStencil* stencil) const;
 #endif
 };
 
@@ -219,8 +220,8 @@ class BigIntStencil {
  public:
   BigIntStencil() = default;
 
-  MOZ_MUST_USE bool init(JSContext* cx, LifoAlloc& alloc,
-                         const Vector<char16_t, 32>& buf);
+  [[nodiscard]] bool init(JSContext* cx, LifoAlloc& alloc,
+                          const Vector<char16_t, 32>& buf);
 
   BigInt* createBigInt(JSContext* cx) const {
     mozilla::Range<const char16_t> source(source_.data(), source_.size());
@@ -233,9 +234,9 @@ class BigIntStencil {
   }
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json);
-  void dumpCharsNoQuote(GenericPrinter& out);
+  void dump() const;
+  void dump(JSONPrinter& json) const;
+  void dumpCharsNoQuote(GenericPrinter& out) const;
 #endif
 };
 
@@ -395,11 +396,11 @@ class ScopeStencil {
                      BaseParserScopeData* baseScopeData) const;
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json, BaseParserScopeData* baseScopeData,
-            BaseCompilationStencil* stencil);
-  void dumpFields(JSONPrinter& json, BaseParserScopeData* baseScopeData,
-                  BaseCompilationStencil* stencil);
+  void dump() const;
+  void dump(JSONPrinter& json, const BaseParserScopeData* baseScopeData,
+            const BaseCompilationStencil* stencil) const;
+  void dumpFields(JSONPrinter& json, const BaseParserScopeData* baseScopeData,
+                  const BaseCompilationStencil* stencil) const;
 #endif
 
  private:
@@ -410,9 +411,9 @@ class ScopeStencil {
       BaseParserScopeData* baseData) const;
 
   template <typename SpecificEnvironmentType>
-  MOZ_MUST_USE bool createSpecificShape(JSContext* cx, ScopeKind kind,
-                                        BaseScopeData* scopeData,
-                                        MutableHandleShape shape) const;
+  [[nodiscard]] bool createSpecificShape(JSContext* cx, ScopeKind kind,
+                                         BaseScopeData* scopeData,
+                                         MutableHandleShape shape) const;
 
   template <typename SpecificScopeType, typename SpecificEnvironmentType>
   Scope* createSpecificScope(JSContext* cx, CompilationAtomCache& atomCache,
@@ -475,12 +476,16 @@ using FunctionDeclarationVector =
 //       for readability.
 class StencilModuleEntry {
  public:
-  //              | ModuleRequest | ImportEntry | ExportAs | ExportFrom |
-  //              |-----------------------------------------------------|
-  // specifier    | required      | required    | nullptr  | required   |
-  // localName    | null          | required    | required | nullptr    |
-  // importName   | null          | required    | nullptr  | required   |
-  // exportName   | null          | null        | required | optional   |
+  // clang-format off
+  //
+  //              | ModuleRequest | ImportEntry | ImportNamespaceEntry | ExportAs | ExportFrom | ExportNamespaceFrom | ExportBatchFrom |
+  //              |--------------------------------------------------------------------------------------------------------------------|
+  // specifier    | required      | required    | required             | null     | required   | required            | required        |
+  // localName    | null          | required    | required             | required | null       | null                | null            |
+  // importName   | null          | required    | null                 | null     | required   | null                | null            |
+  // exportName   | null          | null        | null                 | required | required   | required            | null            |
+  //
+  // clang-format on
   TaggedParserAtomIndex specifier;
   TaggedParserAtomIndex localName;
   TaggedParserAtomIndex importName;
@@ -521,6 +526,16 @@ class StencilModuleEntry {
     return entry;
   }
 
+  static StencilModuleEntry importNamespaceEntry(
+      TaggedParserAtomIndex specifier, TaggedParserAtomIndex localName,
+      uint32_t lineno, uint32_t column) {
+    MOZ_ASSERT(specifier && localName);
+    StencilModuleEntry entry(lineno, column);
+    entry.specifier = specifier;
+    entry.localName = localName;
+    return entry;
+  }
+
   static StencilModuleEntry exportAsEntry(TaggedParserAtomIndex localName,
                                           TaggedParserAtomIndex exportName,
                                           uint32_t lineno, uint32_t column) {
@@ -535,12 +550,29 @@ class StencilModuleEntry {
                                             TaggedParserAtomIndex importName,
                                             TaggedParserAtomIndex exportName,
                                             uint32_t lineno, uint32_t column) {
-    // NOTE: The `export * from "mod";` syntax generates nullptr exportName.
-    MOZ_ASSERT(specifier && importName);
+    MOZ_ASSERT(specifier && importName && exportName);
     StencilModuleEntry entry(lineno, column);
     entry.specifier = specifier;
     entry.importName = importName;
     entry.exportName = exportName;
+    return entry;
+  }
+
+  static StencilModuleEntry exportNamespaceFromEntry(
+      TaggedParserAtomIndex specifier, TaggedParserAtomIndex exportName,
+      uint32_t lineno, uint32_t column) {
+    MOZ_ASSERT(specifier && exportName);
+    StencilModuleEntry entry(lineno, column);
+    entry.specifier = specifier;
+    entry.exportName = exportName;
+    return entry;
+  }
+
+  static StencilModuleEntry exportBatchFromEntry(
+      TaggedParserAtomIndex specifier, uint32_t lineno, uint32_t column) {
+    MOZ_ASSERT(specifier);
+    StencilModuleEntry entry(lineno, column);
+    entry.specifier = specifier;
     return entry;
   }
 };
@@ -564,10 +596,21 @@ class StencilModuleMetadata {
   bool initModule(JSContext* cx, CompilationAtomCache& atomCache,
                   JS::Handle<ModuleObject*> module) const;
 
+  size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return mallocSizeOf(this) +
+           requestedModules.sizeOfExcludingThis(mallocSizeOf) +
+           importEntries.sizeOfExcludingThis(mallocSizeOf) +
+           localExportEntries.sizeOfExcludingThis(mallocSizeOf) +
+           indirectExportEntries.sizeOfExcludingThis(mallocSizeOf) +
+           starExportEntries.sizeOfExcludingThis(mallocSizeOf) +
+           functionDecls.sizeOfExcludingThis(mallocSizeOf);
+  }
+
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json, BaseCompilationStencil* stencil);
-  void dumpFields(JSONPrinter& json, BaseCompilationStencil* stencil);
+  void dump() const;
+  void dump(JSONPrinter& json, const BaseCompilationStencil* stencil) const;
+  void dumpFields(JSONPrinter& json,
+                  const BaseCompilationStencil* stencil) const;
 #endif
 };
 
@@ -814,9 +857,10 @@ class ScriptStencil {
   }
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json, BaseCompilationStencil* stencil);
-  void dumpFields(JSONPrinter& json, BaseCompilationStencil* stencil);
+  void dump() const;
+  void dump(JSONPrinter& json, const BaseCompilationStencil* stencil) const;
+  void dumpFields(JSONPrinter& json,
+                  const BaseCompilationStencil* stencil) const;
 #endif
 };
 
@@ -861,20 +905,20 @@ class ScriptStencilExtra {
   }
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
-  void dump();
-  void dump(JSONPrinter& json);
-  void dumpFields(JSONPrinter& json);
+  void dump() const;
+  void dump(JSONPrinter& json) const;
+  void dumpFields(JSONPrinter& json) const;
 #endif
 };
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
 void DumpTaggedParserAtomIndex(js::JSONPrinter& json,
                                TaggedParserAtomIndex taggedIndex,
-                               BaseCompilationStencil* stencil);
+                               const BaseCompilationStencil* stencil);
 
 void DumpTaggedParserAtomIndexNoQuote(GenericPrinter& out,
                                       TaggedParserAtomIndex taggedIndex,
-                                      BaseCompilationStencil* stencil);
+                                      const BaseCompilationStencil* stencil);
 #endif
 
 } /* namespace frontend */

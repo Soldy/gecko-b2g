@@ -289,6 +289,12 @@ this.PermissionsTable = {
     pwa: DENY_ACTION,
     signed: ALLOW_ACTION,
   },
+  "system-time": {
+    pwa: DENY_ACTION,
+    signed: DENY_ACTION,
+    core: ALLOW_ACTION,
+    access: ["read", "write"],
+  },
   systemXHR: {
     pwa: DENY_ACTION,
     signed: ALLOW_ACTION,

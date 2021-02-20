@@ -37,6 +37,7 @@ jobs-from:
     - gn.yml
     - grcov.yml
     - llvm-symbolizer.yml
+    - macos-sdk.yml
     - mingw.yml
     - minidump_stackwalk.yml
     - misc.yml
@@ -46,4 +47,5 @@ jobs-from:
     - rust.yml
     - rust-size.yml
     - sccache.yml
+    - sysroot.yml
     - dist-toolchains.yml

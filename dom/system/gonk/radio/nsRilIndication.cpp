@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsRilIndication.h"
+#include "nsRilWorker.h"
 
 /* Logging related */
 #undef LOG_TAG
@@ -586,6 +587,24 @@ Return<void> nsRilIndication::modemReset(
       new nsRilIndicationResult(rilmessageType);
   result->updateModemReset(NS_ConvertUTF8toUTF16(reason.c_str()));
   mRIL->sendRilIndicationResult(result);
+  return Void();
+}
+
+Return<void> nsRilIndication::carrierInfoForImsiEncryption(
+    RadioIndicationType /*info*/) {
+  DEBUG("Not implement carrierInfoForImsiEncryption");
+  return Void();
+}
+
+Return<void> nsRilIndication::networkScanResult(
+    RadioIndicationType type, const NetworkScanResult& result) {
+  DEBUG("Not implement networkScanResult");
+  return Void();
+}
+
+Return<void> nsRilIndication::keepaliveStatus(
+    RadioIndicationType /*type*/, const KeepaliveStatus& /*status*/) {
+  DEBUG("Not implement keepaliveStatus");
   return Void();
 }
 

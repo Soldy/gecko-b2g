@@ -19,6 +19,7 @@
 #include "nsQueryObject.h"
 #include "mozilla/dom/PlacesObservers.h"
 #include "mozilla/dom/PlacesVisit.h"
+#include "mozilla/dom/PlacesVisitRemoved.h"
 #include "mozilla/dom/PlacesVisitTitle.h"
 
 #include "nsCycleCollectionParticipant.h"
@@ -2261,9 +2262,8 @@ nsresult nsNavHistoryQueryResultNode::OnTitleChanged(
  * Here, we can always live update by just deleting all occurrences of
  * the given URI.
  */
-NS_IMETHODIMP
-nsNavHistoryQueryResultNode::OnDeleteURI(nsIURI* aURI, const nsACString& aGUID,
-                                         uint16_t aReason) {
+nsresult nsNavHistoryQueryResultNode::OnPageRemovedFromStore(
+    nsIURI* aURI, const nsACString& aGUID, uint16_t aReason) {
   nsNavHistoryResult* result = GetResult();
   NS_ENSURE_STATE(result);
   if (result->mBatchInProgress &&
@@ -2327,11 +2327,9 @@ static nsresult setFaviconCallback(nsNavHistoryResultNode* aNode,
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsNavHistoryQueryResultNode::OnDeleteVisits(nsIURI* aURI, bool aPartialRemoval,
-                                            const nsACString& aGUID,
-                                            uint16_t aReason,
-                                            uint32_t aTransitionType) {
+nsresult nsNavHistoryQueryResultNode::OnPageRemovedVisits(
+    nsIURI* aURI, bool aPartialRemoval, const nsACString& aGUID,
+    uint16_t aReason, uint32_t aTransitionType) {
   MOZ_ASSERT(
       mOptions->QueryType() == nsINavHistoryQueryOptions::QUERY_TYPE_HISTORY,
       "Bookmarks queries should not get a OnDeleteVisits notification");
@@ -2339,16 +2337,16 @@ nsNavHistoryQueryResultNode::OnDeleteVisits(nsIURI* aURI, bool aPartialRemoval,
   if (!aPartialRemoval) {
     // All visits for this uri have been removed, but the uri won't be removed
     // from the databse, most likely because it's a bookmark.  For a history
-    // query this is equivalent to a onDeleteURI notification.
-    nsresult rv = OnDeleteURI(aURI, aGUID, aReason);
+    // query this is equivalent to a OnPageRemovedFromStore notification.
+    nsresult rv = OnPageRemovedFromStore(aURI, aGUID, aReason);
     NS_ENSURE_SUCCESS(rv, rv);
   }
   if (aTransitionType > 0) {
     // All visits for aTransitionType have been removed, if the query is
-    // filtering on such transition type, this is equivalent to an onDeleteURI
-    // notification.
+    // filtering on such transition type, this is equivalent to an
+    // OnPageRemovedFromStore notification.
     if (mTransitions.Length() > 0 && mTransitions.Contains(aTransitionType)) {
-      nsresult rv = OnDeleteURI(aURI, aGUID, aReason);
+      nsresult rv = OnPageRemovedFromStore(aURI, aGUID, aReason);
       NS_ENSURE_SUCCESS(rv, rv);
     }
   }
@@ -3510,9 +3508,10 @@ void nsNavHistoryResult::StopObserving() {
     nsNavHistory* history = nsNavHistory::GetHistoryService();
     if (history) {
       history->RemoveObserver(this);
-      mIsHistoryObserver = false;
     }
+    mIsHistoryObserver = false;
     events.AppendElement(PlacesEventType::History_cleared);
+    events.AppendElement(PlacesEventType::Page_removed);
   }
   if (mIsHistoryDetailsObserver) {
     events.AppendElement(PlacesEventType::Page_visited);
@@ -3548,6 +3547,7 @@ void nsNavHistoryResult::AddHistoryObserver(
 
     AutoTArray<PlacesEventType, 3> events;
     events.AppendElement(PlacesEventType::History_cleared);
+    events.AppendElement(PlacesEventType::Page_removed);
     if (!mIsHistoryDetailsObserver) {
       events.AppendElement(PlacesEventType::Page_visited);
       events.AppendElement(PlacesEventType::Page_title_changed);
@@ -4203,35 +4203,36 @@ void nsNavHistoryResult::HandlePlacesEvent(const PlacesEventSequence& aEvents) {
         ENUMERATE_HISTORY_OBSERVERS(OnClearHistory());
         break;
       }
+      case PlacesEventType::Page_removed: {
+        const PlacesVisitRemoved* removeEvent = event->AsPlacesVisitRemoved();
+        if (NS_WARN_IF(!removeEvent)) {
+          continue;
+        }
+
+        nsCOMPtr<nsIURI> uri;
+        MOZ_ALWAYS_SUCCEEDS(NS_NewURI(getter_AddRefs(uri), removeEvent->mUrl));
+        if (!uri) {
+          continue;
+        }
+
+        if (removeEvent->mIsRemovedFromStore) {
+          ENUMERATE_HISTORY_OBSERVERS(OnPageRemovedFromStore(
+              uri, removeEvent->mPageGuid, removeEvent->mReason));
+        } else {
+          ENUMERATE_HISTORY_OBSERVERS(
+              OnPageRemovedVisits(uri, removeEvent->mIsPartialVisistsRemoval,
+                                  removeEvent->mPageGuid, removeEvent->mReason,
+                                  removeEvent->mTransitionType));
+        }
+
+        break;
+      }
       default: {
         MOZ_ASSERT_UNREACHABLE(
             "Receive notification of a type not subscribed to.");
       }
     }
   }
-}
-
-NS_IMETHODIMP
-nsNavHistoryResult::OnDeleteURI(nsIURI* aURI, const nsACString& aGUID,
-                                uint16_t aReason) {
-  NS_ENSURE_ARG(aURI);
-
-  ENUMERATE_HISTORY_OBSERVERS(OnDeleteURI(aURI, aGUID, aReason));
-  return NS_OK;
-}
-
-/**
- * Don't do anything when visits expire.
- */
-NS_IMETHODIMP
-nsNavHistoryResult::OnDeleteVisits(nsIURI* aURI, bool aPartialRemoval,
-                                   const nsACString& aGUID, uint16_t aReason,
-                                   uint32_t aTransitionType) {
-  NS_ENSURE_ARG(aURI);
-
-  ENUMERATE_HISTORY_OBSERVERS(
-      OnDeleteVisits(aURI, aPartialRemoval, aGUID, aReason, aTransitionType));
-  return NS_OK;
 }
 
 void nsNavHistoryResult::OnMobilePrefChanged() {

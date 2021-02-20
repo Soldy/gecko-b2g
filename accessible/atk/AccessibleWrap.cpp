@@ -799,10 +799,13 @@ gint getIndexInParentCB(AtkObject* aAtkObj) {
   // We don't use Accessible::IndexInParent() because we don't include text
   // leaf nodes as children in ATK.
   if (ProxyAccessible* proxy = GetProxy(aAtkObj)) {
-    if (ProxyAccessible* parent = proxy->Parent())
+    if (ProxyAccessible* parent = proxy->RemoteParent()) {
       return parent->IndexOfEmbeddedChild(proxy);
+    }
 
-    if (proxy->OuterDocOfRemoteBrowser()) return 0;
+    if (proxy->OuterDocOfRemoteBrowser()) {
+      return 0;
+    }
 
     return -1;
   }
@@ -812,7 +815,7 @@ gint getIndexInParentCB(AtkObject* aAtkObj) {
     return -1;
   }
 
-  Accessible* parent = accWrap->Parent();
+  Accessible* parent = accWrap->LocalParent();
   if (!parent) return -1;  // No parent
 
   return parent->GetIndexOfEmbeddedChild(accWrap);
@@ -1221,7 +1224,8 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
 
     case nsIAccessibleEvent::EVENT_SHOW: {
       AccMutationEvent* event = downcast_accEvent(aEvent);
-      Accessible* parentAcc = event ? event->Parent() : accessible->Parent();
+      Accessible* parentAcc =
+          event ? event->LocalParent() : accessible->LocalParent();
       AtkObject* parent = AccessibleWrap::GetAtkObject(parentAcc);
       NS_ENSURE_STATE(parent);
       auto obj = reinterpret_cast<MaiAtkObject*>(atkObj);
@@ -1238,7 +1242,8 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
       }
 
       AccMutationEvent* event = downcast_accEvent(aEvent);
-      Accessible* parentAcc = event ? event->Parent() : accessible->Parent();
+      Accessible* parentAcc =
+          event ? event->LocalParent() : accessible->LocalParent();
       AtkObject* parent = AccessibleWrap::GetAtkObject(parentAcc);
       NS_ENSURE_STATE(parent);
       auto obj = reinterpret_cast<MaiAtkObject*>(atkObj);
@@ -1485,7 +1490,7 @@ void AccessibleWrap::GetKeyBinding(Accessible* aAccessible,
   if (!keyBinding.IsEmpty()) {
     keyBinding.AppendToString(keyBindingsStr, KeyBinding::eAtkFormat);
 
-    Accessible* parent = aAccessible->Parent();
+    Accessible* parent = aAccessible->LocalParent();
     roles::Role role = parent ? parent->Role() : roles::NOTHING;
     if (role == roles::PARENT_MENUITEM || role == roles::MENUITEM ||
         role == roles::RADIO_MENU_ITEM || role == roles::CHECK_MENU_ITEM) {
@@ -1501,7 +1506,8 @@ void AccessibleWrap::GetKeyBinding(Accessible* aAccessible,
 
           keysInHierarchyStr.Insert(str, 0);
         }
-      } while ((parent = parent->Parent()) && parent->Role() != roles::MENUBAR);
+      } while ((parent = parent->LocalParent()) &&
+               parent->Role() != roles::MENUBAR);
 
       keyBindingsStr.Append(';');
       keyBindingsStr.Append(keysInHierarchyStr);

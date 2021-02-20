@@ -17,8 +17,7 @@ namespace dom {
 
 NS_IMPL_ISUPPORTS(KeyboardEventForwarderParent, nsIKeyboardEventForwarder)
 
-KeyboardEventForwarderParent::KeyboardEventForwarderParent(
-    BrowserParent* aParent) {
+KeyboardEventForwarderParent::KeyboardEventForwarderParent() {
   MOZ_LOG(gKeyboardAppProxyLog, LogLevel::Debug,
           ("KeyboardEventForwarderParent::Constructor[%p]", this));
 }

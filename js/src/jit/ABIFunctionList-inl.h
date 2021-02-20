@@ -110,6 +110,7 @@ namespace jit {
   _(js::jit::AssertValidSymbolPtr)                                    \
   _(js::jit::AssertValidValue)                                        \
   _(js::jit::AssumeUnreachable)                                       \
+  _(js::jit::AtomicsStore64)                                          \
   _(js::jit::Bailout)                                                 \
   _(js::jit::BigIntNumberEqual<EqualityKind::Equal>)                  \
   _(js::jit::BigIntNumberEqual<EqualityKind::NotEqual>)               \
@@ -121,6 +122,7 @@ namespace jit {
   _(js::jit::EqualStringsHelperPure)                                  \
   _(js::jit::FinishBailoutToBaseline)                                 \
   _(js::jit::FrameIsDebuggeeCheck)                                    \
+  _(js::jit::GetContextSensitiveInterpreterStub)                      \
   _(js::jit::GetIndexFromString)                                      \
   _(js::jit::GetInt32FromStringPure)                                  \
   _(js::jit::GetNativeDataPropertyByValuePure)                        \

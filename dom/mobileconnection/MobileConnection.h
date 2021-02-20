@@ -138,6 +138,8 @@ class MobileConnection final : public DOMEventTargetHelper,
 
   already_AddRefed<DOMRequest> SetRadioEnabled(bool aEnabled, ErrorResult& aRv);
 
+  already_AddRefed<DOMRequest> StopNetworkScan(ErrorResult& aRv);
+
   IMPL_EVENT_HANDLER(voicechange)
   IMPL_EVENT_HANDLER(datachange)
   IMPL_EVENT_HANDLER(dataerror)

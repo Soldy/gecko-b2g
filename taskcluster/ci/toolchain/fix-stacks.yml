@@ -8,6 +8,7 @@ job-defaults:
         local-toolchain: true
     worker-type: b-linux
     worker:
+        docker-image: {in-tree: deb10-toolchain-build}
         max-run-time: 1800
     run:
         script: build-fix-stacks.sh
@@ -28,24 +29,20 @@ linux64-fix-stacks:
             - linux64-binutils
             - linux64-clang-11
             - linux64-rust-1.47
+            - linux64-sysroot
 
 macosx64-fix-stacks:
     treeherder:
         symbol: TM(fix-stacks)
-    worker:
-        env:
-            TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/macosx64/cross-releng.manifest"
     run:
         arguments: ['x86_64-apple-darwin']
-        resources:
-            - taskcluster/scripts/misc/tooltool-download.sh
         toolchain-artifact: public/build/fix-stacks.tar.xz
-        tooltool-downloads: internal
     fetches:
         toolchain:
             - linux64-cctools-port-clang-11
             - linux64-clang-11
             - linux64-rust-macos-1.47
+            - macosx64-sdk-10.12
 
 win32-fix-stacks:
     treeherder:

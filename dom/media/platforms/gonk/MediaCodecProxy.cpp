@@ -19,10 +19,10 @@ mozilla::LazyLogModule gMediaCodecProxyLog("MediaCodecProxy");
 
 #define LOG(x, ...)                                      \
   MOZ_LOG(gMediaCodecProxyLog, mozilla::LogLevel::Debug, \
-          ("%p " x, this, ##__VA_ARGS__))
+          ("%p [%s] " x, this, mComponentName.c_str(), ##__VA_ARGS__))
 #define LOGE(x, ...)                                     \
   MOZ_LOG(gMediaCodecProxyLog, mozilla::LogLevel::Error, \
-          ("%p " x, this, ##__VA_ARGS__))
+          ("%p [%s] " x, this, mComponentName.c_str(), ##__VA_ARGS__))
 
 namespace android {
 
@@ -166,6 +166,8 @@ bool MediaCodecProxy::allocateCodec() {
   if (mCodec == nullptr) {
     return false;
   }
+
+  mCodec->getName(&mComponentName);
 
   return true;
 }

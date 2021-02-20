@@ -1591,16 +1591,17 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
       aFamilyName = ToCharPtr(canonical);
 
       // Add new family record if one doesn't already exist.
-      auto faceList = faces.LookupForAdd(keyName);
-      if (!faceList) {
-        faceList.OrInsert([]() { return new FaceInitArray; });
-        FontVisibility visibility =
-            aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
-        families.AppendElement(fontlist::Family::InitData(
-            keyName, aFamilyName, fontlist::Family::kNoIndex, visibility,
-            /*bundled*/ aAppFont, /*badUnderline*/ false));
-      }
-      faceListPtr = faceList.Data().get();
+      faceListPtr = faces.WithEntryHandle(keyName, [&](auto&& faceList) {
+        if (!faceList) {
+          faceList.Insert(MakeUnique<FaceInitArray>());
+          FontVisibility visibility =
+              aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
+          families.AppendElement(fontlist::Family::InitData(
+              keyName, aFamilyName, fontlist::Family::kNoIndex, visibility,
+              /*bundled*/ aAppFont, /*badUnderline*/ false));
+        }
+        return faceList.Data().get();
+      });
     }
 
     char* s = (char*)FcNameUnparse(aPattern);
@@ -1649,17 +1650,18 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
       keyName = otherFamilyName;
       ToLowerCase(keyName);
 
-      auto faceList = faces.LookupForAdd(keyName);
-      if (!faceList) {
-        faceList.OrInsert([]() { return new FaceInitArray; });
-        FontVisibility visibility =
-            aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
-        families.AppendElement(fontlist::Family::InitData(
-            keyName, otherFamilyName, fontlist::Family::kNoIndex, visibility,
-            /*bundled*/ aAppFont, /*badUnderline*/ false));
-      }
-      faceList.Data()->AppendElement(fontlist::Face::InitData{
-          descriptor, 0, false, weight, stretch, style});
+      faces.WithEntryHandle(keyName, [&](auto&& faceList) {
+        if (!faceList) {
+          faceList.Insert(MakeUnique<FaceInitArray>());
+          FontVisibility visibility =
+              aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
+          families.AppendElement(fontlist::Family::InitData(
+              keyName, otherFamilyName, fontlist::Family::kNoIndex, visibility,
+              /*bundled*/ aAppFont, /*badUnderline*/ false));
+        }
+        faceList.Data()->AppendElement(fontlist::Face::InitData{
+            descriptor, 0, false, weight, stretch, style});
+      });
 
       n++;
       if (n == int(cIndex)) {
@@ -2176,73 +2178,79 @@ gfxPlatformFontList::PrefFontList* gfxFcPlatformFontList::FindGenericFamilies(
   genericLang.Append(fcLang);
 
   // try to get the family from the cache
-  PrefFontList* prefFonts = mGenericMappings.Get(genericLang);
-  if (prefFonts) {
-    return prefFonts;
-  }
+  return mGenericMappings.WithEntryHandle(
+      genericLang, [&](auto&& entry) -> PrefFontList* {
+        if (!entry) {
+          // if not found, ask fontconfig to pick the appropriate font
+          RefPtr<FcPattern> genericPattern = dont_AddRef(FcPatternCreate());
+          FcPatternAddString(genericPattern, FC_FAMILY,
+                             ToFcChar8Ptr(aGeneric.get()));
 
-  // if not found, ask fontconfig to pick the appropriate font
-  RefPtr<FcPattern> genericPattern = dont_AddRef(FcPatternCreate());
-  FcPatternAddString(genericPattern, FC_FAMILY, ToFcChar8Ptr(aGeneric.get()));
+          // -- prefer scalable fonts
+          FcPatternAddBool(genericPattern, FC_SCALABLE, FcTrue);
 
-  // -- prefer scalable fonts
-  FcPatternAddBool(genericPattern, FC_SCALABLE, FcTrue);
-
-  // -- add the lang to the pattern
-  if (!fcLang.IsEmpty()) {
-    FcPatternAddString(genericPattern, FC_LANG, ToFcChar8Ptr(fcLang.get()));
-  }
-
-  // -- perform substitutions
-  FcConfigSubstitute(nullptr, genericPattern, FcMatchPattern);
-  FcDefaultSubstitute(genericPattern);
-
-  // -- sort to get the closest matches
-  FcResult result;
-  UniquePtr<FcFontSet> faces(
-      FcFontSort(nullptr, genericPattern, FcFalse, nullptr, &result));
-
-  if (!faces) {
-    return nullptr;
-  }
-
-  // -- select the fonts to be used for the generic
-  prefFonts = new PrefFontList;  // can be empty but in practice won't happen
-  uint32_t limit = gfxPlatformGtk::GetPlatform()->MaxGenericSubstitions();
-  bool foundFontWithLang = false;
-  for (int i = 0; i < faces->nfont; i++) {
-    FcPattern* font = faces->fonts[i];
-    FcChar8* mappedGeneric = nullptr;
-
-    FcPatternGetString(font, FC_FAMILY, 0, &mappedGeneric);
-    if (mappedGeneric) {
-      nsAutoCString mappedGenericName(ToCharPtr(mappedGeneric));
-      AutoTArray<FamilyAndGeneric, 1> genericFamilies;
-      if (gfxPlatformFontList::FindAndAddFamilies(
-              StyleGenericFontFamily::None, mappedGenericName, &genericFamilies,
-              FindFamiliesFlags(0))) {
-        MOZ_ASSERT(genericFamilies.Length() == 1, "expected a single family");
-        if (!prefFonts->Contains(genericFamilies[0].mFamily)) {
-          prefFonts->AppendElement(genericFamilies[0].mFamily);
-          bool foundLang = !fcLang.IsEmpty() &&
-                           PatternHasLang(font, ToFcChar8Ptr(fcLang.get()));
-          foundFontWithLang = foundFontWithLang || foundLang;
-          // check to see if the list is full
-          if (prefFonts->Length() >= limit) {
-            break;
+          // -- add the lang to the pattern
+          if (!fcLang.IsEmpty()) {
+            FcPatternAddString(genericPattern, FC_LANG,
+                               ToFcChar8Ptr(fcLang.get()));
           }
+
+          // -- perform substitutions
+          FcConfigSubstitute(nullptr, genericPattern, FcMatchPattern);
+          FcDefaultSubstitute(genericPattern);
+
+          // -- sort to get the closest matches
+          FcResult result;
+          UniquePtr<FcFontSet> faces(
+              FcFontSort(nullptr, genericPattern, FcFalse, nullptr, &result));
+
+          if (!faces) {
+            return nullptr;
+          }
+
+          // -- select the fonts to be used for the generic
+          auto prefFonts = MakeUnique<PrefFontList>();  // can be empty but in
+                                                        // practice won't happen
+          uint32_t limit =
+              gfxPlatformGtk::GetPlatform()->MaxGenericSubstitions();
+          bool foundFontWithLang = false;
+          for (int i = 0; i < faces->nfont; i++) {
+            FcPattern* font = faces->fonts[i];
+            FcChar8* mappedGeneric = nullptr;
+
+            FcPatternGetString(font, FC_FAMILY, 0, &mappedGeneric);
+            if (mappedGeneric) {
+              nsAutoCString mappedGenericName(ToCharPtr(mappedGeneric));
+              AutoTArray<FamilyAndGeneric, 1> genericFamilies;
+              if (gfxPlatformFontList::FindAndAddFamilies(
+                      StyleGenericFontFamily::None, mappedGenericName,
+                      &genericFamilies, FindFamiliesFlags(0))) {
+                MOZ_ASSERT(genericFamilies.Length() == 1,
+                           "expected a single family");
+                if (!prefFonts->Contains(genericFamilies[0].mFamily)) {
+                  prefFonts->AppendElement(genericFamilies[0].mFamily);
+                  bool foundLang =
+                      !fcLang.IsEmpty() &&
+                      PatternHasLang(font, ToFcChar8Ptr(fcLang.get()));
+                  foundFontWithLang = foundFontWithLang || foundLang;
+                  // check to see if the list is full
+                  if (prefFonts->Length() >= limit) {
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // if no font in the list matches the lang, trim all but the first one
+          if (!prefFonts->IsEmpty() && !foundFontWithLang) {
+            prefFonts->TruncateLength(1);
+          }
+
+          entry.Insert(std::move(prefFonts));
         }
-      }
-    }
-  }
-
-  // if no font in the list matches the lang, trim all but the first one
-  if (!prefFonts->IsEmpty() && !foundFontWithLang) {
-    prefFonts->TruncateLength(1);
-  }
-
-  mGenericMappings.Put(genericLang, prefFonts);
-  return prefFonts;
+        return entry.Data().get();
+      });
 }
 
 bool gfxFcPlatformFontList::PrefFontListsUseOnlyGenerics() {

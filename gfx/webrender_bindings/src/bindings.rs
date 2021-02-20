@@ -31,14 +31,18 @@ use nsstring::nsAString;
 use num_cpus;
 use program_cache::{remove_disk_cache, WrProgramCache};
 use rayon;
-use swgl_bindings::SwCompositor;
 use tracy_rs::register_thread_with_profiler;
+use webrender::sw_compositor::SwCompositor;
 use webrender::{
-    api::units::*, api::*, render_api::*, set_profiler_hooks, AsyncPropertySampler, AsyncScreenshotHandle, Compositor,
-    CompositorCapabilities, CompositorConfig, CompositorSurfaceTransform, DebugFlags, Device, NativeSurfaceId,
-    NativeSurfaceInfo, NativeTileId, PartialPresentCompositor, PipelineInfo, ProfilerHooks, RecordedFrameHandle,
-    Renderer, RendererOptions, RendererStats, SceneBuilderHooks, ShaderPrecacheFlags, Shaders, SharedShaders,
-    TextureCacheConfig, UploadMethod, ONE_TIME_USAGE_HINT, host_utils::{thread_started, thread_stopped}
+    api::units::*,
+    api::*,
+    host_utils::{thread_started, thread_stopped},
+    render_api::*,
+    set_profiler_hooks, AsyncPropertySampler, AsyncScreenshotHandle, Compositor, CompositorCapabilities,
+    CompositorConfig, CompositorSurfaceTransform, DebugFlags, Device, MappableCompositor, MappedTileInfo,
+    NativeSurfaceId, NativeSurfaceInfo, NativeTileId, PartialPresentCompositor, PipelineInfo, ProfilerHooks,
+    RecordedFrameHandle, Renderer, RendererOptions, RendererStats, SWGLCompositeSurfaceInfo, SceneBuilderHooks,
+    ShaderPrecacheFlags, Shaders, SharedShaders, TextureCacheConfig, UploadMethod, ONE_TIME_USAGE_HINT,
 };
 use wr_malloc_size_of::MallocSizeOfOps;
 
@@ -500,12 +504,6 @@ fn get_proc_address(glcontext_ptr: *mut c_void, name: &str) -> *const c_void {
 
     let symbol_name = CString::new(name).unwrap();
     let symbol = unsafe { get_proc_address_from_glcontext(glcontext_ptr, symbol_name.as_ptr()) };
-
-    if symbol.is_null() {
-        // XXX Bug 1322949 Make whitelist for extensions
-        warn!("Could not find symbol {:?} by glcontext", symbol_name);
-    }
-
     symbol as *const _
 }
 
@@ -1076,7 +1074,9 @@ pub extern "C" fn wr_thread_pool_new(low_priority: bool) -> *mut WrThreadPool {
         .thread_name(move |idx| format!("WRWorker{}#{}", priority_tag, idx))
         .num_threads(num_threads)
         .start_handler(move |idx| {
-            unsafe { wr_register_thread_local_arena(); }
+            unsafe {
+                wr_register_thread_local_arena();
+            }
             let name = format!("WRWorker{}#{}", priority_tag, idx);
             register_thread_with_profiler(name.clone());
             thread_started(&name);
@@ -1345,11 +1345,7 @@ impl Compositor for WrCompositor {
         }
     }
 
-    fn start_compositing(
-        &mut self,
-        dirty_rects: &[DeviceIntRect],
-        opaque_rects: &[DeviceIntRect],
-    ) {
+    fn start_compositing(&mut self, dirty_rects: &[DeviceIntRect], opaque_rects: &[DeviceIntRect]) {
         unsafe {
             wr_compositor_start_compositing(
                 self.0,
@@ -1384,31 +1380,21 @@ impl Compositor for WrCompositor {
     }
 }
 
-pub struct WrPartialPresentCompositor(*mut c_void);
-
-impl PartialPresentCompositor for WrPartialPresentCompositor {
-    fn set_buffer_damage_region(&mut self, rects: &[DeviceIntRect]) {
-        unsafe {
-            wr_partial_present_compositor_set_buffer_damage_region(self.0, rects.as_ptr(), rects.len());
-        }
-    }
+extern "C" {
+    fn wr_swgl_lock_composite_surface(
+        ctx: *mut c_void,
+        external_image_id: ExternalImageId,
+        composite_info: *mut SWGLCompositeSurfaceInfo,
+    ) -> bool;
+    fn wr_swgl_unlock_composite_surface(ctx: *mut c_void, external_image_id: ExternalImageId);
 }
 
-/// Information about the underlying data buffer of a mapped tile.
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct MappedTileInfo {
-    pub data: *mut c_void,
-    pub stride: i32,
-}
-
-/// WrCompositor-specific extensions to the basic Compositor interface.
-impl WrCompositor {
+impl MappableCompositor for WrCompositor {
     /// Map a tile's underlying buffer so it can be used as the backing for
     /// a SWGL framebuffer. This is intended to be a replacement for 'bind'
     /// in any compositors that intend to directly interoperate with SWGL
     /// while supporting some form of native layers.
-    pub fn map_tile(
+    fn map_tile(
         &mut self,
         id: NativeTileId,
         dirty_rect: DeviceIntRect,
@@ -1439,9 +1425,31 @@ impl WrCompositor {
 
     /// Unmap a tile that was was previously mapped via map_tile to signal
     /// that SWGL is done rendering to the buffer.
-    pub fn unmap_tile(&mut self) {
+    fn unmap_tile(&mut self) {
         unsafe {
             wr_compositor_unmap_tile(self.0);
+        }
+    }
+
+    fn lock_composite_surface(
+        &mut self,
+        ctx: *mut c_void,
+        external_image_id: ExternalImageId,
+        composite_info: *mut SWGLCompositeSurfaceInfo,
+    ) -> bool {
+        unsafe { wr_swgl_lock_composite_surface(ctx, external_image_id, composite_info) }
+    }
+    fn unlock_composite_surface(&mut self, ctx: *mut c_void, external_image_id: ExternalImageId) {
+        unsafe { wr_swgl_unlock_composite_surface(ctx, external_image_id) }
+    }
+}
+
+pub struct WrPartialPresentCompositor(*mut c_void);
+
+impl PartialPresentCompositor for WrPartialPresentCompositor {
+    fn set_buffer_damage_region(&mut self, rects: &[DeviceIntRect]) {
+        unsafe {
+            wr_partial_present_compositor_set_buffer_damage_region(self.0, rects.as_ptr(), rects.len());
         }
     }
 }
@@ -1554,7 +1562,7 @@ pub extern "C" fn wr_window_new(
             compositor: Box::new(SwCompositor::new(
                 sw_gl.unwrap(),
                 native_gl,
-                WrCompositor(compositor),
+                Box::new(WrCompositor(compositor)),
                 use_native_compositor,
             )),
         }

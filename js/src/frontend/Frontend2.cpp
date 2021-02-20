@@ -17,9 +17,9 @@
 
 #include "jsapi.h"
 
-#include "frontend/AbstractScopePtr.h"  // ScopeIndex
-#include "frontend/BytecodeSection.h"   // EmitScriptThingsVector
-#include "frontend/CompilationInfo.h"   // CompilationState, CompilationStencil
+#include "frontend/AbstractScopePtr.h"    // ScopeIndex
+#include "frontend/BytecodeSection.h"     // EmitScriptThingsVector
+#include "frontend/CompilationStencil.h"  // CompilationState, CompilationStencil
 #include "frontend/Parser.h"  // NewEmptyLexicalScopeData, NewEmptyGlobalScopeData, NewEmptyVarScopeData, NewEmptyFunctionScopeData
 #include "frontend/ParserAtom.h"   // ParserAtomsTable, TaggedParserAtomIndex
 #include "frontend/ScriptIndex.h"  // ScriptIndex
@@ -313,7 +313,7 @@ bool ConvertRegExpData(JSContext* cx, const SmooshResult& result,
 
     mozilla::Range<const char16_t> range(pattern.get(), length);
 
-    TokenStreamAnyChars ts(cx, stencil.input.options,
+    TokenStreamAnyChars ts(cx, compilationState.input.options,
                            /* smg = */ nullptr);
 
     // See Parser<FullParseHandler, Unit>::newRegExp.
@@ -431,7 +431,7 @@ bool ConvertScriptStencil(JSContext* cx, const SmooshResult& result,
                           ScriptIndex scriptIndex) {
   using ImmutableFlags = js::ImmutableScriptFlagsEnum;
 
-  const JS::ReadOnlyCompileOptions& options = stencil.input.options;
+  const JS::ReadOnlyCompileOptions& options = compilationState.input.options;
 
   ScriptStencil& script = compilationState.scriptData[scriptIndex];
   ScriptStencilExtra& scriptExtra = compilationState.scriptExtra[scriptIndex];
@@ -550,25 +550,23 @@ void ReportSmooshCompileError(JSContext* cx, ErrorMetadata&& metadata,
 }
 
 /* static */
-bool Smoosh::compileGlobalScriptToStencil(JSContext* cx,
-                                          CompilationStencil& stencil,
-                                          JS::SourceText<Utf8Unit>& srcBuf,
-                                          bool* unimplemented) {
+bool Smoosh::tryCompileGlobalScriptToStencil(
+    JSContext* cx, CompilationInput& input,
+    JS::SourceText<mozilla::Utf8Unit>& srcBuf,
+    UniquePtr<CompilationStencil>& stencilOut) {
   // FIXME: check info members and return with *unimplemented = true
   //        if any field doesn't match to smoosh_run.
 
   auto bytes = reinterpret_cast<const uint8_t*>(srcBuf.get());
   size_t length = srcBuf.length();
 
-  const auto& options = stencil.input.options;
   SmooshCompileOptions compileOptions;
-  compileOptions.no_script_rval = options.noScriptRval;
+  compileOptions.no_script_rval = input.options.noScriptRval;
 
   SmooshResult result = smoosh_run(bytes, length, &compileOptions);
   AutoFreeSmooshResult afsr(&result);
 
   if (result.error.data) {
-    *unimplemented = false;
     ErrorMetadata metadata;
     metadata.filename = "<unknown>";
     metadata.lineNumber = 1;
@@ -581,31 +579,40 @@ bool Smoosh::compileGlobalScriptToStencil(JSContext* cx,
   }
 
   if (result.unimplemented) {
-    *unimplemented = true;
+    MOZ_ASSERT(!stencilOut);
+    return true;
+  }
+
+  if (!input.initForGlobal(cx)) {
     return false;
   }
 
-  *unimplemented = false;
+  UniquePtr<frontend::CompilationStencil> stencil(
+      cx->new_<frontend::CompilationStencil>(input));
+  if (!stencil) {
+    return false;
+  }
 
   LifoAllocScope allocScope(&cx->tempLifoAlloc());
 
   Vector<TaggedParserAtomIndex> allAtoms(cx);
-  CompilationState compilationState(cx, allocScope, stencil.input.options,
-                                    stencil);
+  CompilationState compilationState(cx, allocScope, input, *stencil);
   if (!ConvertAtoms(cx, result, compilationState, allAtoms)) {
     return false;
   }
 
-  if (!ConvertScopeStencil(cx, result, allAtoms, stencil, compilationState)) {
+  if (!ConvertScopeStencil(cx, result, allAtoms, *stencil, compilationState)) {
     return false;
   }
 
-  if (!ConvertRegExpData(cx, result, stencil, compilationState)) {
+  if (!ConvertRegExpData(cx, result, *stencil, compilationState)) {
     return false;
   }
 
   auto len = result.scripts.len;
   if (len == 0) {
+    // FIXME: What does it mean to have no scripts?
+    MOZ_ASSERT(!stencilOut);
     return true;
   }
 
@@ -635,74 +642,23 @@ bool Smoosh::compileGlobalScriptToStencil(JSContext* cx,
     }
   }
 
-  stencil.prepareStorageFor(cx, compilationState);
+  if (!stencil->prepareStorageFor(cx, compilationState)) {
+    return false;
+  }
 
   for (size_t i = 0; i < len; i++) {
     if (!ConvertScriptStencil(cx, result, result.scripts.data[i], allAtoms,
-                              stencil, compilationState, ScriptIndex(i))) {
+                              *stencil, compilationState, ScriptIndex(i))) {
       return false;
     }
   }
 
-  if (!compilationState.finish(cx, stencil)) {
-    return true;
-  }
-
-  return true;
-}
-
-/* static */
-UniquePtr<CompilationStencil> Smoosh::compileGlobalScriptToStencil(
-    JSContext* cx, const JS::ReadOnlyCompileOptions& options,
-    JS::SourceText<Utf8Unit>& srcBuf, bool* unimplemented) {
-  Rooted<UniquePtr<frontend::CompilationStencil>> stencil(
-      cx, js_new<frontend::CompilationStencil>(cx, options));
-  if (!stencil) {
-    ReportOutOfMemory(cx);
-    return nullptr;
-  }
-
-  if (!stencil.get()->input.initForGlobal(cx)) {
-    return nullptr;
-  }
-
-  if (!compileGlobalScriptToStencil(cx, *stencil.get().get(), srcBuf,
-                                    unimplemented)) {
-    return nullptr;
-  }
-
-  return std::move(stencil.get());
-}
-
-/* static */
-bool Smoosh::compileGlobalScript(JSContext* cx, CompilationStencil& stencil,
-                                 JS::SourceText<Utf8Unit>& srcBuf,
-                                 CompilationGCOutput& gcOutput,
-                                 bool* unimplemented) {
-  if (!compileGlobalScriptToStencil(cx, stencil, srcBuf, unimplemented)) {
+  if (!compilationState.finish(cx, *stencil)) {
     return false;
   }
 
-  if (!CompilationStencil::instantiateStencils(cx, stencil, gcOutput)) {
-    return false;
-  }
-
-#if defined(DEBUG) || defined(JS_JITSPEW)
-  Sprinter sprinter(cx);
-  Rooted<JSScript*> script(cx, gcOutput.script);
-  if (!sprinter.init()) {
-    return false;
-  }
-  if (!Disassemble(cx, script, true, &sprinter, DisassembleSkeptically::Yes)) {
-    return false;
-  }
-  printf("%s\n", sprinter.string());
-  if (!Disassemble(cx, script, true, &sprinter, DisassembleSkeptically::No)) {
-    return false;
-  }
-  // (don't bother printing it)
-#endif
-
+  // Success!
+  stencilOut = std::move(stencil);
   return true;
 }
 

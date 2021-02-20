@@ -23,7 +23,7 @@ class KeyboardEventForwarderParent final : public PKeyboardEventForwarderParent,
   NS_DECL_ISUPPORTS
   NS_DECL_NSIKEYBOARDEVENTFORWARDER
 
-  explicit KeyboardEventForwarderParent(BrowserParent* aParent);
+  explicit KeyboardEventForwarderParent();
   IPCResult RecvResponse(const KeyResponse& aResponse);
 
  private:

@@ -144,6 +144,7 @@ def Libxul(name, output_category=None):
             "android.hardware.graphics.composer@2.3",
             "android.hardware.power@1.0",
             "android.hardware.radio@1.0",
+            "android.hardware.radio@1.1",
             "android.hardware.sensors@1.0",
             "android.hardware.vibrator@1.0",
             "android.hardware.wifi@1.0",

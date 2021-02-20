@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 <%namespace name="helpers" file="/helpers.mako.rs" />
-<% from data import ALL_AXES, Keyword, Method, to_rust_ident, to_camel_case%>
+<% from data import ALL_AXES, DEFAULT_RULES_EXCEPT_KEYFRAME, Keyword, Method, to_rust_ident, to_camel_case%>
 
 <% data.new_style_struct("Box",
                          inherited=False,
@@ -71,7 +71,6 @@ ${helpers.predefined_type(
     initial_specified_value="specified::Float::None",
     spec="https://drafts.csswg.org/css-box/#propdef-float",
     animation_value_type="discrete",
-    needs_context=False,
     servo_restyle_damage="rebuild_and_reflow",
     gecko_ffi_name="mFloat",
 )}
@@ -82,7 +81,6 @@ ${helpers.predefined_type(
     "computed::Clear::None",
     engines="gecko servo-2013",
     animation_value_type="discrete",
-    needs_context=False,
     gecko_ffi_name="mBreakType",
     spec="https://drafts.csswg.org/css-box/#propdef-clear",
     servo_restyle_damage="rebuild_and_reflow",
@@ -117,7 +115,6 @@ ${helpers.single_keyword(
         "computed::OverflowClipBox::PaddingBox",
         engines="gecko",
         enabled_in="ua",
-        needs_context=False,
         gecko_pref="layout.css.overflow-clip-box.enabled",
         animation_value_type="discrete",
         spec="Internal, may be standardized in the future: \
@@ -136,7 +133,6 @@ ${helpers.single_keyword(
         logical=logical,
         animation_value_type="discrete",
         spec="https://drafts.csswg.org/css-overflow-3/#propdef-{}".format(full_name),
-        needs_context=False,
         servo_restyle_damage = "reflow",
         gecko_pref="layout.css.overflow-logical.enabled" if logical else None,
     )}
@@ -148,7 +144,6 @@ ${helpers.predefined_type(
     "computed::OverflowAnchor::Auto",
     engines="gecko",
     initial_specified_value="specified::OverflowAnchor::Auto",
-    needs_context=False,
     gecko_pref="layout.css.scroll-anchoring.enabled",
     spec="https://drafts.csswg.org/css-scroll-anchoring/#exclusion-api",
     animation_value_type="discrete",
@@ -222,7 +217,7 @@ ${helpers.predefined_type(
     need_index=True,
     animation_value_type="none",
     extra_prefixes=animation_extra_prefixes,
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-name",
 )}
 
@@ -252,7 +247,6 @@ ${helpers.predefined_type(
     need_index=True,
     animation_value_type="none",
     extra_prefixes=animation_extra_prefixes,
-    allowed_in_keyframe_block=True,
     spec="https://drafts.csswg.org/css-transitions/#propdef-animation-timing-function",
 )}
 
@@ -266,7 +260,7 @@ ${helpers.predefined_type(
     need_index=True,
     animation_value_type="none",
     extra_prefixes=animation_extra_prefixes,
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-iteration-count",
 )}
 
@@ -283,7 +277,7 @@ ${helpers.single_keyword(
     extra_prefixes=animation_extra_prefixes,
     gecko_inexhaustive=True,
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-direction",
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
 )}
 
 ${helpers.single_keyword(
@@ -296,7 +290,7 @@ ${helpers.single_keyword(
     extra_prefixes=animation_extra_prefixes,
     gecko_enum_prefix="StyleAnimationPlayState",
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-play-state",
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
 )}
 
 ${helpers.single_keyword(
@@ -310,7 +304,7 @@ ${helpers.single_keyword(
     extra_prefixes=animation_extra_prefixes,
     gecko_inexhaustive=True,
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-fill-mode",
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
 )}
 
 ${helpers.predefined_type(
@@ -324,7 +318,7 @@ ${helpers.predefined_type(
     animation_value_type="none",
     extra_prefixes=animation_extra_prefixes,
     spec="https://drafts.csswg.org/css-animations/#propdef-animation-delay",
-    allowed_in_keyframe_block=False,
+    rule_types_allowed=DEFAULT_RULES_EXCEPT_KEYFRAME,
 )}
 
 <% transform_extra_prefixes = "moz:layout.css.prefixes.transforms webkit" %>
@@ -468,7 +462,6 @@ ${helpers.predefined_type(
         "OverscrollBehavior",
         "computed::OverscrollBehavior::Auto",
         engines="gecko",
-        needs_context=False,
         logical_group="overscroll-behavior",
         logical=logical,
         gecko_pref="layout.css.overscroll-behavior.enabled",
@@ -494,7 +487,6 @@ ${helpers.predefined_type(
     "BreakBetween",
     "computed::BreakBetween::Auto",
     engines="gecko",
-    needs_context=False,
     spec="https://drafts.csswg.org/css-break/#propdef-break-after",
     animation_value_type="discrete",
 )}
@@ -504,7 +496,6 @@ ${helpers.predefined_type(
     "BreakBetween",
     "computed::BreakBetween::Auto",
     engines="gecko",
-    needs_context=False,
     spec="https://drafts.csswg.org/css-break/#propdef-break-before",
     animation_value_type="discrete",
 )}
@@ -514,7 +505,6 @@ ${helpers.predefined_type(
     "BreakWithin",
     "computed::BreakWithin::Auto",
     engines="gecko",
-    needs_context=False,
     alias="page-break-inside",
     spec="https://drafts.csswg.org/css-break/#propdef-break-inside",
     animation_value_type="discrete",
@@ -528,7 +518,6 @@ ${helpers.predefined_type(
     "computed::Resize::None",
     engines="gecko",
     animation_value_type="discrete",
-    needs_context=False,
     gecko_ffi_name="mResize",
     spec="https://drafts.csswg.org/css-ui/#propdef-resize",
 )}
@@ -584,7 +573,6 @@ ${helpers.predefined_type(
     "computed::TransformStyle::Flat",
     engines="gecko servo-2013 servo-2020",
     spec="https://drafts.csswg.org/css-transforms-2/#transform-style-property",
-    needs_context=False,
     extra_prefixes=transform_extra_prefixes,
     flags="CREATES_STACKING_CONTEXT FIXPOS_CB",
     animation_value_type="discrete",

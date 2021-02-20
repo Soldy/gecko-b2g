@@ -203,7 +203,7 @@ AccessibleWrap::get_accParent(IDispatch __RPC_FAR* __RPC_FAR* ppdispParent) {
 
   if (IsDefunct()) return CO_E_OBJNOTCONNECTED;
 
-  Accessible* xpParentAcc = Parent();
+  Accessible* xpParentAcc = LocalParent();
   if (!xpParentAcc) return S_FALSE;
 
   *ppdispParent = NativeAccessible(xpParentAcc);
@@ -441,7 +441,7 @@ AccessibleWrap::get_accRole(
   // the MSAA role a ROLE_OUTLINEITEM for consistency and compatibility. We need
   // this because ARIA has a role of "row" for both grid and treegrid
   if (geckoRole == roles::ROW) {
-    Accessible* xpParent = Parent();
+    Accessible* xpParent = LocalParent();
     if (xpParent && xpParent->Role() == roles::TREE_TABLE)
       msaaRole = ROLE_SYSTEM_OUTLINEITEM;
   }
@@ -684,7 +684,6 @@ AccessibleEnumerator::Next(unsigned long celt, VARIANT FAR* rgvar,
 STDMETHODIMP
 AccessibleEnumerator::Clone(IEnumVARIANT FAR* FAR* ppenum) {
   *ppenum = new AccessibleEnumerator(*this);
-  if (!*ppenum) return E_OUTOFMEMORY;
   NS_ADDREF(*ppenum);
   return S_OK;
 }
@@ -892,28 +891,28 @@ AccessibleWrap::accNavigate(
     case NAVDIR_FIRSTCHILD:
       if (IsProxy()) {
         if (!nsAccUtils::MustPrune(Proxy())) {
-          navAccessible = WrapperFor(Proxy()->FirstChild());
+          navAccessible = WrapperFor(Proxy()->RemoteFirstChild());
         }
       } else {
-        if (!nsAccUtils::MustPrune(this)) navAccessible = FirstChild();
+        if (!nsAccUtils::MustPrune(this)) navAccessible = LocalFirstChild();
       }
       break;
     case NAVDIR_LASTCHILD:
       if (IsProxy()) {
         if (!nsAccUtils::MustPrune(Proxy())) {
-          navAccessible = WrapperFor(Proxy()->LastChild());
+          navAccessible = WrapperFor(Proxy()->RemoteLastChild());
         }
       } else {
-        if (!nsAccUtils::MustPrune(this)) navAccessible = LastChild();
+        if (!nsAccUtils::MustPrune(this)) navAccessible = LocalLastChild();
       }
       break;
     case NAVDIR_NEXT:
-      navAccessible =
-          IsProxy() ? WrapperFor(Proxy()->NextSibling()) : NextSibling();
+      navAccessible = IsProxy() ? WrapperFor(Proxy()->RemoteNextSibling())
+                                : LocalNextSibling();
       break;
     case NAVDIR_PREVIOUS:
-      navAccessible =
-          IsProxy() ? WrapperFor(Proxy()->PrevSibling()) : PrevSibling();
+      navAccessible = IsProxy() ? WrapperFor(Proxy()->RemotePrevSibling())
+                                : LocalPrevSibling();
       break;
     case NAVDIR_DOWN:
     case NAVDIR_LEFT:
@@ -1353,7 +1352,7 @@ bool AccessibleWrap::IsRootForHWND() {
     return true;
   }
   HWND thisHwnd = GetHWNDFor(this);
-  AccessibleWrap* parent = static_cast<AccessibleWrap*>(Parent());
+  AccessibleWrap* parent = static_cast<AccessibleWrap*>(LocalParent());
   MOZ_ASSERT(parent);
   HWND parentHwnd = GetHWNDFor(parent);
   return thisHwnd != parentHwnd;
@@ -1421,7 +1420,7 @@ already_AddRefed<IAccessible> AccessibleWrap::GetIAccessibleFor(
   if (varChild.lVal > 0) {
     // Gecko child indices are 0-based in contrast to indices used in MSAA.
     MOZ_ASSERT(!IsProxy());
-    Accessible* xpAcc = GetChildAt(varChild.lVal - 1);
+    Accessible* xpAcc = LocalChildAt(varChild.lVal - 1);
     if (!xpAcc) {
       return nullptr;
     }
@@ -1460,7 +1459,7 @@ already_AddRefed<IAccessible> AccessibleWrap::GetIAccessibleFor(
         return result.forget();
       }
 
-      parent = parent->Parent();
+      parent = parent->LocalParent();
     }
   }
 

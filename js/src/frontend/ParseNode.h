@@ -8,7 +8,6 @@
 #define frontend_ParseNode_h
 
 #include "mozilla/Assertions.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/Span.h"  // mozilla::Span
 
 #include <iterator>
@@ -145,11 +144,13 @@ class FunctionBox;
   F(ImportDecl, BinaryNode)                                      \
   F(ImportSpecList, ListNode)                                    \
   F(ImportSpec, BinaryNode)                                      \
+  F(ImportNamespaceSpec, UnaryNode)                              \
   F(ExportStmt, UnaryNode)                                       \
   F(ExportFromStmt, BinaryNode)                                  \
   F(ExportDefaultStmt, BinaryNode)                               \
   F(ExportSpecList, ListNode)                                    \
   F(ExportSpec, BinaryNode)                                      \
+  F(ExportNamespaceSpec, UnaryNode)                              \
   F(ExportBatchSpecStmt, NullaryNode)                            \
   F(ForIn, TernaryNode)                                          \
   F(ForOf, TernaryNode)                                          \
@@ -158,6 +159,7 @@ class FunctionBox;
   F(Spread, UnaryNode)                                           \
   F(MutateProto, UnaryNode)                                      \
   F(ClassDecl, ClassNode)                                        \
+  F(DefaultConstructor, ClassMethod)                             \
   F(ClassMethod, ClassMethod)                                    \
   F(ClassField, ClassField)                                      \
   F(ClassMemberList, ListNode)                                   \
@@ -302,6 +304,9 @@ inline bool IsTypeofKind(ParseNodeKind kind) {
  * ClassMemberList (ListNode)
  *   head: list of N ClassMethod or ClassField nodes
  *   count: N >= 0
+ * DefaultConstructor (ClassMethod)
+ *   name: propertyName
+ *   method: methodDefinition
  * ClassMethod (ClassMethod)
  *   name: propertyName
  *   method: methodDefinition
@@ -397,6 +402,8 @@ inline bool IsTypeofKind(ParseNodeKind kind) {
  * ImportSpec (BinaryNode)
  *   left: import name
  *   right: local binding name
+ * ImportNamespaceSpec (UnaryNode)
+ *   kid: local binding name
  * ExportStmt (UnaryNode)
  *   kid: declaration expression
  * ExportFromStmt (BinaryNode)
@@ -408,6 +415,8 @@ inline bool IsTypeofKind(ParseNodeKind kind) {
  * ExportSpec (BinaryNode)
  *   left: local binding name
  *   right: export name
+ * ExportNamespaceSpec (UnaryNode)
+ *   kid: export name
  * ExportDefaultStmt (BinaryNode)
  *   left: export default declaration or expression
  *   right: Name node for assignment
@@ -1226,18 +1235,18 @@ class ListNode : public ParseNode {
 #endif
   ;
 
-  MOZ_MUST_USE bool hasTopLevelFunctionDeclarations() const {
+  [[nodiscard]] bool hasTopLevelFunctionDeclarations() const {
     MOZ_ASSERT(isKind(ParseNodeKind::StatementList));
     return xflags & hasTopLevelFunctionDeclarationsBit;
   }
 
-  MOZ_MUST_USE bool emittedTopLevelFunctionDeclarations() const {
+  [[nodiscard]] bool emittedTopLevelFunctionDeclarations() const {
     MOZ_ASSERT(isKind(ParseNodeKind::StatementList));
     MOZ_ASSERT(hasTopLevelFunctionDeclarations());
     return xflags & emittedTopLevelFunctionDeclarationsBit;
   }
 
-  MOZ_MUST_USE bool hasNonConstInitializer() const {
+  [[nodiscard]] bool hasNonConstInitializer() const {
     MOZ_ASSERT(isKind(ParseNodeKind::ArrayExpr) ||
                isKind(ParseNodeKind::ObjectExpr));
     return xflags & hasNonConstInitializerBit;
@@ -1414,7 +1423,7 @@ class ListNode : public ParseNode {
   };
 
 #ifdef DEBUG
-  MOZ_MUST_USE bool contains(ParseNode* target) const {
+  [[nodiscard]] bool contains(ParseNode* target) const {
     MOZ_ASSERT(target);
     for (ParseNode* node : contents()) {
       if (target == node) {
@@ -1889,7 +1898,8 @@ class RegExpLiteral : public ParseNode {
       : ParseNode(ParseNodeKind::RegExpExpr, pos), index_(dataIndex) {}
 
   // Create a RegExp object of this RegExp literal.
-  RegExpObject* create(JSContext* cx, CompilationAtomCache& atomCache,
+  RegExpObject* create(JSContext* cx, ParserAtomsTable& parserAtoms,
+                       CompilationAtomCache& atomCache,
                        BaseCompilationStencil& stencil) const;
 
 #ifdef DEBUG
@@ -2090,16 +2100,21 @@ class ClassMethod : public BinaryNode {
    * Method definitions often keep a name and function body that overlap,
    * so explicitly define the beginning and end here.
    */
-  ClassMethod(ParseNode* name, ParseNode* body, AccessorType accessorType,
-              bool isStatic, FunctionNode* initializerIfPrivate)
-      : BinaryNode(ParseNodeKind::ClassMethod,
-                   TokenPos(name->pn_pos.begin, body->pn_pos.end), name, body),
+  ClassMethod(ParseNodeKind kind, ParseNode* name, ParseNode* body,
+              AccessorType accessorType, bool isStatic,
+              FunctionNode* initializerIfPrivate)
+      : BinaryNode(kind, TokenPos(name->pn_pos.begin, body->pn_pos.end), name,
+                   body),
         isStatic_(isStatic),
         accessorType_(accessorType),
-        initializerIfPrivate_(initializerIfPrivate) {}
+        initializerIfPrivate_(initializerIfPrivate) {
+    MOZ_ASSERT(kind == ParseNodeKind::DefaultConstructor ||
+               kind == ParseNodeKind::ClassMethod);
+  }
 
   static bool test(const ParseNode& node) {
-    bool match = node.isKind(ParseNodeKind::ClassMethod);
+    bool match = node.isKind(ParseNodeKind::DefaultConstructor) ||
+                 node.isKind(ParseNodeKind::ClassMethod);
     MOZ_ASSERT_IF(match, node.is<BinaryNode>());
     return match;
   }

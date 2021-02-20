@@ -263,7 +263,7 @@
 
 - name: apz.wr.activate_all_scroll_frames_when_fission
   type: RelaxedAtomicBool
-  value: false
+  value: true
   mirror: always
 
 - name: apz.nonwr.activate_all_scroll_frames
@@ -1791,6 +1791,12 @@
   value: true
   mirror: always
 
+# Whether event timing will be gathered and returned by performance observer*
+- name: dom.enable_event_timing
+  type: RelaxedAtomicBool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+
 # Whether performance.GetEntries* will contain an entry for the active document
 - name: dom.enable_performance_navigation_timing
   type: bool
@@ -1865,13 +1871,7 @@
   value: true
   mirror: always
 
-# Disable clipboard read() by default
-- name: dom.events.asyncClipboard.dataTransfer
-  type: bool
-  value: false
-  mirror: always
-
-# Disable ClipboardItem and clipboard.write by default
+# Disable ClipboardItem and clipboard.read/write by default
 - name: dom.events.asyncClipboard.clipboardItem
   type: bool
   value: false
@@ -1942,12 +1942,6 @@
   value: true
   mirror: always
 
-# Enable formData event
-- name: dom.formdata.event.enabled
-  type: bool
-  value: true
-  mirror: always
-
 # Support @autocomplete values for form autofill feature.
 - name: dom.forms.autocomplete.formautofill
   type: bool
@@ -1966,12 +1960,6 @@
 - name: dom.forms.number.grouping
   type: bool
   value: false
-  mirror: always
-
-# Enable the form.requestSubmit API
-- name: dom.forms.requestsubmit.enabled
-  type: bool
-  value: true
   mirror: always
 
 # Whether the Gamepad API is enabled
@@ -4353,13 +4341,18 @@
 #endif
   mirror: always
 
+- name: gfx.color_management.force_srgb
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 - name: gfx.color_management.enablev4
   type: RelaxedAtomicBool
   value: false
   mirror: always
 
 # 0 = Off, 1 = Full, 2 = Tagged Images Only.
-# See eCMSMode in gfx/thebes/gfxPlatform.h.
+# See CMSMode in gfx/thebes/gfxPlatform.h.
 - name: gfx.color_management.mode
   type: RelaxedAtomicInt32
   value: 2
@@ -5575,9 +5568,11 @@
   mirror: always
 #endif
 
-#if defined(ENABLE_WASM_SIMD_WORMHOLE)
-# This is x64-only nightly-only and it would break unified macOS builds if
-# it were in all.js
+#if defined(ENABLE_WASM_SIMD_WORMHOLE) && defined(EARLY_BETA_OR_EARLIER)
+# This is x64-only and it would break unified macOS builds if
+# it were in all.js.  The feature rides the trains but not the
+# pref to control it; in late beta and release, it is only
+# available to privileged content.
 - name: javascript.options.wasm_simd_wormhole
   type: bool
   value: false
@@ -5628,17 +5623,6 @@
   value: @IS_ANDROID@
   mirror: once
   do_not_use_directly: true
-
-- name: layers.advanced.basic-layer.enabled
-  type: RelaxedAtomicBool
-  value: false
-  mirror: always
-
-# Whether we allow advanced layers with fission
-- name: layers.advanced.fission.enabled
-  type: bool
-  value: false
-  mirror: always
 
 # Whether we allow AMD switchable graphics.
 - name: layers.amd-switchable-gfx.enabled
@@ -5919,52 +5903,6 @@
   value: -1
   mirror: always
 
-- name: layers.mlgpu.enabled
-  type: bool
-  value: false
-  mirror: once
-  do_not_use_directly: true
-
-- name: layers.mlgpu.enable-buffer-cache
-  type: bool
-  value: true
-  mirror: once
-
-- name: layers.mlgpu.enable-buffer-sharing
-  type: bool
-  value: true
-  mirror: once
-
-- name: layers.mlgpu.enable-clear-view
-  type: bool
-  value: true
-  mirror: once
-
-- name: layers.mlgpu.enable-cpu-occlusion
-  type: bool
-  value: true
-  mirror: once
-
-- name: layers.mlgpu.enable-depth-buffer
-  type: bool
-  value: false
-  mirror: once
-
-- name: layers.mlgpu.enable-invalidation
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
-# Both this and the master "enabled" pref must be on to use Advanced Layers
-# on Windows 7.
-- name: layers.mlgpu.enable-on-windows7
-  type: bool
-#if defined(XP_WIN)
-  value: true
-#else
-  value: false
-#endif
-  mirror: once
 
 # Whether to animate simple opacity and transforms on the compositor.
 - name: layers.offmainthreadcomposition.async-animations
@@ -6278,6 +6216,13 @@
   type: RelaxedAtomicBool
   value: false
   mirror: always
+
+# Whether non-standard caption-side values are enabled
+- name: layout.css.caption-side-non-standard.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+  rust: true
 
 # Whether Constructable Stylesheets are enabled in script.
 - name: layout.css.constructable-stylesheets.enabled
@@ -6917,6 +6862,12 @@
 - name: layout.css.outline-style-auto.enabled
   type: bool
   value: true
+  mirror: always
+
+# Whether outline should follow the border radius.
+- name: layout.css.outline-follows-border-radius.enabled
+  type: bool
+  value: @IS_NIGHTLY_BUILD@
   mirror: always
 
 # Pref to control enabling scroll anchoring.
@@ -7985,7 +7936,11 @@
 # Media Seamless Looping
 - name: media.seamless-looping
   type: RelaxedAtomicBool
+#ifdef MOZ_B2G
+  value: false
+#else
   value: true
+#endif
   mirror: always
 
 - name: media.autoplay.block-event.enabled
@@ -8867,6 +8822,13 @@
   value: false
   mirror: always
 
+# When receiving a network change event, the time (in ms) we wait to reload the
+# PAC url.
+- name: network.proxy.reload_pac_delay
+  type: RelaxedAtomicUint32
+  value: 2000
+  mirror: always
+
 # Some requests during a page load are marked as "tail", mainly trackers, but not only.
 # This pref controls whether such requests are put to the tail, behind other requests
 # emerging during page loading process.
@@ -8914,6 +8876,12 @@
 - name: network.trr.request_timeout_mode_trronly_ms
   type: RelaxedAtomicUint32
   value: 30000
+  mirror: always
+
+# The timeout of the TRR confirmation request
+- name: network.trr.confirmation_timeout_ms
+  type: RelaxedAtomicUint32
+  value: 6000
   mirror: always
 
 # Whether to send the Accept-Language header for TRR requests
@@ -8974,12 +8942,6 @@
   value: false
   mirror: always
 
-# Allow AAAA entries to be used "early", before the A results are in
-- name: network.trr.early-AAAA
-  type: RelaxedAtomicBool
-  value: false
-  mirror: always
-
 # When true, it only sends AAAA when the system has IPv6 connectivity
 - name: network.trr.skip-AAAA-when-not-supported
   type: RelaxedAtomicBool
@@ -8989,14 +8951,6 @@
 # Whether to apply split horizon mitigations when using TRR.
 # These include adding the DNS suffix to the excluded domains
 - name: network.trr.split_horizon_mitigations
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
-# When true, the DNS request will wait for both A and AAAA responses
-# (if both have been requested) before notifying the listeners.
-# When true, it effectively cancels `network.trr.early-AAAA`
-- name: network.trr.wait-for-A-and-AAAA
   type: RelaxedAtomicBool
   value: true
   mirror: always
@@ -9153,7 +9107,7 @@
 # available.
 - name: network.dns.upgrade_with_https_rr
   type: RelaxedAtomicBool
-  value: false
+  value: @IS_NIGHTLY_BUILD@
   mirror: always
 
 # Whether to use HTTPS RR as AltSvc
@@ -9215,6 +9169,13 @@
 - name: network.cache.frecency_array_check_enabled
   type: RelaxedAtomicBool
   value: @IS_EARLY_BETA_OR_EARLIER@
+  mirror: always
+
+#  This is used for a temporary workaround for a web-compat issue. If pref is
+# true CORS preflight requests are allowed to send client certificates.
+- name: network.cors_preflight.allow_client_cert
+  type: RelaxedAtomicBool
+  value: false
   mirror: always
 
 #---------------------------------------------------------------------------
@@ -9364,7 +9325,7 @@
 # The tab modal print dialog is currently only for early beta or nightly.
 - name: print.tab_modal.enabled
   type: RelaxedAtomicBool
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
   mirror: always
 
 # Whether the pages per sheet print setting is enabled.
@@ -9789,6 +9750,11 @@
 - name: security.csp.reporting.script-sample.max-length
   type: int32_t
   value: 40
+  mirror: always
+
+- name: security.csp.truncate_blocked_uri_for_frame_navigations
+  type: bool
+  value: true
   mirror: always
 
 # Allows loading ui resources in CheckLoadURIFlags
@@ -10310,11 +10276,6 @@
   value: 10
   mirror: always
 
-- name: ui.use_native_colors
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
 # Prevent system colors from being exposed to CSS or canvas.
 - name: ui.use_standins_for_native_colors
   type: RelaxedAtomicBool
@@ -10738,16 +10699,14 @@
   value: true
   mirror: always
 
-- name: webgl.oop.via-pcq
-  type: RelaxedAtomicBool
-  value: false
-  mirror: always
-
 #---------------------------------------------------------------------------
 # Prefs starting with "widget."
 #---------------------------------------------------------------------------
 
 # Global user preference for disabling native theme in content processes.
+#
+# NOTE(emilio): When changing this make sure to update the non_native_theme
+# entry in python/mozbuild/mozbuild/mozinfo.py
 - name: widget.disable-native-theme-for-content
   type: RelaxedAtomicBool
 #if defined(XP_LINUX) && defined(NIGHTLY_BUILD) && !defined(ANDROID)
@@ -10792,6 +10751,19 @@
 - name: widget.gtk.non-native.scrollbar.allow-buttons
   type: bool
   value: false
+  mirror: always
+
+# Whether we should use the default accent color or the theme-provided one.
+#
+# TODO(emilio): This should probably do the right thing in most other
+# platforms, but stick to the standard colors on those.
+- name: widget.non-native.use-theme-accent
+  type: bool
+#ifdef MOZ_WIDGET_GTK
+  value: true
+#else
+  value: false
+#endif
   mirror: always
 
 # Preference to disable dark scrollbar implementation.
@@ -10849,6 +10821,12 @@
 
 # Use DMABuf backend for WebGL.
 - name: widget.dmabuf-webgl.enabled
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
+# Use opaque region for MozContainer wl_surface
+- name: widget.wayland.opaque-region.enabled
   type: RelaxedAtomicBool
   value: true
   mirror: always

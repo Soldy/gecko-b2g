@@ -48,10 +48,9 @@ namespace js {
 
 namespace frontend {
 
-class ParserAtom;
-class ParserAtomEntry;
+class ParserAtomsTable;
 class TaggedParserAtomIndex;
-class WellKnownParserAtoms_ROM;
+class WellKnownParserAtoms;
 struct CompilationAtomCache;
 
 }  // namespace frontend
@@ -728,7 +727,7 @@ class JSRope : public JSString {
   // fallible.
   //
   // Returns the same value as if this were a linear string being hashed.
-  MOZ_MUST_USE bool hash(uint32_t* outhHash) const;
+  [[nodiscard]] bool hash(uint32_t* outhHash) const;
 
   JSString* leftChild() const {
     MOZ_ASSERT(isRope());
@@ -865,9 +864,10 @@ class JSLinearString : public JSString {
 
   /*
    * Returns true if this string's characters store an unsigned 32-bit
-   * integer value, initializing *indexp to that value if so.  (Thus if
-   * calling isIndex returns true, js::IndexToString(cx, *indexp) will be a
-   * string equal to this string.)
+   * integer value, initializing *indexp to that value if so.
+   * Leading '0' isn't allowed except 0 itself.
+   * (Thus if calling isIndex returns true, js::IndexToString(cx, *indexp) will
+   * be a string equal to this string.)
    */
   bool isIndex(uint32_t* indexp) const {
     MOZ_ASSERT(JSString::isLinear());
@@ -1236,6 +1236,9 @@ MOZ_ALWAYS_INLINE JSAtom* JSLinearString::morphAtomizedStringIntoPermanentAtom(
 
 namespace js {
 
+// Returns true if the characters of `s` store an unsigned 32-bit integer value,
+// initializing `*indexp` to that value if so.
+// Leading '0' isn't allowed except 0 itself.
 template <typename CharT>
 bool CheckStringIsIndex(const CharT* s, size_t length, uint32_t* indexp);
 
@@ -1262,9 +1265,9 @@ class LittleEndianChars {
 class StaticStrings {
   // NOTE: The WellKnownParserAtoms rely on these tables and may need to be
   //       update if these tables are changed.
-  friend class js::frontend::ParserAtomEntry;
+  friend class js::frontend::ParserAtomsTable;
   friend class js::frontend::TaggedParserAtomIndex;
-  friend class js::frontend::WellKnownParserAtoms_ROM;
+  friend class js::frontend::WellKnownParserAtoms;
   friend struct js::frontend::CompilationAtomCache;
 
  private:
@@ -1530,9 +1533,6 @@ static inline UniqueChars StringToNewUTF8CharsZ(JSContext* maybecx,
           : JS::CharsToNewUTF8CharsZ(maybecx, linear->twoByteRange(nogc))
                 .c_str());
 }
-
-UniqueChars ParserAtomToNewUTF8CharsZ(JSContext* maybecx,
-                                      const js::frontend::ParserAtom* atom);
 
 /**
  * Allocate a string with the given contents.  If |allowGC == CanGC|, this may

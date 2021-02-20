@@ -657,8 +657,17 @@ pref("gfx.webrender.debug.obscure-images", false);
 pref("gfx.webrender.debug.glyph-flashing", false);
 pref("gfx.webrender.debug.capture-profiler", false);
 pref("gfx.webrender.debug.profiler-ui", "Default");
+
+// Temporarily use the debug pref to configure the upload startegy on windows.
+// If this doesn't cause breakage it will be selected directly in WebRender's
+// initialization code.
+#ifdef XP_WIN
+pref("gfx.webrender.debug.batched-texture-uploads", true);
+pref("gfx.webrender.debug.draw-calls-for-texture-copy", true);
+#else
 pref("gfx.webrender.debug.batched-texture-uploads", false);
 pref("gfx.webrender.debug.draw-calls-for-texture-copy", false);
+#endif
 
 
 pref("accessibility.warn_on_browsewithcaret", true);
@@ -938,6 +947,10 @@ pref("print.cups.monochrome.extra_settings", "");
 
 // Save the Printings after each print job
 pref("print.save_print_settings", true);
+
+// Enables the "more settings" in Print Preview to match previous
+// configuration.
+pref("print.more-settings.open", false);
 
 // Enables you to specify the amount of the paper that is to be treated
 // as unwriteable.  The print_edge_XXX and print_margin_XXX preferences
@@ -3775,7 +3788,6 @@ pref("network.psl.onUpdate_notify", false);
 #endif
 #ifdef MOZ_WAYLAND
   pref("widget.wayland_vsync.enabled", true);
-  pref("widget.wayland.use-opaque-region", false);
   pref("widget.use-xdg-desktop-portal", false);
 #endif
 

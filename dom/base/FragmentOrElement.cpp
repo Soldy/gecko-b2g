@@ -1799,7 +1799,7 @@ static inline bool IsVoidTag(nsAtom* aTag) {
       nsGkAtoms::link,    nsGkAtoms::meta,  nsGkAtoms::param,
       nsGkAtoms::source,  nsGkAtoms::track, nsGkAtoms::wbr};
 
-  static mozilla::BloomFilter<12, nsAtom> sFilter;
+  static mozilla::BitBloomFilter<12, nsAtom> sFilter;
   static bool sInitialized = false;
   if (!sInitialized) {
     sInitialized = true;

@@ -1066,6 +1066,25 @@ already_AddRefed<DOMRequest> MobileConnection::SetRadioEnabled(
   return request.forget();
 }
 
+already_AddRefed<DOMRequest> MobileConnection::StopNetworkScan(ErrorResult& aRv) {
+  if (!mMobileConnection) {
+    aRv.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
+
+  RefPtr<DOMRequest> request = new DOMRequest(GetOwner());
+  RefPtr<MobileConnectionCallback> requestCallback =
+      new MobileConnectionCallback(GetOwner(), request);
+
+  nsresult rv = mMobileConnection->StopNetworkScan(requestCallback);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+    return nullptr;
+  }
+
+  return request.forget();
+}
+
 // nsIMobileConnectionListener
 
 NS_IMETHODIMP

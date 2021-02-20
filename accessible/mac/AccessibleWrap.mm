@@ -65,7 +65,7 @@ AccessibleWrap::AccessibleWrap(nsIContent* aContent, DocAccessible* aDoc)
 AccessibleWrap::~AccessibleWrap() {}
 
 mozAccessible* AccessibleWrap::GetNativeObject() {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   if (!mNativeInited && !mNativeObject) {
     // We don't creat OSX accessibles for xul tooltips, defunct accessibles,
@@ -83,7 +83,7 @@ mozAccessible* AccessibleWrap::GetNativeObject() {
 
   return mNativeObject;
 
-  NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_END_TRY_BLOCK_RETURN(nil);
 }
 
 void AccessibleWrap::GetNativeInterface(void** aOutInterface) {
@@ -93,7 +93,7 @@ void AccessibleWrap::GetNativeInterface(void** aOutInterface) {
 // overridden in subclasses to create the right kind of object. by default we
 // create a generic 'mozAccessible' node.
 Class AccessibleWrap::GetNativeType() {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   if (IsXULTabpanels()) {
     return [mozPaneAccessible class];
@@ -117,7 +117,7 @@ Class AccessibleWrap::GetNativeType() {
 
   return GetTypeFromRole(Role());
 
-  NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_END_TRY_BLOCK_RETURN(nil);
 }
 
 // this method is very important. it is fired when an accessible object "dies".
@@ -138,7 +138,7 @@ void AccessibleWrap::Shutdown() {
 }
 
 nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   nsresult rv = Accessible::HandleAccEvent(aEvent);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -171,7 +171,7 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
       Accessible* acc = aEvent->GetAccessible();
       // If there is a text input ancestor, use it as the event source.
       while (acc && GetTypeFromRole(acc->Role()) != [mozTextAccessible class]) {
-        acc = acc->Parent();
+        acc = acc->LocalParent();
       }
       eventTarget = acc ? acc : aEvent->GetAccessible();
       break;
@@ -273,7 +273,7 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
 
   return NS_OK;
 
-  NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
+  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
 }
 
 bool AccessibleWrap::ApplyPostFilter(const EWhichPostFilter& aSearchKey,
@@ -290,7 +290,7 @@ bool AccessibleWrap::ApplyPostFilter(const EWhichPostFilter& aSearchKey,
 // AccessibleWrap protected
 
 Class a11y::GetTypeFromRole(roles::Role aRole) {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   switch (aRole) {
     case roles::COMBOBOX:
@@ -398,5 +398,5 @@ Class a11y::GetTypeFromRole(roles::Role aRole) {
 
   return nil;
 
-  NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_END_TRY_BLOCK_RETURN(nil);
 }

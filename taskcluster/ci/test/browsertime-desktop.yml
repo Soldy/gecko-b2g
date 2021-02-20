@@ -124,19 +124,39 @@ browsertime-tp6:
         extra-options:
             - --chimera
 
-browsertime-speedometer:
-    description: "Raptor (browsertime) Speedometer on Firefox"
-    raptor-test: speedometer
+browsertime-benchmark:
+    description: "Raptor (browsertime) Benchmark tests "
+    raptor-subtests:
+        - [speedometer, sp]
+        - ares6
+        - [motionmark-animometer, mm-a]
+        - [motionmark-htmlsuite, mm-h]
+        - [stylebench, sb]
     variants: ["fission"]
     apps: ["firefox"]
-    treeherder-symbol: Btime(sp)
+    treeherder-symbol: Btime()
 
-browsertime-ares6:
-    description: "Raptor (browsertime) ares6 on Firefox"
-    raptor-test: raptor-ares6
-    variants: ["fission"]
+browsertime-tp6-live:
+    description: "Raptor (browsertime) tp6 on live-sites"
+    raptor-test: tp6
+    raptor-subtests:
+        - [cnn-ampstories, cnn-amp]
+    tier: 2
     apps: ["firefox"]
-    treeherder-symbol: Btime(ares6)
+    variants: []
+    pageload: "cold"
+    treeherder-symbol: Btime-live(tp6)
+    run-on-projects:
+        by-pageload:
+            cold:
+                by-test-platform:
+                    windows7-32.*/opt: []
+                    macosx.*64(?:-qr)?/opt: []
+                    (linux|windows10|macos)(?!.*shippable).*: []
+                    default: ["autoland"]
+    mozharness:
+        extra-options:
+            - --chimera
 
 browsertime-tp6-profiling:
     description: "Raptor (browsertime) tp6 page-load tests with Gecko Profiling"

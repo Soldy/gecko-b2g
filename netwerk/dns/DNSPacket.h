@@ -33,10 +33,23 @@ enum TrrType {
   TRRTYPE_HTTPSSVC = nsIDNSService::RESOLVE_TYPE_HTTPSSVC,  // 65
 };
 
+enum class DNSPacketStatus : uint8_t {
+  Unknown = 0,
+  Success,
+  KeyNotAvailable,
+  KeyNotUsable,
+  EncodeError,
+  EncryptError,
+  DecodeError,
+  DecryptError,
+};
+
 class DNSPacket {
  public:
   DNSPacket() = default;
   virtual ~DNSPacket() = default;
+
+  Result<uint8_t, nsresult> GetRCode() const;
 
   // Called in order to feed data into the buffer.
   nsresult OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aInputStream,
@@ -51,10 +64,11 @@ class DNSPacket {
   // output parameters and have a common format for different record types.
   virtual nsresult Decode(
       nsCString& aHost, enum TrrType aType, nsCString& aCname,
-      bool aAllowRFC1918, nsHostRecord::TRRSkippedReason& reason,
-      DOHresp& aResp, TypeRecordResultType& aTypeResult,
+      bool aAllowRFC1918, DOHresp& aResp, TypeRecordResultType& aTypeResult,
       nsClassHashtable<nsCStringHashKey, DOHresp>& aAdditionalRecords,
       uint32_t& aTTL);
+
+  DNSPacketStatus PacketStatus() const { return mStatus; }
 
  protected:
   // Never accept larger DOH responses than this as that would indicate
@@ -69,14 +83,21 @@ class DNSPacket {
                          const unsigned char* aBuffer);
   nsresult DecodeInternal(
       nsCString& aHost, enum TrrType aType, nsCString& aCname,
-      bool aAllowRFC1918, nsHostRecord::TRRSkippedReason& reason,
-      DOHresp& aResp, TypeRecordResultType& aTypeResult,
+      bool aAllowRFC1918, DOHresp& aResp, TypeRecordResultType& aTypeResult,
       nsClassHashtable<nsCStringHashKey, DOHresp>& aAdditionalRecords,
       uint32_t& aTTL, const unsigned char* aBuffer, uint32_t aLen);
+
+  void SetDNSPacketStatus(DNSPacketStatus aStatus) {
+    if (mStatus == DNSPacketStatus::Unknown ||
+        mStatus == DNSPacketStatus::Success) {
+      mStatus = aStatus;
+    }
+  }
 
   // The response buffer.
   unsigned char mResponse[MAX_SIZE]{};
   unsigned int mBodySize = 0;
+  DNSPacketStatus mStatus = DNSPacketStatus::Unknown;
 };
 
 class ODoHDNSPacket final : public DNSPacket {
@@ -92,8 +113,7 @@ class ODoHDNSPacket final : public DNSPacket {
 
   virtual nsresult Decode(
       nsCString& aHost, enum TrrType aType, nsCString& aCname,
-      bool aAllowRFC1918, nsHostRecord::TRRSkippedReason& reason,
-      DOHresp& aResp, TypeRecordResultType& aTypeResult,
+      bool aAllowRFC1918, DOHresp& aResp, TypeRecordResultType& aTypeResult,
       nsClassHashtable<nsCStringHashKey, DOHresp>& aAdditionalRecords,
       uint32_t& aTTL) override;
 

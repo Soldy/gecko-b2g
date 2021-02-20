@@ -2973,6 +2973,10 @@ GsmPDUHelperObject.prototype = {
    */
   readCbMessageIdentifier(msg) {
     msg.messageId = (this.readHexOctet() << 8) | this.readHexOctet();
+    if (DEBUG) {
+      this.context.debug("readCbMessageIdentifier messageId: " + msg.messageId);
+    }
+
   },
 
   /**
@@ -3204,7 +3208,7 @@ GsmPDUHelperObject.prototype = {
    */
   readWacData(msg) {
     let waePduLength = this.getReadAvailable(); // nibbles
-    let readWACLatLng = function() {
+    let readWACLatLng = () => {
       // lat: 22 bist, lng: 22 bits
       let wacLat = (this.readHexOctet() << 14) | (this.readHexOctet() << 6);
       let thirdByte = this.readHexOctet();
@@ -3215,6 +3219,10 @@ GsmPDUHelperObject.prototype = {
         (this.readHexOctet() << 4) |
         this.readHexNibble();
 
+      if (DEBUG) {
+        this.context.debug("readWACLatLng wacLng: " + wacLng + " wacLat: " + wacLat);
+      }
+
       // latitude = wacLatitude * 180 / 2^22 - 90
       // longitude = wacLongitude * 360 / 2^22 -180
       return new LatLng(
@@ -3224,6 +3232,13 @@ GsmPDUHelperObject.prototype = {
     };
 
     let wacDataLength = this.readHexOctet() | (this.readHexOctet() << 8);
+    if (DEBUG) {
+      this.context.debug("readWacData wacDataLength: " + wacDataLength);
+    }
+    if (DEBUG) {
+      this.context.debug("readWacData pdu: " + this.pdu);
+    }
+
     if (wacDataLength > this.getReadAvailable() / PDU_HEX_OCTET_SIZE) {
       // Seek back as no validate WAC data
       this.seekIncoming(-2 * PDU_HEX_OCTET_SIZE);
@@ -3236,18 +3251,31 @@ GsmPDUHelperObject.prototype = {
         // Type: 4bits
         // Length: 10 bits and skip 2 remained bits
         let geoType = this.readHexNibble();
+        if (DEBUG) {
+          this.context.debug("readWacData geoType: " + geoType);
+        }
+
         let geoLength =
           (this.readHexNibble() << 6) | (this.readHexOctet() >> 2);
+        if (DEBUG) {
+          this.context.debug("readWacData geoLength: " + geoLength);
+        }
         remain = remain - geoLength;
         switch (geoType) {
           case GEO_FENCING_MAXIMUM_WAIT_TIME:
             maxWaitTimeSec = this.readHexOctet();
+            if (DEBUG) {
+              this.context.debug("maxWaitTimeSec: " + maxWaitTimeSec);
+            }
             break;
           case GEO_FENCING_POLYGON:
             let latLngs = [];
             // Each coordinate is represented by 44 bits integer.
             // ATIS-0700041 5.2.4 Coordinate coding
-            let n = ((geoLength - 2) * 8) / 44;
+            let n = Math.floor(((geoLength - 2) * 8) / 44);
+            if (DEBUG) {
+              this.context.debug("readWacData n: " + n);
+            }
             for (let i = 0; i < n; i++) {
               latLngs.push(readWACLatLng());
             }
@@ -3272,12 +3300,16 @@ GsmPDUHelperObject.prototype = {
             geo.push(new Circle(center, radius));
             break;
           default:
-            throw "Unsupported geoType" + geoType;
+            throw "Unsupported geoType " + geoType;
             break;
         }
       }
       msg.geometries = geo;
       msg.maximumWaitingTimeSec = maxWaitTimeSec;
+
+      if (DEBUG) {
+        this.context.debug("readWacData done msg: " + JSON.stringify(msg));
+      }
 
       // Seek back to beginning of WAC data
       let remainPduLength = this.getReadAvailable();
@@ -3321,7 +3353,13 @@ GsmPDUHelperObject.prototype = {
    * @see 3GPP TS 23.041 section 9.4.2.2.5
    */
   readUmtsCbData(msg) {
+    if (DEBUG) {
+      this.context.debug("readUmtsCbData msg: " + JSON.stringify(msg));
+    }
     let numOfPages = this.readHexOctet();
+    if (DEBUG) {
+      this.context.debug("readUmtsCbData numOfPages: " + numOfPages);
+    }
     if (numOfPages < 0 || numOfPages > 15) {
       throw new Error("Invalid numOfPages: " + numOfPages);
     }
@@ -3353,6 +3391,9 @@ GsmPDUHelperObject.prototype = {
     for (let i = 0; i < numOfPages; i++) {
       this.seekIncoming(CB_MSG_PAGE_INFO_SIZE * PDU_HEX_OCTET_SIZE);
       length = this.readHexOctet();
+      if (DEBUG) {
+        this.context.debug("readUmtsCbData page length: " +length);
+      }
       totalLength += length;
       pageLengths.push(length);
     }
@@ -6088,7 +6129,22 @@ ISimRecordHelperObject.prototype = {
 
   // Sim refresh file updated.
   handleFileUpdate(aEfId) {
-    //TODO complete the isim part.
+    switch (aEfId) {
+      case ICC_EF_ISIM_IMPI:
+        if (DEBUG) this.context.debug("File refresh for EF_ISIM_IMPI.");
+        this.readIMPI();
+        break;
+      case ICC_EF_ISIM_IMPU:
+        if (DEBUG) this.context.debug("File refresh for ISIM_IMPU.");
+        this.readIMPU();
+        break;
+      default:
+        // No one knew how to handle this particular file, so to be safe just
+        // fetch all records.
+        if (DEBUG) this.context.debug("ISIM Refresh for all.");
+        fetchISimRecords();
+        break;
+    }
   },
 
   readIMPI() {

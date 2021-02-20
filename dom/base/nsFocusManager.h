@@ -113,6 +113,11 @@ class nsFocusManager final : public nsIFocusManager,
   }
 
   /**
+   * Returns whether the given browsing context is in the active window.
+   */
+  bool IsInActiveWindow(mozilla::dom::BrowsingContext*) const;
+
+  /**
    * Return an active window. Version of nsIFocusManager::GetActiveWindow.
    */
   nsPIDOMWindowOuter* GetActiveWindow() const { return mActiveWindow; }
@@ -335,13 +340,13 @@ class nsFocusManager final : public nsIFocusManager,
    * ancestor of aWindow.
    */
   bool IsSameOrAncestor(nsPIDOMWindowOuter* aPossibleAncestor,
-                        nsPIDOMWindowOuter* aWindow);
+                        nsPIDOMWindowOuter* aWindow) const;
   bool IsSameOrAncestor(nsPIDOMWindowOuter* aPossibleAncestor,
-                        mozilla::dom::BrowsingContext* aContext);
+                        mozilla::dom::BrowsingContext* aContext) const;
   bool IsSameOrAncestor(mozilla::dom::BrowsingContext* aPossibleAncestor,
-                        nsPIDOMWindowOuter* aWindow);
+                        nsPIDOMWindowOuter* aWindow) const;
   bool IsSameOrAncestor(mozilla::dom::BrowsingContext* aPossibleAncestor,
-                        mozilla::dom::BrowsingContext* aContext);
+                        mozilla::dom::BrowsingContext* aContext) const;
 
   /**
    * Returns the window that is the lowest common ancestor of both aWindow
@@ -740,10 +745,12 @@ class nsFocusManager final : public nsIFocusManager,
   // to be an explicit argument instead of just passing in the window and asking
   // it whether it should show focus rings: in the losing focus case that
   // information could be wrong.
-  static void NotifyFocusStateChange(
-      mozilla::dom::Element* aElement, mozilla::dom::Element* aElementToFocus,
-      bool aWindowShouldShowFocusRing, int32_t aFlags, bool aGettingFocus,
-      const mozilla::Maybe<BlurredElementInfo>& = mozilla::Nothing());
+  //
+  // aShouldShowFocusRing is only relevant if aGettingFocus is true.
+  static void NotifyFocusStateChange(mozilla::dom::Element* aElement,
+                                     mozilla::dom::Element* aElementToFocus,
+                                     int32_t aFlags, bool aGettingFocus,
+                                     bool aShouldShowFocusRing);
 
   void SetFocusedWindowInternal(nsPIDOMWindowOuter* aWindow);
 

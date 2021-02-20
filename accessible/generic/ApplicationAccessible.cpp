@@ -15,7 +15,7 @@
 
 #include "nsServiceManagerUtils.h"
 #include "mozilla/dom/Document.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "nsGlobalWindow.h"
 #include "nsIStringBundle.h"
 
@@ -35,7 +35,7 @@ ENameValueFlag ApplicationAccessible::Name(nsString& aName) const {
   aName.Truncate();
 
   nsCOMPtr<nsIStringBundleService> bundleService =
-      mozilla::services::GetStringBundleService();
+      mozilla::components::StringBundle::Service();
 
   NS_ASSERTION(bundleService, "String bundle service must be present!");
   if (!bundleService) return eNameOK;
@@ -80,7 +80,9 @@ Accessible* ApplicationAccessible::ChildAtPoint(
 
 Accessible* ApplicationAccessible::FocusedChild() {
   Accessible* focus = FocusMgr()->FocusedAccessible();
-  if (focus && focus->Parent() == this) return focus;
+  if (focus && focus->LocalParent() == this) {
+    return focus;
+  }
 
   return nullptr;
 }

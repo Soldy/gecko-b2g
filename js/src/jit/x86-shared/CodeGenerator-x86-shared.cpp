@@ -2010,9 +2010,8 @@ void CodeGenerator::visitCompareExchangeTypedArrayElement(
     masm.compareExchangeJS(arrayType, Synchronization::Full(), dest, oldval,
                            newval, temp, output);
   } else {
-    size_t width = Scalar::byteSize(arrayType);
     BaseIndex dest(elements, ToRegister(lir->index()),
-                   ScaleFromElemWidth(width));
+                   ScaleFromScalarType(arrayType));
     masm.compareExchangeJS(arrayType, Synchronization::Full(), dest, oldval,
                            newval, temp, output);
   }
@@ -2034,9 +2033,8 @@ void CodeGenerator::visitAtomicExchangeTypedArrayElement(
     masm.atomicExchangeJS(arrayType, Synchronization::Full(), dest, value, temp,
                           output);
   } else {
-    size_t width = Scalar::byteSize(arrayType);
     BaseIndex dest(elements, ToRegister(lir->index()),
-                   ScaleFromElemWidth(width));
+                   ScaleFromScalarType(arrayType));
     masm.atomicExchangeJS(arrayType, Synchronization::Full(), dest, value, temp,
                           output);
   }
@@ -2059,7 +2057,7 @@ static inline void AtomicBinopToTypedArray(MacroAssembler& masm, AtomicOp op,
 
 void CodeGenerator::visitAtomicTypedArrayElementBinop(
     LAtomicTypedArrayElementBinop* lir) {
-  MOZ_ASSERT(lir->mir()->hasUses());
+  MOZ_ASSERT(!lir->mir()->isForEffect());
 
   AnyRegister output = ToAnyRegister(lir->output());
   Register elements = ToRegister(lir->elements());
@@ -2076,9 +2074,8 @@ void CodeGenerator::visitAtomicTypedArrayElementBinop(
     AtomicBinopToTypedArray(masm, lir->mir()->operation(), arrayType, value,
                             mem, temp1, temp2, output);
   } else {
-    size_t width = Scalar::byteSize(arrayType);
     BaseIndex mem(elements, ToRegister(lir->index()),
-                  ScaleFromElemWidth(width));
+                  ScaleFromScalarType(arrayType));
     AtomicBinopToTypedArray(masm, lir->mir()->operation(), arrayType, value,
                             mem, temp1, temp2, output);
   }
@@ -2100,7 +2097,7 @@ static inline void AtomicBinopToTypedArray(MacroAssembler& masm,
 
 void CodeGenerator::visitAtomicTypedArrayElementBinopForEffect(
     LAtomicTypedArrayElementBinopForEffect* lir) {
-  MOZ_ASSERT(!lir->mir()->hasUses());
+  MOZ_ASSERT(lir->mir()->isForEffect());
 
   Register elements = ToRegister(lir->elements());
   const LAllocation* value = lir->value();
@@ -2111,9 +2108,8 @@ void CodeGenerator::visitAtomicTypedArrayElementBinopForEffect(
     AtomicBinopToTypedArray(masm, arrayType, lir->mir()->operation(), value,
                             mem);
   } else {
-    size_t width = Scalar::byteSize(arrayType);
     BaseIndex mem(elements, ToRegister(lir->index()),
-                  ScaleFromElemWidth(width));
+                  ScaleFromScalarType(arrayType));
     AtomicBinopToTypedArray(masm, arrayType, lir->mir()->operation(), value,
                             mem);
   }
@@ -2539,6 +2535,12 @@ void CodeGenerator::visitWasmBinarySimd128(LWasmBinarySimd128* ins) {
       masm.unsignedCompareInt32x4(Assembler::AboveOrEqual, rhs, lhsDest, temp1,
                                   temp2);
       break;
+    case wasm::SimdOp::I64x2Eq:
+      masm.compareInt64x2(Assembler::Equal, rhs, lhsDest);
+      break;
+    case wasm::SimdOp::I64x2Ne:
+      masm.compareInt64x2(Assembler::NotEqual, rhs, lhsDest);
+      break;
     case wasm::SimdOp::F32x4Eq:
       masm.compareFloat32x4(Assembler::Equal, rhs, lhsDest);
       break;
@@ -2622,12 +2624,9 @@ void CodeGenerator::visitWasmBinarySimd128(LWasmBinarySimd128* ins) {
       masm.q15MulrSatInt16x8(rhs, lhsDest);
       break;
 #  ifdef ENABLE_WASM_SIMD_WORMHOLE
-    case wasm::SimdOp::MozWHSELFTEST: {
-      static const int8_t mask[16] = {0xD, 0xE, 0xA, 0xD, 0xD, 0,   0,   0xD,
-                                      0xC, 0xA, 0xF, 0xE, 0xB, 0xA, 0xB, 0xE};
-      masm.loadConstantSimd128(SimdConstant::CreateX16(mask), lhsDest);
+    case wasm::SimdOp::MozWHSELFTEST:
+      masm.loadConstantSimd128(wasm::WormholeSignature(), lhsDest);
       break;
-    }
     case wasm::SimdOp::MozWHPMADDUBSW:
       masm.vpmaddubsw(rhs, lhsDest, lhsDest);
       break;
@@ -3383,6 +3382,25 @@ void CodeGenerator::visitWasmUnarySimd128(LWasmUnarySimd128* ins) {
     case wasm::SimdOp::F64x2Nearest:
       masm.nearestFloat64x2(src, dest);
       break;
+    case wasm::SimdOp::F32x4DemoteF64x2Zero:
+      masm.convertFloat64x2ToFloat32x4(src, dest);
+      break;
+    case wasm::SimdOp::F64x2PromoteLowF32x4:
+      masm.convertFloat32x4ToFloat64x2(src, dest);
+      break;
+    case wasm::SimdOp::F64x2ConvertLowI32x4S:
+      masm.convertInt32x4ToFloat64x2(src, dest);
+      break;
+    case wasm::SimdOp::F64x2ConvertLowI32x4U:
+      masm.unsignedConvertInt32x4ToFloat64x2(src, dest);
+      break;
+    case wasm::SimdOp::I32x4TruncSatF64x2SZero:
+      masm.truncSatFloat64x2ToInt32x4(src, dest, ToFloatRegister(ins->temp()));
+      break;
+    case wasm::SimdOp::I32x4TruncSatF64x2UZero:
+      masm.unsignedTruncSatFloat64x2ToInt32x4(src, dest,
+                                              ToFloatRegister(ins->temp()));
+      break;
     default:
       MOZ_CRASH("Unary SimdOp not implemented");
   }
@@ -3407,6 +3425,9 @@ void CodeGenerator::visitWasmReduceSimd128(LWasmReduceSimd128* ins) {
       break;
     case wasm::SimdOp::I32x4AllTrue:
       masm.allTrueInt32x4(src, ToRegister(dest));
+      break;
+    case wasm::SimdOp::I64x2AllTrue:
+      masm.allTrueInt64x2(src, ToRegister(dest));
       break;
     case wasm::SimdOp::I8x16Bitmask:
       masm.bitmaskInt8x16(src, ToRegister(dest));
@@ -3460,7 +3481,8 @@ void CodeGenerator::visitWasmReduceAndBranchSimd128(
       break;
     case wasm::SimdOp::I8x16AllTrue:
     case wasm::SimdOp::I16x8AllTrue:
-    case wasm::SimdOp::I32x4AllTrue: {
+    case wasm::SimdOp::I32x4AllTrue:
+    case wasm::SimdOp::I64x2AllTrue: {
       // Compare all lanes to zero, set the zero flag if none of the lanes are
       // zero, and branch on that.
       ScratchSimd128Scope tmp(masm);
@@ -3474,6 +3496,9 @@ void CodeGenerator::visitWasmReduceAndBranchSimd128(
           break;
         case wasm::SimdOp::I32x4AllTrue:
           masm.vpcmpeqd(Operand(src), tmp, tmp);
+          break;
+        case wasm::SimdOp::I64x2AllTrue:
+          masm.vpcmpeqq(Operand(src), tmp, tmp);
           break;
         default:
           MOZ_CRASH();

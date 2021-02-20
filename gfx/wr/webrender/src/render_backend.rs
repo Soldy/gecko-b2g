@@ -797,7 +797,6 @@ pub struct RenderBackend {
     api_rx: Receiver<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
-    low_priority_scene_tx: Sender<SceneBuilderRequest>,
 
     default_device_pixel_ratio: f32,
 
@@ -836,7 +835,6 @@ impl RenderBackend {
         api_rx: Receiver<ApiMsg>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
-        low_priority_scene_tx: Sender<SceneBuilderRequest>,
         default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
         notifier: Box<dyn RenderNotifier>,
@@ -851,7 +849,6 @@ impl RenderBackend {
             api_rx,
             result_tx,
             scene_tx,
-            low_priority_scene_tx,
             default_device_pixel_ratio,
             resource_cache,
             gpu_cache: GpuCache::new(),
@@ -1026,7 +1023,6 @@ impl RenderBackend {
         frame_counter: &mut u32,
     ) -> RenderBackendStatus {
         match msg {
-            ApiMsg::WakeUp => {}
             ApiMsg::CloneApi(sender) => {
                 assert!(!self.namespace_alloc_by_client);
                 sender.send(self.next_namespace_id()).unwrap();
@@ -1179,12 +1175,6 @@ impl RenderBackend {
                     }
                     DebugCommand::SimulateLongSceneBuild(time_ms) => {
                         let _ = self.scene_tx.send(SceneBuilderRequest::SimulateLongSceneBuild(time_ms));
-                        return RenderBackendStatus::Continue;
-                    }
-                    DebugCommand::SimulateLongLowPrioritySceneBuild(time_ms) => {
-                        let _ = self.low_priority_scene_tx.send(
-                            SceneBuilderRequest::SimulateLongLowPrioritySceneBuild(time_ms)
-                        );
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::SetFlags(flags) => {
@@ -1754,14 +1744,26 @@ impl RenderBackend {
                     &rendered_document.frame.passes,
                     &mut render_tasks_file
                 ).unwrap();
+
                 let file_name = format!("texture-cache-color-linear-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
                 self.resource_cache.texture_cache.dump_color8_linear_as_svg(&mut texture_file).unwrap();
-                let file_name = format!("texture-cache-glyphs-{}-{}.svg", id.namespace_id.0, id.id);
+
+                let file_name = format!("texture-cache-color8-glyphs-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
-                self.resource_cache.texture_cache.dump_glyphs_as_svg(&mut texture_file).unwrap();
+                self.resource_cache.texture_cache.dump_color8_glyphs_as_svg(&mut texture_file).unwrap();
+
+                let file_name = format!("texture-cache-alpha8-glyphs-{}-{}.svg", id.namespace_id.0, id.id);
+                let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
+                    .expect("Failed to open the SVG file.");
+                self.resource_cache.texture_cache.dump_alpha8_glyphs_as_svg(&mut texture_file).unwrap();
+
+                let file_name = format!("texture-cache-alpha8-linear-{}-{}.svg", id.namespace_id.0, id.id);
+                let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
+                    .expect("Failed to open the SVG file.");
+                self.resource_cache.texture_cache.dump_alpha8_linear_as_svg(&mut texture_file).unwrap();
             }
 
             let data_stores_name = format!("data-stores-{}-{}", id.namespace_id.0, id.id);

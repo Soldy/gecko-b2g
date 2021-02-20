@@ -109,7 +109,7 @@ nsresult GonkCameraParameters::Unflatten(const String8& aFlatParameters) {
       data = nullptr;
     }
 
-    mParams.Put(key, value);
+    mParams.Put(key, MakeUnique<nsCString>(*value));
   }
 
   if (mInitialized) {
@@ -363,7 +363,7 @@ nsresult GonkCameraParameters::Initialize() {
       continue;
     }
     *mIsoModes.AppendElement() = s;
-    mIsoModeMap.Put(s, new nsCString(isoModes[i]));
+    mIsoModeMap.Put(s, MakeUnique<nsCString>(isoModes[i]));
   }
 
   GetListAsArray(CAMERA_PARAM_SUPPORTED_SCENEMODES, mSceneModes);

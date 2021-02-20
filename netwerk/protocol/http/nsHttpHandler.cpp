@@ -80,6 +80,8 @@
 #include "nsNSSComponent.h"
 #include "TRRServiceChannel.h"
 
+#include <bitset>
+
 #if defined(XP_UNIX)
 #  include <sys/utsname.h>
 #endif
@@ -385,6 +387,12 @@ nsresult nsHttpHandler::Init() {
   if (!IsNeckoChild()) {
     mActiveTabPriority =
         Preferences::GetBool(HTTP_PREF("active_tab_priority"), true);
+    std::bitset<3> usageOfHTTPSRRPrefs;
+    usageOfHTTPSRRPrefs[0] = StaticPrefs::network_dns_upgrade_with_https_rr();
+    usageOfHTTPSRRPrefs[1] = StaticPrefs::network_dns_use_https_rr_as_altsvc();
+    usageOfHTTPSRRPrefs[2] = StaticPrefs::network_dns_echconfig_enabled();
+    Telemetry::ScalarSet(Telemetry::ScalarID::NETWORKING_HTTPS_RR_PREFS_USAGE,
+                         static_cast<uint32_t>(usageOfHTTPSRRPrefs.to_ulong()));
   }
 
   auto initQLogDir = [&]() {
@@ -964,10 +972,12 @@ void nsHttpHandler::InitUserAgentComponents() {
   SInt32 majorVersion = nsCocoaFeatures::macOSVersionMajor();
   SInt32 minorVersion = nsCocoaFeatures::macOSVersionMinor();
 
+  // Cap the reported macOS version at 10.15 (like Safari) to avoid breaking
+  // sites that assume the UA's macOS version always begins with "10.".
+  int uaVersion = (majorVersion >= 11 || minorVersion > 15) ? 15 : minorVersion;
+
   // Always return an "Intel" UA string, even on ARM64 macOS like Safari does.
-  mOscpu =
-      nsPrintfCString("Intel Mac OS X %d.%d", static_cast<int>(majorVersion),
-                      static_cast<int>(minorVersion));
+  mOscpu = nsPrintfCString("Intel Mac OS X 10.%d", uaVersion);
 #  elif defined(XP_UNIX)
   struct utsname name;
   int ret = uname(&name);
@@ -1857,8 +1867,9 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
         nsAutoCString token{tokenSubstring};
         int32_t index = token.Find(";");
         if (index != kNotFound) {
-          auto* map = new nsCString(Substring(token, index + 1));
-          mAltSvcMappingTemptativeMap.Put(Substring(token, 0, index), map);
+          mAltSvcMappingTemptativeMap.Put(
+              Substring(token, 0, index),
+              MakeUnique<nsCString>(Substring(token, index + 1)));
         }
       }
     }

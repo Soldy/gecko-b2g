@@ -58,7 +58,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "GeckoProfiler.h"
 #include "js/Debug.h"
 #include "js/friend/DumpFunctions.h"  // js::DumpHeap
 #include "js/GCAPI.h"
@@ -71,6 +70,8 @@
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DebuggerOnGCRunnable.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TimelineConsumers.h"
@@ -1544,12 +1545,13 @@ void CycleCollectedJSRuntime::DeferredFinalize(
     void* aThing) {
   // Tell the analysis that the function pointers will not GC.
   JS::AutoSuppressGCAnalysis suppress;
-  if (auto entry = mDeferredFinalizerTable.LookupForAdd(aFunc)) {
-    aAppendFunc(entry.Data(), aThing);
-  } else {
-    entry.OrInsert(
-        [aAppendFunc, aThing]() { return aAppendFunc(nullptr, aThing); });
-  }
+  mDeferredFinalizerTable.WithEntryHandle(aFunc, [&](auto&& entry) {
+    if (entry) {
+      aAppendFunc(entry.Data(), aThing);
+    } else {
+      entry.Insert(aAppendFunc(nullptr, aThing));
+    }
+  });
 }
 
 void CycleCollectedJSRuntime::DeferredFinalize(nsISupports* aSupports) {

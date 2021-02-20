@@ -26,6 +26,7 @@ System messages are messages from the system, they are sent by the system based 
 | sms-failed                                | sms                  |
 | sms-received                              | sms                  |
 | sms-sent                                  | sms                  |
+| system-time-change                        | system-time:read |
 | telephony-call-ended                      | telephony            |
 | telephony-hac-mode-changed                | telephony            |
 | telephony-new-call                        | telephony            |
@@ -60,15 +61,15 @@ The `options` object is optional, as defined in [ServiceWorkerContainer.register
 
 In the most case the above example is good enough.
 
-Second, subscribe the names of system messages in manifest, the format is the same as in gecko48.
+Second, subscribe the names of system messages in manifest.
 
 ```javascript
 "messages": [
-  { "alarm": "/index.html" },
-  { "sms-received": "/index.html" },
+  "alarm",
+  "sms-received"
 ],
 ```
-Since now that system messages are dispatched to service worker, the field of `target page` ("/index.html" in the above example) does not affect the receiving of system messages.
+Since now that system messages are dispatched to service worker, the field of `target page` ("/index.html" in the above example) in gecko48 does not affect the receiving of system messages.
 
 ### Subscribe system messages from service worker
 

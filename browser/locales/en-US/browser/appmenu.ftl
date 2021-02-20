@@ -7,8 +7,6 @@
 appmenuitem-update-banner =
     .label-update-downloading = Downloading { -brand-shorter-name } update
 appmenuitem-protection-dashboard-title = Protections Dashboard
-appmenuitem-customize-mode =
-    .label = Customize…
 appmenuitem-new-window =
     .label = New Window
 appmenuitem-new-private-window =
@@ -112,7 +110,15 @@ profiler-popup-capture-shortcut =
      *[other] Ctrl+Shift+2
   }
 
+## History panel
+
+appmenu-manage-history =
+    .label = Manage History
+appmenu-reopen-all-tabs = Reopen All Tabs
+appmenu-reopen-all-windows = Reopen All Windows
+
 ## Help panel
+
 appmenu-help-header =
     .title = { -brand-shorter-name } Help
 appmenu-about =
@@ -130,6 +136,16 @@ appmenu-help-feedback-page =
     .label = Submit Feedback…
     .accesskey = S
 
+## appmenu-help-safe-mode-without-addons and appmenu-help-safe-mode-without-addons
+## are mutually exclusive, so it's possible to use the same accesskey for both.
+
+appmenu-help-safe-mode-without-addons =
+    .label = Restart With Add-ons Disabled…
+    .accesskey = R
+appmenu-help-safe-mode-with-addons =
+    .label = Restart With Add-ons Enabled
+    .accesskey = R
+
 ## appmenu-help-report-deceptive-site and appmenu-help-not-deceptive
 ## are mutually exclusive, so it's possible to use the same accesskey for both.
 
@@ -140,7 +156,9 @@ appmenu-help-not-deceptive =
     .label = This Isn’t a Deceptive Site…
     .accesskey = D
 
-##
+## More Tools
 
-appmenu-help-check-for-update =
-    .label = Check for Updates…
+appmenu-customizetoolbar =
+    .label = Customize Toolbar…
+
+appmenu-developer-tools-subheader = Browser Tools

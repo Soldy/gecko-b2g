@@ -79,6 +79,7 @@ const PREFS_WHITELIST = [
   "layers.",
   "layout.css.dpi",
   "layout.display-list.",
+  "layout.frame_rate",
   "media.",
   "mousewheel.",
   "network.",
@@ -880,6 +881,44 @@ var dataProviders = {
     }
     done(data.modules);
   },
+
+  async normandy(done) {
+    if (!AppConstants.MOZ_NORMANDY) {
+      done();
+      return;
+    }
+
+    const {
+      PreferenceExperiments: NormandyPreferenceStudies,
+    } = ChromeUtils.import("resource://normandy/lib/PreferenceExperiments.jsm");
+    const { AddonStudies: NormandyAddonStudies } = ChromeUtils.import(
+      "resource://normandy/lib/AddonStudies.jsm"
+    );
+    const {
+      PreferenceRollouts: NormandyPreferenceRollouts,
+    } = ChromeUtils.import("resource://normandy/lib/PreferenceRollouts.jsm");
+
+    // Get Normandy data in parallel, and sort each group by slug.
+    const [addonStudies, prefRollouts, prefStudies] = await Promise.all(
+      [
+        NormandyAddonStudies.getAllActive(),
+        NormandyPreferenceRollouts.getAllActive(),
+        NormandyPreferenceStudies.getAllActive(),
+      ].map(promise =>
+        promise.then(items =>
+          items.sort((a, b) => {
+            return a.slug.localeCompare(b.slug);
+          })
+        )
+      )
+    );
+
+    done({
+      addonStudies,
+      prefRollouts,
+      prefStudies,
+    });
+  },
 };
 
 if (AppConstants.MOZ_CRASHREPORTER) {
@@ -953,7 +992,7 @@ if (AppConstants.MOZ_SANDBOX) {
 if (AppConstants.ENABLE_REMOTE_AGENT) {
   dataProviders.remoteAgent = function remoteAgent(done) {
     const { RemoteAgent } = ChromeUtils.import(
-      "chrome://remote/content/RemoteAgent.jsm"
+      "chrome://remote/content/components/RemoteAgent.jsm"
     );
     const { listening, scheme, host, port } = RemoteAgent;
     let url = "";

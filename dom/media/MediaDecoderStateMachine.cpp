@@ -15,6 +15,9 @@
 #include "mozilla/Logging.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/NotNull.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkerTypes.h"
 #include "mozilla/SharedThreadPool.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_media.h"
@@ -27,7 +30,6 @@
 #include "AudioSegment.h"
 #include "DOMMediaStream.h"
 #include "ImageContainer.h"
-#include "GeckoProfiler.h"
 #include "MediaDecoder.h"
 #include "MediaDecoderStateMachine.h"
 #include "MediaShutdownManager.h"
@@ -37,10 +39,6 @@
 #include "TimeUnits.h"
 #include "VideoSegment.h"
 #include "VideoUtils.h"
-
-#ifdef MOZ_GECKO_PROFILER
-#  include "mozilla/ProfilerMarkerTypes.h"
-#endif  // MOZ_GECKO_PROFILER
 
 namespace mozilla {
 
@@ -401,8 +399,12 @@ class MediaDecoderStateMachine::DormantState
     RefPtr<MediaDecoder::SeekPromise> x =
         mPendingSeek.mPromise.Ensure(__func__);
 
-    // No need to call ResetDecode() and StopMediaSink() here.
-    // We will do them during seeking when exiting dormant.
+    // Reset the decoding state to ensure that any queued video frames are
+    // released and don't consume video memory.
+    mMaster->ResetDecode();
+
+    // No need to call StopMediaSink() here.
+    // We will do it during seeking when exiting dormant.
 
     // Ignore WAIT_FOR_DATA since we won't decode in dormant.
     mMaster->mAudioWaitRequest.DisconnectIfExists();

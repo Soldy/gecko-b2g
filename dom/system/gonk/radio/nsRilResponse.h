@@ -8,18 +8,57 @@
 #define nsRilResponse_H
 #include <nsISupportsImpl.h>
 #include <nsTArray.h>
-#include "nsRilWorker.h"
 
-#include <android/hardware/radio/1.0/IRadioResponse.h>
-#include <android/hardware/radio/1.0/types.h>
+#include <android/hardware/radio/1.1/IRadioResponse.h>
 
-using namespace ::android::hardware::radio::V1_0;
+using namespace ::android::hardware::radio::V1_1;
 using ::android::sp;
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::Return;
 using ::android::hardware::Void;
-using ::android::hardware::radio::V1_0::IRadioResponse;
+using ::android::hardware::radio::V1_0::ActivityStatsInfo;
+using ::android::hardware::radio::V1_0::AppState;
+using ::android::hardware::radio::V1_0::AppType;
+using ::android::hardware::radio::V1_0::CardState;
+using ::android::hardware::radio::V1_0::CardStatus;
+using ::android::hardware::radio::V1_0::Carrier;
+using ::android::hardware::radio::V1_0::CarrierRestrictions;
+using ::android::hardware::radio::V1_0::Call;
+using ::android::hardware::radio::V1_0::CallState;
+using ::android::hardware::radio::V1_0::CallForwardInfo;
+using ::android::hardware::radio::V1_0::CallForwardInfoStatus;
+using ::android::hardware::radio::V1_0::CallPresentation;
+using ::android::hardware::radio::V1_0::CdmaBroadcastSmsConfigInfo;
+using ::android::hardware::radio::V1_0::CdmaRoamingType;
+using ::android::hardware::radio::V1_0::CdmaSubscriptionSource;
+using ::android::hardware::radio::V1_0::ClipStatus;
+using ::android::hardware::radio::V1_0::DataRegStateResult;
+using ::android::hardware::radio::V1_0::GsmBroadcastSmsConfigInfo;
+using ::android::hardware::radio::V1_0::HardwareConfig;
+using ::android::hardware::radio::V1_0::IccIoResult;
+using ::android::hardware::radio::V1_1::IRadioResponse;
+using ::android::hardware::radio::V1_0::LastCallFailCause;
+using ::android::hardware::radio::V1_0::LastCallFailCauseInfo;
+using ::android::hardware::radio::V1_0::LceDataInfo;
+using ::android::hardware::radio::V1_0::LceStatusInfo;
+using ::android::hardware::radio::V1_0::NeighboringCell;
+using ::android::hardware::radio::V1_0::OperatorInfo;
+using ::android::hardware::radio::V1_0::OperatorStatus;
+using ::android::hardware::radio::V1_0::PersoSubstate;
+using ::android::hardware::radio::V1_0::PinState;
+using ::android::hardware::radio::V1_0::PreferredNetworkType;
+using ::android::hardware::radio::V1_0::RadioBandMode;
+using ::android::hardware::radio::V1_0::RadioCapability;
+using ::android::hardware::radio::V1_0::RadioError;
+using ::android::hardware::radio::V1_0::RadioResponseInfo;
+using ::android::hardware::radio::V1_0::RadioTechnologyFamily;
+using ::android::hardware::radio::V1_0::RegState;
+using ::android::hardware::radio::V1_0::SendSmsResult;
+using ::android::hardware::radio::V1_0::TtyMode;
+using ::android::hardware::radio::V1_0::UusDcs;
+using ::android::hardware::radio::V1_0::UusType;
+using ::android::hardware::radio::V1_0::VoiceRegStateResult;
 
 class nsRilWorker;
 class nsRilResponse : public IRadioResponse {
@@ -403,6 +442,18 @@ class nsRilResponse : public IRadioResponse {
 
   Return<void> acknowledgeRequest(int32_t serial);
 
+  Return<void> setCarrierInfoForImsiEncryptionResponse(const RadioResponseInfo& info);
+ 
+  Return<void> setSimCardPowerResponse_1_1(const RadioResponseInfo& info);
+ 
+  Return<void> startNetworkScanResponse(const RadioResponseInfo& info);
+ 
+  Return<void> stopNetworkScanResponse(const RadioResponseInfo& info);
+ 
+  Return<void> startKeepaliveResponse(const RadioResponseInfo& info , const KeepaliveStatus& status);
+ 
+  Return<void> stopKeepaliveResponse(const RadioResponseInfo& info);
+
  private:
   void defaultResponse(const RadioResponseInfo& rspInfo,
                        const nsString& rilmessageType);
@@ -417,7 +468,7 @@ class nsRilResponse : public IRadioResponse {
   int32_t convertUusType(UusType type);
   int32_t convertUusDcs(UusDcs dcs);
   int32_t convertCallPresentation(CallPresentation state);
-  int32_t convertCallState(::android::hardware::radio::V1_0::CallState state);
+  int32_t convertCallState(CallState state);
   int32_t convertPreferredNetworkType(PreferredNetworkType type);
   int32_t convertOperatorState(OperatorStatus status);
   int32_t convertCallForwardState(CallForwardInfoStatus status);

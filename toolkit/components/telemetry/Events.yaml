@@ -117,6 +117,23 @@ activity_stream:
       page: about:home or about_newtab - the page where the event occurred
       user_prefs: An integer representaing a user's A-S settings.
 
+readermode:
+  view:
+    objects: ["on", "off"]
+    release_channel_collection: opt-out
+    record_in_processes: ["content"]
+    description: >
+      This is recorded any time Reader Mode is turned on or off.
+    bug_numbers: [1689201]
+    notification_emails:
+      - "kirill@getpocket.com"
+      - "sdowne@getpocket.com"
+    expiry_version: never
+    extra_keys:
+      subcategory: The broad event category for this probe. E.g. navigation
+    products:
+      - "firefox"
+
 addonsManager:
   install:
     description: >
@@ -440,9 +457,9 @@ extensions.data:
       the value of this event is the addon id.
   storageLocalError:
     objects: ["get", "set", "remove", "clear"]
-    bug_numbers: [1606903, 1649948]
+    bug_numbers: [1606903, 1649948, 1689255]
     notification_emails: ["addons-dev-internal@mozilla.com"]
-    expiry_version: "88"
+    expiry_version: "95"
     products:
       - "firefox"
     record_in_processes: ["main", "content"]
@@ -712,7 +729,7 @@ normandy:
     release_channel_collection: opt-out
     products:
       - "firefox"
-    record_in_processes: ["main"]
+    record_in_processes: ["main", "content"]
     description: >
       This records an event at the moment the user is exposed to an experiment
       treatment. The event is triggered either by the code checking that a
@@ -2085,26 +2102,44 @@ intl.ui.browserLanguage:
     record_in_processes: ["main"]
     bug_numbers: [1486507, 1553311, 1607501, 1672571]
 
-network.jar.channel:
-  noData:
-    objects: ["onStop"]
+network.dns:
+  trrConfirmation:
+    objects: ["context"]
     bug_numbers:
-      - 1675205
+      - 1691408
     description: >
-      This event gets recorded whenever onStopRequest gets called with a
-      success code, but no onDataAvailable calls have been made. This indicates
-      an empty file in the JAR archive.
+      This telemetry records the status of the TRR confirmation across.
+      The value of the event is one of:
+        "ok"
+        "trying"
     notification_emails:
       - vgosu@mozilla.com
-      - zbraniecki@mozilla.com
+      - necko@mozilla.com
     release_channel_collection: opt-out
     products:
       - firefox
-    expiry_version: "93"
+    expiry_version: "never"
     record_in_processes:
       - main
     extra_keys:
-      spec: The path of the file being loaded.
+      trigger: >
+        The reason why this confirmation was triggered.
+        Values: [cp-connectivity, pref-change, context-init, retry, failed-lookups]
+      contextReason: >
+        The cause of the current confirmation context.
+        Values: [success, pref-change, network-change, shutdown]
+      attemptCount: >
+        The number of NS requests that were issued for this confirmation.
+      results: >
+        String representation of the last 32 confirmation results.
+        Example: nnnnnnttttttttt indicates a number of network (n) failures
+        followed by timeouts (t).
+      networkID: >
+        The network ID for the recorded confirmation attempts
+      captivePortal: >
+        One of [unknown, not_captive, unlocked, locked]
+      time: >
+        Time from first confirmation attempt to event being recorded
 
 security:
   fissionPrincipals:
@@ -2603,6 +2638,50 @@ dom.quota.try:
       seq: Sequence number.
       source_file: The name of the source code file where the error occured.
       source_line: The line within source_file where the error occured.
+
+zero_byte_load:
+  load:
+    bug_numbers:
+      - 1675823
+    description: >-
+        Collection of zero_byte_load events as part of the Yellow Screen of Death analysis.
+        When a file is loaded synchronously, this event gets recorded in nsJARChannel::Open if the content length is zero.
+        For asynchronous loads, this event gets recorded in onStopRequest.
+    products:
+      - "firefox"
+    record_in_processes: ["main", "content"]
+    release_channel_collection: opt-out
+    expiry_version: "never"
+    notification_emails:
+      - zbraniecki@mozilla.com
+      - vchin@mozilla.com
+      - kershaw@mozilla.com
+    objects:
+      - "ftl"
+      - "dtd"
+      - "properties"
+      - "js"
+      - "xml"
+      - "xhtml"
+      - "others"
+    extra_keys:
+      sync: Was the load synchronous
+      file_name: The name of the file being loaded.
+      status: The channel status code.
+
+avif:
+  dav1d_get_picture:
+    objects: ["return_value"]
+    bug_numbers: [1690406]
+    description: Return value from dav1d_get_picture
+    products:
+      - firefox # event telemetry is not supported on fenix
+    record_in_processes: ["all"]
+    release_channel_collection: opt-out
+    expiry_version: never
+    notification_emails:
+      - cchang@mozilla.com
+      - jbauman@mozilla.com
 
 installation:
   first_seen:

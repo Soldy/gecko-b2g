@@ -66,6 +66,9 @@ static void ConvertDefinitionToDouble(TempAllocator& alloc, MDefinition* def,
 }
 
 static bool CheckUsesAreFloat32Consumers(const MInstruction* ins) {
+  if (ins->isImplicitlyUsed()) {
+    return false;
+  }
   bool allConsumerUses = true;
   for (MUseDefIterator use(ins); allConsumerUses && use; use++) {
     allConsumerUses &= use.def()->canConsumeFloat32(use.use());
@@ -354,10 +357,9 @@ bool MDefinition::mightBeMagicType() const {
 
 bool MDefinition::definitelyType(std::initializer_list<MIRType> types) const {
 #ifdef DEBUG
-  // Only support specialized, non-magic types. Also disallow Int64, because
-  // TypeSet only supports types representable as JSValue.
+  // Only support specialized, non-magic types.
   auto isSpecializedNonMagic = [](MIRType type) {
-    return type <= MIRType::Object && type != MIRType::Int64;
+    return type <= MIRType::Object;
   };
 #endif
 
@@ -425,6 +427,14 @@ void MInstruction::setResumePoint(MResumePoint* resumePoint) {
   MOZ_ASSERT(!resumePoint_);
   resumePoint_ = resumePoint;
   resumePoint_->setInstruction(this);
+}
+
+void MInstruction::stealResumePoint(MInstruction* other) {
+  MResumePoint* resumePoint = other->resumePoint_;
+  other->resumePoint_ = nullptr;
+
+  resumePoint->resetInstruction();
+  setResumePoint(resumePoint);
 }
 
 void MInstruction::moveResumePointAsEntry() {
@@ -602,6 +612,12 @@ void MDefinition::dumpLocation() const {
   Fprinter out(stderr);
   dumpLocation(out);
   out.finish();
+}
+#endif
+
+#ifdef DEBUG
+bool MDefinition::trackedSiteMatchesBlock(const BytecodeSite* site) const {
+  return site == block()->trackedSite();
 }
 #endif
 
@@ -4413,7 +4429,7 @@ MDefinition* MWasmScalarToSimd128::foldsTo(TempAllocator& alloc) {
 template <typename T>
 static bool AllTrue(const T& v) {
   constexpr size_t count = sizeof(T) / sizeof(*v);
-  static_assert(count == 16 || count == 8 || count == 4);
+  static_assert(count == 16 || count == 8 || count == 4 || count == 2);
   bool result = true;
   for (unsigned i = 0; i < count; i++) {
     result = result && v[i] != 0;
@@ -4471,6 +4487,10 @@ MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
       case wasm::SimdOp::I32x4Bitmask:
         i32Result = Bitmask(
             SimdConstant::CreateSimd128((int32_t*)c.bytes()).asInt32x4());
+        break;
+      case wasm::SimdOp::I64x2AllTrue:
+        i32Result = AllTrue(
+            SimdConstant::CreateSimd128((int64_t*)c.bytes()).asInt64x2());
         break;
       case wasm::SimdOp::I64x2Bitmask:
         i32Result = Bitmask(

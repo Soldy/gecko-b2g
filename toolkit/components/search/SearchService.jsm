@@ -1313,11 +1313,62 @@ SearchService.prototype = {
   },
 
   /**
+   * Runs background checks for the search service. This is called from
+   * BrowserGlue and may be run once per session if the user is idle for
+   * long enough.
+   */
+  async runBackgroundChecks() {
+    await this.init();
+    await this._migrateLegacyEngines();
+    await this._checkWebExtensionEngines();
+  },
+
+  /**
+   * Migrates legacy add-ons which used the OpenSearch definitions to
+   * WebExtensions, if an equivalent WebExtension is installed.
+   *
+   * Run during the background checks.
+   */
+  async _migrateLegacyEngines() {
+    logConsole.debug("Running migrate legacy engines");
+
+    const matchRegExp = /extensions\/(.*?)\.xpi!/i;
+    for (let engine of this._engines.values()) {
+      if (
+        !engine.isAppProvided &&
+        !engine._extensionID &&
+        engine._loadPath.includes("[profile]/extensions/")
+      ) {
+        let match = engine._loadPath.match(matchRegExp);
+        if (match?.[1]) {
+          // There's a chance here that the WebExtension might not be
+          // installed any longer, even though the engine is. We'll deal
+          // with that in `checkWebExtensionEngines`.
+          let engines = await this.getEnginesByExtensionID(match[1]);
+          if (engines.length) {
+            logConsole.debug(
+              `Migrating ${engine.name} to WebExtension install`
+            );
+
+            if (this.defaultEngine == engine) {
+              this.defaultEngine = engines[0];
+            }
+            await this.removeEngine(engine);
+          }
+        }
+      }
+    }
+
+    logConsole.debug("Migrate legacy engines complete");
+  },
+
+  /**
    * Checks if Search Engines associated with WebExtensions are valid and
    * up-to-date, and reports them via telemetry if not.
+   *
+   * Run during the background checks.
    */
-  async checkWebExtensionEngines() {
-    await this.init();
+  async _checkWebExtensionEngines() {
     logConsole.debug("Running check on WebExtension engines");
 
     for (let engine of this._engines.values()) {
@@ -1352,20 +1403,35 @@ SearchService.prototype = {
         );
       } else {
         let policy = await this._getExtensionPolicy(engine._extensionID);
-        let manifest = policy.extension.manifest;
+        let providerSettings =
+          policy.extension.manifest?.chrome_settings_overrides?.search_provider;
 
-        if (
-          !engine.checkSearchUrlMatchesManifest(
-            manifest?.chrome_settings_overrides?.search_provider
-          )
-        ) {
+        if (!providerSettings) {
+          logConsole.debug(
+            `Add-on ${engine._extensionID} for search engine ${engine.name} no longer has an engine defined`
+          );
+          Services.telemetry.keyedScalarSet(
+            "browser.searchinit.engine_invalid_webextension",
+            engine._extensionID,
+            4
+          );
+        } else if (engine.name != providerSettings.name) {
+          logConsole.debug(
+            `Add-on ${engine._extensionID} for search engine ${engine.name} has a different name!`
+          );
+          Services.telemetry.keyedScalarSet(
+            "browser.searchinit.engine_invalid_webextension",
+            engine._extensionID,
+            5
+          );
+        } else if (!engine.checkSearchUrlMatchesManifest(providerSettings)) {
           logConsole.debug(
             `Add-on ${engine._extensionID} for search engine ${engine.name} has out-of-date manifest!`
           );
           Services.telemetry.keyedScalarSet(
             "browser.searchinit.engine_invalid_webextension",
             engine._extensionID,
-            3
+            6
           );
         }
       }
@@ -1569,23 +1635,28 @@ SearchService.prototype = {
     if (!this._initialized && !isAppProvided && !initEngine) {
       await this.init();
     }
+    // Special search engines (policy and user) are skipped for migration as
+    // there would never have been an OpenSearch engine associated with those.
+    if (extensionID && !extensionID.startsWith("set-via")) {
+      for (let engine of this._engines.values()) {
+        if (
+          !engine.extensionID &&
+          engine._loadPath.startsWith(`jar:[profile]/extensions/${extensionID}`)
+        ) {
+          // This is a legacy extension engine that needs to be migrated to WebExtensions.
+          logConsole.debug("Migrating existing engine");
+          isCurrent = isCurrent || this.defaultEngine == engine;
+          await this.removeEngine(engine);
+        }
+      }
+    }
+
     let existingEngine = this._engines.get(name);
     if (existingEngine) {
-      if (
-        extensionID &&
-        existingEngine._loadPath.startsWith(
-          `jar:[profile]/extensions/${extensionID}`
-        )
-      ) {
-        // This is a legacy extension engine that needs to be migrated to WebExtensions.
-        isCurrent = this.defaultEngine == existingEngine;
-        await this.removeEngine(existingEngine);
-      } else {
-        throw Components.Exception(
-          "An engine with that name already exists!",
-          Cr.NS_ERROR_FILE_ALREADY_EXISTS
-        );
-      }
+      throw Components.Exception(
+        "An engine with that name already exists!",
+        Cr.NS_ERROR_FILE_ALREADY_EXISTS
+      );
     }
 
     let newEngine = new SearchEngine({
@@ -1792,13 +1863,10 @@ SearchService.prototype = {
     await this.init();
     let errCode;
     try {
-      var engine = new OpenSearchEngine({
-        uri: engineURL,
-        isAppProvided: false,
-      });
+      var engine = new OpenSearchEngine();
       engine._setIcon(iconURL, false);
       errCode = await new Promise(resolve => {
-        engine._initFromURIAndLoad(engineURL, errorCode => {
+        engine._install(engineURL, errorCode => {
           resolve(errorCode);
         });
       });
@@ -2719,12 +2787,13 @@ var engineUpdateService = {
       }
 
       logConsole.debug("updating", engine.name, updateURI.spec);
-      testEngine = new OpenSearchEngine({
-        uri: updateURI,
-        isAppProvided: false,
-      });
+      testEngine = new OpenSearchEngine();
       testEngine._engineToUpdate = engine;
-      testEngine._initFromURIAndLoad(updateURI);
+      try {
+        testEngine._install(updateURI);
+      } catch (ex) {
+        logConsole.error("Failed to update", engine.name, ex);
+      }
     } else {
       logConsole.debug("invalid updateURI");
     }

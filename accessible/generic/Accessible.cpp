@@ -65,6 +65,7 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/BasicEvents.h"
+#include "mozilla/Components.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/FloatingPoint.h"
@@ -277,7 +278,7 @@ KeyBinding Accessible::KeyboardShortcut() const { return KeyBinding(); }
 
 void Accessible::TranslateString(const nsString& aKey, nsAString& aStringOut) {
   nsCOMPtr<nsIStringBundleService> stringBundleService =
-      services::GetStringBundleService();
+      components::StringBundle::Service();
   if (!stringBundleService) return;
 
   nsCOMPtr<nsIStringBundle> stringBundle;
@@ -329,15 +330,8 @@ uint64_t Accessible::VisibilityState() const {
     nsIFrame* parentFrame = curFrame->GetParent();
     nsDeckFrame* deckFrame = do_QueryFrame(parentFrame);
     if (deckFrame && deckFrame->GetSelectedBox() != curFrame) {
-#if defined(ANDROID)
-      // In Fennec instead of a <tabpanels> container there is a <deck>
-      // with direct <browser> children.
-      if (curFrame->GetContent()->IsXULElement(nsGkAtoms::browser))
-        return states::OFFSCREEN;
-#else
       if (deckFrame->GetContent()->IsXULElement(nsGkAtoms::tabpanels))
         return states::OFFSCREEN;
-#endif
 
       MOZ_ASSERT_UNREACHABLE(
           "Children of not selected deck panel are not accessible.");
@@ -466,7 +460,9 @@ bool Accessible::NativelyUnavailable() const {
 
 Accessible* Accessible::FocusedChild() {
   Accessible* focus = FocusMgr()->FocusedAccessible();
-  if (focus && (focus == this || focus->Parent() == this)) return focus;
+  if (focus && (focus == this || focus->LocalParent() == this)) {
+    return focus;
+  }
 
   return nullptr;
 }
@@ -518,7 +514,7 @@ Accessible* Accessible::ChildAtPoint(int32_t aX, int32_t aY,
         popupDoc->GetAccessibleOrContainer(popupFrame->GetContent());
     Accessible* popupChild = this;
     while (popupChild && !popupChild->IsDoc() && popupChild != popupAcc)
-      popupChild = popupChild->Parent();
+      popupChild = popupChild->LocalParent();
 
     if (popupChild == popupAcc) startFrame = popupFrame;
   }
@@ -552,7 +548,7 @@ Accessible* Accessible::ChildAtPoint(int32_t aX, int32_t aY,
   // ensure obtained accessible is a child of this accessible.
   Accessible* child = accessible;
   while (child != this) {
-    Accessible* parent = child->Parent();
+    Accessible* parent = child->LocalParent();
     if (!parent) {
       // Reached the top of the hierarchy. These bounds were inside an
       // accessible that is not a descendant of this one.
@@ -573,7 +569,7 @@ Accessible* Accessible::ChildAtPoint(int32_t aX, int32_t aY,
   // OuterDocAccessibles).
   uint32_t childCount = accessible->ChildCount();
   for (uint32_t childIdx = 0; childIdx < childCount; childIdx++) {
-    Accessible* child = accessible->GetChildAt(childIdx);
+    Accessible* child = accessible->LocalChildAt(childIdx);
 
     nsIntRect childRect = child->Bounds();
     if (childRect.Contains(aX, aY) &&
@@ -1232,7 +1228,7 @@ void Accessible::ApplyARIAState(uint64_t* aState) const {
       // If has a role & ID and aria-activedescendant on the container, assume
       // focusable.
       const Accessible* ancestor = this;
-      while ((ancestor = ancestor->Parent()) && !ancestor->IsDoc()) {
+      while ((ancestor = ancestor->LocalParent()) && !ancestor->IsDoc()) {
         dom::Element* el = ancestor->Elm();
         if (el &&
             el->HasAttr(kNameSpaceID_None, nsGkAtoms::aria_activedescendant)) {
@@ -1246,7 +1242,7 @@ void Accessible::ApplyARIAState(uint64_t* aState) const {
   if (*aState & states::FOCUSABLE) {
     // Propogate aria-disabled from ancestors down to any focusable descendant.
     const Accessible* ancestor = this;
-    while ((ancestor = ancestor->Parent()) && !ancestor->IsDoc()) {
+    while ((ancestor = ancestor->LocalParent()) && !ancestor->IsDoc()) {
       dom::Element* el = ancestor->Elm();
       if (el && el->AttrValueIs(kNameSpaceID_None, nsGkAtoms::aria_disabled,
                                 nsGkAtoms::_true, eCaseMatters)) {
@@ -1658,7 +1654,7 @@ Relation Accessible::RelationByType(RelationType aType) const {
         if (view) {
           nsIScrollableFrame* scrollFrame = do_QueryFrame(frame);
           if (scrollFrame || view->GetWidget() || !frame->GetParent())
-            rel.AppendTarget(Parent());
+            rel.AppendTarget(LocalParent());
         }
       }
 
@@ -1705,9 +1701,9 @@ Relation Accessible::RelationByType(RelationType aType) const {
          * radio button (because input=radio buttons are
          * HTMLRadioButtonAccessibles) */
         Relation rel = Relation();
-        Accessible* currParent = Parent();
+        Accessible* currParent = LocalParent();
         while (currParent && currParent->Role() != roles::RADIO_GROUP) {
-          currParent = currParent->Parent();
+          currParent = currParent->LocalParent();
         }
 
         if (currParent && currParent->Role() == roles::RADIO_GROUP) {
@@ -2215,7 +2211,7 @@ void Accessible::RelocateChild(uint32_t aNewIndex, Accessible* aChild) {
   MOZ_DIAGNOSTIC_ASSERT(aChild->mIndexInParent != -1,
                         "Unbound child was given");
   MOZ_DIAGNOSTIC_ASSERT(
-      aChild->mParent->GetChildAt(aChild->mIndexInParent) == aChild,
+      aChild->mParent->LocalChildAt(aChild->mIndexInParent) == aChild,
       "Wrong index in parent");
   MOZ_DIAGNOSTIC_ASSERT(
       static_cast<uint32_t>(aChild->mIndexInParent) != aNewIndex,
@@ -2264,7 +2260,7 @@ void Accessible::RelocateChild(uint32_t aNewIndex, Accessible* aChild) {
   aChild->SetShowEventTarget(true);
 }
 
-Accessible* Accessible::GetChildAt(uint32_t aIndex) const {
+Accessible* Accessible::LocalChildAt(uint32_t aIndex) const {
   Accessible* child = mChildren.SafeElementAt(aIndex, nullptr);
   if (!child) return nullptr;
 
@@ -2300,7 +2296,7 @@ Accessible* Accessible::GetEmbeddedChildAt(uint32_t aIndex) {
                : nullptr;
   }
 
-  return GetChildAt(aIndex);
+  return LocalChildAt(aIndex);
 }
 
 int32_t Accessible::GetIndexOfEmbeddedChild(Accessible* aChild) {
@@ -2365,7 +2361,7 @@ void Accessible::ToTextPoint(HyperTextAccessible** aContainer, int32_t* aOffset,
   const Accessible* parent = this;
   do {
     child = parent;
-    parent = parent->Parent();
+    parent = parent->LocalParent();
   } while (parent && !parent->IsHyperText());
 
   if (parent) {
@@ -2523,7 +2519,8 @@ void Accessible::SetCurrentItem(const Accessible* aItem) {
 
 Accessible* Accessible::ContainerWidget() const {
   if (HasARIARole() && mContent->HasID()) {
-    for (Accessible* parent = Parent(); parent; parent = parent->Parent()) {
+    for (Accessible* parent = LocalParent(); parent;
+         parent = parent->LocalParent()) {
       nsIContent* parentContent = parent->GetContent();
       if (parentContent && parentContent->IsElement() &&
           parentContent->AsElement()->HasAttr(
@@ -2572,7 +2569,7 @@ Accessible* Accessible::GetSiblingAtOffset(int32_t aOffset,
     return nullptr;
   }
 
-  Accessible* child = mParent->GetChildAt(mIndexInParent + aOffset);
+  Accessible* child = mParent->LocalChildAt(mIndexInParent + aOffset);
   if (aError && !child) *aError = NS_ERROR_UNEXPECTED;
 
   return child;
@@ -2667,7 +2664,7 @@ int32_t Accessible::GetLevelInternal() {
     level = 1;
 
     Accessible* parent = this;
-    while ((parent = parent->Parent())) {
+    while ((parent = parent->LocalParent())) {
       roles::Role parentRole = parent->Role();
 
       if (parentRole == roles::OUTLINE) break;
@@ -2684,7 +2681,7 @@ int32_t Accessible::GetLevelInternal() {
     // Calculate 'level' attribute based on number of parent listitems.
     level = 0;
     Accessible* parent = this;
-    while ((parent = parent->Parent())) {
+    while ((parent = parent->LocalParent())) {
       roles::Role parentRole = parent->Role();
 
       if (parentRole == roles::LISTITEM)
@@ -2696,12 +2693,12 @@ int32_t Accessible::GetLevelInternal() {
     if (level == 0) {
       // If this listitem is on top of nested lists then expose 'level'
       // attribute.
-      parent = Parent();
+      parent = LocalParent();
       uint32_t siblingCount = parent->ChildCount();
       for (uint32_t siblingIdx = 0; siblingIdx < siblingCount; siblingIdx++) {
-        Accessible* sibling = parent->GetChildAt(siblingIdx);
+        Accessible* sibling = parent->LocalChildAt(siblingIdx);
 
-        Accessible* siblingChild = sibling->LastChild();
+        Accessible* siblingChild = sibling->LocalLastChild();
         if (siblingChild) {
           roles::Role lastChildRole = siblingChild->Role();
           if (lastChildRole == roles::LIST || lastChildRole == roles::GROUPING)
@@ -2717,7 +2714,7 @@ int32_t Accessible::GetLevelInternal() {
     level = 1;
 
     Accessible* parent = this;
-    while ((parent = parent->Parent())) {
+    while ((parent = parent->LocalParent())) {
       roles::Role parentRole = parent->Role();
       if (parentRole == roles::COMMENT) {
         ++level;
@@ -2763,7 +2760,7 @@ uint32_t KeyBinding::AccelModifier() {
 void KeyBinding::ToPlatformFormat(nsAString& aValue) const {
   nsCOMPtr<nsIStringBundle> keyStringBundle;
   nsCOMPtr<nsIStringBundleService> stringBundleService =
-      mozilla::services::GetStringBundleService();
+      mozilla::components::StringBundle::Service();
   if (stringBundleService)
     stringBundleService->CreateBundle(
         "chrome://global-platform/locale/platformKeys.properties",

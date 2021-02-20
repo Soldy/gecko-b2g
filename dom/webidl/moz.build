@@ -779,6 +779,7 @@ WEBIDL_FILES = [
     "PaymentResponse.webidl",
     "Performance.webidl",
     "PerformanceEntry.webidl",
+    "PerformanceEventTiming.webidl",
     "PerformanceMark.webidl",
     "PerformanceMeasure.webidl",
     "PerformanceNavigation.webidl",

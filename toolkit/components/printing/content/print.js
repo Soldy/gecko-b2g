@@ -1345,8 +1345,17 @@ var PrintSettingsViewProxy = {
         return this.availablePrinters[target.printerName].supportsDuplex;
 
       case "printDuplex":
-        return target.duplex;
-
+        switch (target.duplex) {
+          case Ci.nsIPrintSettings.kDuplexNone:
+            break;
+          case Ci.nsIPrintSettings.kDuplexFlipOnLongEdge:
+            return "long-edge";
+          case Ci.nsIPrintSettings.kDuplexFlipOnShortEdge:
+            return "short-edge";
+          default:
+            logger.warn("Unexpected duplex value: ", target.duplex);
+        }
+        return "off";
       case "printBackgrounds":
         return target.printBGImages || target.printBGColors;
 
@@ -1433,11 +1442,24 @@ var PrintSettingsViewProxy = {
         target.printBGColors = value;
         break;
 
-      case "printDuplex":
-        target.duplex = value
-          ? Ci.nsIPrintSettings.kDuplexFlipOnSideEdge
-          : Ci.nsIPrintSettings.kDuplexNone;
+      case "printDuplex": {
+        let duplex = (function() {
+          switch (value) {
+            case "off":
+              break;
+            case "long-edge":
+              return Ci.nsIPrintSettings.kDuplexFlipOnLongEdge;
+            case "short-edge":
+              return Ci.nsIPrintSettings.kDuplexFlipOnShortEdge;
+            default:
+              logger.warn("Unexpected duplex name: ", value);
+          }
+          return Ci.nsIPrintSettings.kDuplexNone;
+        })();
+
+        target.duplex = duplex;
         break;
+      }
 
       case "printFootersHeaders":
         // To disable header & footers, set them all to empty.
@@ -1582,8 +1604,6 @@ class PrintUIForm extends PrintUIControlMixin(HTMLFormElement) {
     // in the native dialog, so it can be shown regardless.
     this.querySelector("#system-print").hidden =
       AppConstants.platform === "win" && !settings.defaultSystemPrinter;
-
-    this.querySelector("#copies").hidden = settings.willSaveToFile;
 
     this.querySelector("#two-sided-printing").hidden = !settings.supportsDuplex;
   }
@@ -1886,6 +1906,29 @@ class OrientationInput extends PrintUIControlMixin(HTMLElement) {
   }
 }
 customElements.define("orientation-input", OrientationInput);
+
+class CopiesInput extends PrintUIControlMixin(HTMLElement) {
+  get templateId() {
+    return "copy-template";
+  }
+
+  initialize() {
+    super.initialize();
+    this._copiesSection = this.closest(".section-block");
+    this._copiesInput = this.querySelector("#copies-count");
+    this._copiesError = this.querySelector("#error-invalid-copies");
+  }
+
+  update(settings) {
+    this._copiesSection.hidden = settings.willSaveToFile;
+    this._copiesError.hidden = true;
+  }
+
+  handleEvent(e) {
+    this._copiesError.hidden = this._copiesInput.checkValidity();
+  }
+}
+customElements.define("copy-count-input", CopiesInput);
 
 class ScaleInput extends PrintUIControlMixin(HTMLElement) {
   get templateId() {
@@ -2434,15 +2477,21 @@ class TwistySummary extends PrintUIControlMixin(HTMLElement) {
     this.label = this.querySelector(".label");
 
     this.addEventListener("click", this);
-    this.updateSummary();
+    let shouldOpen = Services.prefs.getBoolPref(
+      "print.more-settings.open",
+      false
+    );
+    this.closest("details").open = shouldOpen;
+    this.updateSummary(shouldOpen);
   }
 
   handleEvent(e) {
     let willOpen = !this.isOpen;
+    Services.prefs.setBoolPref("print.more-settings.open", willOpen);
     this.updateSummary(willOpen);
   }
 
-  updateSummary(open = false) {
+  updateSummary(open) {
     document.l10n.setAttributes(
       this.label,
       open

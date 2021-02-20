@@ -73,6 +73,9 @@ struct VertexShaderImpl {
   }
 };
 
+// The number of pixels in a step.
+enum : int32_t { swgl_StepSize = 4 };
+
 struct FragmentShaderImpl {
   typedef void (*InitSpanFunc)(FragmentShaderImpl*, const void* interps,
                                const void* step);
@@ -82,8 +85,8 @@ struct FragmentShaderImpl {
                                 const void* step);
   typedef void (*RunWFunc)(FragmentShaderImpl*);
   typedef void (*SkipWFunc)(FragmentShaderImpl*, int steps);
-  typedef void (*DrawSpanRGBA8Func)(FragmentShaderImpl*);
-  typedef void (*DrawSpanR8Func)(FragmentShaderImpl*);
+  typedef int (*DrawSpanRGBA8Func)(FragmentShaderImpl*);
+  typedef int (*DrawSpanR8Func)(FragmentShaderImpl*);
 
   InitSpanFunc init_span_func = nullptr;
   RunFunc run_func = nullptr;
@@ -117,8 +120,6 @@ struct FragmentShaderImpl {
   uint8_t* swgl_OutR8 = nullptr;
   // The remaining number of pixels in the span.
   int32_t swgl_SpanLength = 0;
-  // The number of pixels in a step.
-  enum : int32_t { swgl_StepSize = 4 };
 
   ALWAYS_INLINE void step_fragcoord(int steps = 4) { gl_FragCoord.x += steps; }
 
@@ -142,20 +143,20 @@ struct FragmentShaderImpl {
     (*(W ? skip_w_func : skip_func))(this, steps);
   }
 
-  ALWAYS_INLINE void draw_span(uint32_t* buf, int len) {
+  ALWAYS_INLINE int draw_span(uint32_t* buf, int len) {
     swgl_OutRGBA8 = buf;
     swgl_SpanLength = len;
-    (*draw_span_RGBA8_func)(this);
+    return (*draw_span_RGBA8_func)(this);
   }
 
   ALWAYS_INLINE bool has_draw_span(uint32_t*) {
     return draw_span_RGBA8_func != nullptr;
   }
 
-  ALWAYS_INLINE void draw_span(uint8_t* buf, int len) {
+  ALWAYS_INLINE int draw_span(uint8_t* buf, int len) {
     swgl_OutR8 = buf;
     swgl_SpanLength = len;
-    (*draw_span_R8_func)(this);
+    return (*draw_span_R8_func)(this);
   }
 
   ALWAYS_INLINE bool has_draw_span(uint8_t*) {

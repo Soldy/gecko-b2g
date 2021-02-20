@@ -635,7 +635,7 @@ void LIRGeneratorX86Shared::lowerAtomicTypedArrayElementBinop(
   // We'll emit a single instruction: LOCK ADD, LOCK SUB, LOCK AND,
   // LOCK OR, or LOCK XOR.  We can do this even for the Uint32 case.
 
-  if (!ins->hasUses()) {
+  if (ins->isForEffect()) {
     LAllocation value;
     if (useI386ByteRegisters && ins->isByteArray() &&
         !ins->value()->isConstant()) {
@@ -1280,6 +1280,8 @@ void LIRGenerator::visitWasmUnarySimd128(MWasmUnarySimd128* ins) {
       reuseInput = true;
       break;
     case wasm::SimdOp::I32x4TruncUSatF32x4:
+    case wasm::SimdOp::I32x4TruncSatF64x2SZero:
+    case wasm::SimdOp::I32x4TruncSatF64x2UZero:
       tempReg = tempSimd128();
       // Prefer src == dest to avoid an unconditional src->dest move.
       useAtStart = true;
@@ -1306,6 +1308,10 @@ void LIRGenerator::visitWasmUnarySimd128(MWasmUnarySimd128* ins) {
     case wasm::SimdOp::F64x2Floor:
     case wasm::SimdOp::F64x2Trunc:
     case wasm::SimdOp::F64x2Nearest:
+    case wasm::SimdOp::F32x4DemoteF64x2Zero:
+    case wasm::SimdOp::F64x2PromoteLowF32x4:
+    case wasm::SimdOp::F64x2ConvertLowI32x4S:
+    case wasm::SimdOp::F64x2ConvertLowI32x4U:
       // Prefer src == dest to exert the lowest register pressure on the
       // surrounding code.
       useAtStart = true;
@@ -1333,6 +1339,7 @@ bool LIRGeneratorX86Shared::canFoldReduceSimd128AndBranch(wasm::SimdOp op) {
     case wasm::SimdOp::I8x16AllTrue:
     case wasm::SimdOp::I16x8AllTrue:
     case wasm::SimdOp::I32x4AllTrue:
+    case wasm::SimdOp::I64x2AllTrue:
     case wasm::SimdOp::I16x8Bitmask:
       return true;
     default:

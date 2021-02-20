@@ -64,7 +64,6 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/UserActivation.h"
-#include "mozilla/dom/WindowGlobalChild.h"
 #include "nsAnimationManager.h"
 #include "nsNameSpaceManager.h"  // for Pref-related rule management (bugs 22963,20760,31816)
 #include "nsFlexContainerFrame.h"
@@ -165,7 +164,6 @@
 
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "ClientLayerManager.h"
-#include "GeckoProfiler.h"
 #include "gfxPlatform.h"
 #include "Layers.h"
 #include "LayerTreeInvalidation.h"
@@ -197,6 +195,8 @@
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/layers/WebRenderUserData.h"
 #include "mozilla/layout/ScrollAnchorContainer.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/ScrollTypes.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoStyleSet.h"
@@ -3250,8 +3250,7 @@ nsresult PresShell::GoToAnchor(const nsAString& aAnchorName, bool aScroll,
     }
   } else {
     rv = NS_ERROR_FAILURE;
-    constexpr auto top = u"top"_ns;
-    if (nsContentUtils::EqualsIgnoreASCIICase(aAnchorName, top)) {
+    if (nsContentUtils::EqualsIgnoreASCIICase(aAnchorName, u"top"_ns)) {
       // Scroll to the top/left if aAnchorName is "top" and there is no element
       // with such a name or id.
       rv = NS_OK;
@@ -3259,8 +3258,10 @@ nsresult PresShell::GoToAnchor(const nsAString& aAnchorName, bool aScroll,
       // Check |aScroll| after setting |rv| so we set |rv| to the same
       // thing whether or not |aScroll| is true.
       if (aScroll && sf) {
+        ScrollMode scrollMode =
+            sf->IsSmoothScroll() ? ScrollMode::SmoothMsd : ScrollMode::Instant;
         // Scroll to the top of the page
-        sf->ScrollTo(nsPoint(0, 0), ScrollMode::Instant);
+        sf->ScrollTo(nsPoint(0, 0), scrollMode);
       }
     }
   }
@@ -6274,9 +6275,7 @@ void PresShell::Paint(nsView* aViewToPaint, const nsRegion& aDirtyRegion,
     uri = contentRoot->GetDocumentURI();
   }
   url = uri ? uri->GetSpecOrDefault() : "N/A"_ns;
-#ifdef MOZ_GECKO_PROFILER
   AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING("PresShell::Paint", GRAPHICS, url);
-#endif
 
   Maybe<js::AutoAssertNoContentJS> nojs;
 
@@ -8582,14 +8581,6 @@ void PresShell::EventHandler::RecordEventHandlingResponsePerformance(
   if (GetDocument() &&
       GetDocument()->GetReadyStateEnum() != Document::READYSTATE_COMPLETE) {
     Telemetry::Accumulate(Telemetry::LOAD_INPUT_EVENT_RESPONSE_MS, millis);
-
-    if (GetDocument()->ShouldIncludeInTelemetry(
-            /* aAllowExtensionURIs = */ false) &&
-        GetDocument()->IsTopLevelContentDocument()) {
-      if (auto* wgc = GetDocument()->GetWindowGlobalChild()) {
-        Unused << wgc->SendSubmitLoadInputEventResponsePreloadTelemetry(millis);
-      }
-    }
   }
 
   if (!sLastInputProcessed || sLastInputProcessed < aEvent->mTimeStamp) {
@@ -10607,8 +10598,11 @@ void ReflowCountMgr::Add(const char* aName, nsIFrame* aFrame) {
   NS_ASSERTION(aName != nullptr, "Name shouldn't be null!");
 
   if (mDumpFrameCounts) {
-    const auto& counter = mCounts.LookupForAdd(aName).OrInsert(
-        [this]() { return new ReflowCounter(this); });
+    auto* const counter = mCounts.WithEntryHandle(aName, [this](auto&& entry) {
+      return entry
+          .OrInsertWith([this] { return MakeUnique<ReflowCounter>(this); })
+          .get();
+    });
     counter->Add();
   }
 
@@ -10616,12 +10610,16 @@ void ReflowCountMgr::Add(const char* aName, nsIFrame* aFrame) {
       aFrame != nullptr) {
     char key[KEY_BUF_SIZE_FOR_PTR];
     SprintfLiteral(key, "%p", (void*)aFrame);
-    const auto& counter =
-        mIndiFrameCounts.LookupForAdd(key).OrInsert([&aName, &aFrame, this]() {
-          auto counter = new IndiReflowCounter(this);
-          counter->mFrame = aFrame;
-          counter->mName.AssignASCII(aName);
-          return counter;
+    auto* const counter =
+        mIndiFrameCounts.WithEntryHandle(key, [&](auto&& entry) {
+          return entry
+              .OrInsertWith([&aName, &aFrame, this]() {
+                auto counter = MakeUnique<IndiReflowCounter>(this);
+                counter->mFrame = aFrame;
+                counter->mName.AssignASCII(aName);
+                return counter;
+              })
+              .get();
         });
     // this eliminates extra counts from super classes
     if (counter && counter->mName.EqualsASCII(aName)) {
@@ -10706,12 +10704,13 @@ void ReflowCountMgr::PaintCount(const char* aName,
 
 //------------------------------------------------------------------
 void ReflowCountMgr::DoGrandTotals() {
-  auto entry = mCounts.LookupForAdd(kGrandTotalsStr);
-  if (!entry) {
-    entry.OrInsert([this]() { return new ReflowCounter(this); });
-  } else {
-    entry.Data()->ClearTotals();
-  }
+  mCounts.WithEntryHandle(kGrandTotalsStr, [this](auto&& entry) {
+    if (!entry) {
+      entry.Insert(MakeUnique<ReflowCounter>(this));
+    } else {
+      entry.Data()->ClearTotals();
+    }
+  });
 
   printf("\t\t\t\tTotal\n");
   for (uint32_t i = 0; i < 78; i++) {
@@ -10777,12 +10776,13 @@ void ReflowCountMgr::DoIndiTotalsTree() {
 
 //------------------------------------------------------------------
 void ReflowCountMgr::DoGrandHTMLTotals() {
-  auto entry = mCounts.LookupForAdd(kGrandTotalsStr);
-  if (!entry) {
-    entry.OrInsert([this]() { return new ReflowCounter(this); });
-  } else {
-    entry.Data()->ClearTotals();
-  }
+  mCounts.WithEntryHandle(kGrandTotalsStr, [this](auto&& entry) {
+    if (!entry) {
+      entry.Insert(MakeUnique<ReflowCounter>(this));
+    } else {
+      entry.Data()->ClearTotals();
+    }
+  });
 
   static const char* title[] = {"Class", "Reflows"};
   fprintf(mFD, "<tr>");
@@ -10849,13 +10849,14 @@ void ReflowCountMgr::ClearTotals() {
 
 //------------------------------------------------------------------
 void ReflowCountMgr::ClearGrandTotals() {
-  auto entry = mCounts.LookupForAdd(kGrandTotalsStr);
-  if (!entry) {
-    entry.OrInsert([this]() { return new ReflowCounter(this); });
-  } else {
-    entry.Data()->ClearTotals();
-    entry.Data()->SetTotalsCache();
-  }
+  mCounts.WithEntryHandle(kGrandTotalsStr, [&](auto&& entry) {
+    if (!entry) {
+      entry.Insert(MakeUnique<ReflowCounter>(this));
+    } else {
+      entry.Data()->ClearTotals();
+      entry.Data()->SetTotalsCache();
+    }
+  });
 }
 
 //------------------------------------------------------------------

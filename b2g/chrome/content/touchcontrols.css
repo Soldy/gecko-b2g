@@ -183,7 +183,7 @@
   background-size: cover;
   min-width: var(--button-size);
   min-height: var(--button-size);
-  padding: 6px;
+  padding: 1px;
   border: 0;
   background-color: transparent;
   background-repeat: no-repeat;
@@ -255,7 +255,6 @@
   flex-grow: 1;
 }
 
-.volumeControl::-moz-range-thumb,
 .scrubber::-moz-range-thumb {
   height: var(--thumb-size);
   width: var(--thumb-size);
@@ -264,9 +263,8 @@
   box-shadow: 0px 0px 0px 3px rgba(0, 0, 0, 0.3);
 }
 
-.volumeControl,
 .scrubber {
-  outline: none;
+  outline: 0;
 }
 
 .progressBackgroundBar {
@@ -292,19 +290,9 @@
   margin: 0 1.5rem;
 }
 
-.volumeStack {
-  max-width: 60px;
-  min-width: var(--volumeStack-width);
-  flex-grow: 1;
-  flex-shrink: 0;
-  margin-right: 6px;
-  margin-left: 4px;
-}
-
 .bufferBar,
 .progressBar,
-.scrubber,
-.volumeControl {
+.scrubber {
   bottom: 0;
   left: 0;
   position: absolute;
@@ -316,6 +304,10 @@
   margin: 0;
   background: none;
   outline: none;
+}
+
+.volumeControl {
+  display: none;
 }
 
 .bufferBar {
@@ -333,33 +325,14 @@
   background: none;
 }
 
-.scrubber:hover::-moz-range-thumb,
-.volumeControl:hover::-moz-range-thumb {
-  background-color: white;
-}
-
 .scrubber:active::-moz-range-thumb,
-.volumeControl:active::-moz-range-thumb {
+.scrubber:hover::-moz-range-thumb {
   background-color: white;
 }
 
 .scrubber::-moz-range-track,
 .scrubber::-moz-range-progress {
   background-color: transparent;
-}
-
-.volumeControl::-moz-range-progress,
-.volumeControl::-moz-range-track {
-  height: var(--track-size);
-  border-radius: calc(var(--track-size) / 2);
-}
-
-.volumeControl::-moz-range-progress {
-  background-color: #fff;
-}
-
-.volumeControl::-moz-range-track {
-  background-color: rgba(0, 0, 0, 0.7);
 }
 
 .bufferBar::-moz-progress-bar {

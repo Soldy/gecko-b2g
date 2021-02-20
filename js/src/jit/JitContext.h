@@ -36,10 +36,8 @@ enum MethodStatus {
 enum class AbortReason : uint8_t {
   NoAbort,
   Alloc = 2,
-  Inlining = 4,
-  PreliminaryObjects = 6,
-  Disable = 8,
-  Error = 10,
+  Disable = 4,
+  Error = 6,
 };
 }  // namespace jit
 }  // namespace js
@@ -127,6 +125,11 @@ class JitContext {
 
 #ifdef DEBUG
   bool isCompilingWasm() { return isCompilingWasm_; }
+  bool setIsCompilingWasm(bool flag) {
+    bool oldFlag = isCompilingWasm_;
+    isCompilingWasm_ = flag;
+    return oldFlag;
+  }
   bool hasOOM() { return oom_; }
   void setOOM() { oom_ = true; }
 

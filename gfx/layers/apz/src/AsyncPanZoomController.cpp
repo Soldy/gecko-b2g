@@ -922,7 +922,7 @@ nsEventStatus AsyncPanZoomController::HandleDragEvent(
   }
 
   HitTestingTreeNodeAutoLock node;
-  GetApzcTreeManager()->FindScrollThumbNode(aDragMetrics, node);
+  GetApzcTreeManager()->FindScrollThumbNode(aDragMetrics, mLayersId, node);
   if (!node) {
     APZC_LOG("%p unable to find scrollthumb node with viewid %" PRIu64 "\n",
              this, aDragMetrics.mViewId);
@@ -4833,7 +4833,8 @@ void AsyncPanZoomController::NotifyLayersUpdated(
           aLayerMetrics.GetCompositionSizeWithoutDynamicToolbar());
       needToReclampScroll = true;
     }
-    Metrics().SetRootCompositionSize(aLayerMetrics.GetRootCompositionSize());
+    Metrics().SetBoundingCompositionSize(
+        aLayerMetrics.GetBoundingCompositionSize());
     Metrics().SetPresShellResolution(aLayerMetrics.GetPresShellResolution());
     Metrics().SetCumulativeResolution(aLayerMetrics.GetCumulativeResolution());
     mScrollMetadata.SetHasScrollgrab(aScrollMetadata.GetHasScrollgrab());

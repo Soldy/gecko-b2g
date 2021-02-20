@@ -2765,8 +2765,12 @@ static bool GenerateTrapExit(MacroAssembler& masm, Label* throwLabel,
 // should only be called after the caller has reported an error.
 static bool GenerateThrowStub(MacroAssembler& masm, Label* throwLabel,
                               Offsets* offsets) {
+  Register scratch = ABINonArgReturnReg0;
+  Register scratch2 = ABINonArgReturnReg1;
+
   AssertExpectedSP(masm);
   masm.haltingAlign(CodeAlignment);
+  masm.setFramePushed(0);
 
   masm.bind(throwLabel);
 
@@ -2781,15 +2785,23 @@ static bool GenerateThrowStub(MacroAssembler& masm, Label* throwLabel,
 
   // Allocate space for exception or regular resume information.
   masm.reserveStack(sizeof(jit::ResumeFromException));
+  masm.moveStackPtrTo(scratch);
 
   MIRTypeVector handleThrowTypes;
   MOZ_ALWAYS_TRUE(handleThrowTypes.append(MIRType::Pointer));
 
+  unsigned frameSize =
+      StackDecrementForCall(ABIStackAlignment, masm.framePushed(),
+                            StackArgBytesForNativeABI(handleThrowTypes));
+  masm.reserveStack(frameSize);
+  masm.assertStackAlignment(ABIStackAlignment);
+
   ABIArgMIRTypeIter i(handleThrowTypes);
   if (i->kind() == ABIArg::GPR) {
-    masm.moveStackPtrTo(i->gpr());
+    masm.movePtr(scratch, i->gpr());
   } else {
-    masm.storeStackPtr(Address(masm.getStackPointer(), i->offsetFromArgBase()));
+    masm.storePtr(scratch,
+                  Address(masm.getStackPointer(), i->offsetFromArgBase()));
   }
   i++;
   MOZ_ASSERT(i.done());
@@ -2802,8 +2814,6 @@ static bool GenerateThrowStub(MacroAssembler& masm, Label* throwLabel,
   // address of the handler to jump to and the FP/SP values to restore.
   masm.call(SymbolicAddress::HandleThrow);
 
-  Register scratch = ABINonArgReturnReg0;
-  Register scratch2 = ABINonArgReturnReg1;
   Label resumeCatch, leaveWasm;
 
   masm.load32(Address(ReturnReg, offsetof(jit::ResumeFromException, kind)),
@@ -2951,6 +2961,47 @@ bool wasm::GenerateEntryStubs(MacroAssembler& masm, size_t funcExportIndex,
     return false;
   }
 
+  return true;
+}
+
+bool wasm::GenerateProvisionalJitEntryStub(MacroAssembler& masm,
+                                           Offsets* offsets) {
+  AssertExpectedSP(masm);
+  masm.setFramePushed(0);
+  offsets->begin = masm.currentOffset();
+
+#ifdef JS_CODEGEN_ARM64
+  // Unaligned ABI calls require SP+PSP, but our mode here is SP-only
+  masm.SetStackPointer64(PseudoStackPointer64);
+  masm.Mov(PseudoStackPointer64, sp);
+#endif
+
+#ifdef JS_USE_LINK_REGISTER
+  masm.pushReturnAddress();
+#endif
+
+  AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
+  Register temp = regs.takeAny();
+
+  using Fn = void* (*)();
+  masm.setupUnalignedABICall(temp);
+  masm.callWithABI<Fn, GetContextSensitiveInterpreterStub>(
+      MoveOp::GENERAL, CheckUnsafeCallWithABI::DontCheckHasExitFrame);
+
+#ifdef JS_USE_LINK_REGISTER
+  masm.popReturnAddress();
+#endif
+
+  masm.jump(ReturnReg);
+
+#ifdef JS_CODEGEN_ARM64
+  // Undo the SP+PSP mode
+  masm.SetStackPointer64(sp);
+#endif
+
+  if (!FinishOffsets(masm, offsets)) {
+    return false;
+  }
   return true;
 }
 

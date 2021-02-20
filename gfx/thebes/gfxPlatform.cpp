@@ -36,7 +36,7 @@
 #include "mozilla/Base64.h"
 
 #include "mozilla/Logging.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "nsAppRunner.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsCSSProps.h"
@@ -150,7 +150,6 @@ static const uint32_t kDefaultGlyphCacheSize = -1;
 #include "VRManager.h"
 #include "VRManagerChild.h"
 #include "mozilla/gfx/GPUParent.h"
-#include "mozilla/layers/MemoryReportingMLGPU.h"
 #include "prsystem.h"
 #include <dlfcn.h>
 
@@ -161,6 +160,9 @@ static const uint32_t kDefaultGlyphCacheSize = -1;
 
 namespace mozilla {
 namespace layers {
+#ifdef MOZ_WIDGET_GONK
+void InitGralloc();
+#endif
 void ShutdownTileCache();
 } // namespace layers
 } // namespace mozilla
@@ -190,23 +192,12 @@ static qcms_transform* gCMSRGBATransform = nullptr;
 static qcms_transform* gCMSBGRATransform = nullptr;
 
 static bool gCMSInitialized = false;
-static eCMSMode gCMSMode = eCMSMode_Off;
+static CMSMode gCMSMode = CMSMode::Off;
 
 static void ShutdownCMS();
 
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/SourceSurfaceCairo.h"
-
-/* Class to listen for pref changes so that chrome code can dynamically
-   force sRGB as an output profile. See Bug #452125. */
-class SRGBOverrideObserver final : public nsIObserver,
-                                   public nsSupportsWeakReference {
-  ~SRGBOverrideObserver() = default;
-
- public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSIOBSERVER
-};
 
 /// This override of the LogForwarder, initially used for the critical graphics
 /// errors, is sending the log to the crash annotations as well, but only
@@ -418,8 +409,6 @@ void CrashStatsLogForwarder::CrashAction(LogReason aReason) {
   }
 }
 
-NS_IMPL_ISUPPORTS(SRGBOverrideObserver, nsIObserver, nsISupportsWeakReference)
-
 #define GFX_DOWNLOADABLE_FONTS_ENABLED "gfx.downloadable_fonts.enabled"
 
 #define GFX_PREF_FALLBACK_USE_CMAPS \
@@ -437,26 +426,7 @@ NS_IMPL_ISUPPORTS(SRGBOverrideObserver, nsIObserver, nsISupportsWeakReference)
 
 #define BIDI_NUMERAL_PREF "bidi.numeral"
 
-#define GFX_PREF_CMS_FORCE_SRGB "gfx.color_management.force_srgb"
-
 #define FONT_VARIATIONS_PREF "layout.css.font-variations.enabled"
-
-NS_IMETHODIMP
-SRGBOverrideObserver::Observe(nsISupports* aSubject, const char* aTopic,
-                              const char16_t* someData) {
-  NS_ASSERTION(NS_strcmp(someData, (u"" GFX_PREF_CMS_FORCE_SRGB)) == 0,
-               "Restarting CMS on wrong pref!");
-  ShutdownCMS();
-  // Update current cms profile.
-  gfxPlatform::CreateCMSOutputProfile();
-  // FIXME(aosmond): This is also racy for the transforms but the pref is only
-  // used for dev purposes. It can be made a static pref in a followup once the
-  // dependency on it is removed from the gtest suite (see bug 1620600).
-  gfxPlatform::GetCMSRGBTransform();
-  gfxPlatform::GetCMSRGBATransform();
-  gfxPlatform::GetCMSBGRATransform();
-  return NS_OK;
-}
 
 static const char* kObservedPrefs[] = {"gfx.downloadable_fonts.",
                                        "gfx.font_rendering.", BIDI_NUMERAL_PREF,
@@ -803,6 +773,7 @@ WebRenderMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
                       "texture-cache/structures");
         helper.Report(aReport.shader_cache, "shader-cache");
         helper.Report(aReport.display_list, "display-list");
+        helper.Report(aReport.upload_staging_memory, "upload-stagin-memory");
 
         WEBRENDER_FOR_EACH_INTERNER(REPORT_INTERNER);
         WEBRENDER_FOR_EACH_INTERNER(REPORT_DATA_STORE);
@@ -818,6 +789,8 @@ WebRenderMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
         helper.ReportTexture(aReport.swap_chain, "swap-chains");
         helper.ReportTexture(aReport.render_texture_hosts,
                              "render-texture-hosts");
+        helper.ReportTexture(aReport.upload_staging_textures,
+                             "upload-staging-textures");
 
         FinishAsyncMemoryReport();
       },
@@ -938,7 +911,7 @@ void gfxPlatform::Init() {
    * incase that code crashes. See bug #591561. */
   nsCOMPtr<nsIGfxInfo> gfxInfo;
   /* this currently will only succeed on Windows */
-  gfxInfo = services::GetGfxInfo();
+  gfxInfo = components::GfxInfo::Service();
 
   if (XRE_IsParentProcess()) {
     // Some gfxVars must be initialized prior gPlatform for coherent results.
@@ -1037,14 +1010,13 @@ void gfxPlatform::Init() {
     MOZ_CRASH("Could not initialize gfxFontCache");
   }
 
-  /* Create and register our CMS Override observer. */
-  gPlatform->mSRGBOverrideObserver = new SRGBOverrideObserver();
-  Preferences::AddWeakObserver(gPlatform->mSRGBOverrideObserver,
-                               GFX_PREF_CMS_FORCE_SRGB);
-
   Preferences::RegisterPrefixCallbacks(FontPrefChanged, kObservedPrefs);
 
   GLContext::PlatformStartup();
+
+#ifdef MOZ_WIDGET_GONK
+  mozilla::layers::InitGralloc();
+#endif
 
   Preferences::RegisterCallbackAndCall(RecordingPrefChanged,
                                        "gfx.2d.recording");
@@ -1075,7 +1047,6 @@ void gfxPlatform::Init() {
 #ifdef USE_SKIA
   RegisterStrongMemoryReporter(new SkMemoryReporter());
 #endif
-  mlg::InitializeMemoryReporters();
 
 #ifdef USE_SKIA
   uint32_t skiaCacheSize = GetSkiaGlyphCacheSize();
@@ -1111,7 +1082,7 @@ void gfxPlatform::ReportTelemetry() {
   MOZ_RELEASE_ASSERT(XRE_IsParentProcess(),
                      "GFX: Only allowed to be called from parent process.");
 
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
   nsTArray<uint32_t> displayWidths;
   nsTArray<uint32_t> displayHeights;
   gfxInfo->GetDisplayWidth(displayWidths);
@@ -1174,7 +1145,7 @@ void gfxPlatform::ReportTelemetry() {
 }
 
 static bool IsFeatureSupported(long aFeature, bool aDefault) {
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
   nsCString blockId;
   int32_t status;
   if (!NS_SUCCEEDED(gfxInfo->GetFeatureStatus(aFeature, blockId, &status))) {
@@ -1289,13 +1260,6 @@ void gfxPlatform::Shutdown() {
 
   // Free the various non-null transforms and loaded profiles
   ShutdownCMS();
-
-  /* Unregister our CMS Override callback. */
-  NS_ASSERTION(gPlatform->mSRGBOverrideObserver,
-               "mSRGBOverrideObserver has alreay gone");
-  Preferences::RemoveObserver(gPlatform->mSRGBOverrideObserver,
-                              GFX_PREF_CMS_FORCE_SRGB);
-  gPlatform->mSRGBOverrideObserver = nullptr;
 
   Preferences::UnregisterPrefixCallbacks(FontPrefChanged, kObservedPrefs);
 
@@ -2097,11 +2061,11 @@ bool gfxPlatform::OffMainThreadCompositingEnabled() {
   return UsesOffMainThreadCompositing();
 }
 
-eCMSMode gfxPlatform::GetCMSMode() {
+CMSMode gfxPlatform::GetCMSMode() {
   if (!gCMSInitialized) {
     int32_t mode = StaticPrefs::gfx_color_management_mode();
-    if (mode >= 0 && mode < eCMSMode_AllCount) {
-      gCMSMode = static_cast<eCMSMode>(mode);
+    if (mode >= 0 && mode < int32_t(CMSMode::AllCount)) {
+      gCMSMode = CMSMode(mode);
     }
 
     bool enableV4 = StaticPrefs::gfx_color_management_enablev4();
@@ -2113,7 +2077,7 @@ eCMSMode gfxPlatform::GetCMSMode() {
   return gCMSMode;
 }
 
-void gfxPlatform::SetCMSModeOverride(eCMSMode aMode) {
+void gfxPlatform::SetCMSModeOverride(CMSMode aMode) {
   MOZ_ASSERT(gCMSInitialized);
   gCMSMode = aMode;
 }
@@ -2196,7 +2160,7 @@ void gfxPlatform::CreateCMSOutputProfile() {
        of this preference, which means nsIPrefBranch::GetBoolPref will
        typically throw (and leave its out-param untouched).
      */
-    if (Preferences::GetBool(GFX_PREF_CMS_FORCE_SRGB, false)) {
+    if (StaticPrefs::gfx_color_management_force_srgb()) {
       gCMSOutputProfile = GetCMSsRGBProfile();
     }
 
@@ -2359,7 +2323,7 @@ static void ShutdownCMS() {
   }
 
   // Reset the state variables
-  gCMSMode = eCMSMode_Off;
+  gCMSMode = CMSMode::Off;
   gCMSInitialized = false;
 }
 
@@ -2548,7 +2512,7 @@ void gfxPlatform::InitAcceleration() {
   // explicit.
   MOZ_ASSERT(NS_IsMainThread(), "can only initialize prefs on the main thread");
 
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
   nsCString discardFailureId;
   int32_t status;
 
@@ -2763,9 +2727,8 @@ void gfxPlatform::InitWebRenderConfig() {
     gfxVars::SetUseWebRenderProgramBinaryDisk(hasWebRender);
   }
 
-  if (StaticPrefs::gfx_webrender_use_optimized_shaders_AtStartup()) {
-    gfxVars::SetUseWebRenderOptimizedShaders(hasWebRender);
-  }
+  gfxVars::SetUseWebRenderOptimizedShaders(
+      gfxConfig::IsEnabled(Feature::WEBRENDER_OPTIMIZED_SHADERS));
 
   gfxVars::SetUseSoftwareWebRender(!hasHardware && hasSoftware);
 
@@ -2856,7 +2819,7 @@ void gfxPlatform::InitWebGLConfig() {
 
   if (!XRE_IsParentProcess()) return;
 
-  const nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  const nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
 
   const auto IsFeatureOk = [&](const int32_t feature) {
     nsCString discardFailureId;
@@ -3254,7 +3217,7 @@ void gfxPlatform::GetCMSSupportInfo(mozilla::widget::InfoObject& aObj) {
 }
 
 void gfxPlatform::GetDisplayInfo(mozilla::widget::InfoObject& aObj) {
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
 
   nsTArray<nsString> displayInfo;
   auto rv = gfxInfo->GetDisplayInfo(displayInfo);
@@ -3534,7 +3497,6 @@ void gfxPlatform::ImportGPUDeviceData(
   MOZ_ASSERT(XRE_IsParentProcess());
 
   gfxConfig::ImportChange(Feature::OPENGL_COMPOSITING, aData.oglCompositing());
-  gfxConfig::ImportChange(Feature::ADVANCED_LAYERS, aData.advancedLayers());
 }
 
 bool gfxPlatform::SupportsApzTouchInput() const {
@@ -3603,7 +3565,7 @@ void gfxPlatform::InitOpenGLConfig() {
 
 bool gfxPlatform::IsGfxInfoStatusOkay(int32_t aFeature, nsCString* aOutMessage,
                                       nsCString& aFailureId) {
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
   if (!gfxInfo) {
     return true;
   }

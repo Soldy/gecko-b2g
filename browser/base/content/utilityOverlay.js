@@ -1079,10 +1079,10 @@ function buildHelpMenu() {
   document.getElementById(
     "feedbackPage"
   ).disabled = !Services.policies.isAllowed("feedbackCommands");
-  let checkForUpdates = document.getElementById("checkForUpdates");
-  if (checkForUpdates) {
-    checkForUpdates.disabled = !Services.policies.isAllowed("appUpdate");
-  }
+
+  document.getElementById(
+    "helpSafeMode"
+  ).disabled = !Services.policies.isAllowed("safeMode");
 
   let supportMenu = Services.policies.getSupportMenu();
   if (supportMenu) {

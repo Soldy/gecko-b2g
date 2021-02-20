@@ -21,20 +21,7 @@ namespace dom {
 namespace alarm {
 
 typedef Observer<void_t> AlarmObserver;
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-typedef Observer<hal::SystemTimezoneChangeInformation>
-    SystemTimezoneChangeObserver;
-
-class AlarmHalService : public nsIAlarmHalService,
-                        public AlarmObserver,
-                        public SystemTimezoneChangeObserver
-#else
-class AlarmHalService : public nsIAlarmHalService,
-                        public AlarmObserver
-#endif
-
-{
+class AlarmHalService : public nsIAlarmHalService, public AlarmObserver {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIALARMHALSERVICE
@@ -48,13 +35,6 @@ class AlarmHalService : public nsIAlarmHalService,
   // Implementing hal::AlarmObserver
   void Notify(const void_t& aVoid) override;
 
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-  // Implementing hal::SystemTimezoneChangeObserver
-  void Notify(const hal::SystemTimezoneChangeInformation&
-                  aSystemTimezoneChangeInfo) override;
-#endif
-
  private:
   virtual ~AlarmHalService();
 
@@ -62,10 +42,6 @@ class AlarmHalService : public nsIAlarmHalService,
   static StaticRefPtr<AlarmHalService> sSingleton;
 
   nsCOMPtr<nsIAlarmFiredCb> mAlarmFiredCb;
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-  nsCOMPtr<nsITimezoneChangedCb> mTimezoneChangedCb;
-#endif
 };
 
 }  // namespace alarm

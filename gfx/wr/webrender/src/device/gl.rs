@@ -982,12 +982,15 @@ pub struct Capabilities {
     pub supports_shader_storage_object: bool,
     /// Whether to enforce that texture uploads be batched regardless of what
     /// the pref says.
-    pub requires_batched_texture_uploads: bool,
+    pub requires_batched_texture_uploads: Option<bool>,
     /// Whether the driver can reliably upload data to R8 format textures.
     pub supports_r8_texture_upload: bool,
     /// Whether clip-masking is supported natively by the GL implementation
     /// rather than emulated in shaders.
     pub uses_native_clip_mask: bool,
+    /// Whether anti-aliasing is supported natively by the GL implementation
+    /// rather than emulated in shaders.
+    pub uses_native_antialiasing: bool,
     /// The name of the renderer, as reported by GL
     pub renderer_name: String,
 }
@@ -1632,12 +1635,12 @@ impl Device {
         // from a non-zero offset within a PBO to fail. See bug 1603783.
         let supports_nonzero_pbo_offsets = !is_macos;
 
-        let is_mali_g = renderer_name.starts_with("Mali-G");
+        let is_mali = renderer_name.starts_with("Mali");
 
-        // On Mali-Gxx there is a driver bug when rendering partial updates to
+        // On Mali-Gxx and Txxx there is a driver bug when rendering partial updates to
         // offscreen render targets, so we must ensure we render to the entire target.
         // See bug 1663355.
-        let supports_render_target_partial_update = !is_mali_g;
+        let supports_render_target_partial_update = !is_mali;
 
         let supports_shader_storage_object = match gl.get_type() {
             // see https://www.g-truc.net/post-0734.html
@@ -1651,9 +1654,21 @@ impl Device {
         // clip-masking.
         let uses_native_clip_mask = is_software_webrender;
 
-        // On Mali-Gxx the driver really struggles with many small texture uploads,
-        // and handles fewer, larger uploads better.
-        let requires_batched_texture_uploads = is_mali_g;
+        // SWGL uses swgl_antiAlias() instead of implementing anti-aliasing in shaders.
+        // As above, this allows bypassing certain alpha-pass variants.
+        let uses_native_antialiasing = is_software_webrender;
+
+        let is_mali_g = renderer_name.starts_with("Mali-G");
+
+        let mut requires_batched_texture_uploads = None;
+        if is_software_webrender {
+            // No benefit to batching texture uploads with swgl.
+            requires_batched_texture_uploads = Some(false);
+        } else if is_mali_g {
+            // On Mali-Gxx the driver really struggles with many small texture uploads,
+            // and handles fewer, larger uploads better.
+            requires_batched_texture_uploads = Some(true);
+        }
 
         // On Linux we we have seen uploads to R8 format textures result in
         // corruption on some AMD cards.
@@ -1673,7 +1688,7 @@ impl Device {
             resource_override_path,
             use_optimized_shaders,
             upload_method,
-            use_batched_texture_uploads: requires_batched_texture_uploads,
+            use_batched_texture_uploads: requires_batched_texture_uploads.unwrap_or(false),
             use_draw_calls_for_texture_copy: false,
 
             inside_frame: false,
@@ -1695,6 +1710,7 @@ impl Device {
                 requires_batched_texture_uploads,
                 supports_r8_texture_upload,
                 uses_native_clip_mask,
+                uses_native_antialiasing,
                 renderer_name,
             },
 
@@ -1821,7 +1837,10 @@ impl Device {
     }
 
     pub fn set_use_batched_texture_uploads(&mut self, enabled: bool) {
-        self.use_batched_texture_uploads = self.capabilities.requires_batched_texture_uploads | enabled;
+        if self.capabilities.requires_batched_texture_uploads.is_some() {
+            return;
+        }
+        self.use_batched_texture_uploads = enabled;
     }
 
     pub fn set_use_draw_calls_for_texture_copy(&mut self, enabled: bool) {
@@ -3791,6 +3810,24 @@ impl Device {
         self.set_blend_factors(
             (gl::ONE, gl::ONE_MINUS_SRC1_COLOR),
             (gl::ONE, gl::ONE_MINUS_SRC1_ALPHA),
+        );
+    }
+    pub fn set_blend_mode_multiply_dual_source(&mut self) {
+        self.set_blend_factors(
+            (gl::ONE_MINUS_DST_ALPHA, gl::ONE_MINUS_SRC1_COLOR),
+            (gl::ONE, gl::ONE_MINUS_SRC_ALPHA),
+        );
+    }
+    pub fn set_blend_mode_screen(&mut self) {
+        self.set_blend_factors(
+            (gl::ONE, gl::ONE_MINUS_SRC_COLOR),
+            (gl::ONE, gl::ONE_MINUS_SRC_ALPHA),
+        );
+    }
+    pub fn set_blend_mode_exclusion(&mut self) {
+        self.set_blend_factors(
+            (gl::ONE_MINUS_DST_COLOR, gl::ONE_MINUS_SRC_COLOR),
+            (gl::ONE, gl::ONE_MINUS_SRC_ALPHA),
         );
     }
     pub fn set_blend_mode_show_overdraw(&mut self) {

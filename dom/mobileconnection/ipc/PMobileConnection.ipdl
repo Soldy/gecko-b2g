@@ -175,6 +175,10 @@ struct GetSignalStrengthRequest
 {
 };
 
+struct StopNetworkScanRequest
+{
+};
+
 union MobileConnectionRequest
 {
   GetNetworksRequest;
@@ -199,6 +203,7 @@ union MobileConnectionRequest
   SetRadioEnabledRequest;
   GetDeviceIdentitiesRequest;
   GetSignalStrengthRequest;
+  StopNetworkScanRequest;
 };
 
 } // namespace mobileconnection

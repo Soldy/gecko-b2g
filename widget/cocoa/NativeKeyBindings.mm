@@ -13,6 +13,7 @@
 #include "mozilla/WritingModes.h"
 
 #import <Cocoa/Cocoa.h>
+#import <Carbon/Carbon.h>
 
 namespace mozilla {
 namespace widget {
@@ -234,7 +235,7 @@ void NativeKeyBindings::GetEditCommands(const WidgetKeyboardEvent& aEvent,
                              modifierFlags:[originalEvent modifierFlags]
                                  timestamp:[originalEvent timestamp]
                               windowNumber:[originalEvent windowNumber]
-                                   context:[originalEvent context]
+                                   context:nil
                                 characters:chars
                charactersIgnoringModifiers:chars
                                  isARepeat:[originalEvent isARepeat]

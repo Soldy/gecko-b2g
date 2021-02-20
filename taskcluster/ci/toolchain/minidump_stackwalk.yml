@@ -8,6 +8,7 @@ job-defaults:
         local-toolchain: true
     worker-type: b-linux
     worker:
+        docker-image: {in-tree: deb10-toolchain-build}
         max-run-time: 1800
     run:
         script: build-minidump-stackwalk.sh
@@ -31,23 +32,19 @@ linux64-minidump-stackwalk:
             - linux64-clang-11
             - linux64-binutils
             - linux64-rust-1.47
+            - linux64-toolchain-sysroot
 
 macosx64-minidump-stackwalk:
     treeherder:
         symbol: TM(stackwalk)
-    worker:
-        env:
-            TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/macosx64/cross-releng.manifest"
     run:
         arguments: ['macosx64']
-        resources:
-            - 'taskcluster/scripts/misc/tooltool-download.sh'
-        tooltool-downloads: internal
     fetches:
         toolchain:
             - linux64-cctools-port-clang-11
             - linux64-clang-11
             - linux64-rust-macos-1.47
+            - macosx64-sdk-10.12
 
 win32-minidump-stackwalk:
     treeherder:

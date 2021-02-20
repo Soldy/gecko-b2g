@@ -62,14 +62,12 @@ Sntp.prototype = {
   },
 
   isExpired: function isExpired() {
-    // TODO, we are not able to get time change offset now.
-    return true;
-    // let valid = this._cachedOffset != null && this._cachedTimeInMS != null;
-    // if (this._refreshPeriodInMS > 0) {
-    //   valid =
-    //     valid && Date.now() < this._cachedTimeInMS + this._refreshPeriodInMS;
-    // }
-    // return !valid;
+    let valid = this._cachedOffset != null && this._cachedTimeInMS != null;
+    if (this._refreshPeriodInMS > 0) {
+      valid =
+        valid && Date.now() < this._cachedTimeInMS + this._refreshPeriodInMS;
+    }
+    return !valid;
   },
 
   request: function request() {
@@ -85,7 +83,7 @@ Sntp.prototype = {
    * adjust the stored value.
    */
   updateOffset: function updateOffset(offset) {
-    if (this._cachedOffset != null) {
+    if (this._cachedOffset !== null) {
       this._cachedOffset -= offset;
     }
   },

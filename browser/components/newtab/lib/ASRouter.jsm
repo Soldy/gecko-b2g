@@ -344,27 +344,13 @@ const MessageLoaderUtils = {
   },
 
   async _experimentsAPILoader(provider, options) {
-    try {
-      await ExperimentAPI.ready();
-    } catch (e) {
-      MessageLoaderUtils.reportError(e);
-      return [];
-    }
+    await ExperimentAPI.ready();
 
     let experiments = [];
     for (const featureId of provider.messageGroups) {
-      let experimentData;
-      try {
-        experimentData = ExperimentAPI.getExperiment({
-          featureId,
-          sendExposurePing: false,
-        });
-        // Not enrolled in any experiment for this feature, we can skip
-        if (!experimentData) {
-          continue;
-        }
-      } catch (e) {
-        MessageLoaderUtils.reportError(e);
+      let experimentData = ExperimentAPI.getExperiment({ featureId });
+      // Not enrolled in any experiment for this feature, we can skip
+      if (!experimentData) {
         continue;
       }
 
@@ -375,7 +361,6 @@ const MessageLoaderUtils = {
       if (featureData.enabled) {
         experiments.push({
           forExposureEvent: {
-            sent: experimentData.exposurePingSent,
             experimentSlug: experimentData.slug,
             branchSlug: experimentData.branch.slug,
           },
@@ -1709,12 +1694,13 @@ class _ASRouter {
     // Exposure events only apply to messages that come from the
     // messaging-experiments provider
     if (nonReachMessages.length && nonReachMessages[0].forExposureEvent) {
-      ExperimentAPI.recordExposureEvent(
+      ExperimentAPI.recordExposureEvent({
         // Any message processed by ASRouter will report the exposure event
         // as `cfr`
-        "cfr",
-        nonReachMessages[0].forExposureEvent
-      );
+        featureId: "cfr",
+        // experimentSlug and branchSlug
+        ...nonReachMessages[0].forExposureEvent,
+      });
     }
 
     return this.routeCFRMessage(

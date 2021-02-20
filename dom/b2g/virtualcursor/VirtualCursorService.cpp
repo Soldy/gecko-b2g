@@ -38,16 +38,23 @@ already_AddRefed<VirtualCursorProxy> VirtualCursorService::GetOrCreateCursor(
     nsPIDOMWindowOuter* aWindow) {
   MOZ_ASSERT(NS_IsMainThread());
   RefPtr<VirtualCursorService> service = GetService();
-  RefPtr<VirtualCursorProxy> cursor;
-  cursor = service->mCursorMap.LookupForAdd(aWindow).OrInsert([&]() {
-    RefPtr<dom::BrowserChild> browser = BrowserChild::GetFrom(aWindow);
-    LayoutDeviceIntPoint offset(browser->GetChromeOffset());
-    if (XRE_GetProcessType() == GeckoProcessType_Content) {
-      return new VirtualCursorProxy(aWindow, new CursorRemote(aWindow), offset);
-    }
-    return new VirtualCursorProxy(aWindow, service, offset);
-  });
-  return cursor.forget();
+
+  return service->mCursorMap
+      .WithEntryHandle(
+          aWindow,
+          [&](auto&& entry) {
+            return entry.OrInsertWith([&] {
+              RefPtr<dom::BrowserChild> browser =
+                  BrowserChild::GetFrom(aWindow);
+              LayoutDeviceIntPoint offset(browser->GetChromeOffset());
+              if (XRE_GetProcessType() == GeckoProcessType_Content) {
+                return new VirtualCursorProxy(
+                    aWindow, new CursorRemote(aWindow), offset);
+              }
+              return new VirtualCursorProxy(aWindow, service, offset);
+            });
+          })
+      .forget();
 }
 
 /* static */
@@ -103,12 +110,13 @@ void VirtualCursorService::Shutdown() {
           ("VirtualCursorService::Shutdown"));
 }
 
-void VirtualCursorService::SendCursorEvent(const nsAString& aType) {
+void VirtualCursorService::SendCursorEvent(const nsAString& aType,
+                                           int32_t aButton, int32_t aButtons) {
   NS_ENSURE_TRUE_VOID(mWindowUtils);
   bool preventDefault;
-  mWindowUtils->SendMouseEvent(aType, mCSSCursorPoint.x, mCSSCursorPoint.y, 0,
-                               1, 0, false, 0.0, 0, false, false, 0, 0, 6,
-                               &preventDefault);
+  mWindowUtils->SendMouseEvent(aType, mCSSCursorPoint.x, mCSSCursorPoint.y,
+                               aButton, 1, 0, false, 0.0, 0, false, false,
+                               aButtons, 0, 6, &preventDefault);
 }
 
 void VirtualCursorService::UpdatePos(const LayoutDeviceIntPoint& aPoint) {
@@ -149,13 +157,13 @@ void VirtualCursorService::CursorClick() {
 void VirtualCursorService::CursorDown() {
   MOZ_LOG(gVirtualCursorLog, LogLevel::Debug,
           ("VirtualCursorService::CursorDown"));
-  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mousedown"));
+  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mousedown"), 0, 1);
 }
 
 void VirtualCursorService::CursorUp() {
   MOZ_LOG(gVirtualCursorLog, LogLevel::Debug,
           ("VirtualCursorService::CursorUp"));
-  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mouseup"));
+  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mouseup"), 0, 0);
 }
 
 void VirtualCursorService::CursorMove() {
@@ -166,13 +174,13 @@ void VirtualCursorService::CursorMove() {
     // then receive the move requests from content. Ignore the request.
     return;
   }
-  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mousemove"));
+  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mousemove"), 0, 0);
 }
 
 void VirtualCursorService::CursorOut(bool aCheckActive) {
   MOZ_LOG(gVirtualCursorLog, LogLevel::Debug,
           ("VirtualCursorService::CursorOut"));
-  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mouseout"));
+  SendCursorEvent(NS_LITERAL_STRING_FROM_CSTRING("mouseout"), 0, 0);
 }
 
 void VirtualCursorService::ShowContextMenu() {

@@ -64,9 +64,9 @@ WINBASEAPI BOOL WINAPI QueryPerformanceFrequency(LARGE_INTEGER* lpFrequency);
 
 #define UNREACHABLE __builtin_unreachable()
 
-#define UNUSED __attribute__((unused))
+#define UNUSED [[maybe_unused]]
 
-#define FALLTHROUGH __attribute__((fallthrough))
+#define FALLTHROUGH [[fallthrough]]
 
 #ifdef MOZILLA_CLIENT
 #  define IMPLICIT __attribute__((annotate("moz_implicit")))
@@ -766,8 +766,10 @@ struct Program {
 #define CONCAT_KEY(prefix, x, y, z, w, ...) prefix##x##y##z##w
 // Generate a blend key enum symbol
 #define BLEND_KEY(...) CONCAT_KEY(BLEND_, __VA_ARGS__, 0, 0, 0)
-// Generate a blend key symbol for a clip-mask variation
 #define MASK_BLEND_KEY(...) CONCAT_KEY(MASK_BLEND_, __VA_ARGS__, 0, 0, 0)
+#define AA_BLEND_KEY(...) CONCAT_KEY(AA_BLEND_, __VA_ARGS__, 0, 0, 0)
+#define AA_MASK_BLEND_KEY(...) CONCAT_KEY(AA_MASK_BLEND_, __VA_ARGS__, 0, 0, 0)
+
 // Utility macro to easily generate similar code for all implemented blend modes
 #define FOR_EACH_BLEND_KEY(macro)                                              \
   macro(GL_ONE, GL_ZERO, 0, 0)                                                 \
@@ -802,11 +804,17 @@ struct Program {
 
 #define DEFINE_BLEND_KEY(...) BLEND_KEY(__VA_ARGS__),
 #define DEFINE_MASK_BLEND_KEY(...) MASK_BLEND_KEY(__VA_ARGS__),
+#define DEFINE_AA_BLEND_KEY(...) AA_BLEND_KEY(__VA_ARGS__),
+#define DEFINE_AA_MASK_BLEND_KEY(...) AA_MASK_BLEND_KEY(__VA_ARGS__),
 enum BlendKey : uint8_t {
   FOR_EACH_BLEND_KEY(DEFINE_BLEND_KEY)
   FOR_EACH_BLEND_KEY(DEFINE_MASK_BLEND_KEY)
+  FOR_EACH_BLEND_KEY(DEFINE_AA_BLEND_KEY)
+  FOR_EACH_BLEND_KEY(DEFINE_AA_MASK_BLEND_KEY)
   BLEND_KEY_NONE = BLEND_KEY(GL_ONE, GL_ZERO),
-  MASK_BLEND_KEY_NONE = MASK_BLEND_KEY(GL_ONE, GL_ZERO)
+  MASK_BLEND_KEY_NONE = MASK_BLEND_KEY(GL_ONE, GL_ZERO),
+  AA_BLEND_KEY_NONE = AA_BLEND_KEY(GL_ONE, GL_ZERO),
+  AA_MASK_BLEND_KEY_NONE = AA_MASK_BLEND_KEY(GL_ONE, GL_ZERO),
 };
 // clang-format on
 
@@ -2958,14 +2966,6 @@ void CopyTexSubImage2D(GLenum target, UNUSED GLint level, GLint xoffset,
 
 using ZMask = I32;
 
-static inline PackedRGBA8 convert_zmask(ZMask mask, uint32_t*) {
-  return bit_cast<PackedRGBA8>(mask);
-}
-
-static inline WideR8 convert_zmask(ZMask mask, uint8_t*) {
-  return CONVERT(mask, WideR8);
-}
-
 #if USE_SSE2
 #  define ZMASK_NONE_PASSED 0xFFFF
 #  define ZMASK_ALL_PASSED 0
@@ -2983,12 +2983,11 @@ static inline uint32_t zmask_code(ZMask mask) {
 // Interprets items in the depth buffer as sign-extended 32-bit depth values
 // instead of as runs. Returns a mask that signals which samples in the given
 // chunk passed or failed the depth test with given Z value.
-template <bool DISCARD, typename Z>
-static ALWAYS_INLINE bool check_depth(Z z, DepthRun* zbuf, ZMask& outmask,
+template <bool DISCARD>
+static ALWAYS_INLINE bool check_depth(I32 src, DepthRun* zbuf, ZMask& outmask,
                                       int span = 4) {
   // SSE2 does not support unsigned comparison. So ensure Z value is
   // sign-extended to int32_t.
-  I32 src = I32(z);
   I32 dest = unaligned_load<I32>(zbuf);
   // Invert the depth test to check which pixels failed and should be discarded.
   ZMask mask = ctx->depthfunc == GL_LEQUAL
@@ -3014,10 +3013,8 @@ static ALWAYS_INLINE I32 packDepth() {
   return cast(fragment_shader->gl_FragCoord.z * 0xFFFF);
 }
 
-template <typename Z>
-static ALWAYS_INLINE void discard_depth(Z z, DepthRun* zbuf, I32 mask) {
+static ALWAYS_INLINE void discard_depth(I32 src, DepthRun* zbuf, I32 mask) {
   if (ctx->depthmask) {
-    I32 src = I32(z);
     I32 dest = unaligned_load<I32>(zbuf);
     mask |= fragment_shader->swgl_IsPixelDiscarded;
     unaligned_store(zbuf, (mask & dest) | (~mask & src));
@@ -3035,8 +3032,8 @@ static ALWAYS_INLINE HalfRGBA8 packRGBA8(I32 a, I32 b) {
 }
 
 static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(const vec4& v,
-                                                 float maxval = 1.0f) {
-  ivec4 i = round_pixel(v, maxval);
+                                                 float scale = 255.0f) {
+  ivec4 i = round_pixel(v, scale);
   HalfRGBA8 xz = packRGBA8(i.z, i.x);
   HalfRGBA8 yw = packRGBA8(i.y, i.w);
   HalfRGBA8 xyzwl = zipLow(xz, yw);
@@ -3046,8 +3043,24 @@ static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(const vec4& v,
   return combine(lo, hi);
 }
 
-UNUSED static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(const vec4_scalar& v) {
-  I32 i = round_pixel((Float){v.z, v.y, v.x, v.w});
+static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(Float alpha,
+                                                 float scale = 255.0f) {
+  I32 i = round_pixel(alpha, scale);
+  HalfRGBA8 c = packRGBA8(i, i);
+  c = zipLow(c, c);
+  return zip(c, c);
+}
+
+static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(float alpha,
+                                                 float scale = 255.0f) {
+  I32 i = round_pixel(alpha, scale);
+  HalfRGBA8 c = packRGBA8(i, i);
+  return combine(c, c);
+}
+
+UNUSED static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(const vec4_scalar& v,
+                                                        float scale = 255.0f) {
+  I32 i = round_pixel((Float){v.z, v.y, v.x, v.w}, scale);
   HalfRGBA8 c = packRGBA8(i, i);
   return combine(c, c);
 }
@@ -3057,8 +3070,8 @@ static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8() {
 }
 
 static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(WideRGBA32F v,
-                                                 float maxval = 1.0f) {
-  ivec4 i = round_pixel(bit_cast<vec4>(v), maxval);
+                                                 float scale = 255.0f) {
+  ivec4 i = round_pixel(bit_cast<vec4>(v), scale);
   return combine(packRGBA8(i.x, i.y), packRGBA8(i.z, i.w));
 }
 
@@ -3104,6 +3117,11 @@ static ALWAYS_INLINE void store_span(P* dst, V src, int span) {
   } else {
     partial_store_span<V, P>(dst, src, span);
   }
+}
+
+template <typename T>
+static ALWAYS_INLINE T muldiv256(T x, T y) {
+  return (x * y) >> 8;
 }
 
 // (x*y + x) >> 8, cheap approximation of (x*y) / 255
@@ -3213,7 +3231,7 @@ static ALWAYS_INLINE VectorType<T, N> inversesqrt(VectorType<T, N> v) {
 // the pixel data. 0 alpha is treated as transparent black.
 static ALWAYS_INLINE WideRGBA32F unpremultiply(WideRGBA32F v) {
   Float a = recip_or((Float){v[3], v[7], v[11], v[15]}, 0.0f);
-  return v * combine(a.xxxx, a.yyyy, a.zzzz, a.wwww);
+  return v * a.xxxxyyyyzzzzwwww;
 }
 
 // Packed RGBA32F data is AoS in BGRA order. Transpose it to SoA and swizzle to
@@ -3252,15 +3270,23 @@ static inline vec3 set_lum_sat(vec3 base, vec3 sref, vec3 lref, Float alpha) {
   return set_lum(diff * ssat * recip_or(sbase, 0.0f), lref, alpha);
 }
 
+// Flags the reflect the current blend-stage clipping to be applied.
+enum SWGLClipFlag {
+  SWGL_CLIP_FLAG_MASK = 1 << 0,
+  SWGL_CLIP_FLAG_AA = 1 << 1,
+};
+static int swgl_ClipFlags = 0;
+
 // A pointer into the color buffer for the start of the span.
 static void* swgl_SpanBuf = nullptr;
 // A pointer into the clip mask for the start of the span.
 static uint8_t* swgl_ClipMaskBuf = nullptr;
 
-static ALWAYS_INLINE WideR8 expand_clip_mask(uint8_t* buf, WideR8 mask) {
+static ALWAYS_INLINE WideR8 expand_clip_mask(UNUSED uint8_t* buf, WideR8 mask) {
   return mask;
 }
-static ALWAYS_INLINE WideRGBA8 expand_clip_mask(uint32_t* buf, WideR8 mask) {
+static ALWAYS_INLINE WideRGBA8 expand_clip_mask(UNUSED uint32_t* buf,
+                                                WideR8 mask) {
   WideRG8 maskRG = zip(mask, mask);
   return zip(maskRG, maskRG);
 }
@@ -3270,10 +3296,62 @@ static ALWAYS_INLINE WideRGBA8 expand_clip_mask(uint32_t* buf, WideR8 mask) {
 // pointer into the clip mask can be generated from the start of the clip mask
 // span.
 template <typename P>
+static ALWAYS_INLINE uint8_t* get_clip_mask(P* buf) {
+  return &swgl_ClipMaskBuf[buf - (P*)swgl_SpanBuf];
+}
+
+template <typename P>
 static ALWAYS_INLINE auto load_clip_mask(P* buf, int span)
     -> decltype(expand_clip_mask(buf, 0)) {
-  uint8_t* maskBuf = &swgl_ClipMaskBuf[buf - (P*)swgl_SpanBuf];
-  return expand_clip_mask(buf, unpack(load_span<PackedR8>(maskBuf, span)));
+  return expand_clip_mask(
+      buf, unpack(load_span<PackedR8>(get_clip_mask(buf), span)));
+}
+
+// Temporarily removes masking from the blend stage, assuming the caller will
+// handle it.
+static ALWAYS_INLINE void override_clip_mask() {
+  blend_key = BlendKey(blend_key - MASK_BLEND_KEY_NONE);
+}
+
+// Restores masking to the blend stage, assuming it was previously overridden.
+static ALWAYS_INLINE void restore_clip_mask() {
+  blend_key = BlendKey(MASK_BLEND_KEY_NONE + blend_key);
+}
+
+// A pointer to the start of the opaque destination region of the span for AA.
+static const uint8_t* swgl_OpaqueStart = nullptr;
+// The size, in bytes, of the opaque region.
+static uint32_t swgl_OpaqueSize = 0;
+// AA coverage distance offsets for the left and right edges.
+static Float swgl_LeftAADist = 0.0f;
+static Float swgl_RightAADist = 0.0f;
+// AA coverage slope values used for accumulating coverage for each step.
+static Float swgl_AASlope = 0.0f;
+
+// Get the amount of pixels we need to process before the start of the opaque
+// region.
+template <typename P>
+static ALWAYS_INLINE int get_aa_opaque_start(P* buf) {
+  return max(int((P*)swgl_OpaqueStart - buf), 0);
+}
+
+// Assuming we are already in the opaque part of the span, return the remaining
+// size of the opaque part.
+template <typename P>
+static ALWAYS_INLINE int get_aa_opaque_size(P* buf) {
+  return max(int((P*)&swgl_OpaqueStart[swgl_OpaqueSize] - buf), 0);
+}
+
+// Temporarily removes anti-aliasing from the blend stage, assuming the caller
+// will handle it.
+static ALWAYS_INLINE void override_aa() {
+  blend_key = BlendKey(blend_key - AA_BLEND_KEY_NONE);
+}
+
+// Restores anti-aliasing to the blend stage, assuming it was previously
+// overridden.
+static ALWAYS_INLINE void restore_aa() {
+  blend_key = BlendKey(AA_BLEND_KEY_NONE + blend_key);
 }
 
 static ALWAYS_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
@@ -3287,270 +3365,286 @@ static ALWAYS_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
   const WideRGBA8 ALPHA_OPAQUE = {0, 0, 0, 255, 0, 0, 0, 255,
                                   0, 0, 0, 255, 0, 0, 0, 255};
 
+// clang-format off
+  // Computes AA for the given pixel based on the offset of the pixel within
+  // destination row. Given the initial coverage offsets for the left and right
+  // edges, the offset is scaled by the slope and accumulated to find the
+  // minimum coverage value for the pixel. A final weight is generated that
+  // can be used to scale the source pixel.
+#define DO_AA(format, body)                                   \
+  do {                                                        \
+    int offset = int((const uint8_t*)buf - swgl_OpaqueStart); \
+    if (uint32_t(offset) >= swgl_OpaqueSize) {                \
+      Float delta = swgl_AASlope * float(offset);             \
+      Float dist = clamp(min(swgl_LeftAADist + delta.x,       \
+                             swgl_RightAADist + delta.y),     \
+                         0.0f, 256.0f);                       \
+      auto aa = pack_pixels_##format(dist, 1.0f);             \
+      body;                                                   \
+    }                                                         \
+  } while (0)
+
   // Each blend case is preceded by the MASK_ variant. The MASK_ case first
   // loads the mask values and multiplies the source value by them. After, it
-  // falls through to the normal blending case using the masked source.
-#define BLEND_CASE_KEY(key)                                     \
-  MASK_##key : src = muldiv255(src, load_clip_mask(buf, span)); \
-  FALLTHROUGH;                                                  \
-  case key
+  // falls through to the normal blending case using the masked source. The
+  // AA_ variations may further precede the blend cases, in which case the
+  // source value is further modified before use.
+#define BLEND_CASE_KEY(key)                          \
+  case AA_##key:                                     \
+    DO_AA(RGBA8, src = muldiv256(src, aa));          \
+    goto key;                                        \
+  case AA_MASK_##key:                                \
+    DO_AA(RGBA8, src = muldiv256(src, aa));          \
+    FALLTHROUGH;                                     \
+  case MASK_##key:                                   \
+    src = muldiv255(src, load_clip_mask(buf, span)); \
+    FALLTHROUGH;                                     \
+  case key: key
+
 #define BLEND_CASE(...) BLEND_CASE_KEY(BLEND_KEY(__VA_ARGS__))
 
   switch (blend_key) {
-    case BLEND_CASE(GL_ONE, GL_ZERO):
-      return src;
-    case BLEND_CASE(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
-                    GL_ONE_MINUS_SRC_ALPHA):
-      // dst + src.a*(src.rgb1 - dst)
-      // use addlow for signed overflow
-      return addlow(dst, muldiv255(alphas(src), (src | ALPHA_OPAQUE) - dst));
-    case BLEND_CASE(GL_ONE, GL_ONE_MINUS_SRC_ALPHA):
-      return src + dst - muldiv255(dst, alphas(src));
-    case BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_COLOR):
-      return dst - muldiv255(dst, src);
-    case BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE):
-      return dst - (muldiv255(dst, src) & RGB_MASK);
-    case BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA):
-      return dst - muldiv255(dst, alphas(src));
-    case BLEND_CASE(GL_ZERO, GL_SRC_COLOR):
-      return muldiv255(src, dst);
-    case BLEND_CASE(GL_ONE, GL_ONE):
-      return src + dst;
-    case BLEND_CASE(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA):
-      return src + dst - (muldiv255(dst, src) & ALPHA_MASK);
-    case BLEND_CASE(GL_ONE_MINUS_DST_ALPHA, GL_ONE, GL_ZERO, GL_ONE):
-      // src*(1-dst.a) + dst*1 = src - src*dst.a + dst
-      return dst + ((src - muldiv255(src, alphas(dst))) & RGB_MASK);
-    case BLEND_CASE(GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_COLOR):
-      // src*k + (1-src)*dst = src*k + dst -
-      // src*dst = dst + src*(k - dst) use addlow
-      // for signed overflow
-      return addlow(
-          dst, muldiv255(src, combine(ctx->blendcolor, ctx->blendcolor) - dst));
-    case BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
-      WideRGBA8 secondary =
-          pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor);
-      return src + dst - muldiv255(dst, secondary);
-    }
-    case MASK_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
-      // We must explicitly handle the masked secondary blend case.
-      // The secondary color as well as the source must be multiplied by the
-      // mask.
-      WideRGBA8 mask = load_clip_mask(buf, span);
-      WideRGBA8 secondary =
-          pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor);
-      return muldiv255(src, mask) + dst -
-             muldiv255(dst, muldiv255(secondary, mask));
-    }
-    case BLEND_CASE(GL_MIN):
-      return min(src, dst);
-    case BLEND_CASE(GL_MAX):
-      return max(src, dst);
+  BLEND_CASE(GL_ONE, GL_ZERO):
+    return src;
+  BLEND_CASE(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                  GL_ONE_MINUS_SRC_ALPHA):
+    // dst + src.a*(src.rgb1 - dst)
+    // use addlow for signed overflow
+    return addlow(dst, muldiv255(alphas(src), (src | ALPHA_OPAQUE) - dst));
+  BLEND_CASE(GL_ONE, GL_ONE_MINUS_SRC_ALPHA):
+    return src + dst - muldiv255(dst, alphas(src));
+  BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_COLOR):
+    return dst - muldiv255(dst, src);
+  BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE):
+    return dst - (muldiv255(dst, src) & RGB_MASK);
+  BLEND_CASE(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA):
+    return dst - muldiv255(dst, alphas(src));
+  BLEND_CASE(GL_ZERO, GL_SRC_COLOR):
+    return muldiv255(src, dst);
+  BLEND_CASE(GL_ONE, GL_ONE):
+    return src + dst;
+  BLEND_CASE(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA):
+    return src + dst - (muldiv255(dst, src) & ALPHA_MASK);
+  BLEND_CASE(GL_ONE_MINUS_DST_ALPHA, GL_ONE, GL_ZERO, GL_ONE):
+    // src*(1-dst.a) + dst*1 = src - src*dst.a + dst
+    return dst + ((src - muldiv255(src, alphas(dst))) & RGB_MASK);
+  BLEND_CASE(GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_COLOR):
+    // src*k + (1-src)*dst = src*k + dst -
+    // src*dst = dst + src*(k - dst) use addlow
+    // for signed overflow
+    return addlow(
+        dst, muldiv255(src, combine(ctx->blendcolor, ctx->blendcolor) - dst));
 
-      // clang-format off
-    // The KHR_blend_equation_advanced spec describes the blend equations such
-    // that the unpremultiplied values Cs, Cd, As, Ad and function f combine to
-    // the result:
-    //      Cr = f(Cs,Cd)*As*Ad + Cs*As*(1-Ad) + Cd*AD*(1-As)
-    //      Ar = As*Ad + As*(1-Ad) + Ad*(1-As)
-    // However, working with unpremultiplied values requires expensive math to
-    // unpremultiply and premultiply again during blending. We can use the fact
-    // that premultiplied value P = C*A and simplify the equations such that no
-    // unpremultiplied colors are necessary, allowing us to stay with integer
-    // math that avoids floating-point conversions in the common case. Some of
-    // the blend modes require division or sqrt, in which case we do convert
-    // to (possibly transposed/unpacked) floating-point to implement the mode.
-    // However, most common modes can still use cheaper premultiplied integer
-    // math. As an example, the multiply mode f(Cs,Cd) = Cs*Cd is simplified
-    // to:
-    //     Cr = Cs*Cd*As*Ad + Cs*As*(1-Ad) + Cd*Ad*(1-As)
-    //     .. Pr = Ps*Pd + Ps - Ps*Ad + Pd - Pd*As
-    //     Ar = As*Ad + As - As*Ad + Ad - Ad*As
-    //     .. Ar = As + Ad - As*Ad
-    // Note that the alpha equation is the same for all blend equations, such
-    // that so long as the implementation results in As + Ad - As*Ad, we can
-    // avoid using separate instructions to compute the alpha result, which is
-    // dependent on the math used to implement each blend mode. The exact
-    // reductions used to get the final math for every blend mode are too
-    // involved to show here in comments, but mostly follows from replacing
-    // Cs*As and Cd*Ad with Ps and Ps while factoring out as many common terms
-    // as possible.
-      // clang-format on
+  // We must explicitly handle the masked/anti-aliased secondary blend case.
+  // The secondary color as well as the source must be multiplied by the
+  // weights.
+  case BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
+    WideRGBA8 secondary =
+        muldiv256(dst,
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+    return src + dst - secondary;
+  }
+  case MASK_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
+    WideRGBA8 secondary =
+        muldiv256(dst,
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+    WideRGBA8 mask = load_clip_mask(buf, span);
+    return muldiv255(src, mask) + dst - muldiv255(secondary, mask);
+  }
+  case AA_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
+    WideRGBA8 secondary =
+        muldiv256(dst,
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+    DO_AA(RGBA8, {
+      src = muldiv256(src, aa);
+      secondary = muldiv256(secondary, aa);
+    });
+    return src + dst - secondary;
+  }
+  case AA_MASK_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
+    WideRGBA8 secondary =
+        muldiv256(dst,
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+    WideRGBA8 mask = load_clip_mask(buf, span);
+    DO_AA(RGBA8, mask = muldiv256(mask, aa));
+    return muldiv255(src, mask) + dst - muldiv255(secondary, mask);
+  }
 
-    case BLEND_CASE(GL_MULTIPLY_KHR): {
-      WideRGBA8 diff = muldiv255(alphas(src) - (src & RGB_MASK),
-                                 alphas(dst) - (dst & RGB_MASK));
-      return src + dst + (diff & RGB_MASK) - alphas(diff);
-    }
-    case BLEND_CASE(GL_SCREEN_KHR):
-      return src + dst - muldiv255(src, dst);
-    case BLEND_CASE(GL_OVERLAY_KHR): {
-      WideRGBA8 srcA = alphas(src);
-      WideRGBA8 dstA = alphas(dst);
-      WideRGBA8 diff = muldiv255(src, dst) + muldiv255(srcA - src, dstA - dst);
-      return src + dst +
-             if_then_else(dst * 2 <= dstA, (diff & RGB_MASK) - alphas(diff),
-                          -diff);
-    }
-    case BLEND_CASE(GL_DARKEN_KHR):
-      return src + dst -
-             max(muldiv255(src, alphas(dst)), muldiv255(dst, alphas(src)));
-    case BLEND_CASE(GL_LIGHTEN_KHR):
-      return src + dst -
-             min(muldiv255(src, alphas(dst)), muldiv255(dst, alphas(src)));
+  BLEND_CASE(GL_MIN):
+    return min(src, dst);
+  BLEND_CASE(GL_MAX):
+    return max(src, dst);
 
-    case BLEND_CASE(GL_COLORDODGE_KHR): {
-      // Color-dodge and color-burn require division, so we convert to FP math
-      // here, but avoid transposing to a vec4.
-      WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
-      WideRGBA32F srcA = alphas(srcF);
-      WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
-      WideRGBA32F dstA = alphas(dstF);
-      return pack_pixels_RGBA8(
-          srcA * set_alphas(
-                     min(dstA, dstF * srcA * recip_or(srcA - srcF, 255.0f)),
-                     dstF) +
-              srcF * (255.0f - dstA) + dstF * (255.0f - srcA),
-          255.0f * 255.0f);
-    }
-    case BLEND_CASE(GL_COLORBURN_KHR): {
-      WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
-      WideRGBA32F srcA = alphas(srcF);
-      WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
-      WideRGBA32F dstA = alphas(dstF);
-      return pack_pixels_RGBA8(
-          srcA * set_alphas((dstA - min(dstA, (dstA - dstF) * srcA *
-                                                  recip_or(srcF, 255.0f))),
-                            dstF) +
-              srcF * (255.0f - dstA) + dstF * (255.0f - srcA),
-          255.0f * 255.0f);
-    }
-    case BLEND_CASE(GL_HARDLIGHT_KHR): {
-      WideRGBA8 srcA = alphas(src);
-      WideRGBA8 dstA = alphas(dst);
-      WideRGBA8 diff = muldiv255(src, dst) + muldiv255(srcA - src, dstA - dst);
-      return src + dst +
-             if_then_else(src * 2 <= srcA, (diff & RGB_MASK) - alphas(diff),
-                          -diff);
-    }
-    case BLEND_CASE(GL_SOFTLIGHT_KHR): {
-      // Soft-light requires an unpremultiply that can't be factored out as
-      // well as a sqrt, so we convert to FP math here, but avoid transposing
-      // to a vec4.
-      WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
-      WideRGBA32F srcA = alphas(srcF);
-      WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
-      WideRGBA32F dstA = alphas(dstF);
-      WideRGBA32F dstU = unpremultiply(dstF);
-      WideRGBA32F scale = srcF + srcF - srcA;
-      return pack_pixels_RGBA8(
-          dstF * (255.0f +
-                  set_alphas(
-                      scale *
-                          if_then_else(scale < 0.0f, 1.0f - dstU,
-                                       min((16.0f * dstU - 12.0f) * dstU + 3.0f,
-                                           inversesqrt(dstU) - 1.0f)),
-                      WideRGBA32F(0.0f))) +
-              srcF * (255.0f - dstA),
-          255.0f * 255.0f);
-    }
-    case BLEND_CASE(GL_DIFFERENCE_KHR): {
-      WideRGBA8 diff =
-          min(muldiv255(dst, alphas(src)), muldiv255(src, alphas(dst)));
-      return src + dst - diff - (diff & RGB_MASK);
-    }
-    case BLEND_CASE(GL_EXCLUSION_KHR): {
-      WideRGBA8 diff = muldiv255(src, dst);
-      return src + dst - diff - (diff & RGB_MASK);
-    }
-    case BLEND_CASE(GL_HSL_HUE_KHR): {
-      // The HSL blend modes are non-separable and require complicated use of
-      // division. It is advantageous to convert to FP and transpose to vec4
-      // math to more easily manipulate the individual color components.
-      vec4 srcV = unpack(CONVERT(src, PackedRGBA32F));
-      vec4 dstV = unpack(CONVERT(dst, PackedRGBA32F));
-      Float srcA = srcV.w * (1.0f / 255.0f);
-      Float dstA = dstV.w * (1.0f / 255.0f);
-      Float srcDstA = srcV.w * dstA;
-      vec3 srcC = vec3(srcV) * dstA;
-      vec3 dstC = vec3(dstV) * srcA;
-      return pack_pixels_RGBA8(vec4(set_lum_sat(srcC, dstC, dstC, srcDstA) +
-                                        vec3(srcV) - srcC + vec3(dstV) - dstC,
-                                    srcV.w + dstV.w - srcDstA),
-                               255.0f);
-    }
-    case BLEND_CASE(GL_HSL_SATURATION_KHR): {
-      vec4 srcV = unpack(CONVERT(src, PackedRGBA32F));
-      vec4 dstV = unpack(CONVERT(dst, PackedRGBA32F));
-      Float srcA = srcV.w * (1.0f / 255.0f);
-      Float dstA = dstV.w * (1.0f / 255.0f);
-      Float srcDstA = srcV.w * dstA;
-      vec3 srcC = vec3(srcV) * dstA;
-      vec3 dstC = vec3(dstV) * srcA;
-      return pack_pixels_RGBA8(vec4(set_lum_sat(dstC, srcC, dstC, srcDstA) +
-                                        vec3(srcV) - srcC + vec3(dstV) - dstC,
-                                    srcV.w + dstV.w - srcDstA),
-                               255.0f);
-    }
-    case BLEND_CASE(GL_HSL_COLOR_KHR): {
-      vec4 srcV = unpack(CONVERT(src, PackedRGBA32F));
-      vec4 dstV = unpack(CONVERT(dst, PackedRGBA32F));
-      Float srcA = srcV.w * (1.0f / 255.0f);
-      Float dstA = dstV.w * (1.0f / 255.0f);
-      Float srcDstA = srcV.w * dstA;
-      vec3 srcC = vec3(srcV) * dstA;
-      vec3 dstC = vec3(dstV) * srcA;
-      return pack_pixels_RGBA8(vec4(set_lum(srcC, dstC, srcDstA) + vec3(srcV) -
-                                        srcC + vec3(dstV) - dstC,
-                                    srcV.w + dstV.w - srcDstA),
-                               255.0f);
-    }
-    case BLEND_CASE(GL_HSL_LUMINOSITY_KHR): {
-      vec4 srcV = unpack(CONVERT(src, PackedRGBA32F));
-      vec4 dstV = unpack(CONVERT(dst, PackedRGBA32F));
-      Float srcA = srcV.w * (1.0f / 255.0f);
-      Float dstA = dstV.w * (1.0f / 255.0f);
-      Float srcDstA = srcV.w * dstA;
-      vec3 srcC = vec3(srcV) * dstA;
-      vec3 dstC = vec3(dstV) * srcA;
-      return pack_pixels_RGBA8(vec4(set_lum(dstC, srcC, srcDstA) + vec3(srcV) -
-                                        srcC + vec3(dstV) - dstC,
-                                    srcV.w + dstV.w - srcDstA),
-                               255.0f);
-    }
-    default:
-      UNREACHABLE;
-      // return src;
+  // The KHR_blend_equation_advanced spec describes the blend equations such
+  // that the unpremultiplied values Cs, Cd, As, Ad and function f combine to
+  // the result:
+  //     Cr = f(Cs,Cd)*As*Ad + Cs*As*(1-Ad) + Cd*AD*(1-As)
+  //     Ar = As*Ad + As*(1-Ad) + Ad*(1-As)
+  // However, working with unpremultiplied values requires expensive math to
+  // unpremultiply and premultiply again during blending. We can use the fact
+  // that premultiplied value P = C*A and simplify the equations such that no
+  // unpremultiplied colors are necessary, allowing us to stay with integer
+  // math that avoids floating-point conversions in the common case. Some of
+  // the blend modes require division or sqrt, in which case we do convert
+  // to (possibly transposed/unpacked) floating-point to implement the mode.
+  // However, most common modes can still use cheaper premultiplied integer
+  // math. As an example, the multiply mode f(Cs,Cd) = Cs*Cd is simplified
+  // to:
+  //     Cr = Cs*Cd*As*Ad + Cs*As*(1-Ad) + Cd*Ad*(1-As)
+  //     .. Pr = Ps*Pd + Ps - Ps*Ad + Pd - Pd*As
+  //     Ar = As*Ad + As - As*Ad + Ad - Ad*As
+  //     .. Ar = As + Ad - As*Ad
+  // Note that the alpha equation is the same for all blend equations, such
+  // that so long as the implementation results in As + Ad - As*Ad, we can
+  // avoid using separate instructions to compute the alpha result, which is
+  // dependent on the math used to implement each blend mode. The exact
+  // reductions used to get the final math for every blend mode are too
+  // involved to show here in comments, but mostly follows from replacing
+  // Cs*As and Cd*Ad with Ps and Ps while factoring out as many common terms
+  // as possible.
+
+  BLEND_CASE(GL_MULTIPLY_KHR): {
+    WideRGBA8 diff = muldiv255(alphas(src) - (src & RGB_MASK),
+                               alphas(dst) - (dst & RGB_MASK));
+    return src + dst + (diff & RGB_MASK) - alphas(diff);
+  }
+  BLEND_CASE(GL_SCREEN_KHR):
+    return src + dst - muldiv255(src, dst);
+  BLEND_CASE(GL_OVERLAY_KHR): {
+    WideRGBA8 srcA = alphas(src);
+    WideRGBA8 dstA = alphas(dst);
+    WideRGBA8 diff = muldiv255(src, dst) + muldiv255(srcA - src, dstA - dst);
+    return src + dst +
+           if_then_else(dst * 2 <= dstA, (diff & RGB_MASK) - alphas(diff),
+                        -diff);
+  }
+  BLEND_CASE(GL_DARKEN_KHR):
+    return src + dst -
+           max(muldiv255(src, alphas(dst)), muldiv255(dst, alphas(src)));
+  BLEND_CASE(GL_LIGHTEN_KHR):
+    return src + dst -
+           min(muldiv255(src, alphas(dst)), muldiv255(dst, alphas(src)));
+
+  BLEND_CASE(GL_COLORDODGE_KHR): {
+    // Color-dodge and color-burn require division, so we convert to FP math
+    // here, but avoid transposing to a vec4.
+    WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
+    WideRGBA32F srcA = alphas(srcF);
+    WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
+    WideRGBA32F dstA = alphas(dstF);
+    return pack_pixels_RGBA8(
+        srcA * set_alphas(
+                   min(dstA, dstF * srcA * recip_or(srcA - srcF, 255.0f)),
+                   dstF) +
+            srcF * (255.0f - dstA) + dstF * (255.0f - srcA),
+        1.0f / 255.0f);
+  }
+  BLEND_CASE(GL_COLORBURN_KHR): {
+    WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
+    WideRGBA32F srcA = alphas(srcF);
+    WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
+    WideRGBA32F dstA = alphas(dstF);
+    return pack_pixels_RGBA8(
+        srcA * set_alphas((dstA - min(dstA, (dstA - dstF) * srcA *
+                                                recip_or(srcF, 255.0f))),
+                          dstF) +
+            srcF * (255.0f - dstA) + dstF * (255.0f - srcA),
+        1.0f / 255.0f);
+  }
+  BLEND_CASE(GL_HARDLIGHT_KHR): {
+    WideRGBA8 srcA = alphas(src);
+    WideRGBA8 dstA = alphas(dst);
+    WideRGBA8 diff = muldiv255(src, dst) + muldiv255(srcA - src, dstA - dst);
+    return src + dst +
+           if_then_else(src * 2 <= srcA, (diff & RGB_MASK) - alphas(diff),
+                        -diff);
+  }
+  BLEND_CASE(GL_SOFTLIGHT_KHR): {
+    // Soft-light requires an unpremultiply that can't be factored out as
+    // well as a sqrt, so we convert to FP math here, but avoid transposing
+    // to a vec4.
+    WideRGBA32F srcF = CONVERT(src, WideRGBA32F);
+    WideRGBA32F srcA = alphas(srcF);
+    WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
+    WideRGBA32F dstA = alphas(dstF);
+    WideRGBA32F dstU = unpremultiply(dstF);
+    WideRGBA32F scale = srcF + srcF - srcA;
+    return pack_pixels_RGBA8(
+        dstF * (255.0f +
+                set_alphas(
+                    scale *
+                        if_then_else(scale < 0.0f, 1.0f - dstU,
+                                     min((16.0f * dstU - 12.0f) * dstU + 3.0f,
+                                         inversesqrt(dstU) - 1.0f)),
+                    WideRGBA32F(0.0f))) +
+            srcF * (255.0f - dstA),
+        1.0f / 255.0f);
+  }
+  BLEND_CASE(GL_DIFFERENCE_KHR): {
+    WideRGBA8 diff =
+        min(muldiv255(dst, alphas(src)), muldiv255(src, alphas(dst)));
+    return src + dst - diff - (diff & RGB_MASK);
+  }
+  BLEND_CASE(GL_EXCLUSION_KHR): {
+    WideRGBA8 diff = muldiv255(src, dst);
+    return src + dst - diff - (diff & RGB_MASK);
+  }
+
+  // The HSL blend modes are non-separable and require complicated use of
+  // division. It is advantageous to convert to FP and transpose to vec4
+  // math to more easily manipulate the individual color components.
+#define DO_HSL(rgb)                                                            \
+  do {                                                                         \
+    vec4 srcV = unpack(CONVERT(src, PackedRGBA32F));                           \
+    vec4 dstV = unpack(CONVERT(dst, PackedRGBA32F));                           \
+    Float srcA = srcV.w * (1.0f / 255.0f);                                     \
+    Float dstA = dstV.w * (1.0f / 255.0f);                                     \
+    Float srcDstA = srcV.w * dstA;                                             \
+    vec3 srcC = vec3(srcV) * dstA;                                             \
+    vec3 dstC = vec3(dstV) * srcA;                                             \
+    return pack_pixels_RGBA8(vec4(rgb + vec3(srcV) - srcC + vec3(dstV) - dstC, \
+                                  srcV.w + dstV.w - srcDstA),                  \
+                             1.0f);                                            \
+  } while (0)
+
+  BLEND_CASE(GL_HSL_HUE_KHR):
+    DO_HSL(set_lum_sat(srcC, dstC, dstC, srcDstA));
+  BLEND_CASE(GL_HSL_SATURATION_KHR):
+    DO_HSL(set_lum_sat(dstC, srcC, dstC, srcDstA));
+  BLEND_CASE(GL_HSL_COLOR_KHR):
+    DO_HSL(set_lum(srcC, dstC, srcDstA));
+  BLEND_CASE(GL_HSL_LUMINOSITY_KHR):
+    DO_HSL(set_lum(dstC, srcC, srcDstA));
+  default:
+    UNREACHABLE;
+    // return src;
   }
 
 #undef BLEND_CASE
 #undef BLEND_CASE_KEY
+  // clang-format on
 }
 
-template <bool DISCARD, int SPAN>
-static ALWAYS_INLINE void discard_output(uint32_t* buf, PackedRGBA8 mask) {
+static ALWAYS_INLINE void mask_output(uint32_t* buf, ZMask zmask,
+                                      int span = 4) {
   WideRGBA8 r = pack_pixels_RGBA8();
-  PackedRGBA8 dst = load_span<PackedRGBA8>(buf, SPAN);
-  if (blend_key) r = blend_pixels(buf, dst, r, SPAN);
-  if (DISCARD)
-    mask |= bit_cast<PackedRGBA8>(fragment_shader->swgl_IsPixelDiscarded);
-  store_span(buf, (mask & dst) | (~mask & pack(r)), SPAN);
+  PackedRGBA8 dst = load_span<PackedRGBA8>(buf, span);
+  if (blend_key) r = blend_pixels(buf, dst, r, span);
+  PackedRGBA8 mask = bit_cast<PackedRGBA8>(zmask);
+  store_span(buf, (mask & dst) | (~mask & pack(r)), span);
 }
 
-template <bool DISCARD, int SPAN>
-static ALWAYS_INLINE void discard_output(uint32_t* buf) {
+template <bool DISCARD>
+static ALWAYS_INLINE void discard_output(uint32_t* buf, int span = 4) {
+  mask_output(buf, fragment_shader->swgl_IsPixelDiscarded, span);
+}
+
+template <>
+ALWAYS_INLINE void discard_output<false>(uint32_t* buf, int span) {
   WideRGBA8 r = pack_pixels_RGBA8();
-  if (DISCARD) {
-    PackedRGBA8 dst = load_span<PackedRGBA8>(buf, SPAN);
-    if (blend_key) r = blend_pixels(buf, dst, r, SPAN);
-    PackedRGBA8 mask =
-        bit_cast<PackedRGBA8>(fragment_shader->swgl_IsPixelDiscarded);
-    store_span(buf, (mask & dst) | (~mask & pack(r)), SPAN);
-  } else {
-    if (blend_key)
-      r = blend_pixels(buf, load_span<PackedRGBA8>(buf, SPAN), r, SPAN);
-    store_span(buf, pack(r), SPAN);
-  }
+  if (blend_key)
+    r = blend_pixels(buf, load_span<PackedRGBA8>(buf, span), r, span);
+  store_span(buf, pack(r), span);
 }
 
 static ALWAYS_INLINE WideR8 packR8(I32 a) {
@@ -3563,8 +3657,8 @@ static ALWAYS_INLINE WideR8 packR8(I32 a) {
 #endif
 }
 
-static ALWAYS_INLINE WideR8 pack_pixels_R8(Float c) {
-  return packR8(round_pixel(c));
+static ALWAYS_INLINE WideR8 pack_pixels_R8(Float c, float scale = 255.0f) {
+  return packR8(round_pixel(c, scale));
 }
 
 static ALWAYS_INLINE WideR8 pack_pixels_R8() {
@@ -3573,118 +3667,57 @@ static ALWAYS_INLINE WideR8 pack_pixels_R8() {
 
 static ALWAYS_INLINE WideR8 blend_pixels(uint8_t* buf, WideR8 dst, WideR8 src,
                                          int span = 4) {
-#define BLEND_CASE_KEY(key)                                     \
-  MASK_##key : src = muldiv255(src, load_clip_mask(buf, span)); \
-  FALLTHROUGH;                                                  \
-  case key
+// clang-format off
+#define BLEND_CASE_KEY(key)                          \
+  case AA_##key:                                     \
+    DO_AA(R8, src = muldiv256(src, aa));             \
+    goto key;                                        \
+  case AA_MASK_##key:                                \
+    DO_AA(R8, src = muldiv256(src, aa));             \
+    FALLTHROUGH;                                     \
+  case MASK_##key:                                   \
+    src = muldiv255(src, load_clip_mask(buf, span)); \
+    FALLTHROUGH;                                     \
+  case key: key
+
 #define BLEND_CASE(...) BLEND_CASE_KEY(BLEND_KEY(__VA_ARGS__))
 
   switch (blend_key) {
-    case BLEND_CASE(GL_ONE, GL_ZERO):
-      return src;
-    case BLEND_CASE(GL_ZERO, GL_SRC_COLOR):
-      return muldiv255(src, dst);
-    case BLEND_CASE(GL_ONE, GL_ONE):
-      return src + dst;
-    default:
-      UNREACHABLE;
-      // return src;
+  BLEND_CASE(GL_ONE, GL_ZERO):
+    return src;
+  BLEND_CASE(GL_ZERO, GL_SRC_COLOR):
+    return muldiv255(src, dst);
+  BLEND_CASE(GL_ONE, GL_ONE):
+    return src + dst;
+  default:
+    UNREACHABLE;
+    // return src;
   }
 
 #undef BLEND_CASE
 #undef BLEND_CASE_KEY
+  // clang-format on
 }
 
-template <bool DISCARD, int SPAN>
-static ALWAYS_INLINE void discard_output(uint8_t* buf, WideR8 mask) {
+static ALWAYS_INLINE void mask_output(uint8_t* buf, ZMask zmask, int span = 4) {
   WideR8 r = pack_pixels_R8();
-  WideR8 dst = unpack(load_span<PackedR8>(buf, SPAN));
-  if (blend_key) r = blend_pixels(buf, dst, r, SPAN);
-  if (DISCARD) mask |= packR8(fragment_shader->swgl_IsPixelDiscarded);
-  store_span(buf, pack((mask & dst) | (~mask & r)), SPAN);
+  WideR8 dst = unpack(load_span<PackedR8>(buf, span));
+  if (blend_key) r = blend_pixels(buf, dst, r, span);
+  WideR8 mask = packR8(zmask);
+  store_span(buf, pack((mask & dst) | (~mask & r)), span);
 }
 
-template <bool DISCARD, int SPAN>
-static ALWAYS_INLINE void discard_output(uint8_t* buf) {
+template <bool DISCARD>
+static ALWAYS_INLINE void discard_output(uint8_t* buf, int span = 4) {
+  mask_output(buf, fragment_shader->swgl_IsPixelDiscarded, span);
+}
+
+template <>
+ALWAYS_INLINE void discard_output<false>(uint8_t* buf, int span) {
   WideR8 r = pack_pixels_R8();
-  if (DISCARD) {
-    WideR8 dst = unpack(load_span<PackedR8>(buf, SPAN));
-    if (blend_key) r = blend_pixels(buf, dst, r, SPAN);
-    WideR8 mask = packR8(fragment_shader->swgl_IsPixelDiscarded);
-    store_span(buf, pack((mask & dst) | (~mask & r)), SPAN);
-  } else {
-    if (blend_key)
-      r = blend_pixels(buf, unpack(load_span<PackedR8>(buf, SPAN)), r, SPAN);
-    store_span(buf, pack(r), SPAN);
-  }
-}
-
-template <bool DISCARD, bool W, typename P, typename M>
-static inline void commit_output(P* buf, M mask) {
-  fragment_shader->run<W>();
-  discard_output<DISCARD, 4>(buf, mask);
-}
-
-template <bool DISCARD, bool W, typename P, typename M>
-static inline void commit_output(P* buf, M mask, int span) {
-  fragment_shader->run<W>();
-  switch (span) {
-    case 1:
-      discard_output<DISCARD, 1>(buf, mask);
-      break;
-    case 2:
-      discard_output<DISCARD, 2>(buf, mask);
-      break;
-    default:
-      discard_output<DISCARD, 3>(buf, mask);
-      break;
-  }
-}
-
-template <bool DISCARD, bool W, typename P>
-static inline void commit_output(P* buf) {
-  fragment_shader->run<W>();
-  discard_output<DISCARD, 4>(buf);
-}
-
-template <bool DISCARD, bool W, typename P>
-static inline void commit_output(P* buf, int span) {
-  fragment_shader->run<W>();
-  switch (span) {
-    case 1:
-      discard_output<DISCARD, 1>(buf);
-      break;
-    case 2:
-      discard_output<DISCARD, 2>(buf);
-      break;
-    default:
-      discard_output<DISCARD, 3>(buf);
-      break;
-  }
-}
-
-template <bool DISCARD, bool W, typename P, typename Z>
-static inline void commit_output(P* buf, Z z, DepthRun* zbuf) {
-  ZMask zmask;
-  if (check_depth<DISCARD>(z, zbuf, zmask)) {
-    commit_output<DISCARD, W>(buf, convert_zmask(zmask, buf));
-    if (DISCARD) {
-      discard_depth(z, zbuf, zmask);
-    }
-  } else {
-    fragment_shader->skip<W>();
-  }
-}
-
-template <bool DISCARD, bool W, typename P, typename Z>
-static inline void commit_output(P* buf, Z z, DepthRun* zbuf, int span) {
-  ZMask zmask;
-  if (check_depth<DISCARD>(z, zbuf, zmask, span)) {
-    commit_output<DISCARD, W>(buf, convert_zmask(zmask, buf), span);
-    if (DISCARD) {
-      discard_depth(z, zbuf, zmask);
-    }
-  }
+  if (blend_key)
+    r = blend_pixels(buf, unpack(load_span<PackedR8>(buf, span)), r, span);
+  store_span(buf, pack(r), span);
 }
 
 #include "composite.h"
@@ -3707,6 +3740,37 @@ static inline void commit_output(P* buf, Z z, DepthRun* zbuf, int span) {
 typedef vec2_scalar Point2D;
 typedef vec4_scalar Point3D;
 
+struct IntRange {
+  int start;
+  int end;
+
+  int len() const { return end - start; }
+};
+
+struct FloatRange {
+  float start;
+  float end;
+
+  float clip(float x) const { return clamp(x, start, end); }
+
+  FloatRange clip(FloatRange r) const { return {clip(r.start), clip(r.end)}; }
+
+  FloatRange merge(FloatRange r) const {
+    return {min(start, r.start), max(end, r.end)};
+  }
+
+  IntRange round() const {
+    return {int(floor(start + 0.5f)), int(floor(end + 0.5f))};
+  }
+
+  IntRange round_out() const { return {int(floor(start)), int(ceil(end))}; }
+};
+
+template <typename P>
+static inline FloatRange x_range(P p0, P p1) {
+  return {min(p0.x, p1.x), max(p0.x, p1.x)};
+}
+
 struct ClipRect {
   float x0;
   float y0;
@@ -3720,27 +3784,36 @@ struct ClipRect {
     // state for the currently drawn primitive.
     if (ctx->blend) {
       blend_key = ctx->blend_key;
-      // If a clip mask is available, set up blending state to use the clip
-      // mask.
-      if (swgl_ClipMask) {
-        assert(swgl_ClipMask->format == TextureFormat::R8);
-        // Constrain the clip mask bounds to always fall within the clip mask.
-        swgl_ClipMaskBounds.intersect(IntRect{0, 0, int(swgl_ClipMask->width),
-                                              int(swgl_ClipMask->height)});
-        // The clip mask offset is relative to the viewport.
-        swgl_ClipMaskOffset += ctx->viewport.origin() - t.offset;
-        // The clip mask bounds are relative to the clip mask offset.
-        swgl_ClipMaskBounds.offset(swgl_ClipMaskOffset);
-        // Finally, constrain the clip rectangle by the clip mask bounds.
-        intersect(swgl_ClipMaskBounds);
-        // Modify the blend key so that it will use the clip mask while
-        // blending.
-        blend_key = BlendKey(MASK_BLEND_KEY_NONE + blend_key);
+      if (swgl_ClipFlags) {
+        // If a clip mask is available, set up blending state to use the clip
+        // mask.
+        if (swgl_ClipFlags & SWGL_CLIP_FLAG_MASK) {
+          assert(swgl_ClipMask->format == TextureFormat::R8);
+          // Constrain the clip mask bounds to always fall within the clip mask.
+          swgl_ClipMaskBounds.intersect(IntRect{0, 0, int(swgl_ClipMask->width),
+                                                int(swgl_ClipMask->height)});
+          // The clip mask offset is relative to the viewport.
+          swgl_ClipMaskOffset += ctx->viewport.origin() - t.offset;
+          // The clip mask bounds are relative to the clip mask offset.
+          swgl_ClipMaskBounds.offset(swgl_ClipMaskOffset);
+          // Finally, constrain the clip rectangle by the clip mask bounds.
+          intersect(swgl_ClipMaskBounds);
+          // Modify the blend key so that it will use the clip mask while
+          // blending.
+          restore_clip_mask();
+        }
+        if (swgl_ClipFlags & SWGL_CLIP_FLAG_AA) {
+          // Modify the blend key so that it will use AA while blending.
+          restore_aa();
+        }
       }
     } else {
       blend_key = BLEND_KEY_NONE;
+      swgl_ClipFlags = 0;
     }
   }
+
+  FloatRange x_range() const { return {x0, x1}; }
 
   void intersect(const IntRect& c) {
     x0 = max(x0, float(c.x0));
@@ -3750,8 +3823,8 @@ struct ClipRect {
   }
 
   template <typename P>
-  void init_span(int x, int y, P* buf) const {
-    if (blend_key >= MASK_BLEND_KEY_NONE) {
+  void set_clip_mask(int x, int y, P* buf) const {
+    if (swgl_ClipFlags & SWGL_CLIP_FLAG_MASK) {
       swgl_SpanBuf = buf;
       swgl_ClipMaskBuf = (uint8_t*)swgl_ClipMask->buf +
                          (y - swgl_ClipMaskOffset.y) * swgl_ClipMask->stride +
@@ -3773,6 +3846,90 @@ struct ClipRect {
     return sides == 0xF;
   }
 };
+
+// Given a current X position at the center Y position of a row, return the X
+// position of the left and right intercepts of the row top and bottom.
+template <typename E>
+static ALWAYS_INLINE FloatRange x_intercepts(const E& e) {
+  float rad = 0.5f * abs(e.x_slope());
+  return {e.cur_x() - rad, e.cur_x() + rad};
+}
+
+// Return the AA sub-span corresponding to a given edge. If AA is requested,
+// then this finds the X intercepts with the row clipped into range of the
+// edge and finally conservatively rounds them out. If there is no AA, then
+// it just returns the current rounded X position clipped within bounds.
+template <typename E>
+static ALWAYS_INLINE IntRange aa_edge(const E& e, const FloatRange& bounds) {
+  return e.edgeMask ? bounds.clip(x_intercepts(e)).round_out()
+                    : bounds.clip({e.cur_x(), e.cur_x()}).round();
+}
+
+// Calculate the initial AA coverage as an approximation of the distance from
+// the center of the pixel in the direction of the edge slope. Given an edge
+// (x,y)..(x+dx,y+dy), then the normalized tangent vector along the edge is
+// (dx,dy)/sqrt(dx^2+dy^2). We know that for dy=1 then dx=e.x_slope. We rotate
+// the tangent vector either -90 or +90 degrees to get the edge normal vector,
+// where 'dx=-dy and 'dy=dx. Once normalized by 1/sqrt(dx^2+dy^2), scale into
+// the range of 0..256 so that we can cheaply convert to a fixed-point scale
+// factor. It is assumed that at exactly the pixel center the opacity is half
+// (128) and linearly decreases along the normal vector at 1:1 scale with the
+// slope. While not entirely accurate, this gives a reasonably agreeable looking
+// approximation of AA. For edges on which there is no AA, just force the
+// opacity to maximum (256) with no slope, relying on the span clipping to trim
+// pixels outside the span.
+template <typename E>
+static ALWAYS_INLINE FloatRange aa_dist(const E& e, float dir) {
+  if (e.edgeMask) {
+    float dx = (dir * 256.0f) * inversesqrt(1.0f + e.x_slope() * e.x_slope());
+    return {128.0f + dx * (e.cur_x() - 0.5f), -dx};
+  } else {
+    return {256.0f, 0.0f};
+  }
+}
+
+template <typename P, typename E>
+static ALWAYS_INLINE IntRange aa_span(P* buf, const E& left, const E& right,
+                                      const FloatRange& bounds) {
+  // If there is no AA, just return the span from the rounded left edge X
+  // position to the rounded right edge X position. Clip the span to be within
+  // the valid bounds.
+  if (!(swgl_ClipFlags & SWGL_CLIP_FLAG_AA)) {
+    return bounds.clip({left.cur_x(), right.cur_x()}).round();
+  }
+
+  // Calculate the left and right AA spans along with the coverage distances
+  // and slopes necessary to do blending.
+  IntRange leftAA = aa_edge(left, bounds);
+  FloatRange leftDist = aa_dist(left, -1.0f);
+  IntRange rightAA = aa_edge(right, bounds);
+  FloatRange rightDist = aa_dist(right, 1.0f);
+
+  // Use the pointer into the destination buffer as a status indicator of the
+  // coverage offset. The pointer is calculated so that subtracting it with
+  // the current destination pointer will yield a negative value if the span
+  // is outside the opaque area and otherwise will yield a positive value
+  // above the opaque size. This pointer is stored as a uint8 pointer so that
+  // there are no hidden multiplication instructions and will just return a
+  // 1:1 linear memory address. Thus the size of the opaque region must also
+  // be scaled by the pixel size in bytes.
+  swgl_OpaqueStart = (const uint8_t*)(buf + leftAA.end);
+  swgl_OpaqueSize = max(rightAA.start - leftAA.end - 3, 0) * sizeof(P);
+
+  // Offset the coverage distances by the end of the left AA span, which
+  // corresponds to the opaque start pointer, so that pixels become opaque
+  // immediately after. The distances are also offset for each lane in the
+  // chunk.
+  Float offset = cast(leftAA.end + (I32){0, 1, 2, 3});
+  swgl_LeftAADist = leftDist.start + offset * leftDist.end;
+  swgl_RightAADist = rightDist.start + offset * rightDist.end;
+  swgl_AASlope =
+      (Float){leftDist.end, rightDist.end, 0.0f, 0.0f} / float(sizeof(P));
+
+  // Return the full span width from the start of the left span to the end of
+  // the right span.
+  return {leftAA.start, rightAA.end};
+}
 
 // Converts a run array into a flattened array of depth samples. This just
 // walks through every run and fills the samples with the depth value from
@@ -3807,24 +3964,24 @@ static ALWAYS_INLINE void draw_depth_span(uint16_t z, P* buf,
       // If we have a draw specialization, try to process as many 4-pixel
       // chunks as possible using it.
       if (fragment_shader->has_draw_span(buf)) {
-        int len = span & ~3;
-        fragment_shader->draw_span(buf, len);
-        buf += len;
-        span &= 3;
-      } else {
-        // Otherwise, just process each chunk individually.
-        while (span >= 4) {
-          commit_output<false, false>(buf);
-          buf += 4;
-          span -= 4;
-        }
+        int drawn = fragment_shader->draw_span(buf, span & ~3);
+        buf += drawn;
+        span -= drawn;
+      }
+      // Otherwise, just process each chunk individually.
+      while (span >= 4) {
+        fragment_shader->run();
+        discard_output<false>(buf);
+        buf += 4;
+        span -= 4;
       }
     }
     // If we have a partial chunk left over, we still have to process it as if
     // it were a full chunk. Mask off only the part of the chunk we want to
     // use.
     if (span > 0) {
-      commit_output<false, false>(buf, span);
+      fragment_shader->run();
+      discard_output<false>(buf, span);
       buf += span;
     }
     // Skip past any runs that fail the depth test.
@@ -3855,20 +4012,36 @@ static ALWAYS_INLINE void draw_span(P* buf, DepthRun* depth, int span, Z z) {
     // Otherwise, for the no-perspective case, we just use the provided Z.
     // Process 4-pixel chunks first.
     for (; span >= 4; span -= 4, buf += 4, depth += 4) {
-      commit_output<DISCARD, W>(buf, z(), depth);
+      I32 zsrc = z();
+      ZMask zmask;
+      if (check_depth<DISCARD>(zsrc, depth, zmask)) {
+        fragment_shader->run<W>();
+        mask_output(buf, zmask);
+        if (DISCARD) discard_depth(zsrc, depth, zmask);
+      } else {
+        fragment_shader->skip<W>();
+      }
     }
     // If there are any remaining pixels, do a partial chunk.
     if (span > 0) {
-      commit_output<DISCARD, W>(buf, z(), depth, span);
+      I32 zsrc = z();
+      ZMask zmask;
+      if (check_depth<DISCARD>(zsrc, depth, zmask, span)) {
+        fragment_shader->run<W>();
+        mask_output(buf, zmask, span);
+        if (DISCARD) discard_depth(zsrc, depth, zmask);
+      }
     }
   } else {
     // Process 4-pixel chunks first.
     for (; span >= 4; span -= 4, buf += 4) {
-      commit_output<DISCARD, W>(buf);
+      fragment_shader->run<W>();
+      discard_output<DISCARD>(buf);
     }
     // If there are any remaining pixels, do a partial chunk.
     if (span > 0) {
-      commit_output<DISCARD, W>(buf, span);
+      fragment_shader->run<W>();
+      discard_output<DISCARD>(buf, span);
     }
   }
 }
@@ -3932,6 +4105,7 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
                                    const ClipRect& clipRect) {
   // Only triangles and convex quads supported.
   assert(nump == 3 || nump == 4);
+
   Point2D l0, r0, l1, r1;
   int l0i, r0i, l1i, r1i;
   {
@@ -3998,9 +4172,10 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
     float x;
     Interpolants interpSlope;
     Interpolants interp;
+    bool edgeMask;
 
     Edge(float y, const Point2D& p0, const Point2D& p1, const Interpolants& i0,
-         const Interpolants& i1)
+         const Interpolants& i1, int edgeIndex)
         :  // Inverse Y scale for slope calculations. Avoid divide on 0-length
            // edge. Later checks below ensure that Y <= p1.y, or otherwise we
            // don't use this edge. We just need to guard against Y == p1.y ==
@@ -4015,27 +4190,40 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
           // Calculate change in interpolants per change in Y
           interpSlope((i1 - i0) * yScale),
           // Initialize current interpolants based on Y and slope
-          interp(i0 + (y - p0.y) * interpSlope) {}
+          interp(i0 + (y - p0.y) * interpSlope),
+          // Extract the edge mask status for this edge
+          edgeMask((swgl_AAEdgeMask >> edgeIndex) & 1) {}
 
     void nextRow() {
       // step current X and interpolants to next row from slope
       x += xSlope;
       interp += interpSlope;
     }
+
+    float cur_x() const { return x; }
+    float x_slope() const { return xSlope; }
   };
 
   // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
   // Find the start y, clip to within the clip rect, and round to row center.
-  float y = floor(max(l0.y, clipRect.y0) + 0.5f) + 0.5f;
+  // If AA is enabled, round out conservatively rather than round to nearest.
+  float aaRound = swgl_ClipFlags & SWGL_CLIP_FLAG_AA ? 0.0f : 0.5f;
+  float y = floor(max(l0.y, clipRect.y0) + aaRound) + 0.5f;
   // Initialize left and right edges from end points and start Y
-  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
-  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
+  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
+  // WR does not use backface culling, so check if edges are flipped.
+  bool flipped = l0.x > r0.x || l1.x > r1.x;
+  if (flipped) swap(left, right);
   // Get pointer to color buffer and depth buffer at current Y
   P* fbuf = (P*)colortex.sample_ptr(0, int(y), layer);
   DepthRun* fdepth = (DepthRun*)depthtex.sample_ptr(0, int(y));
   // Loop along advancing Ys, rasterizing spans at each row
   float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  // Ensure we don't rasterize out edge bounds
+  FloatRange clipSpan =
+      clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
   for (;;) {
     // Check if we maybe passed edge ends or outside clip rect...
     if (y > checkY) {
@@ -4062,7 +4250,8 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
         do {
           STEP_EDGE(l0i, l0, l1i, l1, NEXT_POINT, r1i);
         } while (y > l1.y);
-        left = Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+        (flipped ? right : left) =
+            Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
       }
       // Check if Y advanced past the end of the right edge
       if (y > r1.y) {
@@ -4070,25 +4259,24 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
         do {
           STEP_EDGE(r0i, r0, r1i, r1, PREV_POINT, l1i);
         } while (y > r1.y);
-        right = Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+        (flipped ? left : right) =
+            Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
       }
+      // Reset the clip bounds for the new edges
+      clipSpan =
+          clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
       // Reset check condition for next time around.
-      checkY = min(min(l1.y, r1.y), clipRect.y1);
+      checkY = min(ceil(min(l1.y, r1.y) - aaRound), clipRect.y1);
     }
-    // lx..rx form the bounds of the span. WR does not use backface culling,
-    // so we need to use min/max to support the span in either orientation.
-    // Clip the span to fall within the clip rect and then round to nearest
-    // column.
-    int startx = int(max(min(left.x, right.x), clipRect.x0) + 0.5f);
-    int endx = int(min(max(left.x, right.x), clipRect.x1) + 0.5f);
-    // Check if span is non-empty.
-    int span = endx - startx;
-    if (span > 0) {
+
+    // Calculate a potentially AA'd span and check if it is non-empty.
+    IntRange span = aa_span(fbuf, left, right, clipSpan);
+    if (span.len() > 0) {
       ctx->shaded_rows++;
-      ctx->shaded_pixels += span;
+      ctx->shaded_pixels += span.len();
       // Advance color/depth buffer pointers to the start of the span.
-      P* buf = fbuf + startx;
-      // Check if the we will need to use depth-buffer or discard on this span.
+      P* buf = fbuf + span.start;
+      // Check if we will need to use depth-buffer or discard on this span.
       DepthRun* depth =
           depthtex.buf != nullptr && depthtex.cleared() ? fdepth : nullptr;
       DepthCursor cursor;
@@ -4101,7 +4289,7 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
             flatten_depth_runs(depth, depthtex.width);
           }
           // Advance to the depth sample at the start of the span.
-          depth += startx;
+          depth += span.start;
         }
       } else if (depth) {
         if (!depth->is_flat()) {
@@ -4109,7 +4297,7 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
           // runs. Skip past any runs that would fail the depth test so we
           // don't have to do any extra work to process them with the rest of
           // the span.
-          cursor = DepthCursor(depth, depthtex.width, startx, span);
+          cursor = DepthCursor(depth, depthtex.width, span.start, span.len());
           int skipped = cursor.skip_failed(z, ctx->depthfunc);
           // If we fell off the row, that means we couldn't find any passing
           // runs. We can just skip the entire span.
@@ -4117,22 +4305,21 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
             goto next_span;
           }
           buf += skipped;
-          startx += skipped;
-          span -= skipped;
+          span.start += skipped;
         } else {
           // The row is already flattened, so just advance to the span start.
-          depth += startx;
+          depth += span.start;
         }
       }
 
       if (colortex.delay_clear) {
         // Delayed clear is enabled for the color buffer. Check if needs clear.
-        prepare_row<P>(colortex, int(y), startx, endx, use_discard, depth, z,
-                       &cursor);
+        prepare_row<P>(colortex, int(y), span.start, span.end, use_discard,
+                       depth, z, &cursor);
       }
 
       // Initialize fragment shader interpolants to current span position.
-      fragment_shader->gl_FragCoord.x = init_interp(startx + 0.5f, 1);
+      fragment_shader->gl_FragCoord.x = init_interp(span.start + 0.5f, 1);
       fragment_shader->gl_FragCoord.y = y;
       {
         // Change in interpolants is difference between current right and left
@@ -4140,10 +4327,10 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
         Interpolants step =
             (right.interp - left.interp) * (1.0f / (right.x - left.x));
         // Advance current interpolants to X at start of span.
-        Interpolants o = left.interp + step * (startx + 0.5f - left.x);
+        Interpolants o = left.interp + step * (span.start + 0.5f - left.x);
         fragment_shader->init_span(&o, &step);
       }
-      clipRect.init_span(startx, y, buf);
+      clipRect.set_clip_mask(span.start, y, buf);
       if (!use_discard) {
         // Fast paths for the case where fragment discard is not used.
         if (depth) {
@@ -4157,19 +4344,18 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
           // per-chunk depth test path in draw_span below.
         } else {
           // Check if the fragment shader has an optimized draw specialization.
-          if (span >= 4 && fragment_shader->has_draw_span(buf)) {
+          if (span.len() >= 4 && fragment_shader->has_draw_span(buf)) {
             // Draw specialization expects 4-pixel chunks.
-            int len = span & ~3;
-            fragment_shader->draw_span(buf, len);
-            buf += len;
-            span &= 3;
+            int drawn = fragment_shader->draw_span(buf, span.len() & ~3);
+            buf += drawn;
+            span.start += drawn;
           }
         }
-        draw_span<false, false>(buf, depth, span, [=] { return z; });
+        draw_span<false, false>(buf, depth, span.len(), [=] { return z; });
       } else {
         // If discard is used, then use slower fallbacks. This should be rare.
         // Just needs to work, doesn't need to be too fast yet...
-        draw_span<true, false>(buf, depth, span, [=] { return z; });
+        draw_span<true, false>(buf, depth, span.len(), [=] { return z; });
       }
     }
   next_span:
@@ -4249,9 +4435,10 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
     Point3D p;
     Interpolants interpSlope;
     Interpolants interp;
+    bool edgeMask;
 
     Edge(float y, const Point3D& p0, const Point3D& p1, const Interpolants& i0,
-         const Interpolants& i1)
+         const Interpolants& i1, int edgeIndex)
         :  // Inverse Y scale for slope calculations. Avoid divide on 0-length
            // edge.
           yScale(1.0f / max(p1.y - p0.y, 1.0f / 256)),
@@ -4265,7 +4452,9 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
           // Calculate change in interpolants per change in Y
           interpSlope((i1 * p1.w - i0 * p0.w) * yScale),
           // Initialize current interpolants based on Y and slope
-          interp(i0 * p0.w + (y - p0.y) * interpSlope) {}
+          interp(i0 * p0.w + (y - p0.y) * interpSlope),
+          // Extract the edge mask status for this edge
+          edgeMask((swgl_AAEdgeMask >> edgeIndex) & 1) {}
 
     float x() const { return p.x; }
     vec2_scalar zw() const { return {p.z, p.w}; }
@@ -4275,20 +4464,31 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
       p += pSlope;
       interp += interpSlope;
     }
+
+    float cur_x() const { return p.x; }
+    float x_slope() const { return pSlope.x; }
   };
 
   // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
   // Find the start y, clip to within the clip rect, and round to row center.
-  float y = floor(max(l0.y, clipRect.y0) + 0.5f) + 0.5f;
+  // If AA is enabled, round out conservatively rather than round to nearest.
+  float aaRound = swgl_ClipFlags & SWGL_CLIP_FLAG_AA ? 0.0f : 0.5f;
+  float y = floor(max(l0.y, clipRect.y0) + aaRound) + 0.5f;
   // Initialize left and right edges from end points and start Y
-  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
-  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
+  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
+  // WR does not use backface culling, so check if edges are flipped.
+  bool flipped = l0.x > r0.x || l1.x > r1.x;
+  if (flipped) swap(left, right);
   // Get pointer to color buffer and depth buffer at current Y
   P* fbuf = (P*)colortex.sample_ptr(0, int(y), layer);
   DepthRun* fdepth = (DepthRun*)depthtex.sample_ptr(0, int(y));
   // Loop along advancing Ys, rasterizing spans at each row
   float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  // Ensure we don't rasterize out edge bounds
+  FloatRange clipSpan =
+      clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
   for (;;) {
     // Check if we maybe passed edge ends or outside clip rect...
     if (y > checkY) {
@@ -4300,7 +4500,8 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         do {
           STEP_EDGE(l0i, l0, l1i, l1, NEXT_POINT, r1i);
         } while (y > l1.y);
-        left = Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+        (flipped ? right : left) =
+            Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
       }
       // Check if Y advanced past the end of the right edge
       if (y > r1.y) {
@@ -4308,24 +4509,23 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         do {
           STEP_EDGE(r0i, r0, r1i, r1, PREV_POINT, l1i);
         } while (y > r1.y);
-        right = Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+        (flipped ? left : right) =
+            Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
       }
+      // Reset the clip bounds for the new edges
+      clipSpan =
+          clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
       // Reset check condition for next time around.
-      checkY = min(min(l1.y, r1.y), clipRect.y1);
+      checkY = min(ceil(min(l1.y, r1.y) - aaRound), clipRect.y1);
     }
-    // lx..rx form the bounds of the span. WR does not use backface culling,
-    // so we need to use min/max to support the span in either orientation.
-    // Clip the span to fall within the clip rect and then round to nearest
-    // column.
-    int startx = int(max(min(left.x(), right.x()), clipRect.x0) + 0.5f);
-    int endx = int(min(max(left.x(), right.x()), clipRect.x1) + 0.5f);
-    // Check if span is non-empty.
-    int span = endx - startx;
-    if (span > 0) {
+
+    // Calculate a potentially AA'd span and check if it is non-empty.
+    IntRange span = aa_span(fbuf, left, right, clipSpan);
+    if (span.len() > 0) {
       ctx->shaded_rows++;
-      ctx->shaded_pixels += span;
+      ctx->shaded_pixels += span.len();
       // Advance color/depth buffer pointers to the start of the span.
-      P* buf = fbuf + startx;
+      P* buf = fbuf + span.start;
       // Check if the we will need to use depth-buffer or discard on this span.
       DepthRun* depth =
           depthtex.buf != nullptr && depthtex.cleared() ? fdepth : nullptr;
@@ -4338,21 +4538,22 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
           flatten_depth_runs(depth, depthtex.width);
         }
         // Advance to the depth sample at the start of the span.
-        depth += startx;
+        depth += span.start;
       }
       if (colortex.delay_clear) {
         // Delayed clear is enabled for the color buffer. Check if needs clear.
-        prepare_row<P>(colortex, int(y), startx, endx, use_discard, depth);
+        prepare_row<P>(colortex, int(y), span.start, span.end, use_discard,
+                       depth);
       }
       // Initialize fragment shader interpolants to current span position.
-      fragment_shader->gl_FragCoord.x = init_interp(startx + 0.5f, 1);
+      fragment_shader->gl_FragCoord.x = init_interp(span.start + 0.5f, 1);
       fragment_shader->gl_FragCoord.y = y;
       {
         // Calculate the fragment Z and W change per change in fragment X step.
         vec2_scalar stepZW =
             (right.zw() - left.zw()) * (1.0f / (right.x() - left.x()));
         // Calculate initial Z and W values for span start.
-        vec2_scalar zw = left.zw() + stepZW * (startx + 0.5f - left.x());
+        vec2_scalar zw = left.zw() + stepZW * (span.start + 0.5f - left.x());
         // Set fragment shader's Z and W values so that it can use them to
         // cancel out the 1/w baked into the interpolants.
         fragment_shader->gl_FragCoord.z = init_interp(zw.x, stepZW.x);
@@ -4365,16 +4566,16 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         Interpolants step =
             (right.interp - left.interp) * (1.0f / (right.x() - left.x()));
         // Advance current interpolants to X at start of span.
-        Interpolants o = left.interp + step * (startx + 0.5f - left.x());
+        Interpolants o = left.interp + step * (span.start + 0.5f - left.x());
         fragment_shader->init_span<true>(&o, &step);
       }
-      clipRect.init_span(startx, y, buf);
+      clipRect.set_clip_mask(span.start, y, buf);
       if (!use_discard) {
         // No discard is used. Common case.
-        draw_span<false, true>(buf, depth, span, packDepth);
+        draw_span<false, true>(buf, depth, span.len(), packDepth);
       } else {
         // Discard is used. Rare.
-        draw_span<true, true>(buf, depth, span, packDepth);
+        draw_span<true, true>(buf, depth, span.len(), packDepth);
       }
     }
     // Advance Y and edge interpolants to next row.
@@ -4392,13 +4593,15 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
 // intersect the selected axis planes. This assumes the primitive is convex
 // and should produce at most N+2 vertexes for each invocation (only in the
 // worst case where one point falls outside on each of the opposite sides
-// with the rest of the points inside).
+// with the rest of the points inside). The supplied AA edge mask will be
+// modified such that it corresponds to the clipped polygon edges.
 template <XYZW AXIS>
 static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
-                     Interpolants* outInterp) {
+                     Interpolants* outInterp, int& outEdgeMask) {
   // Potential mask bits of which side of a plane a coordinate falls on.
   enum SIDE { POSITIVE = 1, NEGATIVE = 2 };
   int numClip = 0;
+  int edgeMask = outEdgeMask;
   Point3D prev = p[nump - 1];
   Interpolants prevInterp = interp[nump - 1];
   float prevCoord = prev.select(AXIS);
@@ -4414,7 +4617,8 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
                  (prevCoord > prev.w ? POSITIVE : 0);
   // Loop through points, finding edges that cross the planes by evaluating
   // the side at each point.
-  for (int i = 0; i < nump; i++) {
+  outEdgeMask = 0;
+  for (int i = 0; i < nump; i++, edgeMask >>= 1) {
     Point3D cur = p[i];
     Interpolants curInterp = interp[i];
     float curCoord = cur.select(AXIS);
@@ -4470,6 +4674,7 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
         }
         outP[numClip] = clipped;
         outInterp[numClip] = prevInterp + (curInterp - prevInterp) * k;
+        // Don't output the current edge mask since start point was outside.
         numClip++;
       }
       if (curMask) {
@@ -4505,6 +4710,8 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
         }
         outP[numClip] = clipped;
         outInterp[numClip] = prevInterp + (curInterp - prevInterp) * k;
+        // Output the current edge mask since the end point is inside.
+        outEdgeMask |= (edgeMask & 1) << numClip;
         numClip++;
       }
     }
@@ -4516,6 +4723,8 @@ static int clip_side(int nump, Point3D* p, Interpolants* interp, Point3D* outP,
       }
       outP[numClip] = cur;
       outInterp[numClip] = curInterp;
+      // Output the current edge mask since the end point is inside.
+      outEdgeMask |= (edgeMask & 1) << numClip;
       numClip++;
     }
     prev = cur;
@@ -4595,7 +4804,8 @@ static void draw_perspective(int nump, Interpolants interp_outs[4],
     Point3D p_clip[4 + 6];
     Interpolants interp_clip[4 + 6];
     // Clip against near and far Z planes.
-    nump = clip_side<Z>(nump, p, interp_outs, p_clip, interp_clip);
+    nump = clip_side<Z>(nump, p, interp_outs, p_clip, interp_clip,
+                        swgl_AAEdgeMask);
     // If no points are left inside the view frustum, there's nothing to draw.
     if (nump < 3) {
       return;
@@ -4620,9 +4830,11 @@ static void draw_perspective(int nump, Interpolants interp_outs[4],
         // Ping-pong p_clip -> p_tmp -> p_clip.
         Point3D p_tmp[4 + 6];
         Interpolants interp_tmp[4 + 6];
-        nump = clip_side<X>(nump, p_clip, interp_clip, p_tmp, interp_tmp);
+        nump = clip_side<X>(nump, p_clip, interp_clip, p_tmp, interp_tmp,
+                            swgl_AAEdgeMask);
         if (nump < 3) return;
-        nump = clip_side<Y>(nump, p_tmp, interp_tmp, p_clip, interp_clip);
+        nump = clip_side<Y>(nump, p_tmp, interp_tmp, p_clip, interp_clip,
+                            swgl_AAEdgeMask);
         if (nump < 3) return;
         // After clipping against X and Y planes, there's still points left
         // to draw, so proceed to trying projection now...
@@ -4650,7 +4862,7 @@ static void draw_quad(int nump, Texture& colortex, int layer,
   // Reserve space for 6 sets of interpolants, in case we need to clip against
   // near and far planes in the perspective case.
   Interpolants interp_outs[4];
-  swgl_ClipMask = nullptr;
+  swgl_ClipFlags = 0;
   vertex_shader->run_primitive((char*)interp_outs, sizeof(Interpolants));
   vec4 pos = vertex_shader->gl_Position;
   // Check if any vertex W is different from another. If so, use perspective.

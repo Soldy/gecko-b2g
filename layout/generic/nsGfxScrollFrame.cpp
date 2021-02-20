@@ -53,7 +53,7 @@
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
-#include "mozilla/dom/HTMLTextAreaElement.h"
+#include "mozilla/dom/HTMLMarqueeElement.h"
 #include <stdint.h>
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Telemetry.h"
@@ -1022,11 +1022,33 @@ nscoord nsHTMLScrollFrame::GetIntrinsicVScrollbarWidth(
   return vScrollbarPrefSize.width;
 }
 
+// Legacy, this sucks!
+static bool IsMarqueeScrollbox(const nsIFrame& aScrollFrame) {
+  if (!aScrollFrame.GetContent()) {
+    return false;
+  }
+  if (MOZ_LIKELY(!aScrollFrame.GetContent()->IsInUAWidget())) {
+    return false;
+  }
+  MOZ_ASSERT(aScrollFrame.GetParent() &&
+             aScrollFrame.GetParent()->GetContent());
+  return aScrollFrame.GetParent() &&
+         HTMLMarqueeElement::FromNodeOrNull(
+             aScrollFrame.GetParent()->GetContent());
+}
+
 /* virtual */
 nscoord nsHTMLScrollFrame::GetMinISize(gfxContext* aRenderingContext) {
-  nscoord result = StyleDisplay()->IsContainSize()
-                       ? 0
-                       : mHelper.mScrolledFrame->GetMinISize(aRenderingContext);
+  nscoord result = [&] {
+    if (StyleDisplay()->IsContainSize()) {
+      return 0;
+    }
+    if (MOZ_UNLIKELY(IsMarqueeScrollbox(*this))) {
+      return 0;
+    }
+    return mHelper.mScrolledFrame->GetMinISize(aRenderingContext);
+  }();
+
   DISPLAY_MIN_INLINE_SIZE(this, result);
   return result + GetIntrinsicVScrollbarWidth(aRenderingContext);
 }
@@ -2204,7 +2226,7 @@ ScrollFrameHelper::ScrollFrameHelper(nsContainerFrame* aOuter, bool aIsRoot)
       mUpdateScrollbarAttributes(false),
       mHasBeenScrolledRecently(false),
       mWillBuildScrollableLayer(false),
-      mIsScrollParent(false),
+      mIsParentToActiveScrollFrames(false),
       mAddClipRectToLayer(false),
       mHasBeenScrolled(false),
       mIgnoreMomentumScroll(false),
@@ -2585,12 +2607,14 @@ static void RemoveDisplayPortCallback(nsITimer* aTimer, void* aClosure) {
   MOZ_ASSERT(helper->mDisplayPortExpiryTimer);
   helper->mDisplayPortExpiryTimer = nullptr;
 
-  if (!helper->AllowDisplayPortExpiration() || helper->mIsScrollParent) {
+  if (!helper->AllowDisplayPortExpiration() ||
+      helper->mIsParentToActiveScrollFrames) {
     // If this is a scroll parent for some other scrollable frame, don't
     // expire the displayport because it would break scroll handoff. Once the
     // descendant scrollframes have their displayports expired, they will
     // trigger the displayport expiration on this scrollframe as well, and
-    // mIsScrollParent will presumably be false when that kicks in.
+    // mIsParentToActiveScrollFrames will presumably be false when that kicks
+    // in.
     return;
   }
 
@@ -3852,10 +3876,9 @@ void ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder* aBuilder,
       if (info != CompositorHitTestInvisibleToHit) {
         auto* hitInfo =
             MakeDisplayItemWithIndex<nsDisplayCompositorHitTestInfo>(
-                aBuilder, mScrolledFrame, 1, info);
+                aBuilder, mScrolledFrame, 1);
         if (hitInfo) {
-          aBuilder->SetCompositorHitTestInfo(hitInfo->HitTestArea(),
-                                             hitInfo->HitTestFlags());
+          aBuilder->SetCompositorHitTestInfo(info);
           set.BorderBackground()->AppendToTop(hitInfo);
         }
       }
@@ -3942,7 +3965,10 @@ void ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     }
 
     if (aBuilder->IsPaintingToWindow()) {
-      mIsScrollParent = idSetter.ShouldForceLayerForScrollParent();
+      mIsParentToActiveScrollFrames =
+          ShouldActivateAllScrollFrames()
+              ? idSetter.GetContainsNonMinimalDisplayPort()
+              : idSetter.ShouldForceLayerForScrollParent();
     }
     if (idSetter.ShouldForceLayerForScrollParent()) {
       // Note that forcing layerization of scroll parents follows the scroll
@@ -4053,6 +4079,16 @@ void ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     aBuilder->ForceLayerForScrollParent();
   }
 
+  // We want to call SetContainsNonMinimalDisplayPort if
+  // mWillBuildScrollableLayer is true for any reason other than having a
+  // minimal display port.
+  if (aBuilder->IsPaintingToWindow()) {
+    if (DisplayPortUtils::HasNonMinimalDisplayPort(mOuter->GetContent()) ||
+        mZoomableByAPZ || nsContentUtils::HasScrollgrab(mOuter->GetContent())) {
+      aBuilder->SetContainsNonMinimalDisplayPort();
+    }
+  }
+
   if (couldBuildLayer) {
     CompositorHitTestInfo info(CompositorHitTestFlags::eVisibleToHitTest,
                                CompositorHitTestFlags::eInactiveScrollframe);
@@ -4072,38 +4108,36 @@ void ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
     // Make sure that APZ will dispatch events back to content so we can
     // create a displayport for this frame. We'll add the item later on.
-    if (!mWillBuildScrollableLayer) {
-      if (aBuilder->BuildCompositorHitTestInfo()) {
-        int32_t zIndex = MaxZIndexInListOfItemsContainedInFrame(
-            scrolledContent.PositionedDescendants(), mOuter);
-        if (aBuilder->IsPartialUpdate()) {
-          if (auto* items =
-                  mScrolledFrame->GetProperty(nsIFrame::DisplayItems())) {
-            for (nsDisplayItemBase* item : *items) {
-              if (item->GetType() ==
-                  DisplayItemType::TYPE_COMPOSITOR_HITTEST_INFO) {
-                auto* hitTestItem =
-                    static_cast<nsDisplayCompositorHitTestInfo*>(item);
-                if (hitTestItem->HasHitTestInfo() &&
-                    hitTestItem->HitTestFlags().contains(
-                        CompositorHitTestFlags::eInactiveScrollframe)) {
-                  zIndex = std::max(zIndex, hitTestItem->ZIndex());
-                  item->SetCantBeReused();
-                }
+    if (!mWillBuildScrollableLayer && aBuilder->BuildCompositorHitTestInfo()) {
+      int32_t zIndex = MaxZIndexInListOfItemsContainedInFrame(
+          scrolledContent.PositionedDescendants(), mOuter);
+      if (aBuilder->IsPartialUpdate()) {
+        if (auto* items =
+                mScrolledFrame->GetProperty(nsIFrame::DisplayItems())) {
+          for (nsDisplayItemBase* item : *items) {
+            if (item->GetType() ==
+                DisplayItemType::TYPE_COMPOSITOR_HITTEST_INFO) {
+              auto* hitTestItem =
+                  static_cast<nsDisplayCompositorHitTestInfo*>(item);
+              if (hitTestItem->GetHitTestInfo().Info().contains(
+                      CompositorHitTestFlags::eInactiveScrollframe)) {
+                zIndex = std::max(zIndex, hitTestItem->ZIndex());
+                item->SetCantBeReused();
               }
             }
           }
         }
-        // Make sure the z-index of the inactive item is at least zero.
-        // Otherwise, it will end up behind non-positioned items in the scrolled
-        // content.
-        zIndex = std::max(zIndex, 0);
-        nsDisplayCompositorHitTestInfo* hitInfo =
-            MakeDisplayItemWithIndex<nsDisplayCompositorHitTestInfo>(
-                aBuilder, mScrolledFrame, 1, info, Some(area));
-        if (hitInfo) {
-          AppendInternalItemToTop(scrolledContent, hitInfo, Some(zIndex));
-        }
+      }
+      // Make sure the z-index of the inactive item is at least zero.
+      // Otherwise, it will end up behind non-positioned items in the scrolled
+      // content.
+      zIndex = std::max(zIndex, 0);
+      nsDisplayCompositorHitTestInfo* hitInfo =
+          MakeDisplayItemWithIndex<nsDisplayCompositorHitTestInfo>(
+              aBuilder, mScrolledFrame, 1, area, info);
+      if (hitInfo) {
+        AppendInternalItemToTop(scrolledContent, hitInfo, Some(zIndex));
+        aBuilder->SetCompositorHitTestInfo(info);
       }
     }
 
@@ -4295,12 +4329,18 @@ bool ScrollFrameHelper::DecideScrollableLayer(
       !DisplayPortUtils::HasDisplayPort(content) &&
       nsLayoutUtils::AsyncPanZoomEnabled(mOuter) && WantAsyncScroll() &&
       aBuilder->IsPaintingToWindow() && aSetBase) {
+    // SetDisplayPortMargins calls TriggerDisplayPortExpiration which starts a
+    // display port expiry timer for display ports that do expire. However
+    // minimal display ports do not expire, so the display port has to be
+    // marked before the SetDisplayPortMargins call so the expiry timer
+    // doesn't get started.
+    content->SetProperty(nsGkAtoms::MinimalDisplayPort,
+                         reinterpret_cast<void*>(true));
+
     DisplayPortUtils::SetDisplayPortMargins(
         content, mOuter->PresShell(), DisplayPortMargins::Empty(content),
         DisplayPortUtils::ClearMinimalDisplayPortProperty::No, 0,
         DisplayPortUtils::RepaintMode::DoNotRepaint);
-    content->SetProperty(nsGkAtoms::MinimalDisplayPort,
-                         reinterpret_cast<void*>(true));
   }
 
   bool usingDisplayPort = DisplayPortUtils::HasDisplayPort(content);
@@ -4723,7 +4763,7 @@ void ScrollFrameHelper::ScrollBy(nsIntPoint aDelta, ScrollUnit aUnit,
         ScrollPositionUpdate::NewPureRelativeScroll(aOrigin, aMode, delta));
 
     nsIContent* content = mOuter->GetContent();
-    if (!DisplayPortUtils::HasNonMinimalDisplayPort(content)) {
+    if (!DisplayPortUtils::HasNonMinimalNonZeroDisplayPort(content)) {
       if (MOZ_LOG_TEST(sDisplayportLog, LogLevel::Debug)) {
         mozilla::layers::ScrollableLayerGuid::ViewID viewID =
             mozilla::layers::ScrollableLayerGuid::NULL_SCROLL_ID;
@@ -7832,7 +7872,7 @@ void ScrollFrameHelper::ApzSmoothScrollTo(const nsPoint& aDestination,
       ScrollPositionUpdate::NewSmoothScroll(aOrigin, aDestination));
 
   nsIContent* content = mOuter->GetContent();
-  if (!DisplayPortUtils::HasNonMinimalDisplayPort(content)) {
+  if (!DisplayPortUtils::HasNonMinimalNonZeroDisplayPort(content)) {
     // If this frame doesn't have a displayport then there won't be an
     // APZC instance for it and so there won't be anything to process
     // this smooth scroll request. We should set a displayport on this

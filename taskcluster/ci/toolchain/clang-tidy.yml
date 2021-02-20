@@ -30,6 +30,8 @@ linux64-clang-tidy:
         job-name: linux64-clang-tidy
     treeherder:
         symbol: TL(clang-tidy)
+    worker:
+        docker-image: {in-tree: deb10-toolchain-build}
     run:
         script: build-clang.sh
         arguments:
@@ -42,6 +44,7 @@ linux64-clang-tidy:
         toolchain:
             - linux64-binutils
             - linux64-gcc-7
+            - linux64-toolchain-sysroot
 
 macosx64-clang-tidy:
     index:
@@ -49,18 +52,13 @@ macosx64-clang-tidy:
     treeherder:
         symbol: TM(clang-tidy)
     worker-type: b-linux-large
-    worker:
-        env:
-            TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/macosx64/cross-releng.manifest"
     run:
         using: toolchain-script
         script: build-clang.sh
-        tooltool-downloads: internal
         arguments:
             - 'build/build-clang/clang-tidy-macosx64.json'
         resources:
             - 'build/build-clang/clang-tidy-macosx64.json'
-            - 'taskcluster/scripts/misc/tooltool-download.sh'
     run-on-projects:
         - trunk
     fetches:
@@ -70,6 +68,7 @@ macosx64-clang-tidy:
             - linux64-clang-11-macosx-cross
             - linux64-gcc-7
             - linux64-node
+            - macosx64-sdk-10.12
 
 win64-clang-tidy:
     description: "Clang-tidy toolchain build"
@@ -105,6 +104,7 @@ linux64-clang-tidy-external:
     treeherder:
         symbol: TL(clang-tidy-e)
     worker:
+        docker-image: {in-tree: deb10-toolchain-build}
         artifacts:
             - name: project/civet/clang-tidy.tar.zst
               path: /builds/worker/private-artifacts/clang-tidy.tar.zst
@@ -123,3 +123,4 @@ linux64-clang-tidy-external:
         toolchain:
             - linux64-binutils
             - linux64-gcc-7
+            - linux64-toolchain-sysroot

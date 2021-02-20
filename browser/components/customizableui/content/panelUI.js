@@ -333,6 +333,8 @@ const PanelUI = {
       case "ViewShowing":
         if (aEvent.target == this.whatsNewPanel) {
           this.onWhatsNewPanelShowing();
+        } else if (aEvent.target == this.libraryView) {
+          this.onLibraryShowing(this.libraryView);
         }
         break;
     }
@@ -378,6 +380,22 @@ const PanelUI = {
   showHelpView(aAnchor) {
     this._ensureEventListenersAdded();
     this.multiView.showSubView("PanelUI-helpView", aAnchor);
+  },
+
+  /**
+   * Switch the panel to the "More Tools" view.
+   *
+   * @param moreTools The panel showing the "More Tools" view.
+   */
+  showMoreToolsPanel(moreTools) {
+    this.showSubView("appmenu-moreTools", moreTools);
+
+    // Notify DevTools the panel view is showing and need it to populate the
+    // "Browser Tools" section of the panel. We notify the observer setup by
+    // DevTools because we want to ensure the same menuitem list is shared
+    // between both the AppMenu and toolbar button views.
+    let view = document.getElementById("appmenu-developer-tools-view");
+    Services.obs.notifyObservers(view, "web-developer-tools-view-showing");
   },
 
   /**
@@ -592,6 +610,19 @@ const PanelUI = {
     );
   },
 
+  onLibraryShowing(libraryPanel) {
+    // While we support this panel for both Proton and non-Proton versions
+    // of the AppMenu, we only want to show icons for the non-Proton
+    // version. When Proton ships and we remove the non-Proton variant,
+    // we can remove the subviewbutton-iconic classes from the markup.
+    if (PanelUI.protonAppMenuEnabled) {
+      let toolbarbuttons = libraryPanel.querySelectorAll("toolbarbutton");
+      for (let toolbarbutton of toolbarbuttons) {
+        toolbarbutton.classList.remove("subviewbutton-iconic");
+      }
+    }
+  },
+
   /**
    * NB: The enable- and disableSingleSubviewPanelAnimations methods only
    * affect the hiding/showing animations of single-subview panels (tempPanel
@@ -677,7 +708,16 @@ const PanelUI = {
       if (node.id) {
         button.id = "appMenu_" + node.id;
       }
-      button.setAttribute("class", "subviewbutton subviewbutton-iconic");
+
+      button.classList.add("subviewbutton");
+
+      // While we support this panel for both Proton and non-Proton versions
+      // of the AppMenu, we only want to show icons for the non-Proton
+      // version. When Proton ships and we remove the non-Proton variant,
+      // we can remove the subviewbutton-iconic classes.
+      if (!PanelUI.protonAppMenuEnabled) {
+        button.classList.add("subviewbutton-iconic");
+      }
       fragment.appendChild(button);
     }
     items.appendChild(fragment);
@@ -846,9 +886,12 @@ const PanelUI = {
 
   get addonNotificationContainer() {
     if (!this._addonNotificationContainer) {
+      let bannerID = this.protonAppMenuEnabled
+        ? "appMenu-proton-addon-banners"
+        : "appMenu-addon-banners";
       this._addonNotificationContainer = PanelMultiView.getViewNode(
         document,
-        "appMenu-addon-banners"
+        bannerID
       );
     }
 

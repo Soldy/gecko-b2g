@@ -535,6 +535,9 @@ void GonkGPSGeolocationProvider::Init() {
     }
     DBG("mAGnssHal_V2_0->setCallback");
     Return<void> agnssStatus = mAGnssHal_V2_0->setCallback(agnssCbIface);
+    if (!agnssStatus.isOk()) {
+      ERR("failed to set callback for IAGnss");
+    }
   }
 
   // report network state to IAGnssRil during the initialization since the
@@ -608,7 +611,11 @@ void GonkGPSGeolocationProvider::CleanupGnssHal() {
   DBG("mGnssHal->stop and cleanup");
   // Cleanup GNSS HAL when Geolocation setting is turned off
   if (mGnssHal != nullptr) {
-    mGnssHal->stop();
+    auto result = mGnssHal->stop();
+    if (!result.isOk() || !result) {
+      ERR("failed to stop IGnss HAL");
+    }
+
     mGnssHal->cleanup();
   }
   mGnssHalReady = false;
@@ -1180,7 +1187,10 @@ void GonkGPSGeolocationProvider::UpdateNetworkState(nsISupports* aNetworkInfo,
   DBG("updateNetworkState_2_0, netId: %d, netHandle: %llu, connected: %d, "
       "capabilities: %u, apn: %s)",
       netId, netHandle, connected, capabilities, apn);
-  mAGnssRilHal_V2_0->updateNetworkState_2_0(networkAttributes);
+  auto result = mAGnssRilHal_V2_0->updateNetworkState_2_0(networkAttributes);
+  if (!result.isOk() || !result) {
+    ERR("failed to update network state to IAGnssRil");
+  }
 }
 
 NS_IMETHODIMP
@@ -1232,12 +1242,14 @@ void GonkGPSGeolocationProvider::SetupAGPS() {
   int32_t suplPort = Preferences::GetInt("geo.gps.supl_port", -1);
   if (!suplServer.IsEmpty() && suplPort > 0) {
     DBG("mAGnssHal_V2_0->set_server(%s, %d)", suplServer.get(), suplPort);
-    mAGnssHal_V2_0->setServer(
+    auto result = mAGnssHal_V2_0->setServer(
         IAGnssCallback_V2_0::AGnssType::SUPL,
         std::string(suplServer.get(), suplServer.Length()), suplPort);
-
+    if (!result.isOk() || !result) {
+      ERR("failed to set server for IAGnssHal");
+    }
   } else {
-    ERR("Cannot get SUPL server settings");
+    DBG("Preference of SUPL server is not found");
     return;
   }
 }
@@ -1260,9 +1272,12 @@ void GonkGPSGeolocationProvider::AGpsDataConnectionOpen() {
       "APN_IP_IPV4V6), netId: %d",
       netHandle, gRilSuplApn.get(), mSuplNetId);
 
-  mAGnssHal_V2_0->dataConnOpen(
+  auto result = mAGnssHal_V2_0->dataConnOpen(
       netHandle, std::string(gRilSuplApn.get(), gRilSuplApn.Length()),
       IAGnss_V2_0::ApnIpType::IPV4V6);
+  if (!result.isOk() || !result) {
+    ERR("failed to set APN and its IP type to IAGnss");
+  }
 }
 
 void GonkGPSGeolocationProvider::HandleAGpsDataConnection(
@@ -1290,7 +1305,10 @@ void GonkGPSGeolocationProvider::HandleAGpsDataConnection(
     AGpsDataConnectionOpen();
   } else if (state == nsINetworkInfo::NETWORK_STATE_DISCONNECTED) {
     LOG("mAGnssHal_V2_0->data_conn_closed()");
-    mAGnssHal_V2_0->dataConnClosed();
+    auto result = mAGnssHal_V2_0->dataConnClosed();
+    if (!result.isOk() || !result) {
+      ERR("failed to close IAGnss data connection");
+    }
     mSuplNetId = 0;
   }
 }

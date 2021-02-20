@@ -14,8 +14,8 @@
 #include "nsIRilResult.h"
 #include "nsString.h"
 
-#include <android/hardware/radio/1.0/IRadio.h>
-#include <android/hardware/radio/1.0/types.h>
+#include <android/hardware/radio/1.1/IRadio.h>
+
 using ::android::hardware::hidl_vec;
 using ::android::hardware::radio::V1_0::CdmaSignalStrength;
 using ::android::hardware::radio::V1_0::CellIdentity;

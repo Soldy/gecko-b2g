@@ -479,7 +479,8 @@ void SharedStyleSheetCache::InsertIntoCompleteCacheIfNeeded(
     }
 
     mCompleteSheets.Put(
-        key, {aData.mExpirationTime, std::move(counters), std::move(sheet)});
+        key, CompleteSheet{aData.mExpirationTime, std::move(counters),
+                           std::move(sheet)});
   }
 }
 
@@ -572,8 +573,9 @@ void SharedStyleSheetCache::CancelLoadsForLoader(css::Loader& aLoader) {
 
 void SharedStyleSheetCache::RegisterLoader(css::Loader& aLoader) {
   MOZ_ASSERT(aLoader.GetDocument());
-  mLoaderPrincipalRefCnt.LookupForAdd(aLoader.GetDocument()->NodePrincipal())
-      .OrInsert([] { return 0; }) += 1;
+  mLoaderPrincipalRefCnt.WithEntryHandle(
+      aLoader.GetDocument()->NodePrincipal(),
+      [](auto&& entry) { entry.OrInsert(0) += 1; });
 }
 
 void SharedStyleSheetCache::UnregisterLoader(css::Loader& aLoader) {

@@ -95,17 +95,28 @@ class TRR : public Runnable,
   }
 
   NS_IMETHOD Run() override;
-  void Cancel();
+  void Cancel(nsresult aStatus);
   enum TrrType Type() { return mType; }
   nsCString mHost;
   RefPtr<nsHostRecord> mRec;
   RefPtr<AHostResolver> mHostResolver;
+
+  void SetTimeout(uint32_t aTimeoutMs) { mTimeoutMs = aTimeoutMs; }
+
+  nsresult ChannelStatus() { return mChannelStatus; }
 
  protected:
   virtual ~TRR() = default;
   virtual DNSPacket* GetOrCreateDNSPacket();
   virtual nsresult CreateQueryURI(nsIURI** aOutURI);
   virtual const char* ContentType() const { return "application/dns-message"; }
+  virtual DNSResolverType ResolverType() const { return DNSResolverType::TRR; }
+  virtual bool MaybeBlockRequest();
+  virtual void RecordProcessingTime(nsIChannel* aChannel);
+  virtual void ReportStatus(nsresult aStatusCode);
+  virtual void HandleTimeout();
+  virtual void HandleEncodeError(nsresult aStatusCode) {}
+  virtual void HandleDecodeError(nsresult aStatusCode);
   nsresult SendHTTPRequest();
   nsresult ReturnData(nsIChannel* aChannel);
 
@@ -140,6 +151,11 @@ class TRR : public Runnable,
   bool mFailed = false;
   bool mPB;
   DOHresp mDNS;
+  nsresult mChannelStatus = NS_OK;
+
+  // The request timeout in milliseconds. If 0 we will use the default timeout
+  // we get from the prefs.
+  uint32_t mTimeoutMs = 0;
   nsCOMPtr<nsITimer> mTimeout;
   nsCString mCname;
   uint32_t mCnameLoop = kCnameChaseMax;  // loop detection counter

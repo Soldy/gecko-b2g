@@ -34,18 +34,18 @@ static already_AddRefed<AddrInfo> merge_rrset(AddrInfo* rrto,
   return builder.Finish();
 }
 
-void TRRQuery::Cancel() {
+void TRRQuery::Cancel(nsresult aStatus) {
   MutexAutoLock trrlock(mTrrLock);
   if (mTrrA) {
-    mTrrA->Cancel();
+    mTrrA->Cancel(aStatus);
     mTrrA = nullptr;
   }
   if (mTrrAAAA) {
-    mTrrAAAA->Cancel();
+    mTrrAAAA->Cancel(aStatus);
     mTrrAAAA = nullptr;
   }
   if (mTrrByType) {
-    mTrrByType->Cancel();
+    mTrrByType->Cancel(aStatus);
     mTrrByType = nullptr;
   }
 }
@@ -162,23 +162,25 @@ nsresult TRRQuery::DispatchLookup(TRR* pushedTRR, bool aUseODoH) {
 
 AHostResolver::LookupStatus TRRQuery::CompleteLookup(
     nsHostRecord* rec, nsresult status, AddrInfo* aNewRRSet, bool pb,
-    const nsACString& aOriginsuffix, nsHostRecord::TRRSkippedReason aReason) {
+    const nsACString& aOriginsuffix, nsHostRecord::TRRSkippedReason aReason,
+    TRR* aTRRRequest) {
   if (rec != mRecord) {
     return mHostResolver->CompleteLookup(rec, status, aNewRRSet, pb,
-                                         aOriginsuffix, aReason);
+                                         aOriginsuffix, aReason, aTRRRequest);
   }
 
   RefPtr<AddrInfo> newRRSet(aNewRRSet);
+  DNSResolverType resolverType = newRRSet->ResolverType();
   bool pendingARequest = false;
   bool pendingAAAARequest = false;
   {
     MutexAutoLock trrlock(mTrrLock);
-    if (newRRSet->IsTRR() == TRRTYPE_A) {
+    if (newRRSet->TRRType() == TRRTYPE_A) {
       MOZ_ASSERT(mTrrA);
       mTRRAFailReason = aReason;
       mTrrA = nullptr;
       mTrrAUsed = NS_SUCCEEDED(status) ? OK : FAILED;
-    } else if (newRRSet->IsTRR() == TRRTYPE_AAAA) {
+    } else if (newRRSet->TRRType() == TRRTYPE_AAAA) {
       MOZ_ASSERT(mTrrAAAA);
       mTRRAAAAFailReason = aReason;
       mTrrAAAA = nullptr;
@@ -217,24 +219,8 @@ AHostResolver::LookupStatus TRRQuery::CompleteLookup(
     mFirstTRR.swap(newRRSet);  // autoPtr.swap()
     MOZ_ASSERT(mFirstTRR && !newRRSet);
 
-    if (StaticPrefs::network_trr_wait_for_A_and_AAAA()) {
-      LOG(("CompleteLookup: waiting for all responses!\n"));
-      return LOOKUP_OK;
-    }
-
-    if (pendingARequest && !StaticPrefs::network_trr_early_AAAA()) {
-      // This is an early AAAA with a pending A response. Allowed
-      // only by pref.
-      LOG(("CompleteLookup: avoiding early use of TRR AAAA!\n"));
-      return LOOKUP_OK;
-    }
-
-    // we can do some callbacks with this partial result which requires
-    // a deep copy
-    newRRSet = mFirstTRR;
-
-    // Increment mResolving so we wait for the next resolve too.
-    rec->mResolving++;
+    LOG(("CompleteLookup: waiting for all responses!\n"));
+    return LOOKUP_OK;
   } else {
     // no more outstanding TRRs
     // If mFirstTRR is set, merge those addresses into current set!
@@ -265,28 +251,30 @@ AHostResolver::LookupStatus TRRQuery::CompleteLookup(
     }
   }
 
-  if (mTrrAUsed == OK) {
-    AccumulateCategoricalKeyed(
-        TRRService::AutoDetectedKey(),
-        Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAOK);
-  } else if (mTrrAUsed == FAILED) {
-    AccumulateCategoricalKeyed(
-        TRRService::AutoDetectedKey(),
-        Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAFail);
-  }
+  if (resolverType == DNSResolverType::TRR) {
+    if (mTrrAUsed == OK) {
+      AccumulateCategoricalKeyed(
+          TRRService::AutoDetectedKey(),
+          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAOK);
+    } else if (mTrrAUsed == FAILED) {
+      AccumulateCategoricalKeyed(
+          TRRService::AutoDetectedKey(),
+          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAFail);
+    }
 
-  if (mTrrAAAAUsed == OK) {
-    AccumulateCategoricalKeyed(
-        TRRService::AutoDetectedKey(),
-        Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAAAAOK);
-  } else if (mTrrAAAAUsed == FAILED) {
-    AccumulateCategoricalKeyed(
-        TRRService::AutoDetectedKey(),
-        Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAAAAFail);
+    if (mTrrAAAAUsed == OK) {
+      AccumulateCategoricalKeyed(
+          TRRService::AutoDetectedKey(),
+          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAAAAOK);
+    } else if (mTrrAAAAUsed == FAILED) {
+      AccumulateCategoricalKeyed(
+          TRRService::AutoDetectedKey(),
+          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION2::trrAAAAFail);
+    }
   }
 
   return mHostResolver->CompleteLookup(rec, status, newRRSet, pb, aOriginsuffix,
-                                       aReason);
+                                       aReason, aTRRRequest);
 }
 
 AHostResolver::LookupStatus TRRQuery::CompleteLookupByType(

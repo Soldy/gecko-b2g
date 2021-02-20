@@ -632,6 +632,7 @@
 
 #include ../../components/customizableui/content/panelUI.inc.xhtml
 #include ../../components/controlcenter/content/identityPanel.inc.xhtml
+#include ../../components/controlcenter/content/permissionPanel.inc.xhtml
 #include ../../components/controlcenter/content/protectionsPanel.inc.xhtml
 #include ../../components/downloads/content/downloadsPanel.inc.xhtml
 #include ../../../devtools/startup/enableDevToolsPopup.inc.xhtml
@@ -882,7 +883,7 @@
                        />
         <toolbarbutton id="appMenu-customize-button"
                        class="subviewbutton subviewbutton-iconic"
-                       data-l10n-id="appmenuitem-customize-mode"
+                       data-l10n-id="appmenu-customizetoolbar"
                        command="cmd_CustomizeToolbars"
                        />
         <toolbarseparator/>
@@ -955,51 +956,62 @@
                descriptionheightworkaround="true"
                lockpanelvertical="true">
       <vbox class="panel-subview-body">
+        <vbox id="appMenu-proton-addon-banners"/>
+        <toolbarbutton id="appMenu-proton-update-banner" class="panel-banner-item"
+                       data-l10n-id="appmenuitem-update-banner"
+                       data-l10n-attrs="label-update-downloading"
+                       label-update-available="&updateAvailable.panelUI.label;"
+                       label-update-manual="&updateManual.panelUI.label;"
+                       label-update-unsupported="&updateUnsupported.panelUI.label;"
+                       label-update-restart="&updateRestart.panelUI.label2;"
+                       oncommand="PanelUI._onBannerItemSelected(event)"
+                       wrap="true"
+                       hidden="true"/>
         <toolbarbutton id="appMenu-new-tab-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        label="&tabCmd.label;"
                        key="key_newNavigatorTab"
                        command="cmd_newNavigatorTab"/>
         <toolbarbutton id="appMenu-new-window-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-new-window"
                        key="key_newNavigator"
                        command="cmd_newNavigator"/>
         <toolbarbutton id="appMenu-new-private-window-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-new-private-window"
                        key="key_privatebrowsing"
                        command="Tools:PrivateBrowsing"/>
         <toolbarseparator/>
         <toolbarbutton id="appMenu-bookmarks-button"
-                       class="subviewbutton subviewbutton-iconic subviewbutton-nav"
+                       class="subviewbutton subviewbutton-nav"
                        data-l10n-id="library-bookmarks-menu"
                        closemenu="none"
                        oncommand="BookmarkingUI.showSubView(this);"/>
         <toolbarbutton id="appMenu-history-button"
-                       class="subviewbutton subviewbutton-iconic subviewbutton-nav"
+                       class="subviewbutton subviewbutton-nav"
                        label="&historyMenu.label;"
                        closemenu="none"
                        oncommand="PanelUI.showSubView('PanelUI-history', this)"/>
         <toolbarbutton id="appMenu-downloads-button"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        label="&libraryDownloads.label;"
                        key="key_openDownloads"
                        command="Tools:Downloads"/>
         <toolbarbutton id="appMenu-passwords-button"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-passwords"
                        oncommand="LoginHelper.openPasswordManager(window, { entryPoint: 'mainmenu' })"
                        />
         <toolbarbutton id="appMenu-extensions-themes-button"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-extensions-and-themes"
                        key="key_openAddons"
                        command="Tools:Addons"
                        />
         <toolbarseparator/>
         <toolbarbutton id="appMenu-print-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        label="&printCmd.label;"
                        key="printKb"
 #ifdef XP_MACOSX
@@ -1009,16 +1021,16 @@
 #endif
                        />
         <toolbarbutton id="appMenu-save-file-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-save-page"
                        key="key_savePage"
                        command="Browser:SavePage"/>
         <toolbarbutton id="appMenu-find-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-find-in-page"
                        key="key_find"
                        command="cmd_find"/>
-        <toolbaritem id="appMenu-zoom-controls2" class="subviewbutton subviewbutton-iconic toolbaritem-combined-buttons" closemenu="none">
+        <toolbaritem id="appMenu-zoom-controls2" class="subviewbutton toolbaritem-combined-buttons" closemenu="none">
           <label class="toolbarbutton-text" value="&fullZoom.label;"/>
           <toolbarbutton id="appMenu-zoomReduce-button2"
                          class="subviewbutton subviewbutton-iconic"
@@ -1045,27 +1057,28 @@
         </toolbaritem>
         <toolbarseparator/>
         <toolbarbutton id="appMenu-settings-button"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-settings"
 #ifdef XP_MACOSX
                        key="key_preferencesCmdMac"
 #endif
                        oncommand="openPreferences()"/>
         <toolbarbutton id="appMenu-more-button2"
-                       class="subviewbutton subviewbutton-iconic subviewbutton-nav"
+                       class="subviewbutton subviewbutton-nav"
                        data-l10n-id="appmenuitem-more-tools"
                        closemenu="none"
-                       oncommand="PanelUI.showSubView('appMenu-moreView', this)"/>
+                       oncommand="PanelUI.showMoreToolsPanel(this);"/>
         <toolbarbutton id="appMenu-help-button2"
-                       class="subviewbutton subviewbutton-iconic subviewbutton-nav"
+                       class="subviewbutton subviewbutton-nav"
                        label="&appMenuHelp.label;"
                        closemenu="none"
                        oncommand="PanelUI.showSubView('PanelUI-helpView', this)"/>
 #ifndef XP_MACOSX
         <toolbarseparator/>
         <toolbarbutton id="appMenu-quit-button2"
-                       class="subviewbutton subviewbutton-iconic"
+                       class="subviewbutton"
                        data-l10n-id="appmenuitem-exit"
+                       key="key_quitApplication"
                        command="cmd_quitApplication"/>
 #endif
       </vbox>
@@ -1073,21 +1086,6 @@
 
     <panelview id="PanelUI-history" flex="1">
       <vbox class="panel-subview-body">
-        <toolbarbutton id="appMenuViewHistorySidebar"
-                       label="&appMenuHistory.viewSidebar.label;"
-                       label-checked="&appMenuHistory.hideSidebar.label;"
-                       label-unchecked="&appMenuHistory.viewSidebar.label;"
-                       type="checkbox"
-                       class="subviewbutton subviewbutton-iconic"
-                       key="key_gotoHistory"
-                       oncommand="SidebarUI.toggle('viewHistorySidebar');">
-                       <observes element="sidebar-box" attribute="positionend"/>
-        </toolbarbutton>
-        <toolbarbutton id="appMenuClearRecentHistory"
-                       label="&appMenuHistory.clearRecent.label;"
-                       class="subviewbutton subviewbutton-iconic"
-                       command="Tools:Sanitize"/>
-        <toolbarseparator/>
         <toolbarbutton id="appMenuRecentlyClosedTabs"
                        label="&historyUndoMenu.label;"
                        class="subviewbutton subviewbutton-iconic subviewbutton-nav"
@@ -1099,6 +1097,11 @@
                        closemenu="none"
                        oncommand="PanelUI.showSubView('appMenu-library-recentlyClosedWindows', this)"/>
         <toolbarseparator/>
+        <toolbarbutton id="appMenuClearRecentHistory"
+                       label="&appMenuHistory.clearRecent.label;"
+                       class="subviewbutton subviewbutton-iconic"
+                       command="Tools:Sanitize"/>
+        <toolbarseparator/>
         <label value="&appMenuHistory.recentHistory.label;"
                class="subview-subheader"/>
         <toolbaritem id="appMenu_historyMenu"
@@ -1109,9 +1112,10 @@
           <!-- history menu items will go here -->
         </toolbaritem>
       </vbox>
+      <toolbarseparator/>
       <toolbarbutton id="PanelUI-historyMore"
-                     class="panel-subview-footer subviewbutton"
-                     label="&appMenuHistory.showAll.label;"
+                     class="subviewbutton subviewbutton-iconic panel-subview-footer-button"
+                     data-l10n-id="appmenu-manage-history"
                      oncommand="PlacesCommandHook.showPlacesOrganizer('History'); CustomizableUI.hidePanelForNode(this);"/>
     </panelview>
 
@@ -1315,6 +1319,22 @@
                        data-l10n-id="more-menu-go-offline"
                        type="checkbox"
                        command="cmd_toggleOfflineStatus"/>
+      </vbox>
+    </panelview>
+
+    <panelview id="appmenu-moreTools" class="PanelUI-subView">
+      <vbox class="panel-subview-body">
+        <toolbarbutton id="appmenu-moreTools-button"
+                       class="subviewbutton"
+                       data-l10n-id="appmenu-customizetoolbar"
+                       command="cmd_CustomizeToolbars"/>
+        <toolbarseparator/>
+        <label id="appmenu-developer-tools"
+               data-l10n-id="appmenu-developer-tools-subheader"
+               class="subview-subheader"/>
+        <vbox id="appmenu-developer-tools-view" class="panel-subview-body">
+          <!-- Developer Tools menu items are inserted here -->
+        </vbox>
       </vbox>
     </panelview>
 
@@ -1610,6 +1630,17 @@
     </panelview>
   </html:template>
 
+  <html:dialog id="window-modal-dialog" style="visibility: hidden; height: 0; width: 0"/>
+  <html:template id="window-modal-dialog-template">
+    <vbox class="dialogTemplate dialogOverlay" align="center" topmost="true">
+      <hbox class="dialogBox">
+        <browser class="dialogFrame"
+                 autoscroll="false"
+                 disablehistory="true"/>
+      </hbox>
+    </vbox>
+  </html:template>
+
   <!-- Temporary wrapper until we move away from XUL flex to allow a negative
        margin-top to slide the toolbox off screen in fullscreen layout.-->
   <box>
@@ -1811,53 +1842,63 @@
                   <description id="tracking-protection-icon-tooltip-label" class="tooltip-label"/>
                 </tooltip>
               </box>
-              <box id="identity-box" role="button"
-                   align="center"
-                   data-l10n-id="urlbar-identity-button"
+              <box id="identity-box"
                    pageproxystate="invalid"
-                   onclick="gIdentityHandler.handleIdentityButtonEvent(event);"
-                   onkeypress="gIdentityHandler.handleIdentityButtonEvent(event);"
                    ondragstart="gIdentityHandler.onDragStart(event);">
-                <image id="identity-icon"
-                       consumeanchor="identity-box"
-                       onclick="PageProxyClickHandler(event);"/>
-                <image id="permissions-granted-icon"
-                       data-l10n-id="urlbar-permissions-granted"/>
-                <box style="pointer-events: none;">
-                    <image class="sharing-icon" id="webrtc-sharing-icon"/>
-                    <image class="sharing-icon geo-icon" id="geo-sharing-icon"/>
-                    <image class="sharing-icon xr-icon" id="xr-sharing-icon"/>
+                <box id="identity-icon-box"
+                     role="button"
+                     align="center"
+                     data-l10n-id="urlbar-identity-button"
+                     class="identity-box-button"
+                     onclick="gIdentityHandler.handleIdentityButtonEvent(event); PageProxyClickHandler(event);"
+                     onkeypress="gIdentityHandler.handleIdentityButtonEvent(event);">
+                  <image id="identity-icon"/>
+                  <image id="remote-control-icon"
+                       data-l10n-id="urlbar-remote-control-notification-anchor"/>
+                  <label id="identity-icon-label" class="plain" crop="center" flex="1"/>
                 </box>
-                <box id="blocked-permissions-container" align="center">
-                  <image data-permission-id="geo" class="blocked-permission-icon geo-icon" role="button"
-                         data-l10n-id="urlbar-geolocation-blocked"/>
-                  <image data-permission-id="xr" class="blocked-permission-icon xr-icon" role="button"
-                         data-l10n-id="urlbar-xr-blocked"/>
-                  <image data-permission-id="desktop-notification" class="blocked-permission-icon desktop-notification-icon" role="button"
-                         data-l10n-id="urlbar-web-notifications-blocked"/>
-                  <image data-permission-id="camera" class="blocked-permission-icon camera-icon" role="button"
-                         data-l10n-id="urlbar-camera-blocked"/>
-                  <image data-permission-id="microphone" class="blocked-permission-icon microphone-icon" role="button"
-                         data-l10n-id="urlbar-microphone-blocked"/>
-                  <image data-permission-id="screen" class="blocked-permission-icon screen-icon" role="button"
-                         data-l10n-id="urlbar-screen-blocked"/>
-                  <image data-permission-id="persistent-storage" class="blocked-permission-icon persistent-storage-icon" role="button"
-                         data-l10n-id="urlbar-persistent-storage-blocked"/>
-                  <image data-permission-id="popup" class="blocked-permission-icon popup-icon" role="button"
-                         data-l10n-id="urlbar-popup-blocked"/>
-                  <image data-permission-id="autoplay-media" class="blocked-permission-icon autoplay-media-icon" role="button"
-                         data-l10n-id="urlbar-autoplay-media-blocked"/>
-                  <image data-permission-id="canvas" class="blocked-permission-icon canvas-icon" role="button"
-                         data-l10n-id="urlbar-canvas-blocked"/>
-                  <image data-permission-id="midi" class="blocked-permission-icon midi-icon" role="button"
-                         data-l10n-id="urlbar-midi-blocked"/>
-                  <image data-permission-id="install" class="blocked-permission-icon install-icon" role="button"
-                         data-l10n-id="urlbar-install-blocked"/>
+                <box id="identity-permission-box"
+                     data-l10n-id="urlbar-permissions-granted"
+                     role="button"
+                     align="center"
+                     class="identity-box-button"
+                     onclick="gPermissionPanel.handleIdentityButtonEvent(event); PageProxyClickHandler(event);"
+                     onkeypress="gPermissionPanel.handleIdentityButtonEvent(event);">
+                  <image id="permissions-granted-icon"/>
+                  <box style="pointer-events: none;">
+                      <image class="sharing-icon" id="webrtc-sharing-icon"/>
+                      <image class="sharing-icon geo-icon" id="geo-sharing-icon"/>
+                      <image class="sharing-icon xr-icon" id="xr-sharing-icon"/>
+                  </box>
+                  <box id="blocked-permissions-container" align="center">
+                    <image data-permission-id="geo" class="blocked-permission-icon geo-icon" role="button"
+                          data-l10n-id="urlbar-geolocation-blocked"/>
+                    <image data-permission-id="xr" class="blocked-permission-icon xr-icon" role="button"
+                          data-l10n-id="urlbar-xr-blocked"/>
+                    <image data-permission-id="desktop-notification" class="blocked-permission-icon desktop-notification-icon" role="button"
+                          data-l10n-id="urlbar-web-notifications-blocked"/>
+                    <image data-permission-id="camera" class="blocked-permission-icon camera-icon" role="button"
+                          data-l10n-id="urlbar-camera-blocked"/>
+                    <image data-permission-id="microphone" class="blocked-permission-icon microphone-icon" role="button"
+                          data-l10n-id="urlbar-microphone-blocked"/>
+                    <image data-permission-id="screen" class="blocked-permission-icon screen-icon" role="button"
+                          data-l10n-id="urlbar-screen-blocked"/>
+                    <image data-permission-id="persistent-storage" class="blocked-permission-icon persistent-storage-icon" role="button"
+                          data-l10n-id="urlbar-persistent-storage-blocked"/>
+                    <image data-permission-id="popup" class="blocked-permission-icon popup-icon" role="button"
+                          data-l10n-id="urlbar-popup-blocked"/>
+                    <image data-permission-id="autoplay-media" class="blocked-permission-icon autoplay-media-icon" role="button"
+                          data-l10n-id="urlbar-autoplay-media-blocked"/>
+                    <image data-permission-id="canvas" class="blocked-permission-icon canvas-icon" role="button"
+                          data-l10n-id="urlbar-canvas-blocked"/>
+                    <image data-permission-id="midi" class="blocked-permission-icon midi-icon" role="button"
+                          data-l10n-id="urlbar-midi-blocked"/>
+                    <image data-permission-id="install" class="blocked-permission-icon install-icon" role="button"
+                          data-l10n-id="urlbar-install-blocked"/>
+                  </box>
                 </box>
                 <box id="notification-popup-box"
                      hidden="true"
-                     onmouseover="document.getElementById('identity-box').classList.add('no-hover');"
-                     onmouseout="document.getElementById('identity-box').classList.remove('no-hover');"
                      align="center">
                   <image id="default-notification-icon" class="notification-anchor-icon" role="button"
                          data-l10n-id="urlbar-default-notification-anchor"/>
@@ -1904,9 +1945,6 @@
                   <image id="storage-access-notification-icon" class="notification-anchor-icon storage-access-icon" role="button"
                          data-l10n-id="urlbar-storage-access-anchor"/>
                 </box>
-                <image id="remote-control-icon"
-                       data-l10n-id="urlbar-remote-control-notification-anchor"/>
-                <label id="identity-icon-label" class="plain" crop="center" flex="1"/>
               </box>
               <box id="urlbar-label-box" align="center">
                 <label id="urlbar-label-switchtab" class="urlbar-label" data-l10n-id="urlbar-switch-to-tab"/>

@@ -23,7 +23,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/InputStreamLengthHelper.h"
 #include "mozilla/NullPrincipal.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_security.h"
 #include "mozilla/Telemetry.h"
@@ -2070,7 +2070,7 @@ nsresult HttpBaseChannel::GetTopWindowURI(nsIURI* aURIBeingLoaded,
   // Only compute the top window URI once. In e10s, this must be computed in the
   // child. The parent gets the top window URI through HttpChannelOpenArgs.
   if (!mTopWindowURI) {
-    util = services::GetThirdPartyUtil();
+    util = components::ThirdPartyUtil::Service();
     if (!util) {
       return NS_ERROR_NOT_AVAILABLE;
     }
@@ -4173,14 +4173,22 @@ nsresult HttpBaseChannel::SetupReplacementChannel(nsIURI* newURI,
 
   // Check whether or not this was a cross-domain redirect.
   nsCOMPtr<nsITimedChannel> newTimedChannel(do_QueryInterface(newChannel));
+  bool sameOriginWithOriginalUri = SameOriginWithOriginalUri(newURI);
   if (config.timedChannel && newTimedChannel) {
     newTimedChannel->SetAllRedirectsSameOrigin(
         config.timedChannel->allRedirectsSameOrigin() &&
-        SameOriginWithOriginalUri(newURI));
+        sameOriginWithOriginalUri);
   }
 
   newChannel->SetLoadGroup(mLoadGroup);
   newChannel->SetNotificationCallbacks(mCallbacks);
+  // TODO: create tests for cross-origin redirect in bug 1662896.
+  if (sameOriginWithOriginalUri) {
+    newChannel->SetContentDisposition(mContentDispositionHint);
+    if (mContentDispositionFilename) {
+      newChannel->SetContentDispositionFilename(*mContentDispositionFilename);
+    }
+  }
 
   if (!httpChannel) return NS_OK;  // no other options to set
 

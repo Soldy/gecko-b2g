@@ -188,6 +188,7 @@ treeherder:
         'perftest': 'Performance tests'
         'perftest-http3': 'Performance tests with HTTP/3'
         'fuzzing': 'Fuzzing checks'
+        'l10n': 'Localization checks'
 
 index:
     products:
@@ -208,6 +209,7 @@ try:
     # all"
     ridealong-builds:
         'linux':
+            - 'sm-plain-linux32'
             - 'sm-arm-sim-linux32'
         'linux64':
             - 'sm-plain-linux64'
@@ -552,6 +554,11 @@ workers:
             os: linux
             worker-type: '{alias}'
         t-linux-talos:
+            provisioner: releng-hardware
+            implementation: generic-worker
+            os: linux
+            worker-type: 'gecko-{alias}'
+        t-linux-talos-1804:
             provisioner: releng-hardware
             implementation: generic-worker
             os: linux

@@ -691,11 +691,9 @@ HistoryMenu.prototype = {
   },
 
   toggleHiddenTabs() {
-    if (window.gBrowser && gBrowser.visibleTabs.length < gBrowser.tabs.length) {
-      this.hiddenTabsMenu.removeAttribute("hidden");
-    } else {
-      this.hiddenTabsMenu.setAttribute("hidden", "true");
-    }
+    const isShown =
+      window.gBrowser && gBrowser.visibleTabs.length < gBrowser.tabs.length;
+    this.hiddenTabsMenu.hidden = !isShown;
   },
 
   toggleRecentlyClosedTabs: function HM_toggleRecentlyClosedTabs() {
@@ -731,7 +729,9 @@ HistoryMenu.prototype = {
     // populate menu
     let tabsFragment = RecentlyClosedTabsAndWindowsMenuUtils.getTabsFragment(
       window,
-      "menuitem"
+      "menuitem",
+      /* aPrefixRestoreAll = */ false,
+      "menu-history-reopen-all-tabs"
     );
     undoPopup.appendChild(tabsFragment);
   },
@@ -769,7 +769,9 @@ HistoryMenu.prototype = {
     // populate menu
     let windowsFragment = RecentlyClosedTabsAndWindowsMenuUtils.getWindowsFragment(
       window,
-      "menuitem"
+      "menuitem",
+      /* aPrefixRestoreAll = */ false,
+      "menu-history-reopen-all-windows"
     );
     undoPopup.appendChild(windowsFragment);
   },
@@ -782,11 +784,11 @@ HistoryMenu.prototype = {
     }
 
     if (!PlacesUIUtils.shouldShowTabsFromOtherComputersMenuitem()) {
-      this.syncTabsMenuitem.setAttribute("hidden", true);
+      this.syncTabsMenuitem.hidden = true;
       return;
     }
 
-    this.syncTabsMenuitem.setAttribute("hidden", false);
+    this.syncTabsMenuitem.hidden = false;
   },
 
   _onPopupShowing: function HM__onPopupShowing(aEvent) {
@@ -2229,6 +2231,14 @@ var BookmarkingUI = {
     let staticButtons = panelview.getElementsByTagName("toolbarbutton");
     for (let i = 0, l = staticButtons.length; i < l; ++i) {
       CustomizableUI.addShortcut(staticButtons[i]);
+
+      // While we support this panel for both Proton and non-Proton versions
+      // of the AppMenu, we only want to show icons for the non-Proton
+      // version. When Proton ships and we remove the non-Proton variant,
+      // we can remove the subviewbutton-iconic classes from the markup.
+      if (PanelUI.protonAppMenuEnabled) {
+        staticButtons[i].classList.remove("subviewbutton-iconic");
+      }
     }
 
     // Setup the Places view.
@@ -2311,6 +2321,9 @@ var BookmarkingUI = {
   },
 
   handlePlacesEvents(aEvents) {
+    let isStarUpdateNeeded = false;
+    let affectsOtherBookmarksFolder = false;
+
     for (let ev of aEvents) {
       switch (ev.type) {
         case "bookmark-added":
@@ -2320,7 +2333,7 @@ var BookmarkingUI = {
               // If a new bookmark has been added to the tracked uri, register it.
               if (!this._itemGuids.has(ev.guid)) {
                 this._itemGuids.add(ev.guid);
-                this._updateStar();
+                isStarUpdateNeeded = true;
               }
             }
           }
@@ -2331,17 +2344,26 @@ var BookmarkingUI = {
             this._itemGuids.delete(ev.guid);
             // Only need to update the UI if the page is no longer starred
             if (this._itemGuids.size == 0) {
-              this._updateStar();
+              isStarUpdateNeeded = true;
             }
           }
           break;
       }
 
       if (ev.parentGuid === PlacesUtils.bookmarks.unfiledGuid) {
-        this.maybeShowOtherBookmarksFolder();
+        affectsOtherBookmarksFolder = true;
       }
-      this.updateEmptyToolbarMessage();
     }
+
+    if (isStarUpdateNeeded) {
+      this._updateStar();
+    }
+
+    if (affectsOtherBookmarksFolder) {
+      this.maybeShowOtherBookmarksFolder();
+    }
+
+    this.updateEmptyToolbarMessage();
   },
 
   onItemChanged(
@@ -2434,11 +2456,10 @@ var BookmarkingUI = {
       SHOW_OTHER_BOOKMARKS &&
       placement?.area == CustomizableUI.AREA_BOOKMARKS
     ) {
-      let result = PlacesUtils.getFolderContents(unfiledGuid);
-      let node = result.root;
-
       // Build the "Other Bookmarks" button if it doesn't exist.
       if (!otherBookmarks) {
+        const result = PlacesUtils.getFolderContents(unfiledGuid);
+        const node = result.root;
         this.buildOtherBookmarksFolder(node);
       }
 

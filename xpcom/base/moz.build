@@ -32,6 +32,9 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
         "nsIMacPreferencesReader.idl",
         "nsIMacUtils.idl",
     ]
+    EXPORTS += [
+        "nsObjCExceptions.h",
+    ]
     EXPORTS.mozilla += [
         "MacHelpers.h",
         "MacStringHelpers.h",
@@ -41,6 +44,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
         "MacHelpers.mm",
         "MacStringHelpers.mm",
         "nsMacPreferencesReader.mm",
+        "nsObjCExceptions.mm",
     ]
 
 XPIDL_MODULE = "xpcom_base"
@@ -83,7 +87,6 @@ EXPORTS += [
     "nsMaybeWeakPtr.h",
     "nsMemory.h",
     "nsMemoryReporterManager.h",
-    "nsObjCExceptions.h",
     "nsQueryObject.h",
     "nsSystemInfo.h",
     "nsTraceRefcnt.h",
@@ -208,6 +211,14 @@ GeneratedFile(
     "ErrorNamesInternal.h", script="ErrorList.py", entry_point="error_names_internal_h"
 )
 GeneratedFile("error_list.rs", script="ErrorList.py", entry_point="error_list_rs")
+
+if CONFIG['OS_ARCH'] == 'Linux':
+    SOURCES += [
+        'LinuxUtils.cpp',
+    ]
+    EXPORTS.mozilla += [
+        'LinuxUtils.h',
+    ]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     SOURCES += [

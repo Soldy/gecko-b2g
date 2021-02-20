@@ -532,9 +532,10 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   bool GetClosedOuter();
   bool Closed() override;
   void StopOuter(mozilla::ErrorResult& aError);
-  void FocusOuter(mozilla::dom::CallerType aCallerType, uint64_t aActionId);
+  void FocusOuter(mozilla::dom::CallerType aCallerType, bool aFromOtherProcess,
+                  uint64_t aActionId);
   nsresult Focus(mozilla::dom::CallerType aCallerType) override;
-  void BlurOuter();
+  void BlurOuter(mozilla::dom::CallerType aCallerType);
   mozilla::dom::WindowProxyHolder GetFramesOuter();
   uint32_t Length();
   mozilla::dom::Nullable<mozilla::dom::WindowProxyHolder> GetTopOuter();
@@ -894,26 +895,25 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   nsIntSize CSSToDevIntPixelsForBaseWindow(nsIntSize aCSSSize,
                                            nsIBaseWindow* aWindow);
 
-  virtual void SetFocusedElement(mozilla::dom::Element* aElement,
-                                 uint32_t aFocusMethod = 0,
-                                 bool aNeedsFocus = false) override;
+  void SetFocusedElement(mozilla::dom::Element* aElement,
+                         uint32_t aFocusMethod = 0, bool aNeedsFocus = false,
+                         bool aWillShowOutline = false) override;
 
-  virtual uint32_t GetFocusMethod() override;
+  uint32_t GetFocusMethod() override;
 
-  virtual bool ShouldShowFocusRing() override;
+  bool ShouldShowFocusRing() override;
 
-  virtual void SetKeyboardIndicators(
-      UIStateChangeType aShowFocusRings) override;
+  void SetKeyboardIndicators(UIStateChangeType aShowFocusRings) override;
 
  public:
-  virtual already_AddRefed<nsPIWindowRoot> GetTopWindowRoot() override;
+  already_AddRefed<nsPIWindowRoot> GetTopWindowRoot() override;
 
  protected:
   void NotifyWindowIDDestroyed(const char* aTopic);
 
   void ClearStatus();
 
-  virtual void UpdateParentTarget() override;
+  void UpdateParentTarget() override;
 
   void InitializeShowFocusRings();
 

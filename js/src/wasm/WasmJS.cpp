@@ -48,8 +48,10 @@
 #include "vm/PlainObject.h"    // js::PlainObject
 #include "vm/PromiseObject.h"  // js::PromiseObject
 #include "vm/StringType.h"
-#include "vm/Warnings.h"  // js::WarnNumberASCII
+#include "vm/Warnings.h"       // js::WarnNumberASCII
+#include "vm/WellKnownAtom.h"  // js_*_str
 #include "wasm/WasmBaselineCompile.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmCompile.h"
 #include "wasm/WasmCraneliftCompile.h"
 #include "wasm/WasmInstance.h"
@@ -408,9 +410,32 @@ bool wasm::SimdAvailable(JSContext* cx) {
          (BaselineAvailable(cx) || IonAvailable(cx) || CraneliftAvailable(cx));
 }
 
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+static bool IsSimdPrivilegedContext(JSContext* cx) {
+  // This may be slightly more lenient than we want in an ideal world, but it
+  // remains safe.
+  return cx->realm() && cx->realm()->principals() &&
+         cx->realm()->principals()->isSystemOrAddonPrincipal();
+}
+#endif
+
 bool wasm::SimdWormholeAvailable(JSContext* cx) {
-  return WasmSimdWormholeFlag(cx) && SimdAvailable(cx) && IonAvailable(cx) &&
-         !BaselineAvailable(cx) && !CraneliftAvailable(cx);
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+  // The #ifdef ensures that we only enable the wormhole on hardware that
+  // supports it and if SIMD support is compiled in.
+  //
+  // Next we must check that the CPU supports SIMD; it might not, even if SIMD
+  // is available.  Do this directly, not via WasmSimdFlag().
+  //
+  // Do not go via WasmSimdFlag() because we do not want to gate on
+  // j.o.wasm_simd.  If the wormhole is available, requesting it will
+  // force-enable SIMD.
+  return js::jit::JitSupportsWasmSimd() &&
+         (WasmSimdWormholeFlag(cx) || IsSimdPrivilegedContext(cx)) &&
+         (IonAvailable(cx) || BaselineAvailable(cx)) && !CraneliftAvailable(cx);
+#else
+  return false;
+#endif
 }
 
 bool wasm::ThreadsAvailable(JSContext* cx) {
@@ -742,11 +767,47 @@ static bool DescribeScriptedCaller(JSContext* cx, ScriptedCaller* caller,
   return true;
 }
 
+// Parse the options bag that is optionally passed to functions that compile
+// wasm.  This is for internal experimentation purposes.  See comments about the
+// SIMD wormhole in WasmConstants.h.
+
+static bool ParseCompileOptions(JSContext* cx, HandleValue maybeOptions,
+                                FeatureOptions* options) {
+  if (WasmSimdWormholeFlag(cx)) {
+    if (maybeOptions.isObject()) {
+      RootedValue wormholeVal(cx);
+      RootedObject obj(cx, &maybeOptions.toObject());
+      if (!JS_GetProperty(cx, obj, "simdWormhole", &wormholeVal)) {
+        return false;
+      }
+      if (wormholeVal.isBoolean()) {
+        options->simdWormhole = wormholeVal.toBoolean();
+      }
+    }
+  }
+  return true;
+}
+
+static SharedCompileArgs InitCompileArgs(JSContext* cx,
+                                         HandleValue maybeOptions,
+                                         const char* introducer) {
+  ScriptedCaller scriptedCaller;
+  if (!DescribeScriptedCaller(cx, &scriptedCaller, introducer)) {
+    return nullptr;
+  }
+
+  FeatureOptions options;
+  if (!ParseCompileOptions(cx, maybeOptions, &options)) {
+    return nullptr;
+  }
+  return CompileArgs::build(cx, std::move(scriptedCaller), options);
+}
+
 // ============================================================================
 // Testing / Fuzzing support
 
 bool wasm::Eval(JSContext* cx, Handle<TypedArrayObject*> code,
-                HandleObject importObj,
+                HandleObject importObj, HandleValue maybeOptions,
                 MutableHandleWasmInstanceObject instanceObj) {
   if (!GlobalObject::ensureConstructor(cx, cx->global(), JSProto_WebAssembly)) {
     return false;
@@ -763,22 +824,16 @@ bool wasm::Eval(JSContext* cx, Handle<TypedArrayObject*> code,
     return false;
   }
 
-  ScriptedCaller scriptedCaller;
-  if (!DescribeScriptedCaller(cx, &scriptedCaller, "wasm_eval")) {
-    return false;
-  }
-
   SharedCompileArgs compileArgs =
-      CompileArgs::build(cx, std::move(scriptedCaller));
+      InitCompileArgs(cx, maybeOptions, "wasm_eval");
   if (!compileArgs) {
     return false;
   }
 
   UniqueChars error;
   UniqueCharsVector warnings;
-  JSTelemetrySender sender(cx->runtime());
-  SharedModule module = CompileBuffer(*compileArgs, *bytecode, &error,
-                                      &warnings, nullptr, sender);
+  SharedModule module =
+      CompileBuffer(*compileArgs, *bytecode, &error, &warnings, nullptr);
   if (!module) {
     if (error) {
       JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
@@ -1517,16 +1572,6 @@ static bool GetBufferSource(JSContext* cx, JSObject* obj, unsigned errorNumber,
   return true;
 }
 
-static SharedCompileArgs InitCompileArgs(JSContext* cx,
-                                         const char* introducer) {
-  ScriptedCaller scriptedCaller;
-  if (!DescribeScriptedCaller(cx, &scriptedCaller, introducer)) {
-    return nullptr;
-  }
-
-  return CompileArgs::build(cx, std::move(scriptedCaller));
-}
-
 static bool ReportCompileWarnings(JSContext* cx,
                                   const UniqueCharsVector& warnings) {
   // Avoid spamming the console.
@@ -1574,16 +1619,16 @@ bool WasmModuleObject::construct(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  SharedCompileArgs compileArgs = InitCompileArgs(cx, "WebAssembly.Module");
+  SharedCompileArgs compileArgs =
+      InitCompileArgs(cx, callArgs.get(1), "WebAssembly.Module");
   if (!compileArgs) {
     return false;
   }
 
   UniqueChars error;
   UniqueCharsVector warnings;
-  JSTelemetrySender sender(cx->runtime());
-  SharedModule module = CompileBuffer(*compileArgs, *bytecode, &error,
-                                      &warnings, nullptr, sender);
+  SharedModule module =
+      CompileBuffer(*compileArgs, *bytecode, &error, &warnings, nullptr);
   if (!module) {
     if (error) {
       JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
@@ -1981,12 +2026,16 @@ bool WasmInstanceObject::getExportedFunction(
     // Some applications eagerly access all table elements which currently
     // triggers worst-case behavior for lazy stubs, since each will allocate a
     // separate 4kb code page. Most eagerly-accessed functions are not called,
-    // so use the JIT's interpreter-trampoline (a call into the VM) as JitEntry
-    // and wait until Instance::callExport() to create the entry stubs.
+    // so use a shared, provisional (and slow) stub as JitEntry and wait until
+    // Instance::callExport() to create the fast entry stubs.
     if (funcExport.canHaveJitEntry()) {
       if (!funcExport.hasEagerStubs()) {
-        void* interpStub = cx->runtime()->jitRuntime()->interpreterStub().value;
-        instance.code().setJitEntryIfNull(funcIndex, interpStub);
+        if (!EnsureBuiltinThunksInitialized()) {
+          return false;
+        }
+        void* provisionalJitEntryStub = ProvisionalJitEntryStub();
+        MOZ_ASSERT(provisionalJitEntryStub);
+        instance.code().setJitEntryIfNull(funcIndex, provisionalJitEntryStub);
       }
       fun->setWasmJitEntry(instance.code().getAddressOfJitEntry(funcIndex));
     } else {
@@ -3741,20 +3790,18 @@ struct CompileBufferTask : PromiseHelperTask {
   SharedModule module;
   bool instantiate;
   PersistentRootedObject importObj;
-  JSTelemetrySender sender;
 
   CompileBufferTask(JSContext* cx, Handle<PromiseObject*> promise,
                     HandleObject importObj)
       : PromiseHelperTask(cx, promise),
         instantiate(true),
-        importObj(cx, importObj),
-        sender(cx->runtime()) {}
+        importObj(cx, importObj) {}
 
   CompileBufferTask(JSContext* cx, Handle<PromiseObject*> promise)
       : PromiseHelperTask(cx, promise), instantiate(false) {}
 
-  bool init(JSContext* cx, const char* introducer) {
-    compileArgs = InitCompileArgs(cx, introducer);
+  bool init(JSContext* cx, HandleValue maybeOptions, const char* introducer) {
+    compileArgs = InitCompileArgs(cx, maybeOptions, introducer);
     if (!compileArgs) {
       return false;
     }
@@ -3762,8 +3809,7 @@ struct CompileBufferTask : PromiseHelperTask {
   }
 
   void execute() override {
-    module = CompileBuffer(*compileArgs, *bytecode, &error, &warnings, nullptr,
-                           sender);
+    module = CompileBuffer(*compileArgs, *bytecode, &error, &warnings, nullptr);
   }
 
   bool resolve(JSContext* cx, Handle<PromiseObject*> promise) override {
@@ -3828,12 +3874,12 @@ static bool WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+  CallArgs callArgs = CallArgsFromVp(argc, vp);
+
   auto task = cx->make_unique<CompileBufferTask>(cx, promise);
-  if (!task || !task->init(cx, "WebAssembly.compile")) {
+  if (!task || !task->init(cx, callArgs.get(1), "WebAssembly.compile")) {
     return false;
   }
-
-  CallArgs callArgs = CallArgsFromVp(argc, vp);
 
   if (!GetBufferSource(cx, callArgs, "WebAssembly.compile", &task->bytecode)) {
     return RejectWithPendingException(cx, promise, callArgs);
@@ -3892,7 +3938,7 @@ static bool WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp) {
     }
   } else {
     auto task = cx->make_unique<CompileBufferTask>(cx, promise, importObj);
-    if (!task || !task->init(cx, "WebAssembly.instantiate")) {
+    if (!task || !task->init(cx, callArgs.get(2), "WebAssembly.instantiate")) {
       return false;
     }
 
@@ -3918,8 +3964,10 @@ static bool WebAssembly_validate(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+  FeatureOptions options;
+  ParseCompileOptions(cx, callArgs.get(1), &options);
   UniqueChars error;
-  bool validated = Validate(cx, *bytecode, &error);
+  bool validated = Validate(cx, *bytecode, options, &error);
 
   // If the reason for validation failure was OOM (signalled by null error
   // message), report out-of-memory so that validate's return is always
@@ -4011,8 +4059,6 @@ class CompileStreamTask : public PromiseHelperTask, public JS::StreamConsumer {
 
   // Set on stream thread and read racily on helper thread to abort compilation:
   Atomic<bool> streamFailed_;
-
-  JSTelemetrySender sender_;
 
   // Called on some thread before consumeChunk(), streamEnd(), streamError()):
 
@@ -4160,7 +4206,7 @@ class CompileStreamTask : public PromiseHelperTask, public JS::StreamConsumer {
           return;
         }
         module_ = CompileBuffer(*compileArgs_, *bytecode, &compileError_,
-                                &warnings_, nullptr, sender_);
+                                &warnings_, nullptr);
         setClosedAndDestroyBeforeHelperThreadStarted();
         return;
       }
@@ -4207,10 +4253,9 @@ class CompileStreamTask : public PromiseHelperTask, public JS::StreamConsumer {
   // Called on a helper thread:
 
   void execute() override {
-    module_ =
-        CompileStreaming(*compileArgs_, envBytes_, codeBytes_,
-                         exclusiveCodeBytesEnd_, exclusiveStreamEnd_,
-                         streamFailed_, &compileError_, &warnings_, sender_);
+    module_ = CompileStreaming(*compileArgs_, envBytes_, codeBytes_,
+                               exclusiveCodeBytesEnd_, exclusiveStreamEnd_,
+                               streamFailed_, &compileError_, &warnings_);
 
     // When execute() returns, the CompileStreamTask will be dispatched
     // back to its JS thread to call resolve() and then be destroyed. We
@@ -4258,8 +4303,7 @@ class CompileStreamTask : public PromiseHelperTask, public JS::StreamConsumer {
         codeBytesEnd_(nullptr),
         exclusiveCodeBytesEnd_(mutexid::WasmCodeBytesEnd, nullptr),
         exclusiveStreamEnd_(mutexid::WasmStreamEnd),
-        streamFailed_(false),
-        sender_(cx->runtime()) {
+        streamFailed_(false) {
     MOZ_ASSERT_IF(importObj_, instantiate_);
   }
 };
@@ -4411,7 +4455,8 @@ static bool ResolveResponse(JSContext* cx, CallArgs callArgs,
   const char* introducer = instantiate ? "WebAssembly.instantiateStreaming"
                                        : "WebAssembly.compileStreaming";
 
-  SharedCompileArgs compileArgs = InitCompileArgs(cx, introducer);
+  SharedCompileArgs compileArgs =
+      InitCompileArgs(cx, callArgs.get(instantiate ? 2 : 1), introducer);
   if (!compileArgs) {
     return false;
   }

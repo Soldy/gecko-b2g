@@ -538,6 +538,9 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
   policy->AddPath(rdwr, "/dev/ashmem");
   policy->AddPath(rdwr, "/dev/ion");
 
+  // Android emulator GPU
+  policy->AddPath(rdwr, "/dev/goldfish_pipe");
+
 #  if MOZ_SANDBOX_GPU_NODE == GPU_NODE_adreno
   policy->AddPath(rdwr, "/dev/kgsl-3d0");
   policy->AddPath(rdwr, "/dev/kgsl-2d0");
@@ -614,7 +617,16 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
         nsAutoCString tmpPath;
         rv = workDir->GetNativePath(tmpPath);
         if (NS_SUCCEEDED(rv)) {
-          policy->AddDir(rdonly, tmpPath.get());
+          bool exists;
+          rv = workDir->Exists(&exists);
+          if (NS_SUCCEEDED(rv)) {
+            if (!exists) {
+              policy->AddPrefix(rdonly, tmpPath.get());
+              policy->AddPath(rdonly, tmpPath.get());
+            } else {
+              policy->AddDir(rdonly, tmpPath.get());
+            }
+          }
         }
       }
     }

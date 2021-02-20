@@ -35,7 +35,9 @@ function debugEvents(global, els) {
   }
 }
 
-var WebViewChild = {
+function WebViewChild() {}
+
+WebViewChild.prototype = {
   // Prints arguments separated by a space and appends a new line.
   log(...args) {
     dump("WebViewChild: ");

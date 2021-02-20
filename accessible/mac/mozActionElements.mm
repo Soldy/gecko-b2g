@@ -106,11 +106,11 @@ enum CheckboxValue {
 }
 
 - (id)moxValue {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   return [NSNumber numberWithInt:[self isChecked]];
 
-  NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
+  NS_OBJC_END_TRY_BLOCK_RETURN(nil);
 }
 
 - (void)stateChanged:(uint64_t)state isEnabled:(BOOL)enabled {
@@ -180,7 +180,7 @@ enum CheckboxValue {
  */
 
 - (void)changeValueBySteps:(int)factor {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
+  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
   if (Accessible* acc = mGeckoAccessible.AsAccessible()) {
     double newVal = acc->CurValue() + (acc->Step() * factor);
@@ -202,7 +202,7 @@ enum CheckboxValue {
     }
   }
 
-  NS_OBJC_END_TRY_ABORT_BLOCK;
+  NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
 @end

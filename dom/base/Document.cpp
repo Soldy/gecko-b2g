@@ -100,7 +100,7 @@
 #include "mozilla/SMILAnimationController.h"
 #include "mozilla/SMILTimeContainer.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "mozilla/ServoCSSPropList.h"
 #include "mozilla/ServoStyleConsts.h"
 #include "mozilla/ServoStyleSet.h"
@@ -890,18 +890,6 @@ void ExternalResourceMap::ShowViewers() {
   }
 }
 
-void TransferOverrideDPPX(Document* aFromDoc, Document* aToDoc) {
-  MOZ_ASSERT(aFromDoc && aToDoc, "transferring zoom levels from/to null doc");
-
-  nsPresContext* fromCtxt = aFromDoc->GetPresContext();
-  if (!fromCtxt) return;
-
-  nsPresContext* toCtxt = aToDoc->GetPresContext();
-  if (!toCtxt) return;
-
-  toCtxt->SetOverrideDPPX(fromCtxt->GetOverrideDPPX());
-}
-
 void TransferShowingState(Document* aFromDoc, Document* aToDoc) {
   MOZ_ASSERT(aFromDoc && aToDoc, "transferring showing state from/to null doc");
 
@@ -945,8 +933,8 @@ nsresult ExternalResourceMap::AddExternalResource(nsIURI* aURI,
     }
   }
 
-  ExternalResource* newResource = new ExternalResource();
-  mMap.Put(aURI, newResource);
+  ExternalResource* newResource =
+      mMap.Put(aURI, MakeUnique<ExternalResource>()).get();
 
   newResource->mDocument = doc;
   newResource->mViewer = aViewer;
@@ -955,7 +943,6 @@ nsresult ExternalResourceMap::AddExternalResource(nsIURI* aURI,
     if (nsPresContext* pc = doc->GetPresContext()) {
       pc->RecomputeBrowsingContextDependentData();
     }
-    TransferOverrideDPPX(aDisplayDocument, doc);
     TransferShowingState(aDisplayDocument, doc);
   }
 
@@ -2667,17 +2654,6 @@ void Document::RemoveAllProperties() { PropertyTable().RemoveAllProperties(); }
 
 void Document::RemoveAllPropertiesFor(nsINode* aNode) {
   PropertyTable().RemoveAllPropertiesFor(aNode);
-}
-
-bool Document::IsVisibleConsideringAncestors() const {
-  const Document* parent = this;
-  do {
-    if (!parent->IsVisible()) {
-      return false;
-    }
-  } while ((parent = parent->GetInProcessParentDocument()));
-
-  return true;
 }
 
 void Document::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup) {
@@ -11838,11 +11814,17 @@ void Document::MaybePreconnect(nsIURI* aOrigURI, mozilla::CORSMode aCORSMode) {
     return;
   }
 
-  auto entry = mPreloadedPreconnects.LookupForAdd(uri);
-  if (entry) {
-    return;  // we found an existing entry
+  const bool existingEntryFound =
+      mPreloadedPreconnects.WithEntryHandle(uri, [](auto&& entry) {
+        if (entry) {
+          return true;
+        }
+        entry.Insert(true);
+        return false;
+      });
+  if (existingEntryFound) {
+    return;
   }
-  entry.OrInsert([]() { return true; });
 
   nsCOMPtr<nsISpeculativeConnect> speculator(
       do_QueryInterface(nsContentUtils::GetIOService()));
@@ -12818,6 +12800,11 @@ void Document::GetPlugins(nsTArray<nsIObjectLoadingContent*>& aPlugins) {
 void Document::ScheduleSVGUseElementShadowTreeUpdate(
     SVGUseElement& aUseElement) {
   MOZ_ASSERT(aUseElement.IsInComposedDoc());
+
+  if (MOZ_UNLIKELY(mIsStaticDocument)) {
+    // Printing doesn't deal well with dynamic DOM mutations.
+    return;
+  }
 
   mSVGUseElementsNeedingShadowTreeUpdate.PutEntry(&aUseElement);
 
@@ -15323,38 +15310,32 @@ already_AddRefed<Element> Document::CreateHTMLElement(nsAtom* aTag) {
   return element.forget();
 }
 
-static CallState MarkDocumentTreeToBeInSyncOperation(
-    Document& aDoc, nsTArray<RefPtr<Document>>& aDocuments) {
-  aDoc.SetIsInSyncOperation(true);
-  if (nsCOMPtr<nsPIDOMWindowInner> window = aDoc.GetInnerWindow()) {
-    window->TimeoutManager().BeginSyncOperation();
+void AutoWalkBrowsingContextGroup::SuppressBrowsingContextGroup(
+    BrowsingContextGroup* aGroup) {
+  for (const auto& bc : aGroup->Toplevels()) {
+    bc->PreOrderWalk([&](BrowsingContext* aBC) {
+      if (nsCOMPtr<nsPIDOMWindowOuter> win = aBC->GetDOMWindow()) {
+        if (RefPtr<Document> doc = win->GetExtantDoc()) {
+          SuppressDocument(doc);
+          mDocuments.AppendElement(doc);
+        }
+      }
+    });
   }
-  aDocuments.AppendElement(&aDoc);
-  auto recurse = [&aDocuments](Document& aSubDoc) {
-    return MarkDocumentTreeToBeInSyncOperation(aSubDoc, aDocuments);
-  };
-  aDoc.EnumerateSubDocuments(recurse);
-  return CallState::Continue;
 }
 
 nsAutoSyncOperation::nsAutoSyncOperation(Document* aDoc,
                                          SyncOperationBehavior aSyncBehavior)
     : mSyncBehavior(aSyncBehavior) {
   mMicroTaskLevel = 0;
-  CycleCollectedJSContext* ccjs = CycleCollectedJSContext::Get();
-  if (ccjs) {
+  if (CycleCollectedJSContext* ccjs = CycleCollectedJSContext::Get()) {
     mMicroTaskLevel = ccjs->MicroTaskLevel();
     ccjs->SetMicroTaskLevel(0);
   }
   if (aDoc) {
-    if (nsPIDOMWindowOuter* win = aDoc->GetWindow()) {
-      if (nsCOMPtr<nsPIDOMWindowOuter> top = win->GetInProcessTop()) {
-        if (RefPtr<Document> doc = top->GetExtantDoc()) {
-          MarkDocumentTreeToBeInSyncOperation(*doc, mDocuments);
-        }
-      }
+    if (auto* bcg = aDoc->GetDocGroup()->GetBrowsingContextGroup()) {
+      SuppressBrowsingContextGroup(bcg);
     }
-
     mBrowsingContext = aDoc->GetBrowsingContext();
     if (mBrowsingContext &&
         mSyncBehavior == SyncOperationBehavior::eSuspendInput &&
@@ -15364,18 +15345,26 @@ nsAutoSyncOperation::nsAutoSyncOperation(Document* aDoc,
   }
 }
 
-nsAutoSyncOperation::~nsAutoSyncOperation() {
-  for (RefPtr<Document>& doc : mDocuments) {
-    if (nsCOMPtr<nsPIDOMWindowInner> window = doc->GetInnerWindow()) {
-      window->TimeoutManager().EndSyncOperation();
-    }
-    doc->SetIsInSyncOperation(false);
+void nsAutoSyncOperation::SuppressDocument(Document* aDoc) {
+  if (nsCOMPtr<nsPIDOMWindowInner> win = aDoc->GetInnerWindow()) {
+    win->TimeoutManager().BeginSyncOperation();
   }
+  aDoc->SetIsInSyncOperation(true);
+}
+
+void nsAutoSyncOperation::UnsuppressDocument(Document* aDoc) {
+  if (nsCOMPtr<nsPIDOMWindowInner> win = aDoc->GetInnerWindow()) {
+    win->TimeoutManager().EndSyncOperation();
+  }
+  aDoc->SetIsInSyncOperation(false);
+}
+
+nsAutoSyncOperation::~nsAutoSyncOperation() {
+  UnsuppressDocuments();
   CycleCollectedJSContext* ccjs = CycleCollectedJSContext::Get();
   if (ccjs) {
     ccjs->SetMicroTaskLevel(mMicroTaskLevel);
   }
-
   if (mBrowsingContext &&
       mSyncBehavior == SyncOperationBehavior::eSuspendInput &&
       InputTaskManager::CanSuspendInputEvent()) {
@@ -15581,6 +15570,17 @@ bool Document::HasValidTransientUserGestureActivation() {
 bool Document::ConsumeTransientUserGestureActivation() {
   RefPtr<WindowContext> wc = GetWindowContext();
   return wc && wc->ConsumeTransientUserGestureActivation();
+}
+
+void Document::IncLazyLoadImageCount() {
+  if (!mLazyLoadImageCount) {
+    if (WindowContext* wc = GetTopLevelWindowContext()) {
+      if (!wc->HadLazyLoadImage()) {
+        MOZ_ALWAYS_SUCCEEDS(wc->SetHadLazyLoadImage(true));
+      }
+    }
+  }
+  ++mLazyLoadImageCount;
 }
 
 void Document::SetDocTreeHadMedia() {
@@ -16911,7 +16911,8 @@ bool Document::HasThirdPartyChannel() {
     // We assume that the channel is a third-party by default.
     bool thirdParty = true;
 
-    nsCOMPtr<mozIThirdPartyUtil> thirdPartyUtil = services::GetThirdPartyUtil();
+    nsCOMPtr<mozIThirdPartyUtil> thirdPartyUtil =
+        components::ThirdPartyUtil::Service();
     if (!thirdPartyUtil) {
       return thirdParty;
     }

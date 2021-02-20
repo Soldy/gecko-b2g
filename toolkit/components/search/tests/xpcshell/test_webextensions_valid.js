@@ -52,11 +52,30 @@ add_task(async function test_valid_extensions_do_nothing() {
     "Should have installed the engine"
   );
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
 
   let scalars = TelemetryTestUtils.getProcessScalars("parent", true, true);
 
   Assert.deepEqual(scalars, {}, "Should not have recorded any issues");
+});
+
+add_task(async function test_different_name() {
+  Services.telemetry.clearScalars();
+
+  let engine = Services.search.getEngineByName("Example");
+
+  engine.wrappedJSObject._name = "Example Test";
+
+  await Services.search.runBackgroundChecks();
+
+  TelemetryTestUtils.assertKeyedScalar(
+    TelemetryTestUtils.getProcessScalars("parent", true, true),
+    "browser.searchinit.engine_invalid_webextension",
+    extension.id,
+    5
+  );
+
+  engine.wrappedJSObject._name = "Example";
 });
 
 add_task(async function test_different_url() {
@@ -66,18 +85,44 @@ add_task(async function test_different_url() {
 
   engine.wrappedJSObject._urls = [];
   engine.wrappedJSObject._setUrls({
-    name: "Example",
     search_url: "https://example.com/123",
     search_url_get_params: "?q={searchTerms}",
   });
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
 
   TelemetryTestUtils.assertKeyedScalar(
     TelemetryTestUtils.getProcessScalars("parent", true, true),
     "browser.searchinit.engine_invalid_webextension",
     extension.id,
-    3
+    6
+  );
+});
+
+add_task(async function test_extension_no_longer_specifies_engine() {
+  Services.telemetry.clearScalars();
+
+  let extensionInfo = {
+    useAddonManager: "permanent",
+    manifest: {
+      version: "2.0",
+      applications: {
+        gecko: {
+          id: "example@tests.mozilla.org",
+        },
+      },
+    },
+  };
+
+  await extension.upgrade(extensionInfo);
+
+  await Services.search.runBackgroundChecks();
+
+  TelemetryTestUtils.assertKeyedScalar(
+    TelemetryTestUtils.getProcessScalars("parent", true, true),
+    "browser.searchinit.engine_invalid_webextension",
+    extension.id,
+    4
   );
 });
 
@@ -89,7 +134,7 @@ add_task(async function test_disabled_extension() {
   // stubbed removeEngine.
   await extension.addon.disable();
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
 
   TelemetryTestUtils.assertKeyedScalar(
     TelemetryTestUtils.getProcessScalars("parent", true, true),
@@ -111,7 +156,7 @@ add_task(async function test_missing_extension() {
   // stubbed removeEngine.
   await extension.unload();
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
 
   TelemetryTestUtils.assertKeyedScalar(
     TelemetryTestUtils.getProcessScalars("parent", true, true),
@@ -128,7 +173,7 @@ add_task(async function test_user_engine() {
 
   await Services.search.addUserEngine("test", "https://example.com/", "fake");
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
   let scalars = TelemetryTestUtils.getProcessScalars("parent", true, true);
 
   Assert.deepEqual(
@@ -151,7 +196,7 @@ add_task(async function test_policy_engine() {
     },
   });
 
-  await Services.search.checkWebExtensionEngines();
+  await Services.search.runBackgroundChecks();
   let scalars = TelemetryTestUtils.getProcessScalars("parent", true, true);
 
   Assert.deepEqual(

@@ -1825,7 +1825,7 @@ bool GCMarker::markUntilBudgetExhausted(SliceBudget& budget,
      * above tracing. Don't do this until we're done with everything
      * else.
      */
-    if (!markAllDelayedChildren(budget)) {
+    if (!markAllDelayedChildren(budget, reportTime)) {
       return false;
     }
   }
@@ -2691,13 +2691,14 @@ bool GCMarker::processDelayedMarkingList(MarkColor color, SliceBudget& budget) {
   return true;
 }
 
-bool GCMarker::markAllDelayedChildren(SliceBudget& budget) {
+bool GCMarker::markAllDelayedChildren(SliceBudget& budget,
+                                      ShouldReportMarkTime reportTime) {
   MOZ_ASSERT(!hasBlackEntries());
   MOZ_ASSERT(markColor() == MarkColor::Black);
 
   GCRuntime& gc = runtime()->gc;
   mozilla::Maybe<gcstats::AutoPhase> ap;
-  if (gc.state() == State::Mark) {
+  if (reportTime) {
     ap.emplace(gc.stats(), gcstats::PhaseKind::MARK_DELAYED);
   }
 
@@ -3492,9 +3493,12 @@ JSString* js::TenuringTracer::moveToTenured(JSString* src) {
 
   auto* overlay = StringRelocationOverlay::forwardCell(src, dst);
   MOZ_ASSERT(dst->isDeduplicatable());
-  // The base root might be deduplicated, so the non-inlined chars might no
-  // longer be valid. Insert the overlay into this list to relocate it later.
-  insertIntoStringFixupList(overlay);
+
+  if (dst->hasBase() || dst->isRope()) {
+    // dst or one of its leaves might have a base that will be deduplicated.
+    // Insert the overlay into the fixup list to relocate it later.
+    insertIntoStringFixupList(overlay);
+  }
 
   gcprobes::PromoteToTenured(src, dst);
   return dst;
@@ -3564,13 +3568,6 @@ void js::Nursery::relocateDependentStringChars(
   }
 }
 
-inline void js::TenuringTracer::insertIntoBigIntFixupList(
-    RelocationOverlay* entry) {
-  *bigIntTail = entry;
-  bigIntTail = &entry->nextRef();
-  *bigIntTail = nullptr;
-}
-
 JS::BigInt* js::TenuringTracer::moveToTenured(JS::BigInt* src) {
   MOZ_ASSERT(IsInsideNursery(src));
   MOZ_ASSERT(!src->nurseryZone()->usedByHelperThread());
@@ -3583,19 +3580,20 @@ JS::BigInt* js::TenuringTracer::moveToTenured(JS::BigInt* src) {
   tenuredSize += moveBigIntToTenured(dst, src, dstKind);
   tenuredCells++;
 
-  RelocationOverlay* overlay = RelocationOverlay::forwardCell(src, dst);
-  insertIntoBigIntFixupList(overlay);
+  RelocationOverlay::forwardCell(src, dst);
 
   gcprobes::PromoteToTenured(src, dst);
   return dst;
 }
 
-void js::Nursery::collectToFixedPoint(TenuringTracer& mover) {
+void js::Nursery::collectToObjectFixedPoint(TenuringTracer& mover) {
   for (RelocationOverlay* p = mover.objHead; p; p = p->next()) {
     auto* obj = static_cast<JSObject*>(p->forwardingAddress());
     mover.traceObject(obj);
   }
+}
 
+void js::Nursery::collectToStringFixedPoint(TenuringTracer& mover) {
   for (StringRelocationOverlay* p = mover.stringHead; p; p = p->next()) {
     auto* tenuredStr = static_cast<JSString*>(p->forwardingAddress());
     // To ensure the NON_DEDUP_BIT was reset properly.
@@ -3640,10 +3638,6 @@ void js::Nursery::collectToFixedPoint(TenuringTracer& mover) {
       }
       tenuredStr->setBase(tenuredRootBase);
     }
-  }
-
-  for (RelocationOverlay* p = mover.bigIntHead; p; p = p->next()) {
-    mover.traceBigInt(static_cast<JS::BigInt*>(p->forwardingAddress()));
   }
 }
 

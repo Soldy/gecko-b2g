@@ -11,13 +11,13 @@ const { XPCOMUtils } = ChromeUtils.import(
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "RIL", function() {
-  // eslint-disable-next-line mozilla/reject-chromeutils-import-null
+  // eslint-disable-next-line mozilla/reject-chromeutils-import-params
   let obj = ChromeUtils.import("resource://gre/modules/ril_consts.js", null);
   return obj;
 });
 
 XPCOMUtils.defineLazyGetter(this, "RIL_DEBUG", function() {
-  // eslint-disable-next-line mozilla/reject-chromeutils-import-null
+  // eslint-disable-next-line mozilla/reject-chromeutils-import-params
   let obj = ChromeUtils.import(
     "resource://gre/modules/ril_consts_debug.js",
     null
@@ -394,13 +394,13 @@ CellBroadcastService.prototype = {
 
   broadcastGeometryMessage(aServiceId, aGeometryMessage) {
     let callback = (aRv, aDeletedRecord, aCellBroadCastMessage) => {
-      if (DEBUG && Components.isSuccessCode(aRv)) {
+      if (DEBUG && !Components.isSuccessCode(aRv)) {
         debug("Failed to delete cellbroadcast message");
       }
     };
     gMobileMessageDBService.deleteCellBroadcastMessage(
       aGeometryMessage.serialNumber,
-      aGeometryMessage.messageIdentifier,
+      aGeometryMessage.messageId,
       callback
     );
     this._broadcastCellBroadcastMessage(aServiceId, aGeometryMessage);
@@ -471,6 +471,12 @@ CellBroadcastService.prototype = {
         maximumAge: 0,
       };
       let success = pos => {
+        if (DEBUG) {
+          debug(
+            "getCurrentPosition successfully with pos: " + JSON.stringify(pos)
+          );
+        }
+
         let latLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         this._performGeoFencing(
           aServiceId,
@@ -480,11 +486,14 @@ CellBroadcastService.prototype = {
         );
       };
       let error = err => {
-        debug("geolocation error " + err);
+        if (DEBUG) {
+          debug("getCurrentPosition error: " + err.message);
+        }
+
         // Broadcast the message directly if the location is not available.
         this.broadcastGeometryMessage(aServiceId, aGeometryMessage);
       };
-      gGeolocation.getCurrentPosition(options, success, error);
+      gGeolocation.getCurrentPosition(success, error, options);
     } else {
       // Broadcast the message directly because no geo-fencing required.
       this.broadcastGeometryMessage(aServiceId, aGeometryMessage);
@@ -540,8 +549,26 @@ CellBroadcastService.prototype = {
     if (aCellBroadcastMessage.geoFencingTriggerType) {
       this._handleGeoFencingTrigger(aServiceId, aCellBroadcastMessage);
     } else if (aCellBroadcastMessage.geometries) {
-      gMobileMessageDBService.saveCellBroadcastMessage(aCellBroadcastMessage);
-      this._handleGeometryMessage(aServiceId, aCellBroadcastMessage);
+      let callback = (aRv, aSaveedRecord) => {
+        if (Components.isSuccessCode(aRv)) {
+          if (DEBUG) {
+            debug("Cellbroadcast message saved successfully");
+          }
+          this._handleGeometryMessage(aServiceId, aCellBroadcastMessage);
+        } else {
+          if (DEBUG) {
+            debug("Failed to save cellbroadcast message");
+          }
+          this._broadcastCellBroadcastMessage(
+            aServiceId,
+            aCellBroadcastMessage
+          );
+        }
+      };
+      gMobileMessageDBService.saveCellBroadcastMessage(
+        aCellBroadcastMessage,
+        callback
+      );
     } else {
       this._broadcastCellBroadcastMessage(aServiceId, aCellBroadcastMessage);
     }

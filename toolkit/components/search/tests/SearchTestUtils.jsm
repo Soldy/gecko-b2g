@@ -46,10 +46,16 @@ var SearchTestUtils = Object.freeze({
    *                    or rejected if it fails.
    */
   async promiseNewSearchEngine(url) {
+    // OpenSearch engines can only be added via http protocols.
+    url = url.replace("chrome://mochitests/content", "https://example.com");
     let engine = await Services.search.addOpenSearchEngine(url, "");
-    gTestScope.registerCleanupFunction(async () =>
-      Services.search.removeEngine(engine)
-    );
+    gTestScope.registerCleanupFunction(async () => {
+      try {
+        await Services.search.removeEngine(engine);
+      } catch (ex) {
+        // Don't throw if the test has already removed it.
+      }
+    });
     return engine;
   },
 
@@ -183,7 +189,9 @@ var SearchTestUtils = Object.freeze({
 
     let extension = gTestScope.ExtensionTestUtils.loadExtension(extensionInfo);
     await extension.startup();
-    await AddonTestUtils.waitForSearchProviderStartup(extension);
+    if (!options.skipWaitForSearchEngine) {
+      await AddonTestUtils.waitForSearchProviderStartup(extension);
+    }
     return extension;
   },
 

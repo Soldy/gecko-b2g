@@ -90,3 +90,4 @@ toolkit.jar:
 
 # To access without system principal for test.
 % resource default-app-browser chrome://b2g/content/browser/ contentaccessible=yes
+% resource default-homescreen chrome://b2g/content/homescreen/ contentaccessible=yes

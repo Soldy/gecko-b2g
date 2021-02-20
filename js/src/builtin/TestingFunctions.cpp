@@ -46,7 +46,7 @@
 #  include "frontend/TokenStream.h"
 #endif
 #include "frontend/BytecodeCompilation.h"
-#include "frontend/CompilationInfo.h"  // frontend::CompilationStencil, frontend::CompilationStencilSet
+#include "frontend/CompilationStencil.h"  // frontend::CompilationStencil
 #include "gc/Allocator.h"
 #include "gc/Zone.h"
 #include "jit/BaselineJIT.h"
@@ -4212,8 +4212,21 @@ static bool ThrowOutOfMemory(JSContext* cx, unsigned argc, Value* vp) {
 static bool ReportLargeAllocationFailure(JSContext* cx, unsigned argc,
                                          Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  void* buf = cx->runtime()->onOutOfMemoryCanGC(
-      AllocFunction::Malloc, js::MallocArena, JSRuntime::LARGE_ALLOCATION);
+
+  size_t bytes = JSRuntime::LARGE_ALLOCATION;
+  if (args.length() >= 1) {
+    if (!args[0].isInt32()) {
+      RootedObject callee(cx, &args.callee());
+      ReportUsageErrorASCII(cx, callee,
+                            "First argument must be an integer if specified.");
+      return false;
+    }
+    bytes = args[0].toInt32();
+  }
+
+  void* buf = cx->runtime()->onOutOfMemoryCanGC(AllocFunction::Malloc,
+                                                js::MallocArena, bytes);
+
   js_free(buf);
   args.rval().setUndefined();
   return true;
@@ -4988,19 +5001,18 @@ static bool CompileStencilXDR(JSContext* cx, uint32_t argc, Value* vp) {
   /* TODO: StencilXDR - Add option to select between full and syntax parse. */
   options.setForceFullParse();
 
-  Rooted<frontend::CompilationStencil> stencil(
-      cx, frontend::CompilationStencil(cx, options));
-  if (!stencil.get().input.initForGlobal(cx)) {
-    return false;
-  }
-  if (!frontend::CompileGlobalScriptToStencil(cx, stencil.get(), srcBuf,
-                                              ScopeKind::Global)) {
+  Rooted<frontend::CompilationInput> input(cx,
+                                           frontend::CompilationInput(options));
+  UniquePtr<frontend::CompilationStencil> stencil =
+      frontend::CompileGlobalScriptToStencil(cx, input.get(), srcBuf,
+                                             ScopeKind::Global);
+  if (!stencil) {
     return false;
   }
 
   /* Serialize the stencil to XDR. */
   JS::TranscodeBuffer xdrBytes;
-  if (!stencil.get().serializeStencils(cx, xdrBytes)) {
+  if (!stencil->serializeStencils(cx, input.get(), xdrBytes)) {
     return false;
   }
 
@@ -5038,21 +5050,22 @@ static bool EvalStencilXDR(JSContext* cx, uint32_t argc, Value* vp) {
   const char* filename = "compileStencilXDR-DATA.js";
   uint32_t lineno = 1;
 
-  /* Prepare the CompilationStencilSet for decoding. */
+  /* Prepare the CompilationStencil for decoding. */
   CompileOptions options(cx);
   options.setFileAndLine(filename, lineno);
   options.setForceFullParse();
 
-  Rooted<frontend::CompilationStencilSet> stencilSet(
-      cx, frontend::CompilationStencilSet(cx, options));
-  if (!stencilSet.get().input.initForGlobal(cx)) {
+  Rooted<frontend::CompilationInput> input(cx,
+                                           frontend::CompilationInput(options));
+  if (!input.get().initForGlobal(cx)) {
     return false;
   }
+  frontend::CompilationStencil stencil(input.get());
 
   /* Deserialize the stencil from XDR. */
   JS::TranscodeRange xdrRange(src->dataPointer(), src->byteLength().get());
   bool succeeded = false;
-  if (!stencilSet.get().deserializeStencils(cx, xdrRange, &succeeded)) {
+  if (!stencil.deserializeStencils(cx, input.get(), xdrRange, &succeeded)) {
     return false;
   }
   if (!succeeded) {
@@ -5063,8 +5076,9 @@ static bool EvalStencilXDR(JSContext* cx, uint32_t argc, Value* vp) {
   /* Instantiate the stencil. */
   Rooted<frontend::CompilationGCOutput> output(cx);
   Rooted<frontend::CompilationGCOutput> outputForDelazification(cx);
-  if (!stencilSet.get().instantiateStencils(cx, output.get(),
-                                            outputForDelazification.get())) {
+  if (!frontend::CompilationStencil::instantiateStencils(
+          cx, input.get(), stencil, output.get(),
+          outputForDelazification.address())) {
     return false;
   }
 
@@ -6992,7 +7006,7 @@ gc::ZealModeHelpText),
 "  Throw out of memory exception, for OOM handling testing."),
 
     JS_FN_HELP("reportLargeAllocationFailure", ReportLargeAllocationFailure, 0, 0,
-"reportLargeAllocationFailure()",
+"reportLargeAllocationFailure([bytes])",
 "  Call the large allocation failure callback, as though a large malloc call failed,\n"
 "  then return undefined. In Gecko, this sends a memory pressure notification, which\n"
 "  can free up some memory."),

@@ -865,9 +865,9 @@ void BluetoothAvrcpManager::PassthroughCmdNotification(uint8_t aId,
       break;
     case AVRC_ID_BACKWARD:
       if (aKeyState == AVRC_KEY_PRESS_STATE) {
-        name.AssignLiteral("media-previous-track-press");
+        name.AssignLiteral("media-previous-track-button-press");
       } else {
-        name.AssignLiteral("media-previous-track-release");
+        name.AssignLiteral("media-previous-track-button-release");
       }
       break;
     default:

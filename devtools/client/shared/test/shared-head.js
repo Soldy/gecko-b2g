@@ -295,7 +295,6 @@ registerCleanupFunction(async function cleanup() {
   // Closing the browser console if there's one
   const browserConsole = BrowserConsoleManager.getBrowserConsole();
   if (browserConsole) {
-    browserConsole.targetList.destroy();
     await safeCloseBrowserConsole({ clearOutput: true });
   }
 
@@ -351,6 +350,9 @@ async function safeCloseBrowserConsole({ clearOutput = false } = {}) {
     waitForAllTargetsToBeAttached(hud.targetList),
     wait(1000),
   ]);
+
+  hud.targetList.destroy();
+
   info("Close the Browser Console");
   await BrowserConsoleManager.closeBrowserConsole();
   info("Browser Console closed");
@@ -1283,8 +1285,9 @@ async function takeNodeScreenshot(inspector) {
 
   info("Create an image using the downloaded fileas source");
   const image = new Image();
+  const onImageLoad = once(image, "load");
   image.src = OS.Path.toFileURI(filePath);
-  await once(image, "load");
+  await onImageLoad;
 
   info("Remove the downloaded screenshot file");
   await OS.File.remove(filePath);
@@ -1342,4 +1345,18 @@ async function assertSingleColorScreenshotImage(
 function checkImageColorAt({ image, x = 0, y, expectedColor, label }) {
   const color = colorAt(image, x, y);
   is(`rgb(${Object.values(color).join(", ")})`, expectedColor, label);
+}
+
+/**
+ * Assert that a given parent pool has the expected number of children for
+ * a given typeName.
+ */
+function checkPoolChildrenSize(parentPool, typeName, expected) {
+  const children = [...parentPool.poolChildren()];
+  const childrenByType = children.filter(pool => pool.typeName === typeName);
+  is(
+    childrenByType.length,
+    expected,
+    `${parentPool.actorID} should have ${expected} children of type ${typeName}`
+  );
 }

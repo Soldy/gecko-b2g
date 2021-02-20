@@ -741,6 +741,10 @@ Result_t SupplicantStaManager::GetNetwork(nsWifiResult* aResult) {
 }
 
 Result_t SupplicantStaManager::RemoveNetworks() {
+  if (!mSupplicantStaIface) {
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
+
   SupplicantStatus response;
   // first, get network id list from supplicant
   std::vector<uint32_t> netIds;
@@ -775,13 +779,14 @@ Result_t SupplicantStaManager::RemoveNetworks() {
 
 Result_t SupplicantStaManager::RoamToNetwork(ConfigurationOptions* aConfig) {
   NetworkConfiguration config(aConfig);
-  NetworkConfiguration current = mCurrentConfiguration.at(mInterfaceName);
+  NetworkConfiguration current = GetCurrentConfiguration();
 
   if (config.mNetworkId == INVALID_NETWORK_ID) {
     return nsIWifiResult::ERROR_INVALID_ARGS;
   }
 
-  if (config.mNetworkId != current.mNetworkId ||
+  if (current.mNetworkId == INVALID_NETWORK_ID ||
+      config.mNetworkId != current.mNetworkId ||
       config.GetNetworkKey().compare(current.GetNetworkKey())) {
     return ConnectToNetwork(aConfig);
   }

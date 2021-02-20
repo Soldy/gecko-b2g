@@ -578,11 +578,19 @@ nsPrintSettingsGTK::SetPaperSizeUnit(int16_t aPaperSizeUnit) {
 NS_IMETHODIMP
 nsPrintSettingsGTK::GetEffectivePageSize(double* aWidth, double* aHeight) {
   GtkPaperSize* paperSize = gtk_page_setup_get_paper_size(mPageSetup);
-  *aWidth = NS_INCHES_TO_INT_TWIPS(
-      gtk_paper_size_get_width(paperSize, GTK_UNIT_INCH));
-  *aHeight = NS_INCHES_TO_INT_TWIPS(
-      gtk_paper_size_get_height(paperSize, GTK_UNIT_INCH));
-
+  if (mPaperSizeUnit == kPaperSizeInches) {
+    *aWidth =
+        NS_INCHES_TO_TWIPS(gtk_paper_size_get_width(paperSize, GTK_UNIT_INCH));
+    *aHeight =
+        NS_INCHES_TO_TWIPS(gtk_paper_size_get_height(paperSize, GTK_UNIT_INCH));
+  } else {
+    MOZ_ASSERT(mPaperSizeUnit == kPaperSizeMillimeters,
+               "unexpected paper size unit");
+    *aWidth = NS_MILLIMETERS_TO_TWIPS(
+        gtk_paper_size_get_width(paperSize, GTK_UNIT_MM));
+    *aHeight = NS_MILLIMETERS_TO_TWIPS(
+        gtk_paper_size_get_height(paperSize, GTK_UNIT_MM));
+  }
   GtkPageOrientation gtkOrient = gtk_page_setup_get_orientation(mPageSetup);
 
   if (gtkOrient == GTK_PAGE_ORIENTATION_LANDSCAPE ||
@@ -663,10 +671,10 @@ nsPrintSettingsGTK::GetDuplex(int32_t* aDuplex) {
       *aDuplex = kDuplexNone;
       break;
     case GTK_PRINT_DUPLEX_HORIZONTAL:
-      *aDuplex = kDuplexFlipOnSideEdge;
+      *aDuplex = kDuplexFlipOnLongEdge;
       break;
     case GTK_PRINT_DUPLEX_VERTICAL:
-      *aDuplex = kDuplexFlipOnTopEdge;
+      *aDuplex = kDuplexFlipOnShortEdge;
       break;
   }
 
@@ -676,7 +684,7 @@ nsPrintSettingsGTK::GetDuplex(int32_t* aDuplex) {
 NS_IMETHODIMP
 nsPrintSettingsGTK::SetDuplex(int32_t aDuplex) {
   uint32_t duplex = static_cast<uint32_t>(aDuplex);
-  MOZ_ASSERT(duplex <= kDuplexFlipOnTopEdge,
+  MOZ_ASSERT(duplex <= kDuplexFlipOnShortEdge,
              "value is out of bounds for duplex enum");
 
   // We want to set the GTK CUPS Duplex setting in addition to calling
@@ -687,12 +695,12 @@ nsPrintSettingsGTK::SetDuplex(int32_t aDuplex) {
       gtk_print_settings_set(mPrintSettings, kCupsDuplex, kCupsDuplexNone);
       gtk_print_settings_set_duplex(mPrintSettings, GTK_PRINT_DUPLEX_SIMPLEX);
       break;
-    case kDuplexFlipOnSideEdge:
+    case kDuplexFlipOnLongEdge:
       gtk_print_settings_set(mPrintSettings, kCupsDuplex, kCupsDuplexNoTumble);
       gtk_print_settings_set_duplex(mPrintSettings,
                                     GTK_PRINT_DUPLEX_HORIZONTAL);
       break;
-    case kDuplexFlipOnTopEdge:
+    case kDuplexFlipOnShortEdge:
       gtk_print_settings_set(mPrintSettings, kCupsDuplex, kCupsDuplexTumble);
       gtk_print_settings_set_duplex(mPrintSettings, GTK_PRINT_DUPLEX_VERTICAL);
       break;

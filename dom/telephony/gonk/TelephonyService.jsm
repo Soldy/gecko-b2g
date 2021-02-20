@@ -619,7 +619,7 @@ function TelephonyService() {
     this._enumerateCallsForClient(i);
   }
 
-  this._twoDigitShortCodes = [];
+  this._updateTwoDigitShortCodes();
 }
 TelephonyService.prototype = {
   classID: GONK_TELEPHONYSERVICE_CID,
@@ -1133,7 +1133,7 @@ TelephonyService.prototype = {
     } else if (aNumber.length <= 2) {
       // short string
       if (this._hasCalls(aClientId)) {
-        this._dialInCallMMI(aClientId, aNumber, aCallback);
+        this._dialInCallMMI(aClientId, aNumber, aRttMode, aCallback);
       } else if (
         (aNumber.length === 2 && aNumber[0] === "1") ||
         this._isTwoDigitShortCode(aNumber)
@@ -1148,7 +1148,7 @@ TelephonyService.prototype = {
   },
 
   // Handling of supplementary services within a call as 3GPP TS 22.030 6.5.5
-  _dialInCallMMI(aClientId, aNumber, aCallback) {
+  _dialInCallMMI(aClientId, aNumber, aRttMode, aCallback) {
     let mmiCallback = {
       notifyError: () => aCallback.notifyDialMMIError(MMI_ERROR_KS_ERROR),
       notifySuccess: () =>
@@ -1186,6 +1186,8 @@ TelephonyService.prototype = {
     } else if (aNumber === "4") {
       aCallback.notifyDialMMI(MMI_KS_SC_CALL);
       this._explicitCallTransfer(aClientId, mmiCallback);
+    } else if (this._isTwoDigitShortCode(aNumber)) {
+      this._dialCall(aClientId, aNumber, aRttMode, undefined, aCallback);
     } else {
       this._dialMMI(aClientId, { fullMMI: aNumber }, aCallback);
     }

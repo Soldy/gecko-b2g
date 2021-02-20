@@ -44,12 +44,19 @@ loader.lazyRequireGetter(
   "devtools/client/responsive/utils/notification",
   true
 );
+loader.lazyRequireGetter(
+  this,
+  "PriorityLevels",
+  "devtools/client/shared/components/NotificationBox",
+  true
+);
 loader.lazyRequireGetter(this, "l10n", "devtools/client/responsive/utils/l10n");
 loader.lazyRequireGetter(this, "asyncStorage", "devtools/shared/async-storage");
 loader.lazyRequireGetter(
   this,
-  "saveScreenshot",
-  "devtools/client/shared/save-screenshot"
+  "captureAndSaveScreenshot",
+  "devtools/client/shared/screenshot",
+  true
 );
 
 const RELOAD_CONDITION_PREF_PREFIX = "devtools.responsive.reloadConditions.";
@@ -390,12 +397,11 @@ class ResponsiveUI {
     // "local" TabDescriptor, which handles target switching autonomously with
     // its corresponding target-list.
     const descriptor = await this.client.mainRoot.getTab({ tab: this.tab });
-    const targetFront = await descriptor.getTarget();
 
-    this.targetList = new TargetList(this.client.mainRoot, targetFront);
+    this.targetList = new TargetList(descriptor);
     this.resourceWatcher = new ResourceWatcher(this.targetList);
 
-    this.targetList.startListening();
+    await this.targetList.startListening();
 
     await this.targetList.watchTargets(
       [this.targetList.TYPES.FRAME],
@@ -697,8 +703,28 @@ class ResponsiveUI {
   }
 
   async onScreenshot() {
-    const data = await this.responsiveFront.captureScreenshot();
-    await saveScreenshot(this.browserWindow, {}, data);
+    const messages = await captureAndSaveScreenshot(
+      this.currentTarget,
+      this.browserWindow
+    );
+
+    const priorityMap = {
+      error: PriorityLevels.PRIORITY_CRITICAL_HIGH,
+      warn: PriorityLevels.PRIORITY_WARNING_HIGH,
+    };
+    for (const { text, level } of messages) {
+      // captureAndSaveScreenshot returns "saved" messages, that indicate where the
+      // screenshot was saved. We don't want to display them as the download UI can be
+      // used to open the file.
+      if (level !== "warn" && level !== "error") {
+        continue;
+      }
+
+      showNotification(this.browserWindow, this.tab, {
+        msg: text,
+        priority: priorityMap[level],
+      });
+    }
 
     message.post(this.rdmFrame.contentWindow, "screenshot-captured");
   }

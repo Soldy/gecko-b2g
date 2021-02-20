@@ -131,6 +131,10 @@ MobileConnectionParent::RecvPMobileConnectionRequestConstructor(
       return actor->DoRequest(aRequest.get_GetDeviceIdentitiesRequest())
                  ? IPC_OK()
                  : IPC_FAIL_NO_REASON(this);
+    case MobileConnectionRequest::TStopNetworkScanRequest:
+      return actor->DoRequest(aRequest.get_StopNetworkScanRequest())
+                 ? IPC_OK()
+                 : IPC_FAIL_NO_REASON(this);
     default:
       MOZ_CRASH("Received invalid request type!");
   }
@@ -558,6 +562,13 @@ bool MobileConnectionRequestParent::DoRequest(
   NS_ENSURE_TRUE(mMobileConnection, false);
 
   return NS_SUCCEEDED(mMobileConnection->GetIdentities(this));
+}
+
+bool MobileConnectionRequestParent::DoRequest(
+    const StopNetworkScanRequest& aRequest) {
+  NS_ENSURE_TRUE(mMobileConnection, false);
+
+  return NS_SUCCEEDED(mMobileConnection->StopNetworkScan(this));
 }
 
 nsresult MobileConnectionRequestParent::SendReply(

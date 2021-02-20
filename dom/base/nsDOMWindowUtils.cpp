@@ -105,7 +105,6 @@
 #include "nsIBaseWindow.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "GeckoProfiler.h"
 #include "mozilla/Preferences.h"
 #include "nsContentPermissionHelper.h"
 #include "nsCSSPseudoElements.h"  // for PseudoStyleType
@@ -121,6 +120,8 @@
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/dom/TimeoutManager.h"
 #include "mozilla/PreloadedStyleSheet.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/layers/WebRenderBridgeChild.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/DisplayPortUtils.h"
@@ -1022,6 +1023,24 @@ nsDOMWindowUtils::SendNativeTouchPoint(uint32_t aPointerId,
 }
 
 NS_IMETHODIMP
+nsDOMWindowUtils::SendNativeTouchpadPinch(uint32_t aEventPhase, float aScale,
+                                          int32_t aScreenX, int32_t aScreenY,
+                                          int32_t aModifierFlags) {
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (!widget) {
+    return NS_ERROR_FAILURE;
+  }
+  NS_DispatchToMainThread(NativeInputRunnable::Create(
+      NewRunnableMethod<nsIWidget::TouchpadPinchPhase, float,
+                        LayoutDeviceIntPoint, int32_t>(
+          "nsIWidget::SynthesizeNativeTouchPadPinch", widget,
+          &nsIWidget::SynthesizeNativeTouchPadPinch,
+          (nsIWidget::TouchpadPinchPhase)aEventPhase, aScale,
+          LayoutDeviceIntPoint(aScreenX, aScreenY), aModifierFlags)));
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 nsDOMWindowUtils::SendNativeTouchTap(int32_t aScreenX, int32_t aScreenY,
                                      bool aLongTap, nsIObserver* aObserver) {
   nsCOMPtr<nsIWidget> widget = GetWidget();
@@ -1363,6 +1382,11 @@ nsDOMWindowUtils::CompareCanvases(nsISupports* aCanvas1, nsISupports* aCanvas2,
   RefPtr<DataSourceSurface> img1 = CanvasToDataSourceSurface(canvas1);
   RefPtr<DataSourceSurface> img2 = CanvasToDataSourceSurface(canvas2);
 
+  if (img1 == nullptr || img2 == nullptr ||
+      img1->GetSize() != img2->GetSize()) {
+    return NS_ERROR_FAILURE;
+  }
+
   if (img1->Equals(img2)) {
     // They point to the same underlying content.
     return NS_OK;
@@ -1371,8 +1395,7 @@ nsDOMWindowUtils::CompareCanvases(nsISupports* aCanvas1, nsISupports* aCanvas2,
   DataSourceSurface::ScopedMap map1(img1, DataSourceSurface::READ);
   DataSourceSurface::ScopedMap map2(img2, DataSourceSurface::READ);
 
-  if (img1 == nullptr || img2 == nullptr || !map1.IsMapped() ||
-      !map2.IsMapped() || img1->GetSize() != img2->GetSize() ||
+  if (!map1.IsMapped() || !map2.IsMapped() ||
       map1.GetStride() != map2.GetStride()) {
     return NS_ERROR_FAILURE;
   }
@@ -1600,6 +1623,53 @@ nsDOMWindowUtils::TransformRectLayoutToVisual(float aX, float aY, float aWidth,
 
   CSSRect rect(aX, aY, aWidth, aHeight);
   rect = ViewportUtils::DocumentRelativeLayoutToVisual(rect, presShell);
+
+  RefPtr<DOMRect> outRect = new DOMRect(window);
+  outRect->SetRect(rect.x, rect.y, rect.width, rect.height);
+  outRect.forget(aResult);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::ToScreenRect(float aX, float aY, float aWidth, float aHeight,
+                               DOMRect** aResult) {
+  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
+  NS_ENSURE_STATE(window);
+
+  PresShell* presShell = GetPresShell();
+  NS_ENSURE_TRUE(presShell, NS_ERROR_NOT_AVAILABLE);
+
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  NS_ENSURE_TRUE(widget, NS_ERROR_NOT_AVAILABLE);
+
+  // Note that if the document is NOT in OOP iframes, i.e. it's in the top level
+  // content subtree in the same process,
+  // nsIWidget::WidgetToTopLevelWidgetTransform() doesn't include the desktop
+  // zoom value, so for documents in the top level content document subtree,
+  // this ViewportUtils::DocumentRelativeLayoutToVisual call applies the desktop
+  // zoom value via PresShell::GetResolution() in the function.
+  CSSRect rect(aX, aY, aWidth, aHeight);
+  rect = ViewportUtils::DocumentRelativeLayoutToVisual(rect, presShell);
+
+  nsPresContext* presContext = presShell->GetPresContext();
+  MOZ_ASSERT(presContext);
+
+  // For OOP iframe documents, we don't have desktop zoom value specifically in
+  // each iframe documents (i.e. the in-process root presshell's resolution is
+  // 1.0), instead nsIWidget::WidgetToTopLevelWidgetTransform() includes the
+  // desktop zoom scale value along with translations by ancestor scroll
+  // containers, ancestor CSS transforms, etc.
+  nsRect appUnitsRect = CSSPixel::ToAppUnits(rect);
+  LayoutDeviceRect devPixelsRect = LayoutDeviceRect::FromAppUnits(
+      appUnitsRect, presContext->AppUnitsPerDevPixel());
+  devPixelsRect =
+      widget->WidgetToTopLevelWidgetTransform().TransformBounds(devPixelsRect) +
+      widget->TopLevelWidgetToScreenOffset();
+
+  appUnitsRect = LayoutDeviceRect::ToAppUnits(
+      devPixelsRect,
+      presContext->DeviceContext()->AppUnitsPerDevPixelAtUnitFullZoom());
+  rect = CSSRect::FromAppUnits(appUnitsRect);
 
   RefPtr<DOMRect> outRect = new DOMRect(window);
   outRect->SetRect(rect.x, rect.y, rect.width, rect.height);

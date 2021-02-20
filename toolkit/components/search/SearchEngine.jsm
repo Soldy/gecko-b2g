@@ -384,9 +384,6 @@ class EngineURL {
     switch (templateURI.scheme) {
       case "http":
       case "https":
-        // Disable these for now, see bug 295018
-        // case "file":
-        // case "resource":
         this.template = template;
         break;
       default:
@@ -795,7 +792,11 @@ class SearchEngine {
           }
 
           if (!contentType.startsWith("image/")) {
-            contentType = "image/x-icon";
+            logConsole.info(
+              "Unable to set icon, content type is not an image",
+              contentType
+            );
+            return;
           }
           let dataURL =
             "data:" +

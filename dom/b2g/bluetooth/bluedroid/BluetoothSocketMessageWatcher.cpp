@@ -80,7 +80,7 @@ void SocketMessageWatcher::OnFileCanWriteWithoutBlocking(int aFd) {}
 
 void SocketMessageWatcher::Watch() {
   // add this watcher and its result handler to hash table
-  sWatcherHashtable.Put(mRes, new SocketMessageWatcherWrapper(this));
+  sWatcherHashtable.Put(mRes, MakeUnique<SocketMessageWatcherWrapper>(this));
 
   MessageLoopForIO::current()->WatchFileDescriptor(
       mFd, true, MessageLoopForIO::WATCH_READ, &mWatcher, this);

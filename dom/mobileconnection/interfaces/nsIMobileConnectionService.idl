@@ -791,4 +791,19 @@ interface nsIMobileConnection : nsISupports
    *        for details.
    */
   void getIdentities(in nsIMobileConnectionCallback requestCallback);
+
+  /**
+   * Stop network scan.
+   *
+   * @param requestCallback
+   *        Called when request is finished.
+   *
+   * If successful, the notifySuccess() will be called.
+   *
+   * Otherwise, the notifyError() will be called, and the error will be either
+   * 'RadioNotAvailable', 'RequestNotSupported', 'IllegalSIMorME', or
+   * 'GenericFailure'.
+   */
+  void stopNetworkScan(in nsIMobileConnectionCallback requestCallback);
+
 };

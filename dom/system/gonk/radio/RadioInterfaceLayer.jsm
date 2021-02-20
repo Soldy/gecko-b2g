@@ -4414,6 +4414,28 @@ RadioInterface.prototype = {
         response.errorMsg = result.errorMsg;
         result = response;
         break;
+      case "stopNetworkScan":
+        if (response.errorMsg == 0) {
+          if (DEBUG) {
+            this.debug(
+              "RILJ: [" +
+                response.rilMessageToken +
+                "] < RIL_REQUEST_STOP_NETWORK_SCAN"
+            );
+          }
+        } else if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              response.rilMessageToken +
+              "] < RIL_REQUEST_STOP_NETWORK_SCAN error = " +
+              result.errorMsg +
+              " (" +
+              response.errorMsg +
+              ")"
+          );
+        }
+        break;
+
       default:
         throw new Error(
           "Unknow response message type : " + response.rilMessageType
@@ -6980,6 +7002,17 @@ RadioInterface.prototype = {
         // This is not a ril request.
         this.getIccServiceState(message);
         break;
+      case "stopNetworkScan":
+        if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              message.rilMessageToken +
+              "] > RIL_REQUEST_STOP_NETWORK_SCAN"
+          );
+        }
+        this.rilworker.stopNetworkScan(message.rilMessageToken);
+        break;
+
       default:
         break;
     }

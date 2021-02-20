@@ -6,34 +6,33 @@
 
 import { setupCommands, clientCommands } from "./firefox/commands";
 import {
-  setupEvents,
-  waitForSourceActorToBeRegisteredInStore,
-} from "./firefox/events";
-import { createPause, prepareSourcePayload } from "./firefox/create";
+  setupCreate,
+  createPause,
+  prepareSourcePayload,
+} from "./firefox/create";
 import { features, prefs } from "../utils/prefs";
 
 import { recordEvent } from "../utils/telemetry";
+import sourceQueue from "../utils/source-queue";
 
 let actions;
 let targetList;
 let resourceWatcher;
 
 export async function onConnect(
-  connection: any,
+  devToolsClient: any,
+  _targetList: any,
+  _resourceWatcher: any,
   _actions: Object,
   store: any
 ): Promise<void> {
-  const {
-    devToolsClient,
-    targetList: _targetList,
-    resourceWatcher: _resourceWatcher,
-  } = connection;
   actions = _actions;
   targetList = _targetList;
   resourceWatcher = _resourceWatcher;
 
   setupCommands({ devToolsClient, targetList });
-  setupEvents({ actions, devToolsClient, store, resourceWatcher });
+  setupCreate({ store });
+  sourceQueue.initialize(actions);
   const { targetFront } = targetList;
   if (targetFront.isBrowsingContext || targetFront.isParentProcess) {
     targetList.listenForWorkers = true;
@@ -58,6 +57,9 @@ export async function onConnect(
   await resourceWatcher.watchResources([resourceWatcher.TYPES.THREAD_STATE], {
     onAvailable: onBreakpointAvailable,
   });
+  await resourceWatcher.watchResources([resourceWatcher.TYPES.ERROR_MESSAGE], {
+    onAvailable: actions.addExceptionFromResources,
+  });
 }
 
 export function onDisconnect() {
@@ -72,6 +74,10 @@ export function onDisconnect() {
   resourceWatcher.unwatchResources([resourceWatcher.TYPES.THREAD_STATE], {
     onAvailable: onBreakpointAvailable,
   });
+  resourceWatcher.unwatchResources([resourceWatcher.TYPES.ERROR_MESSAGE], {
+    onAvailable: actions.addExceptionFromResources,
+  });
+  sourceQueue.clear();
 }
 
 async function onTargetAvailable({
@@ -128,11 +134,9 @@ async function onTargetAvailable({
   // they are active once attached.
   actions.addEventListenerBreakpoints([]).catch(e => console.error(e));
 
-  const { traits } = targetFront;
   await actions.connect(
     targetFront.url,
     threadFront.actor,
-    traits,
     targetFront.isWebExtension
   );
 
@@ -162,15 +166,7 @@ async function onBreakpointAvailable(breakpoints) {
   for (const resource of breakpoints) {
     const threadFront = await resource.targetFront.getFront("thread");
     if (resource.state == "paused") {
-      if (resource.frame) {
-        // When reloading we might receive a pause event before the
-        // top frame's source has arrived.
-        await waitForSourceActorToBeRegisteredInStore(
-          resource.frame.where.actor
-        );
-      }
-
-      const pause = createPause(threadFront.actor, resource);
+      const pause = await createPause(threadFront.actor, resource);
       actions.paused(pause);
       recordEvent("pause", { reason: resource.why.type });
     } else if (resource.state == "resumed") {

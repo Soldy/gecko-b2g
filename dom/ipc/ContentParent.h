@@ -681,7 +681,7 @@ class ContentParent final
       const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
       uint64_t aActionId);
   mozilla::ipc::IPCResult RecvWindowBlur(
-      const MaybeDiscarded<BrowsingContext>& aContext);
+      const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType);
   mozilla::ipc::IPCResult RecvRaiseWindow(
       const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
       uint64_t aActionId);
@@ -726,7 +726,7 @@ class ContentParent final
   mozilla::ipc::IPCResult RecvBlobURLDataRequest(
       const nsCString& aBlobURL, nsIPrincipal* pTriggeringPrincipal,
       nsIPrincipal* pLoadingPrincipal,
-      const OriginAttributes& aOriginAttributes,
+      const OriginAttributes& aOriginAttributes, uint64_t aInnerWindowId,
       const Maybe<nsID>& aAgentClusterId,
       BlobURLDataRequestResolver&& aResolver);
 

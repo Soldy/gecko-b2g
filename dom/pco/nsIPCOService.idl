@@ -4,11 +4,10 @@
 
 #include "nsISupports.idl"
 
-[scriptable, uuid(e3b1cf07-a6d9-4236-b60e-c02ea15f4867)]
+[scriptable, uuid(500b7a15-e52e-4394-9aa3-fcfa23c78219)]
 interface nsIPCOService : nsISupports
 {
-  void updatePcoData([optional] in unsigned long count,
-                     [array, size_is(count), retval] in jsval pcoValue);
+  void updatePcoData(in Array<jsval> contents);
 
   /**
    * Get the restrict status.

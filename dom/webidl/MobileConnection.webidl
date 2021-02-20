@@ -536,6 +536,20 @@ interface MobileConnection : EventTarget
   DOMRequest setRadioEnabled(boolean enabled);
 
   /**
+   * Stop network scan.
+   *
+   * @return a DOMRequest.
+   *
+   * If successful, the request's onsuccess will be called.
+   *
+   * Otherwise, the request's onerror will be called, and the request's error
+   * will be either 'RadioNotAvailable', 'RequestNotSupported',
+   * 'IllegalSIMorME', or 'GenericFailure'.
+   */
+  [Throws, Func="B2G::HasMobileConnectionSupport"]
+  DOMRequest stopNetworkScan();
+
+  /**
    * The 'voicechange' event is notified whenever the voice connection object
    * changes.
    */

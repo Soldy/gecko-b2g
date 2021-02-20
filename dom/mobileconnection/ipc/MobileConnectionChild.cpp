@@ -367,6 +367,12 @@ MobileConnectionChild::GetIdentities(nsIMobileConnectionCallback* aCallback) {
              : NS_ERROR_FAILURE;
 }
 
+NS_IMETHODIMP
+MobileConnectionChild::StopNetworkScan(nsIMobileConnectionCallback* aCallback) {
+  return SendRequest(StopNetworkScanRequest(), aCallback) ? NS_OK
+                                                      : NS_ERROR_FAILURE;
+}
+
 bool MobileConnectionChild::SendRequest(
     const MobileConnectionRequest& aRequest,
     nsIMobileConnectionCallback* aCallback) {

@@ -73,7 +73,7 @@ void main(void) {
     RectWithSize src_rect = src_task.task_rect;
     RectWithSize target_rect = blur_task.common_data.task_rect;
 
-    vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
+    vec2 texture_size = vec2(TEX_SIZE(sColor0).xy);
 
     // Ensure that the support is an even number of pixels to simplify the
     // fragment shader logic.
@@ -175,24 +175,16 @@ void main(void) {
     oFragColor = vec4(avg_color);
 }
 
-#ifdef SWGL
+#ifdef SWGL_DRAW_SPAN
     #ifdef WR_FEATURE_COLOR_TARGET
 void swgl_drawSpanRGBA8() {
-    if (!swgl_isTextureRGBA8(sColor0)) {
-        return;
-    }
-
     swgl_commitGaussianBlurRGBA8(sColor0, vUv, vUvRect, vOffsetScale.x != 0.0,
-                                 vSupport, vGaussCoefficients, 0);
+                                 vSupport, vGaussCoefficients, 0.0);
 }
     #else
 void swgl_drawSpanR8() {
-    if (!swgl_isTextureR8(sColor0)) {
-        return;
-    }
-
     swgl_commitGaussianBlurR8(sColor0, vUv, vUvRect, vOffsetScale.x != 0.0,
-                              vSupport, vGaussCoefficients, 0);
+                              vSupport, vGaussCoefficients, 0.0);
 }
     #endif
 #endif

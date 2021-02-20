@@ -206,7 +206,6 @@ NetworkTimeService.prototype = {
   },
 
   getSuggestedNetworkTime(aCallback) {
-    let suggestion = INVALID_UPTIME;
     if (this._lastNitzData[0]) {
       this._getClockByNitz(this._lastNitzData[0])
         .then(suggestion => {
@@ -223,8 +222,8 @@ NetworkTimeService.prototype = {
         Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED
     ) {
       if (!this._sntp.isExpired()) {
-        suggestion = this._sntp.getOffset();
-        aCallback.onSuggestedNetworkTimeResponse(suggestion);
+        let offset = this._sntp.getOffset();
+        aCallback.onSuggestedNetworkTimeResponse(Date.now() + offset);
       } else {
         this._suggestedTimeRequests.push(aCallback);
         if (this._suggestedTimeRequests.length == 1) {
@@ -339,8 +338,8 @@ NetworkTimeService.prototype = {
           }
         }
 
-        // SNTP won't update unless the SNTP is already expired.
         if (this._sntp.isExpired()) {
+          this.debug("sntp expired, request");
           this._sntp.request();
         }
         break;
@@ -375,9 +374,8 @@ NetworkTimeService.prototype = {
   notify(aTimeInfo) {
     switch (aTimeInfo.reason) {
       case Ci.nsITime.TIME_CHANGED:
-        // TODO, current TimeService doesn't provide time delta.
-        // let offset = parseInt(aData, 10);
-        // this._sntp.updateOffset(offset);
+        let offset = parseInt(aTimeInfo.delta, 10);
+        this._sntp.updateOffset(offset);
         break;
     }
   },
@@ -506,9 +504,10 @@ NetworkTimeService.prototype = {
   onSntpDataAvailable(aOffset) {
     this._setClockBySntp(aOffset);
     if (this._suggestedTimeRequests.length) {
+      let suggestion = Date.now() + aOffset;
       for (let index = 0; index < this._suggestedTimeRequests.length; index++) {
         this._clockAutoUpdateEnabled[index].onSuggestedNetworkTimeResponse(
-          aOffset
+          suggestion
         );
       }
 

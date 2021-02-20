@@ -114,6 +114,7 @@ interface nsIRilWorker : nsISupports
   void handleStkCallSetupRequestFromSim(in long serial, in boolean accept);
   void sendTerminalResponseToSim(in long serial, in AString contents);
   void sendEnvelope(in long serial, in AString contents);
+  void stopNetworkScan(in long serial);
 };
 
 /**

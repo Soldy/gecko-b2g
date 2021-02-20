@@ -74,7 +74,7 @@ function rememberPermission(typesInfo, remember, granted, principal) {
     : Ci.nsIPermissionManager.DENY_ACTION;
 
   typesInfo.forEach(perm => {
-    if (remember) {
+    if (remember && principal.origin.endsWith(".localhost")) {
       Services.perms.addFromPrincipal(principal, perm.permission, action);
     } else if (!PERMISSION_NO_SESSION.includes(perm.permission)) {
       Services.perms.addFromPrincipal(

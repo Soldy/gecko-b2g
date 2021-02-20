@@ -1298,6 +1298,9 @@ class ContentSandboxPolicy : public SandboxPolicyCommon {
 #ifdef __NR_getgroups32
       case __NR_getgroups32:  // To dump tombstone in logcat
 #endif
+#ifdef __NR_getgroups
+      case __NR_getgroups:
+#endif
         return Allow();
 #endif
 

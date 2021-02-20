@@ -128,12 +128,11 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
 
     function toggleMenuItem(id, isEnabled) {
       const cmd = doc.getElementById(id);
+      cmd.hidden = !isEnabled;
       if (isEnabled) {
         cmd.removeAttribute("disabled");
-        cmd.removeAttribute("hidden");
       } else {
         cmd.setAttribute("disabled", "true");
-        cmd.setAttribute("hidden", "true");
       }
     }
 
@@ -554,16 +553,6 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   },
 
   /**
-   * Unset the slow script debug handler.
-   */
-  unsetSlowScriptDebugHandler() {
-    const debugService = Cc["@mozilla.org/dom/slow-script-debug;1"].getService(
-      Ci.nsISlowScriptDebug
-    );
-    debugService.activationHandler = undefined;
-  },
-
-  /**
    * Add the menuitem for a tool to all open browser windows.
    *
    * @param {object} toolDefinition
@@ -612,10 +601,6 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
       // visibility of the newly created menu item.
       gDevToolsBrowser._updateMenuItems(win);
     }
-
-    if (toolDefinition.id === "jsdebugger") {
-      gDevToolsBrowser.setSlowScriptDebugHandler();
-    }
   },
 
   hasToolboxOpened(win) {
@@ -647,14 +632,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
     const menu = win.document.getElementById("menu_devToolbox");
 
     // Hide the "Toggle Tools" menu item if we are on about:devtools-toolbox.
-    const isAboutDevtoolsToolbox = gDevToolsBrowser._isAboutDevtoolsToolbox(
-      win
-    );
-    if (isAboutDevtoolsToolbox) {
-      menu.setAttribute("hidden", "true");
-    } else {
-      menu.removeAttribute("hidden");
-    }
+    menu.hidden = gDevToolsBrowser._isAboutDevtoolsToolbox(win);
 
     // Add a checkmark for the "Toggle Tools" menu item if a toolbox is already opened.
     const hasToolbox = gDevToolsBrowser.hasToolboxOpened(win);
@@ -706,10 +684,6 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   _removeToolFromWindows(toolId) {
     for (const win of gDevToolsBrowser._trackedBrowserWindows) {
       BrowserMenus.removeToolFromMenu(toolId, win.document);
-    }
-
-    if (toolId === "jsdebugger") {
-      gDevToolsBrowser.unsetSlowScriptDebugHandler();
     }
   },
 
@@ -800,6 +774,8 @@ gDevTools.on("tool-registered", function(toolId) {
     gDevToolsBrowser._addToolToWindows(toolDefinition);
   }
 });
+
+gDevToolsBrowser.setSlowScriptDebugHandler();
 
 gDevTools.on("tool-unregistered", function(toolId) {
   gDevToolsBrowser._removeToolFromWindows(toolId);

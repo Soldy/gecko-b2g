@@ -61,7 +61,7 @@ default:
 .lint_base:
   stage: .pre
   tags:
-    - hk-fantastic4
+    - gecko-lint
   script:
     - 'check_format_opt="--against HEAD~${mr_commits} -v"'
     - *koost_setup
@@ -122,8 +122,6 @@ build:desktop:
     SCCACHE_REDIS_DB: 4 # use DB #4 as sccache
     SCCACHE_CACHE_SIZE: 6G
   stage: build
-  tags:
-    - gecko-dev-desktop
   script:
     - ./mach build
     - ./mach package
@@ -154,8 +152,6 @@ build:emulator:
     SCCACHE_REDIS_DB: 2 # use DB #2 as sccache
     SCCACHE_CACHE_SIZE: 2G
   stage: build
-  tags:
-    - gecko-dev-emu
   script:
     - ./build-b2g.sh
     - ./build-b2g.sh package
@@ -182,8 +178,6 @@ build:arm:
     SCCACHE_REDIS_DB: 3 # use DB #3 as sccache
     SCCACHE_CACHE_SIZE: 2G
   stage: build
-  tags:
-    - gecko-dev-arm
   script:
     - ./build-b2g.sh
     - ./build-b2g.sh package

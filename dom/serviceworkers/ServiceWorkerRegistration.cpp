@@ -79,7 +79,6 @@ ServiceWorkerRegistration::CreateForMainThread(
   } else {
     inner = new ServiceWorkerRegistrationMainThread(aDescriptor);
   }
-  NS_ENSURE_TRUE(inner, nullptr);
 
   RefPtr<ServiceWorkerRegistration> registration =
       new ServiceWorkerRegistration(aWindow->AsGlobal(), aDescriptor, inner);
@@ -106,7 +105,6 @@ ServiceWorkerRegistration::CreateForWorker(
   } else {
     inner = new ServiceWorkerRegistrationWorkerThread(aDescriptor);
   }
-  NS_ENSURE_TRUE(inner, nullptr);
 
   RefPtr<ServiceWorkerRegistration> registration =
       new ServiceWorkerRegistration(aGlobal, aDescriptor, inner);

@@ -163,8 +163,7 @@ void BluetoothService::RegisterBluetoothSignalHandler(
 
   BluetoothSignalObserverList* ol;
   if (!mBluetoothSignalObserverTable.Get(aNodeName, &ol)) {
-    ol = new BluetoothSignalObserverList();
-    mBluetoothSignalObserverTable.Put(aNodeName, ol);
+    ol = mBluetoothSignalObserverTable.Put(aNodeName, MakeUnique<BluetoothSignalObserverList>()).get();
   }
 
   ol->AddObserver(aHandler);

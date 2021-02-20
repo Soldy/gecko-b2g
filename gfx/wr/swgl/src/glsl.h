@@ -125,6 +125,7 @@ struct vec4;
 struct ivec2;
 
 SI int32_t if_then_else(int32_t c, int32_t t, int32_t e) { return c ? t : e; }
+SI int32_t if_then_else(bool c, int32_t t, int32_t e) { return c ? t : e; }
 
 SI float if_then_else(int32_t c, float t, float e) { return c ? t : e; }
 
@@ -215,7 +216,13 @@ SI Float sqrt(Float v) {
 #endif
 }
 
-SI float recip(float x) { return 1.0f / x; }
+SI float recip(float x) {
+#if USE_SSE2
+  return _mm_cvtss_f32(_mm_rcp_ss(_mm_set_ss(x)));
+#else
+  return 1.0f / x;
+#endif
+}
 
 // Use a fast vector reciprocal approximation when available. This should only
 // be used in cases where it is okay that the approximation is imprecise -
@@ -233,7 +240,13 @@ SI Float recip(Float v) {
 #endif
 }
 
-SI float inversesqrt(float x) { return 1.0f / sqrtf(x); }
+SI float inversesqrt(float x) {
+#if USE_SSE2
+  return _mm_cvtss_f32(_mm_rsqrt_ss(_mm_set_ss(x)));
+#else
+  return 1.0f / sqrtf(x);
+#endif
+}
 
 SI Float inversesqrt(Float v) {
 #if USE_SSE2
@@ -674,8 +687,8 @@ SI I32 roundfast(Float v, Float scale) {
 }
 
 template <typename T>
-SI auto round_pixel(T v, float maxval = 1.0f) {
-  return roundfast(v, (255.0f / maxval));
+SI auto round_pixel(T v, float scale = 255.0f) {
+  return roundfast(v, scale);
 }
 
 #define round __glsl_round
@@ -1166,6 +1179,25 @@ struct bvec4_scalar {
   IMPLICIT constexpr bvec4_scalar(bool a) : x(a), y(a), z(a), w(a) {}
   constexpr bvec4_scalar(bool x, bool y, bool z, bool w)
       : x(x), y(y), z(z), w(w) {}
+
+  bool& select(XYZW c) {
+    switch (c) {
+      case X:
+        return x;
+      case Y:
+        return y;
+      case Z:
+        return z;
+      case W:
+        return w;
+      default:
+        UNREACHABLE;
+    }
+  }
+  bool sel(XYZW c1) { return select(c1); }
+  bvec2_scalar sel(XYZW c1, XYZW c2) {
+    return bvec2_scalar(select(c1), select(c2));
+  }
 };
 
 struct bvec4_scalar1 {
@@ -1191,6 +1223,8 @@ struct bvec4 {
         return z;
       case W:
         return w;
+      default:
+        UNREACHABLE;
     }
   }
   Bool sel(XYZW c1) { return select(c1); }
@@ -1205,6 +1239,10 @@ bvec4_scalar1 make_bvec4(bool n) { return bvec4_scalar1(n); }
 
 bvec4_scalar make_bvec4(bool x, bool y, bool z, bool w) {
   return bvec4_scalar{x, y, z, w};
+}
+
+bvec4_scalar make_bvec4(bvec2_scalar a, bvec2_scalar b) {
+  return bvec4_scalar{a.x, a.y, b.x, b.y};
 }
 
 template <typename N>
@@ -1937,6 +1975,11 @@ SI I32 clamp(I32 a, I32 minVal, I32 maxVal) {
   return if_then_else(a > maxVal, maxVal, a);
 }
 
+SI vec3 clamp(vec3 a, Float minVal, Float maxVal) {
+  return vec3(clamp(a.x, minVal, maxVal), clamp(a.y, minVal, maxVal),
+              clamp(a.z, minVal, maxVal));
+}
+
 SI vec3 clamp(vec3 a, vec3 minVal, vec3 maxVal) {
   return vec3(clamp(a.x, minVal.x, maxVal.x), clamp(a.y, minVal.y, maxVal.y),
               clamp(a.z, minVal.z, maxVal.z));
@@ -1990,6 +2033,10 @@ SI bvec2 lessThan(vec2 x, vec2 y) {
   return bvec2(lessThan(x.x, y.x), lessThan(x.y, y.y));
 }
 
+SI bvec2_scalar lessThan(vec2_scalar x, vec2_scalar y) {
+  return bvec2_scalar(lessThan(x.x, y.x), lessThan(x.y, y.y));
+}
+
 template <typename T>
 auto greaterThan(T x, T y) -> decltype(x > y) {
   return x > y;
@@ -1997,6 +2044,10 @@ auto greaterThan(T x, T y) -> decltype(x > y) {
 
 bvec2 greaterThan(vec2 x, vec2 y) {
   return bvec2(greaterThan(x.x, y.x), greaterThan(x.y, y.y));
+}
+
+bvec2_scalar greaterThan(vec2_scalar x, vec2_scalar y) {
+  return bvec2_scalar(greaterThan(x.x, y.x), greaterThan(x.y, y.y));
 }
 
 template <typename T>

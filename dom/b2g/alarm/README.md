@@ -59,9 +59,3 @@ self.onsystemmessage = (e) => {
   console.log(e.data.json()); // The alarm object
 };
 ```
-
-## TODO
-### Handle system time and timezone change
-### Test on CPU wake lock
-### Test listener cleanup on inner-window-destroyed
-

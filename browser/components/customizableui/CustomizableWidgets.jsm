@@ -25,6 +25,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   CharsetMenu: "resource://gre/modules/CharsetMenu.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   Sanitizer: "resource:///modules/Sanitizer.jsm",
+  SessionStore: "resource:///modules/sessionstore/SessionStore.jsm",
   SyncedTabs: "resource://services-sync/SyncedTabs.jsm",
 });
 
@@ -108,6 +109,26 @@ const CustomizableWidgets = [
       let document = panelview.ownerDocument;
       let window = document.defaultView;
 
+      // While we support this panel for both Proton and non-Proton versions
+      // of the AppMenu, we only want to show icons for the non-Proton
+      // version. When Proton ships and we remove the non-Proton variant,
+      // we can remove the subviewbutton-iconic classes from the markup.
+      if (window.PanelUI.protonAppMenuEnabled) {
+        let toolbarbuttons = panelview.querySelectorAll("toolbarbutton");
+        for (let toolbarbutton of toolbarbuttons) {
+          toolbarbutton.classList.remove("subviewbutton-iconic");
+        }
+      }
+
+      PanelMultiView.getViewNode(
+        document,
+        "appMenuRecentlyClosedTabs"
+      ).disabled = SessionStore.getClosedTabCount(window) == 0;
+      PanelMultiView.getViewNode(
+        document,
+        "appMenuRecentlyClosedWindows"
+      ).disabled = SessionStore.getClosedWindowCount(window) == 0;
+
       // We restrict the amount of results to 42. Not 50, but 42. Why? Because 42.
       let query =
         "place:queryType=" +
@@ -176,6 +197,7 @@ const CustomizableWidgets = [
       let body = document.createXULElement("vbox");
       body.className = "panel-subview-body";
       body.appendChild(fragment);
+      let separator = document.createXULElement("toolbarseparator");
       let footer;
       while (--elementCount >= 0) {
         let element = body.children[elementCount];
@@ -183,12 +205,16 @@ const CustomizableWidgets = [
         element.classList.add("subviewbutton");
         if (element.classList.contains("restoreallitem")) {
           footer = element;
-          element.classList.add("panel-subview-footer");
+          element.classList.add(
+            "subviewbutton-iconic",
+            "panel-subview-footer-button"
+          );
         } else {
           element.classList.add("subviewbutton-iconic", "bookmark-item");
         }
       }
       panelview.appendChild(body);
+      panelview.appendChild(separator);
       panelview.appendChild(footer);
     },
   },

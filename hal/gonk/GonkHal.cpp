@@ -1285,7 +1285,7 @@ class FlashlightStateEvent : public Runnable {
 
 class FlashlightListener : public BnCameraServiceListener {
   mutable android::Mutex mLock;
-  bool mFlashlightEnabled = false;
+  uint32_t mTorchStatus = ICameraServiceListener::TORCH_STATUS_UNKNOWN;
 
  public:
   Status onStatusChanged(int32_t status, const String16& cameraId) override {
@@ -1296,17 +1296,16 @@ class FlashlightListener : public BnCameraServiceListener {
   Status onTorchStatusChanged(int32_t status,
                               const String16& cameraId) override {
     AutoMutex l(mLock);
-    bool flashlightEnabled =
+    if (mTorchStatus != status) {
+      hal::FlashlightInformation flashlightInfo;
+      flashlightInfo.enabled() =
         (status == ICameraServiceListener::TORCH_STATUS_AVAILABLE_ON) ? true
                                                                       : false;
-
-    if (mFlashlightEnabled != flashlightEnabled) {
-      hal::FlashlightInformation flashlightInfo;
-      flashlightInfo.enabled() = mFlashlightEnabled = flashlightEnabled;
       flashlightInfo.present() = true;
       RefPtr<FlashlightStateEvent> runnable =
           new FlashlightStateEvent(flashlightInfo);
       NS_DispatchToMainThread(runnable);
+      mTorchStatus = status;
     }
 
     return Status::ok();
@@ -1317,9 +1316,9 @@ class FlashlightListener : public BnCameraServiceListener {
     return Status::ok();
   }
 
-  bool getFlashlightEnabled() const {
+  uint32_t getTorchStatus() const {
     AutoMutex l(mLock);
-    return mFlashlightEnabled;
+    return mTorchStatus;
   };
 };
 
@@ -1348,7 +1347,8 @@ static bool initCameraService() {
 
 bool GetFlashlightEnabled() {
   if (gFlashlightListener) {
-    return gFlashlightListener->getFlashlightEnabled();
+    return (gFlashlightListener->getTorchStatus() ==
+      ICameraServiceListener::TORCH_STATUS_AVAILABLE_ON) ? true : false;
   } else {
     HAL_ERR("gFlashlightListener is not initialized yet!");
     return false;
@@ -1368,32 +1368,16 @@ void SetFlashlightEnabled(bool aEnabled) {
 }
 
 bool IsFlashlightPresent() {
-  #define FLASHLIGHT_PRESENT_UNKNOWN    -1
-  #define FLASHLIGHT_PRESENT_AVAILABLE   1
-  #define FLASHLIGHT_PRESENT_UNAVAILABLE 0
-  static uint32_t gCameraPresent = FLASHLIGHT_PRESENT_UNKNOWN;
-
-  if (gCameraPresent != FLASHLIGHT_PRESENT_UNKNOWN) {
-    return (gCameraPresent == FLASHLIGHT_PRESENT_AVAILABLE)? true : false;
-  }
-
-  if (gCameraService) {
-    Status res;
-    res = gCameraService->setTorchMode(String16("0"), false, gBinder);
-    if (res.isOk() ||
-       (!strstr(res.toString8().string(), "does not have a flash unit") &&
-        !strstr(res.toString8().string(), "has no flashlight"))) {
-      gCameraPresent = FLASHLIGHT_PRESENT_AVAILABLE;
-      return true;
-    } else {
-      gCameraPresent = FLASHLIGHT_PRESENT_UNAVAILABLE;
-    }
-    HAL_ERR("CameraService setTorchMode failed:%s", res.toString8().string());
+  if (gFlashlightListener) {
+    // onTorchStatusChanged update mTorchStatus, and it will only be
+    // invoked when flashlight unit is present. Otherwise mTorchStatus
+    // will be default value.
+    return (gFlashlightListener->getTorchStatus() !=
+      ICameraServiceListener::TORCH_STATUS_UNKNOWN) ? true : false;
   } else {
-    HAL_ERR("CameraService haven't initialized yet, return directly!");
+    HAL_ERR("gFlashlightListener is not initialized yet!");
+    return false;
   }
-
-  return false;
 }
 
 void RequestCurrentFlashlightState() {

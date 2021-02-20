@@ -85,6 +85,7 @@ void BuildPermissionsTable() {
   sSystemMessagePermissionsTable.Put(u"sms-failed"_ns, "sms"_ns);
   sSystemMessagePermissionsTable.Put(u"sms-received"_ns, "sms"_ns);
   sSystemMessagePermissionsTable.Put(u"sms-sent"_ns, "sms"_ns);
+  sSystemMessagePermissionsTable.Put(u"system-time-change"_ns, "system-time:read"_ns);
   sSystemMessagePermissionsTable.Put(u"telephony-call-ended"_ns,
                                      "telephony"_ns);
   sSystemMessagePermissionsTable.Put(u"telephony-hac-mode-changed"_ns,

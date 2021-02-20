@@ -20,19 +20,11 @@ void AlarmHalService::Init() {
   if (!mAlarmEnabled) {
     return;
   }
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-  RegisterSystemTimezoneChangeObserver(this);
-#endif
 }
 
 /* virtual */ AlarmHalService::~AlarmHalService() {
   if (mAlarmEnabled) {
     UnregisterTheOneAlarmObserver();
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-    UnregisterSystemTimezoneChangeObserver(this);
-#endif
   }
 }
 
@@ -71,16 +63,6 @@ AlarmHalService::SetAlarmFiredCb(nsIAlarmFiredCb* aAlarmFiredCb) {
   return NS_OK;
 }
 
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-NS_IMETHODIMP
-AlarmHalService::SetTimezoneChangedCb(
-    nsITimezoneChangedCb* aTimeZoneChangedCb) {
-  mTimezoneChangedCb = aTimeZoneChangedCb;
-  return NS_OK;
-}
-#endif
-
 void AlarmHalService::Notify(const void_t& aVoid) {
   if (!mAlarmFiredCb) {
     return;
@@ -88,18 +70,6 @@ void AlarmHalService::Notify(const void_t& aVoid) {
   mAlarmFiredCb->OnAlarmFired();
 }
 
-// TODO: hal timezone change
-#ifdef HAL_TIMEZONE_CHANGE
-void AlarmHalService::Notify(
-    const SystemTimezoneChangeInformation& aSystemTimezoneChangeInfo) {
-  if (!mTimezoneChangedCb) {
-    return;
-  }
-  mTimezoneChangedCb->OnTimezoneChanged(
-      aSystemTimezoneChangeInfo.newTimezoneOffsetMinutes());
-}
-
-#endif
 }  // namespace alarm
 }  // namespace dom
 }  // namespace mozilla

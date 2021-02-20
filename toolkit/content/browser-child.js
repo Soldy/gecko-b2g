@@ -56,4 +56,5 @@ addMessageListener("BrowserElement:CreateAboutBlank", message => {
 });
 
 // Initialize the <web-view> specific support.
-WebViewChild.init(this);
+this.webViewChild = new WebViewChild();
+this.webViewChild.init(this);

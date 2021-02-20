@@ -315,7 +315,8 @@ class CallFlags {
     Standard,
     Spread,
     FunCall,
-    FunApplyArgs,
+    FunApplyMagicArgs,
+    FunApplyArgsObj,
     FunApplyArray,
     LastArgFormat = FunApplyArray
   };
@@ -463,7 +464,8 @@ inline int32_t GetIndexOfArgument(ArgumentKind kind, CallFlags flags,
       break;
     case CallFlags::Unknown:
     case CallFlags::FunCall:
-    case CallFlags::FunApplyArgs:
+    case CallFlags::FunApplyMagicArgs:
+    case CallFlags::FunApplyArgsObj:
     case CallFlags::FunApplyArray:
       MOZ_CRASH("Currently unreachable");
       break;
@@ -1280,8 +1282,15 @@ class MOZ_RAII GetPropIRGenerator : public IRGenerator {
                                  HandleId id, ValOperandId receiverId);
   AttachDecision tryAttachObjectLength(HandleObject obj, ObjOperandId objId,
                                        HandleId id);
-  AttachDecision tryAttachTypedArrayLength(HandleObject obj, ObjOperandId objId,
-                                           HandleId id);
+  AttachDecision tryAttachTypedArray(HandleObject obj, ObjOperandId objId,
+                                     HandleId id);
+  AttachDecision tryAttachDataView(HandleObject obj, ObjOperandId objId,
+                                   HandleId id);
+  AttachDecision tryAttachArrayBufferMaybeShared(HandleObject obj,
+                                                 ObjOperandId objId,
+                                                 HandleId id);
+  AttachDecision tryAttachRegExp(HandleObject obj, ObjOperandId objId,
+                                 HandleId id);
   AttachDecision tryAttachModuleNamespace(HandleObject obj, ObjOperandId objId,
                                           HandleId id);
   AttachDecision tryAttachWindowProxy(HandleObject obj, ObjOperandId objId,
@@ -1638,7 +1647,7 @@ class MOZ_RAII CallIRGenerator : public IRGenerator {
   struct AtomicsReadWriteModifyOperands {
     ObjOperandId objId;
     IntPtrOperandId intPtrIndexId;
-    Int32OperandId int32ValueId;
+    OperandId numericValueId;
   };
 
   AtomicsReadWriteModifyOperands emitAtomicsReadWriteModifyOperands(
@@ -1710,7 +1719,7 @@ class MOZ_RAII CallIRGenerator : public IRGenerator {
                                        bool isPossiblyWrapped);
   AttachDecision tryAttachIsTypedArrayConstructor(HandleFunction callee);
   AttachDecision tryAttachTypedArrayByteOffset(HandleFunction callee);
-  AttachDecision tryAttachTypedArrayElementShift(HandleFunction callee);
+  AttachDecision tryAttachTypedArrayElementSize(HandleFunction callee);
   AttachDecision tryAttachTypedArrayLength(HandleFunction callee,
                                            bool isPossiblyWrapped);
   AttachDecision tryAttachArrayBufferByteLength(HandleFunction callee,

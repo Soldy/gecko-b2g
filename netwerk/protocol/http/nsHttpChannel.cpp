@@ -61,7 +61,7 @@
 #include "mozilla/ContentBlocking.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/Services.h"
+#include "mozilla/Components.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_fission.h"
 #include "mozilla/StaticPrefs_network.h"
@@ -627,7 +627,7 @@ nsresult nsHttpChannel::MaybeUseHTTPSRRForUpgrade(bool aShouldUpgrade,
         this));
     StoreWaitHTTPSSVCRecord(false);
     bool hasHTTPSRR = (mHTTPSSVCRecord.ref() != nullptr);
-    return ContinueOnBeforeConnect(hasHTTPSRR, aStatus);
+    return ContinueOnBeforeConnect(hasHTTPSRR, aStatus, hasHTTPSRR);
   }
 
   LOG(("nsHttpChannel::MaybeUseHTTPSRRForUpgrade [%p] wait for HTTPS RR",
@@ -637,7 +637,8 @@ nsresult nsHttpChannel::MaybeUseHTTPSRRForUpgrade(bool aShouldUpgrade,
 }
 
 nsresult nsHttpChannel::ContinueOnBeforeConnect(bool aShouldUpgrade,
-                                                nsresult aStatus) {
+                                                nsresult aStatus,
+                                                bool aUpgradeWithHTTPSRR) {
   LOG(
       ("nsHttpChannel::ContinueOnBeforeConnect "
        "[this=%p aShouldUpgrade=%d rv=%" PRIx32 "]\n",
@@ -650,6 +651,8 @@ nsresult nsHttpChannel::ContinueOnBeforeConnect(bool aShouldUpgrade,
   }
 
   if (aShouldUpgrade) {
+    Telemetry::Accumulate(Telemetry::HTTPS_UPGRADE_WITH_HTTPS_RR,
+                          aUpgradeWithHTTPSRR);
     return AsyncCall(&nsHttpChannel::HandleAsyncRedirectChannelToHttps);
   }
 
@@ -690,6 +693,8 @@ nsresult nsHttpChannel::ContinueOnBeforeConnect(bool aShouldUpgrade,
   mConnectionInfo->SetTRRMode(nsIRequest::GetTRRMode());
   mConnectionInfo->SetIPv4Disabled(mCaps & NS_HTTP_DISABLE_IPV4);
   mConnectionInfo->SetIPv6Disabled(mCaps & NS_HTTP_DISABLE_IPV6);
+  mConnectionInfo->SetAnonymousAllowClientCert(
+      (mLoadFlags & LOAD_ANONYMOUS_ALLOW_CLIENT_CERT) != 0);
 
   // notify "http-on-before-connect" observers
   gHttpHandler->OnBeforeConnect(this);
@@ -1210,6 +1215,10 @@ nsresult nsHttpChannel::SetupTransaction() {
   }
   if (LoadBeConservative()) {
     mCaps |= NS_HTTP_BE_CONSERVATIVE;
+  }
+
+  if (mLoadFlags & LOAD_ANONYMOUS_ALLOW_CLIENT_CERT) {
+    mCaps |= NS_HTTP_LOAD_ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT;
   }
 
   // Use the URI path if not proxying (transparent proxying such as proxy
@@ -3679,7 +3688,7 @@ nsresult nsHttpChannel::OpenCacheEntryInternal(
   nsAutoCString cacheKey;
 
   nsCOMPtr<nsICacheStorageService> cacheStorageService(
-      services::GetCacheStorageService());
+      components::CacheStorage::Service());
   if (!cacheStorageService) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -4844,7 +4853,7 @@ nsresult nsHttpChannel::OpenCacheInputStream(nsICacheEntry* cacheEntry,
   nsCOMPtr<nsIInputStream> wrapper;
 
   nsCOMPtr<nsIStreamTransportService> sts(
-      services::GetStreamTransportService());
+      components::StreamTransport::Service());
   rv = sts ? NS_OK : NS_ERROR_NOT_AVAILABLE;
   if (NS_SUCCEEDED(rv)) {
     rv = sts->CreateInputTransport(stream, true, getter_AddRefs(transport));
@@ -5097,7 +5106,7 @@ void nsHttpChannel::MaybeCreateCacheEntryWhenRCWN() {
   LOG(("nsHttpChannel::MaybeCreateCacheEntryWhenRCWN [this=%p]", this));
 
   nsCOMPtr<nsICacheStorageService> cacheStorageService(
-      services::GetCacheStorageService());
+      components::CacheStorage::Service());
   if (!cacheStorageService) {
     return;
   }
@@ -5924,6 +5933,9 @@ nsHttpChannel::Cancel(nsresult status) {
 
   LOG(("nsHttpChannel::Cancel [this=%p status=%" PRIx32 "]\n", this,
        static_cast<uint32_t>(status)));
+  MOZ_ASSERT_IF(!(mConnectionInfo && mConnectionInfo->UsingConnect()) &&
+                    NS_SUCCEEDED(mStatus),
+                !AllowedErrorForHTTPSRRFallback(status));
   if (mCanceled) {
     LOG(("  ignoring; already canceled\n"));
     return NS_OK;
@@ -7306,7 +7318,17 @@ nsHttpChannel::OnStartRequest(nsIRequest* request) {
         NS_SUCCEEDED(mStatus));
   }
 
-  if (gTRRService && gTRRService->IsConfirmed()) {
+  if (StaticPrefs::network_trr_odoh_enabled()) {
+    nsCOMPtr<nsIDNSService> dns = do_GetService(NS_DNSSERVICE_CONTRACTID);
+    bool ODoHActivated = false;
+    if (dns && NS_SUCCEEDED(dns->GetODoHActivated(&ODoHActivated)) &&
+        ODoHActivated) {
+      Telemetry::Accumulate(Telemetry::HTTP_CHANNEL_ONSTART_SUCCESS_ODOH,
+                            NS_SUCCEEDED(mStatus));
+    }
+  } else if (gTRRService && gTRRService->IsConfirmed()) {
+    // Note this telemetry probe is not working when DNS resolution is done in
+    // the socket process.
     Telemetry::Accumulate(Telemetry::HTTP_CHANNEL_ONSTART_SUCCESS_TRR,
                           TRRService::AutoDetectedKey(), NS_SUCCEEDED(mStatus));
   }
@@ -7560,6 +7582,26 @@ nsresult nsHttpChannel::ContinueOnStartRequest4(nsresult result) {
   return CallOnStartRequest();
 }
 
+static void ReportHTTPSRRTelemetry(
+    const Maybe<nsCOMPtr<nsIDNSHTTPSSVCRecord>>& aMaybeRecord) {
+  bool hasHTTPSRR = aMaybeRecord && (aMaybeRecord.ref() != nullptr);
+  Telemetry::Accumulate(Telemetry::HTTPS_RR_PRESENTED, hasHTTPSRR);
+  if (!hasHTTPSRR) {
+    return;
+  }
+
+  const nsCOMPtr<nsIDNSHTTPSSVCRecord>& record = aMaybeRecord.ref();
+  nsCOMPtr<nsISVCBRecord> svcbRecord;
+  if (NS_SUCCEEDED(record->GetServiceModeRecord(false, false,
+                                                getter_AddRefs(svcbRecord)))) {
+    MOZ_ASSERT(svcbRecord);
+
+    Maybe<Tuple<nsCString, bool>> alpn = svcbRecord->GetAlpn();
+    bool isHttp3 = alpn ? Get<1>(*alpn) : false;
+    Telemetry::Accumulate(Telemetry::HTTPS_RR_WITH_HTTP3_PRESENTED, isHttp3);
+  }
+}
+
 NS_IMETHODIMP
 nsHttpChannel::OnStopRequest(nsIRequest* request, nsresult status) {
   AUTO_PROFILER_LABEL("nsHttpChannel::OnStopRequest", NETWORK);
@@ -7575,6 +7617,12 @@ nsHttpChannel::OnStopRequest(nsIRequest* request, nsresult status) {
 
   if (WRONG_RACING_RESPONSE_SOURCE(request)) {
     return NS_OK;
+  }
+
+  // It's possible that LoadUseHTTPSSVC() is false, but we already have
+  // mHTTPSSVCRecord.
+  if (LoadUseHTTPSSVC() || mHTTPSSVCRecord) {
+    ReportHTTPSRRTelemetry(mHTTPSSVCRecord);
   }
 
   // If this load failed because of a security error, it may be because we
@@ -8997,7 +9045,7 @@ void nsHttpChannel::OnHTTPSRRAvailable(nsIDNSHTTPSSVCRecord* aRecord) {
     MOZ_ASSERT(mURI->SchemeIs("http"));
 
     StoreWaitHTTPSSVCRecord(false);
-    nsresult rv = ContinueOnBeforeConnect(!!httprr, mStatus);
+    nsresult rv = ContinueOnBeforeConnect(!!httprr, mStatus, !!httprr);
     if (NS_FAILED(rv)) {
       CloseCacheEntry(false);
       Unused << AsyncAbort(rv);
@@ -9096,7 +9144,7 @@ void nsHttpChannel::DoInvalidateCacheEntry(nsIURI* aURI) {
   LOG(("DoInvalidateCacheEntry [channel=%p key=%s]", this, key.get()));
 
   nsCOMPtr<nsICacheStorageService> cacheStorageService(
-      services::GetCacheStorageService());
+      components::CacheStorage::Service());
   rv = cacheStorageService ? NS_OK : NS_ERROR_FAILURE;
 
   nsCOMPtr<nsICacheStorage> cacheStorage;

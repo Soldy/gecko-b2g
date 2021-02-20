@@ -67,6 +67,7 @@
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/ProcessHangMonitor.h"
+#include "mozilla/ProfilerLabels.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/Unused.h"
@@ -74,7 +75,6 @@
 #include "nsGlobalWindow.h"
 #include "nsAboutProtocolUtils.h"
 
-#include "GeckoProfiler.h"
 #include "NodeUbiReporting.h"
 #include "nsIInputStream.h"
 #include "nsJSPrincipals.h"
@@ -2622,21 +2622,6 @@ static void AccumulateTelemetryCallback(int id, uint32_t sample,
       break;
     case JS_TELEMETRY_GC_EFFECTIVENESS:
       Telemetry::Accumulate(Telemetry::GC_EFFECTIVENESS, sample);
-      break;
-    case JS_TELEMETRY_RUN_TIME_US:
-      Telemetry::ScalarAdd(Telemetry::ScalarID::JS_RUN_TIME_US, sample);
-      break;
-    case JS_TELEMETRY_WASM_COMPILE_TIME_BASELINE_US:
-      Telemetry::ScalarAdd(Telemetry::ScalarID::WASM_COMPILE_TIME_BASELINE_US,
-                           sample);
-      break;
-    case JS_TELEMETRY_WASM_COMPILE_TIME_ION_US:
-      Telemetry::ScalarAdd(Telemetry::ScalarID::WASM_COMPILE_TIME_ION_US,
-                           sample);
-      break;
-    case JS_TELEMETRY_WASM_COMPILE_TIME_CRANELIFT_US:
-      Telemetry::ScalarAdd(Telemetry::ScalarID::WASM_COMPILE_TIME_CRANELIFT_US,
-                           sample);
       break;
     default:
       // Some telemetry only exists in the JS Shell, and are not reported here.

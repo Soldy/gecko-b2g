@@ -4,24 +4,20 @@
 
 "use strict";
 
-const { AppConstants } = ChromeUtils.import(
-  "resource://gre/modules/AppConstants.jsm"
-);
+const EXPORTED_SYMBOLS = ["AlarmDB"];
+
 const { Log } = ChromeUtils.import("resource://gre/modules/Log.jsm");
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-this.EXPORTED_SYMBOLS = ["AlarmDB"];
-
-function getLogger() {
-  var logger = Log.repository.getLogger("AlarmDB");
-  logger.addAppender(new Log.DumpAppender(new Log.BasicFormatter()));
+if (Services.prefs.getBoolPref("dom.alarm.debug", false)) {
+  let logger = Log.repository.getLogger("AlarmDB");
+  logger.addAppender(new Log.ConsoleAppender(new Log.BasicFormatter()));
   logger.level = Log.Level.Debug;
-  return logger;
-}
-
-const logger = getLogger();
-
-function debug(aStr) {
-  AppConstants.DEBUG_ALARM && logger.debug(aStr);
+  this.debug = function debug(aStr) {
+    logger.debug(aStr);
+  };
+} else {
+  this.debug = function debug(aStr) {};
 }
 
 const { IndexedDBHelper } = ChromeUtils.import(

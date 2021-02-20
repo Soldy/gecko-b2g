@@ -17,7 +17,12 @@ namespace mozilla {
 namespace widget {
 
 class GfxInfo : public GfxInfoBase {
+ private:
+  ~GfxInfo();
+
  public:
+  GfxInfo();
+
   // We only declare the subset of nsIGfxInfo that we actually implement. The
   // rest is brought forward from GfxInfoBase.
   NS_IMETHOD GetD2DEnabled(bool* aD2DEnabled) override;
@@ -51,7 +56,8 @@ class GfxInfo : public GfxInfoBase {
   NS_IMETHOD GetDisplayWidth(nsTArray<uint32_t>& aDisplayWidth) override;
   NS_IMETHOD GetDisplayHeight(nsTArray<uint32_t>& aDisplayHeight) override;
   NS_IMETHOD GetDrmRenderDevice(nsACString& aDrmRenderDevice) override;
-  NS_IMETHODIMP GetEmbeddedInFirefoxReality(bool* aEmbeddedInFirefoxReality) override;
+  NS_IMETHODIMP GetEmbeddedInFirefoxReality(
+      bool* aEmbeddedInFirefoxReality) override;
   NS_IMETHOD GetTestType(nsAString& aTestType) override;
   using GfxInfoBase::GetFeatureStatus;
   using GfxInfoBase::GetFeatureSuggestedDriverVersion;
@@ -70,7 +76,7 @@ class GfxInfo : public GfxInfoBase {
       OperatingSystem* aOS = nullptr) override;
   virtual const nsTArray<GfxDriverInfo>& GetGfxDriverInfo() override;
 
-private:
+ private:
   int32_t WebRtcHwVp8EncodeSupported();
   int32_t WebRtcHwVp8DecodeSupported();
   int32_t WebRtcHwH264Supported();

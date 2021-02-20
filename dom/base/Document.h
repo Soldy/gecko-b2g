@@ -1633,9 +1633,13 @@ class Document : public nsINode,
     // If we have an entry and the selector list returned has a null
     // RawServoSelectorList*, that indicates that aSelector has already been
     // parsed and is not a syntactically valid selector.
-    Table::EntryPtr GetList(const nsACString& aSelector) {
+    template <typename F>
+    RawServoSelectorList* GetListOrInsertFrom(const nsACString& aSelector,
+                                              F&& aFrom) {
       MOZ_ASSERT(NS_IsMainThread());
-      return mTable.LookupForAdd(aSelector);
+      return mTable.WithEntryHandle(aSelector, [&aFrom](auto&& entry) {
+        return entry.OrInsertWith(std::forward<F>(aFrom)).get();
+      });
     }
 
     ~SelectorCache();
@@ -2638,12 +2642,6 @@ class Document : public nsINode,
    */
   bool IsVisible() const { return mVisible; }
 
-  /**
-   * Return whether the document and all its ancestors are visible in the sense
-   * of pageshow / hide.
-   */
-  bool IsVisibleConsideringAncestors() const;
-
   void SetSuppressedEventListener(EventListener* aListener);
 
   EventListener* GetSuppressedEventListener() {
@@ -3529,6 +3527,14 @@ class Document : public nsINode,
 
   Promise* GetDocumentReadyForIdle(ErrorResult& aRv);
 
+  void BlockUnblockOnloadForPDFJS(bool aBlock) {
+    if (aBlock) {
+      BlockOnload();
+    } else {
+      UnblockOnload(/* aFireSync = */ false);
+    }
+  }
+
   nsIDOMXULCommandDispatcher* GetCommandDispatcher();
   bool HasXULBroadcastManager() const { return mXULBroadcastManager; };
   void InitializeXULBroadcastManager();
@@ -3733,7 +3739,7 @@ class Document : public nsINode,
   }
   DOMIntersectionObserver& EnsureLazyLoadImageObserver();
   DOMIntersectionObserver& EnsureLazyLoadImageObserverViewport();
-  void IncLazyLoadImageCount() { ++mLazyLoadImageCount; }
+  void IncLazyLoadImageCount();
   void DecLazyLoadImageCount() {
     MOZ_DIAGNOSTIC_ASSERT(mLazyLoadImageCount > 0);
     --mLazyLoadImageCount;
@@ -5253,14 +5259,33 @@ class MOZ_STACK_CLASS mozAutoSubtreeModified {
 
 enum class SyncOperationBehavior { eSuspendInput, eAllowInput };
 
-class MOZ_STACK_CLASS nsAutoSyncOperation {
+class AutoWalkBrowsingContextGroup {
+ public:
+  virtual ~AutoWalkBrowsingContextGroup() = default;
+
+ protected:
+  void SuppressBrowsingContextGroup(BrowsingContextGroup* aGroup);
+  void UnsuppressDocuments() {
+    for (const auto& doc : mDocuments) {
+      UnsuppressDocument(doc);
+    }
+  }
+  virtual void SuppressDocument(Document* aDocument) = 0;
+  virtual void UnsuppressDocument(Document* aDocument) = 0;
+  AutoTArray<RefPtr<Document>, 16> mDocuments;
+};
+
+class MOZ_RAII nsAutoSyncOperation : private AutoWalkBrowsingContextGroup {
  public:
   explicit nsAutoSyncOperation(Document* aDocument,
                                SyncOperationBehavior aSyncBehavior);
   ~nsAutoSyncOperation();
 
+ protected:
+  void SuppressDocument(Document* aDocument) override;
+  void UnsuppressDocument(Document* aDocument) override;
+
  private:
-  nsTArray<RefPtr<Document>> mDocuments;
   uint32_t mMicroTaskLevel;
   const SyncOperationBehavior mSyncBehavior;
   RefPtr<BrowsingContext> mBrowsingContext;

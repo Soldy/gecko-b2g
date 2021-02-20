@@ -19,12 +19,12 @@ static_prefs = { path = "../../../../modules/libpref/init/static_prefs" }
 profiler_helper = { path = "../../../../tools/profiler/rust-helper", optional = true }
 mozurl = { path = "../../../../netwerk/base/mozurl" }
 webrender_bindings = { path = "../../../../gfx/webrender_bindings", optional = true }
-cubeb-coreaudio = { git = "https://github.com/ChunMinChang/cubeb-coreaudio-rs", rev = "1e1222d6213e28eabd7f4302d00765ae1153a31e", optional = true }
-cubeb-pulse = { git = "https://github.com/djg/cubeb-pulse-rs", rev="bf31534d08b2c16fb5e4c5834944ae3271efbd63", optional = true, features=["pulse-dlopen"] }
-cubeb-sys = { version = "0.8", optional = true, features=["gecko-in-tree"] }
+cubeb-coreaudio = { git = "https://github.com/mozilla/cubeb-coreaudio-rs", rev = "3d071d733d13bde0af033e7973e53938b2ab53e6", optional = true }
+cubeb-pulse = { git = "https://github.com/mozilla/cubeb-pulse-rs", rev="c87b50aebfa088c1ad30c74819d4e9829f88b2e3", optional = true, features=["pulse-dlopen"] }
+cubeb-sys = { version = "0.9", optional = true, features=["gecko-in-tree"] }
 encoding_glue = { path = "../../../../intl/encoding_glue" }
-audioipc-client = { path = "../../../../media/audioipc/client", optional = true }
-audioipc-server = { path = "../../../../media/audioipc/server", optional = true }
+audioipc-client = { git = "https://github.com/mozilla/audioipc-2", rev = "ca5abc4bb056e18e4b8e5b2bb5ed9a8a21443ee7", optional = true }
+audioipc-server = { git = "https://github.com/mozilla/audioipc-2", rev = "ca5abc4bb056e18e4b8e5b2bb5ed9a8a21443ee7", optional = true }
 authenticator = "0.3.1"
 gkrust_utils = { path = "../../../../xpcom/rust/gkrust_utils" }
 gecko_logger = { path = "../../../../xpcom/rust/gecko_logger" }
@@ -47,7 +47,7 @@ neqo_glue = { path = "../../../../netwerk/socket/neqo_glue" }
 rlbox_lucet_sandbox = { version = "0.1.0", optional = true }
 wgpu_bindings = { path = "../../../../gfx/wgpu_bindings", optional = true }
 mapped_hyph = { git = "https://github.com/jfkthame/mapped_hyph.git", rev = "578d7058a638c955a597f035ce1a11049c3021d7" }
-remote = { path = "../../../../remote", optional = true }
+remote = { path = "../../../../remote/components/rust", optional = true }
 fog_control = { path = "../../../components/glean", optional = true }
 app_services_logger = { path = "../../../../services/common/app_services_logger" }
 http_sfv = { path = "../../../../netwerk/base/http-sfv" }
@@ -109,6 +109,7 @@ wasm_library_sandboxing = ["rlbox_lucet_sandbox"]
 webgpu = ["wgpu_bindings"]
 remote_agent = ["remote"]
 glean = ["fog_control"]
+glean_disable_upload = ["fog_control/disable_upload"]
 glean_with_gecko = ["fog_control/with_gecko"]
 rust_fxa_client = ["firefox-accounts-bridge"]
 oxidized_breakpad = ["rust_minidump_writer_linux"]

@@ -8,9 +8,13 @@
 //
 // NOTE: Allowing a whole class of rejections should be avoided. Normally you
 //       should use "expectUncaughtRejection" to flag individual failures.
-ChromeUtils.import("resource://testing-common/PromiseTestUtils.jsm", this);
+const { PromiseTestUtils } = ChromeUtils.import(
+  "resource://testing-common/PromiseTestUtils.jsm"
+);
 PromiseTestUtils.allowMatchingRejectionsGlobally(/aborted by the user agent/);
-ChromeUtils.import("resource:///modules/BrowserWindowTracker.jsm", this);
+const { BrowserWindowTracker } = ChromeUtils.import(
+  "resource:///modules/BrowserWindowTracker.jsm"
+);
 
 const permissionError =
   "error: NotAllowedError: The request is not allowed " +
@@ -664,7 +668,7 @@ var gTests = [
       await indicator;
       await checkSharingUI({ screen: "Screen" });
 
-      ok(identityPopupHidden(), "control center should be hidden");
+      ok(permissionPopupHidden(), "control center should be hidden");
       if (IS_MAC) {
         let activeStreams = webrtcUI.getActiveStreams(false, false, true);
         webrtcUI.showSharingDoorhanger(activeStreams[0]);
@@ -676,12 +680,12 @@ var gTests = [
         EventUtils.synthesizeMouseAtCenter(elt, {}, win);
       }
       await TestUtils.waitForCondition(
-        () => !identityPopupHidden(),
+        () => !permissionPopupHidden(),
         "wait for control center to open"
       );
-      ok(!identityPopupHidden(), "control center should be open");
+      ok(!permissionPopupHidden(), "control center should be open");
 
-      gIdentityHandler._identityPopup.hidePopup();
+      gPermissionPanel._permissionPopup.hidePopup();
 
       await closeStream();
     },

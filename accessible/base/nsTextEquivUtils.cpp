@@ -149,6 +149,17 @@ nsresult nsTextEquivUtils::AppendTextEquivFromTextContent(nsIContent* aContent,
   return NS_OK_NO_NAME_CLAUSE_HANDLED;
 }
 
+nsresult nsTextEquivUtils::AppendFromDOMChildren(nsIContent* aContent,
+                                                 nsAString* aString) {
+  for (nsIContent* childContent = aContent->GetFirstChild(); childContent;
+       childContent = childContent->GetNextSibling()) {
+    nsresult rv = AppendFromDOMNode(childContent, aString);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  return NS_OK;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // nsTextEquivUtils. Private.
 
@@ -158,7 +169,7 @@ nsresult nsTextEquivUtils::AppendFromAccessibleChildren(
 
   uint32_t childCount = aAccessible->ChildCount();
   for (uint32_t childIdx = 0; childIdx < childCount; childIdx++) {
-    Accessible* child = aAccessible->GetChildAt(childIdx);
+    Accessible* child = aAccessible->LocalChildAt(childIdx);
     rv = AppendFromAccessible(child, aString);
     NS_ENSURE_SUCCESS(rv, rv);
   }
@@ -252,17 +263,6 @@ nsresult nsTextEquivUtils::AppendFromValue(Accessible* aAccessible,
   }
 
   return NS_OK_NO_NAME_CLAUSE_HANDLED;
-}
-
-nsresult nsTextEquivUtils::AppendFromDOMChildren(nsIContent* aContent,
-                                                 nsAString* aString) {
-  for (nsIContent* childContent = aContent->GetFirstChild(); childContent;
-       childContent = childContent->GetNextSibling()) {
-    nsresult rv = AppendFromDOMNode(childContent, aString);
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
-
-  return NS_OK;
 }
 
 nsresult nsTextEquivUtils::AppendFromDOMNode(nsIContent* aContent,

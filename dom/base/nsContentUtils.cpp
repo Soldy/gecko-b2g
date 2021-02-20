@@ -107,7 +107,6 @@
 #include "mozilla/Result.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/ScrollbarPreferences.h"
-#include "mozilla/Services.h"
 #include "mozilla/Span.h"
 #include "mozilla/StaticAnalysisFunctions.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -677,43 +676,30 @@ class SameOriginCheckerImpl final : public nsIChannelEventSink,
 
 }  // namespace
 
-AutoSuppressEventHandlingAndSuspend::AutoSuppressEventHandlingAndSuspend(
-    BrowsingContextGroup* aGroup) {
-  for (const auto& bc : aGroup->Toplevels()) {
-    SuppressBrowsingContext(bc);
+void AutoSuppressEventHandlingAndSuspend::SuppressDocument(Document* aDoc) {
+  // Note: Document::SuppressEventHandling will also automatically suppress
+  // event handling for any in-process sub-documents. However, since we need
+  // to deal with cases where remote BrowsingContexts may be interleaved
+  // with in-process ones, we still need to walk the entire tree ourselves.
+  // This may be slightly redundant in some cases, but since event handling
+  // suppressions maintain a count of current blockers, it does not cause
+  // any problems.
+  aDoc->SuppressEventHandling();
+  if (nsCOMPtr<nsPIDOMWindowInner> win = aDoc->GetInnerWindow()) {
+    win->Suspend();
+    mWindows.AppendElement(win);
   }
 }
 
-void AutoSuppressEventHandlingAndSuspend::SuppressBrowsingContext(
-    BrowsingContext* aBC) {
-  if (nsCOMPtr<nsPIDOMWindowOuter> win = aBC->GetDOMWindow()) {
-    if (RefPtr<Document> doc = win->GetExtantDoc()) {
-      mDocuments.AppendElement(doc);
-      mWindows.AppendElement(win->GetCurrentInnerWindow());
-      // Note: Document::SuppressEventHandling will also automatically suppress
-      // event handling for any in-process sub-documents. However, since we need
-      // to deal with cases where remote BrowsingContexts may be interleaved
-      // with in-process ones, we still need to walk the entire tree ourselves.
-      // This may be slightly redundant in some cases, but since event handling
-      // suppressions maintain a count of current blockers, it does not cause
-      // any problems.
-      doc->SuppressEventHandling();
-      win->GetCurrentInnerWindow()->Suspend();
-    }
-  }
-
-  for (const auto& bc : aBC->Children()) {
-    SuppressBrowsingContext(bc);
-  }
+void AutoSuppressEventHandlingAndSuspend::UnsuppressDocument(Document* aDoc) {
+  aDoc->UnsuppressEventHandlingAndFireEvents(true);
 }
 
 AutoSuppressEventHandlingAndSuspend::~AutoSuppressEventHandlingAndSuspend() {
   for (const auto& win : mWindows) {
     win->Resume();
   }
-  for (const auto& doc : mDocuments) {
-    doc->UnsuppressEventHandlingAndFireEvents(true);
-  }
+  UnsuppressDocuments();
 }
 
 /**
@@ -884,7 +870,7 @@ void nsContentUtils::GetModifierSeparatorText(nsAString& text) {
 void nsContentUtils::InitializeModifierStrings() {
   // load the display strings for the keyboard accelerators
   nsCOMPtr<nsIStringBundleService> bundleService =
-      mozilla::services::GetStringBundleService();
+      mozilla::components::StringBundle::Service();
   nsCOMPtr<nsIStringBundle> bundle;
   DebugOnly<nsresult> rv = NS_OK;
   if (bundleService) {
@@ -3734,7 +3720,8 @@ static bool TestSitePerm(nsIPrincipal* aPrincipal, const nsACString& aType,
     return aPerm != nsIPermissionManager::ALLOW_ACTION;
   }
 
-  nsCOMPtr<nsIPermissionManager> permMgr = services::GetPermissionManager();
+  nsCOMPtr<nsIPermissionManager> permMgr =
+      components::PermissionManager::Service();
   NS_ENSURE_TRUE(permMgr, false);
 
   uint32_t perm;
@@ -4104,9 +4091,7 @@ nsIContentPolicy* nsContentUtils::GetContentPolicy() {
 // static
 bool nsContentUtils::IsEventAttributeName(nsAtom* aName, int32_t aType) {
   const char16_t* name = aName->GetUTF16String();
-  if (name[0] != 'o' || name[1] != 'n' ||
-      (aName == nsGkAtoms::onformdata &&
-       !mozilla::StaticPrefs::dom_formdata_event_enabled())) {
+  if (name[0] != 'o' || name[1] != 'n') {
     return false;
   }
 
@@ -6701,6 +6686,10 @@ bool nsContentUtils::IsPDFJS(nsIPrincipal* aPrincipal) {
   return spec.EqualsLiteral("resource://pdf.js/web/viewer.html");
 }
 
+bool nsContentUtils::IsPDFJS(JSContext* aCx, JSObject*) {
+  return IsPDFJS(SubjectPrincipal(aCx));
+}
+
 already_AddRefed<nsIDocumentLoaderFactory>
 nsContentUtils::FindInternalContentViewer(const nsACString& aType,
                                           ContentViewerType* aLoaderType) {
@@ -8979,7 +8968,7 @@ static inline bool ShouldEscape(nsIContent* aParent) {
       nsGkAtoms::style,     nsGkAtoms::script,  nsGkAtoms::xmp,
       nsGkAtoms::iframe,    nsGkAtoms::noembed, nsGkAtoms::noframes,
       nsGkAtoms::plaintext, nsGkAtoms::noscript};
-  static mozilla::BloomFilter<12, nsAtom> sFilter;
+  static mozilla::BitBloomFilter<12, nsAtom> sFilter;
   static bool sInitialized = false;
   if (!sInitialized) {
     sInitialized = true;

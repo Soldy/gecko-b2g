@@ -61,7 +61,6 @@ const RIL_GETTHREADSCURSOR_CID = Components.ID(
   "{95ee7c3e-d6f2-4ec4-ade5-0c453c036d35}"
 );
 
-const DEBUG = false;
 const DISABLE_MMS_GROUPING_FOR_RECEIVING = false;
 
 const DB_VERSION = 1;
@@ -153,6 +152,12 @@ XPCOMUtils.defineLazyGetter(this, "MMS", function() {
   ChromeUtils.import("resource://gre/modules/MmsPduHelper.jsm", MMS);
   return MMS;
 });
+
+var RIL_DEBUG = ChromeUtils.import(
+  "resource://gre/modules/ril_consts_debug.js"
+);
+
+var DEBUG = RIL_DEBUG.DEBUG_RIL;
 
 /**
  * @typedef {Object} MobileMessageDB.MessageRecord
@@ -502,7 +507,9 @@ XPCOMUtils.defineLazyGetter(this, "MMS", function() {
  * which is deprecated and no longer in use.
  * </p>
  */
-this.MobileMessageDB = function() {};
+this.MobileMessageDB = function() {
+  this._updateDebugFlag();
+};
 MobileMessageDB.prototype = {
   dbName: null,
   dbVersion: null,
@@ -522,6 +529,14 @@ MobileMessageDB.prototype = {
    * @private
    */
   lastMessageId: 0,
+
+  _updateDebugFlag() {
+    try {
+      DEBUG =
+        RIL_DEBUG.DEBUG_RIL ||
+        Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
+    } catch (e) {}
+  },
 
   /**
    * @callback MobileMessageDB.EnsureDBCallback
@@ -3205,7 +3220,9 @@ MobileMessageDB.prototype = {
    */
   saveCellBroadcastMessage(aCellBroadcastMessage, aCallback) {
     if (DEBUG) {
-      debug("Save CellBroadcast Message ");
+      debug(
+        "Save CellBroadcast Message " + JSON.stringify(aCellBroadcastMessage)
+      );
     }
 
     this.newTxn(
@@ -3237,12 +3254,19 @@ MobileMessageDB.prototype = {
           aCallback.notify(error, null);
         };
 
-        aCellBroadcastMessage.hash =
+        let cellbroadcastRecord = JSON.parse(
+          JSON.stringify(aCellBroadcastMessage)
+        );
+        cellbroadcastRecord.hash =
           aCellBroadcastMessage.serialNumber +
           ":" +
-          aCellBroadcastMessage.messageIdentifier;
+          aCellBroadcastMessage.messageId;
 
-        cellBroadcastStore.add(aCellBroadcastMessage);
+        if (DEBUG) {
+          debug("Save CellBroadcast Message hash " + cellbroadcastRecord.hash);
+        }
+
+        cellBroadcastStore.add(cellbroadcastRecord);
       },
       [CELLBROADCAST_STORE_NAME]
     );
@@ -3251,7 +3275,7 @@ MobileMessageDB.prototype = {
   getCellBroadcastMessage(aSerialNumber, aMessageIdentifier, aCallback) {
     let hash = aSerialNumber + ":" + aMessageIdentifier;
     if (DEBUG) {
-      debug("get Cellbroadcast Message hash: " + hash);
+      debug("Get Cellbroadcast Message hash: " + hash);
     }
 
     this.newTxn(
@@ -3470,6 +3494,7 @@ MobileMessageDB.prototype = {
               deleted[i] = true;
               deletedInfo.messageIds.push(messageIds[i]);
             }
+            deletedInfo.threadIds.push(event.target.result[0].threadId);
             updateThreadInfo();
           } else {
             for (let i = 0; i < length; i++) {

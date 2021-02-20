@@ -727,11 +727,17 @@ nsresult nsSocketTransport::Init(const nsTArray<nsCString>& types,
                                  const nsACString& host, uint16_t port,
                                  const nsACString& hostRoute,
                                  uint16_t portRoute,
-                                 nsIProxyInfo* givenProxyInfo) {
+                                 nsIProxyInfo* givenProxyInfo,
+                                 nsIDNSRecord* dnsRecord) {
   nsCOMPtr<nsProxyInfo> proxyInfo;
   if (givenProxyInfo) {
     proxyInfo = do_QueryInterface(givenProxyInfo);
     NS_ENSURE_ARG(proxyInfo);
+  }
+
+  if (dnsRecord) {
+    mExternalDNSResolution = true;
+    mDNSRecord = do_QueryInterface(dnsRecord);
   }
 
   // init socket type info
@@ -990,6 +996,12 @@ nsresult nsSocketTransport::ResolveHost() {
     }
   }
 
+  if (mExternalDNSResolution) {
+    MOZ_ASSERT(mDNSRecord);
+    mState = STATE_RESOLVING;
+    return PostEvent(MSG_DNS_LOOKUP_COMPLETE, NS_OK, nullptr);
+  }
+
   nsCOMPtr<nsIDNSService> dns = nullptr;
   auto initTask = [&dns]() { dns = do_GetService(kDNSServiceCID); };
   if (!NS_IsMainThread()) {
@@ -1097,6 +1109,11 @@ nsresult nsSocketTransport::BuildSocket(PRFileDesc*& fd, bool& proxyTransparent,
 
   if (mConnectionFlags & nsISocketTransport::BE_CONSERVATIVE)
     controlFlags |= nsISocketProvider::BE_CONSERVATIVE;
+
+  if (mConnectionFlags &
+      nsISocketTransport::ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT) {
+    controlFlags |= nsISocketProvider::ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT;
+  }
 
   // by setting host to mOriginHost, instead of mHost we send the
   // SocketProvider (e.g. PSM) the origin hostname but can still do DNS
@@ -1688,8 +1705,6 @@ bool nsSocketTransport::RecoverFromError() {
     mDNSRecord->ReportUnusable(SocketPort());
   }
 
-#if defined(_WIN64) && defined(WIN95)
-  // can only recover from these errors
   if (mCondition != NS_ERROR_CONNECTION_REFUSED &&
       mCondition != NS_ERROR_PROXY_CONNECTION_REFUSED &&
       mCondition != NS_ERROR_NET_TIMEOUT &&
@@ -1699,17 +1714,6 @@ bool nsSocketTransport::RecoverFromError() {
                 static_cast<uint32_t>(mCondition)));
     return false;
   }
-#else
-  if (mCondition != NS_ERROR_CONNECTION_REFUSED &&
-      mCondition != NS_ERROR_PROXY_CONNECTION_REFUSED &&
-      mCondition != NS_ERROR_NET_TIMEOUT &&
-      mCondition != NS_ERROR_UNKNOWN_HOST &&
-      mCondition != NS_ERROR_UNKNOWN_PROXY_HOST) {
-    SOCKET_LOG(("  not a recoverable error %" PRIx32,
-                static_cast<uint32_t>(mCondition)));
-    return false;
-  }
-#endif
 
   bool tryAgain = false;
 
@@ -1746,6 +1750,19 @@ bool nsSocketTransport::RecoverFromError() {
     if (NS_SUCCEEDED(rv)) {
       SOCKET_LOG(("  trying again with next ip address\n"));
       tryAgain = true;
+    } else if (mExternalDNSResolution) {
+      mRetryDnsIfPossible = true;
+      bool trrEnabled;
+      mDNSRecord->IsTRR(&trrEnabled);
+      // Bug 1648147 - If the server responded with `0.0.0.0` or `::` then we
+      // should intentionally not fallback to regular DNS.
+      if (trrEnabled && !StaticPrefs::network_trr_fallback_on_zero_response() &&
+          ((mNetAddr.raw.family == AF_INET && mNetAddr.inet.ip == 0) ||
+           (mNetAddr.raw.family == AF_INET6 && mNetAddr.inet6.ip.u64[0] == 0 &&
+            mNetAddr.inet6.ip.u64[1] == 0))) {
+        SOCKET_LOG(("  TRR returned 0.0.0.0 and there are no other IPs"));
+        mRetryDnsIfPossible = false;
+      }
     } else if (mConnectionFlags & RETRY_WITH_DIFFERENT_IP_FAMILY) {
       SOCKET_LOG(("  failed to connect, trying with opposite ip family\n"));
       // Drop state to closed.  This will trigger new round of DNS
@@ -3345,6 +3362,20 @@ nsSocketTransport::SetEchConfig(const nsACString& aEchConfig) {
 NS_IMETHODIMP
 nsSocketTransport::ResolvedByTRR(bool* aResolvedByTRR) {
   *aResolvedByTRR = mResolvedByTRR;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSocketTransport::GetRetryDnsIfPossible(bool* aRetryDns) {
+  *aRetryDns = mRetryDnsIfPossible;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSocketTransport::GetStatus(nsresult* aStatus) {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+
+  *aStatus = mCondition;
   return NS_OK;
 }
 

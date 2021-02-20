@@ -45,7 +45,8 @@ class VirtualCursorService final : public nsIVirtualCursor,
   virtual void CursorMove() override;
   virtual void CursorOut(bool aCheckActive = false) override;
   virtual void ShowContextMenu() override;
-  void SendCursorEvent(const nsAString& aType);
+  void SendCursorEvent(const nsAString& aType, int32_t aButton,
+                       int32_t aButtons);
 
   void StartPanning();
   void StopPanning();

@@ -8,19 +8,43 @@
 #define nsRilIndication_H
 #include <nsISupportsImpl.h>
 #include <nsTArray.h>
-#include "nsRilWorker.h"
+#include <android/hardware/radio/1.1/IRadioIndication.h>
 
-#include <android/hardware/radio/1.0/IRadioIndication.h>
-#include <android/hardware/radio/1.0/types.h>
-
-using namespace ::android::hardware::radio::V1_0;
+using namespace ::android::hardware::radio::V1_1;
 using ::android::sp;
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::Return;
 using ::android::hardware::Void;
-using ::android::hardware::radio::V1_0::IRadioIndication;
+using ::android::hardware::radio::V1_0::CdmaCallWaiting;
+using ::android::hardware::radio::V1_0::CdmaInformationRecords;
+using ::android::hardware::radio::V1_0::CdmaOtaProvisionStatus;
+using ::android::hardware::radio::V1_0::CdmaSignalInfoRecord;
+using ::android::hardware::radio::V1_0::CdmaSmsMessage;
+using ::android::hardware::radio::V1_0::CdmaSubscriptionSource;
+using ::android::hardware::radio::V1_0::CellInfo;
+using ::android::hardware::radio::V1_0::HardwareConfig;
+using ::android::hardware::radio::V1_0::HardwareConfigType;
+using ::android::hardware::radio::V1_0::HardwareConfigState;
+using ::android::hardware::radio::V1_1::IRadioIndication;
+using ::android::hardware::radio::V1_0::LceDataInfo;
+using ::android::hardware::radio::V1_0::PcoDataInfo;
+using ::android::hardware::radio::V1_0::PhoneRestrictedState;
+using ::android::hardware::radio::V1_0::RadioAccessFamily;
+using ::android::hardware::radio::V1_0::RadioCapability;
+using ::android::hardware::radio::V1_0::RadioCapabilityPhase;
+using ::android::hardware::radio::V1_0::RadioCapabilityStatus;
+using ::android::hardware::radio::V1_0::RadioIndicationType;
 using ::android::hardware::radio::V1_0::RadioState;
+using ::android::hardware::radio::V1_0::RadioTechnology;
+using ::android::hardware::radio::V1_0::SetupDataCallResult;
+using ::android::hardware::radio::V1_0::SignalStrength;
+using ::android::hardware::radio::V1_0::SimRefreshResult;
+using ::android::hardware::radio::V1_0::SimRefreshType;
+using ::android::hardware::radio::V1_0::SrvccState;
+using ::android::hardware::radio::V1_0::StkCcUnsolSsResult;
+using ::android::hardware::radio::V1_0::SuppSvcNotification;
+using ::android::hardware::radio::V1_0::UssdModeType;
 
 class nsRilWorker;
 
@@ -151,6 +175,12 @@ class nsRilIndication : public IRadioIndication {
 
   Return<void> modemReset(RadioIndicationType type,
                           const ::android::hardware::hidl_string& reason);
+
+  Return<void> carrierInfoForImsiEncryption(RadioIndicationType type);
+ 
+  Return<void> networkScanResult(RadioIndicationType type, const NetworkScanResult& result);
+ 
+  Return<void> keepaliveStatus(RadioIndicationType type, const KeepaliveStatus& status);
 
  private:
   void defaultResponse(const RadioIndicationType type,

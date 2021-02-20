@@ -19,9 +19,18 @@ exclude: true
 - Added [`WebExtension.Download.Info`][87.2] interface that can be used to
   implement the WebExtension `downloads` API. This interface allows communicating
   download's state to Web Extension.
+- [`Image#getBitmap`][87.3] now throws [`ImageProcessingException`][87.4] if
+  the image cannot be processed.
+  ([bug 1689745]({{bugzilla}}1689745))
+- Added support for HTTPS-only mode to [`GeckoRuntimeSettings`][87.5] via
+  [`setAllowInsecureConnections`][87.6].
   
 [87.1]: {{javadoc_uri}}/WebExtension.DownloadInitData.html
 [87.2]: {{javadoc_uri}}/WebExtension.Download.Info.html
+[87.3]: {{javadoc_uri}}/Image.html#getBitmap-int-
+[87.4]: {{javadoc_uri}}/Image.ImageProcessingException.html
+[87.5]: {{javadoc_uri}}/GeckoRuntimeSettings.html
+[87.6]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setAllowInsecureConnections-int-
 
 ## v86
 - Removed deprecated [`ContentDelegate#onExternalResponse(GeckoSession, WebResponseInfo)`].
@@ -887,4 +896,4 @@ to allow adding gecko profiler markers.
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: d751d69857ce777d1cab63a431bd6d67dc8b2a48
+[api-version]: d9171ae05286c279c35515eb3ac3e42258cec583

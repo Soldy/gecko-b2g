@@ -15,6 +15,7 @@
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Tuple.h"
 #include "mozilla/UniquePtr.h"
+#include "NSSErrorsService.h"
 
 class nsICacheEntry;
 
@@ -124,6 +125,11 @@ extern const nsCString kHttp3Versions[];
 // Force a transaction to stay in pending queue until the HTTPSSVC record is
 // available.
 #define NS_HTTP_WAIT_HTTPSSVC_RESULT (1 << 23)
+
+// This is used for a temporary workaround for a web-compat issue. The flag is
+// only set on CORS preflight request to allowed sending client certificates
+// on a connection for an anonymous request.
+#define NS_HTTP_LOAD_ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT (1 << 24)
 
 #define NS_HTTP_TRR_FLAGS_FROM_MODE(x) ((static_cast<uint32_t>(x) & 3) << 19)
 
@@ -381,6 +387,13 @@ nsresult HttpProxyResponseToErrorCode(uint32_t aStatusCode);
 // alpn-id is found, the first element would be a n empty string.
 Tuple<nsCString, bool> SelectAlpnFromAlpnList(
     const nsTArray<nsCString>& aAlpnList, bool aNoHttp2, bool aNoHttp3);
+
+static inline bool AllowedErrorForHTTPSRRFallback(nsresult aError) {
+  return psm::IsNSSErrorCode(-1 * NS_ERROR_GET_CODE(aError)) ||
+         aError == NS_ERROR_NET_RESET ||
+         aError == NS_ERROR_CONNECTION_REFUSED ||
+         aError == NS_ERROR_UNKNOWN_HOST || aError == NS_ERROR_NET_TIMEOUT;
+}
 
 }  // namespace net
 }  // namespace mozilla

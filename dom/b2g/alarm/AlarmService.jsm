@@ -4,30 +4,25 @@
 
 "use strict";
 
+const EXPORTED_SYMBOLS = ["AlarmService"];
+
 const { AlarmDB } = ChromeUtils.import("resource://gre/modules/AlarmDB.jsm");
-const { AppConstants } = ChromeUtils.import(
-  "resource://gre/modules/AppConstants.jsm"
-);
 const { Log } = ChromeUtils.import("resource://gre/modules/Log.jsm");
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 
-function getLogger() {
-  var logger = Log.repository.getLogger("AlarmService");
-  logger.addAppender(new Log.DumpAppender(new Log.BasicFormatter()));
+if (Services.prefs.getBoolPref("dom.alarm.debug", false)) {
+  let logger = Log.repository.getLogger("AlarmService");
+  logger.addAppender(new Log.ConsoleAppender(new Log.BasicFormatter()));
   logger.level = Log.Level.Debug;
-  return logger;
+  this.debug = function debug(aStr) {
+    logger.debug(aStr);
+  };
+} else {
+  this.debug = function debug(aStr) {};
 }
-
-const logger = getLogger();
-
-function debug(aStr) {
-  AppConstants.DEBUG_ALARM && logger.debug(aStr);
-}
-
-this.EXPORTED_SYMBOLS = ["AlarmService"];
 
 XPCOMUtils.defineLazyGetter(this, "appsService", function() {
   return Cc["@mozilla.org/AppsService;1"].getService(Ci.nsIAppsService);
@@ -43,6 +38,10 @@ XPCOMUtils.defineLazyGetter(this, "powerManagerService", function() {
   return Cc["@mozilla.org/power/powermanagerservice;1"].getService(
     Ci.nsIPowerManagerService
   );
+});
+
+XPCOMUtils.defineLazyGetter(this, "timeService", function() {
+  return Cc["@mozilla.org/sidl-native/time;1"].getService(Ci.nsITime);
 });
 
 /**
@@ -73,10 +72,37 @@ this.AlarmService = {
 
     alarmHalService.setAlarmFiredCb(this._onAlarmFired.bind(this));
 
-    /* TODO: hal timezone change
-    alarmHalService.setTimezoneChangedCb(this._onTimezoneChanged.bind(this));
+    timeService.addObserver(
+      timeService.TIME_CHANGED,
+      {
+        notify: aTimeInfo => {
+          debug(
+            `TIME_CHANGED ${aTimeInfo?.reason} ${aTimeInfo?.delta} ${aTimeInfo?.timezone}`
+          );
+          systemmessenger.broadcastMessage("system-time-change", {
+            reason: aTimeInfo?.reason,
+            delta: aTimeInfo?.delta,
+            timezone: aTimeInfo?.timezone,
+          });
+        },
+      },
+      {
+        resolve: () => debug("resolve: addObserver on TIME_CHANGED"),
+        reject: () => debug("reject: addObserver on TIME_CHANGED"),
+      }
     );
-    */
+
+    let timezoneChangeCallback = this._onTimezoneChanged.bind(this);
+    timeService.addObserver(
+      timeService.TIMEZONE_CHANGED,
+      {
+        notify: timezoneChangeCallback,
+      },
+      {
+        resolve: () => debug("resolve: addObserver on TIMEZONE_CHANGED"),
+        reject: () => debug("resolve: addObserver on TIMEZONE_CHANGED"),
+      }
+    );
 
     // Add the messages to be listened to.
     this._messages = ["Alarm:GetAll", "Alarm:Add", "Alarm:Remove"];
@@ -333,10 +359,9 @@ this.AlarmService = {
     this._debugCurrentAlarm();
   },
 
-  _onTimezoneChanged: function _onTimezoneChanged(aTimezoneOffset) {
+  _onTimezoneChanged: function _onTimezoneChanged() {
     debug("_onTimezoneChanged()");
-
-    this._currentTimezoneOffset = aTimezoneOffset;
+    this._currentTimezoneOffset = new Date().getTimezoneOffset();
     this._restoreAlarmsFromDb();
   },
 

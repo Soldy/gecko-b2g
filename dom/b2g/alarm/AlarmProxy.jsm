@@ -4,9 +4,8 @@
 
 "use strict";
 
-const { AppConstants } = ChromeUtils.import(
-  "resource://gre/modules/AppConstants.jsm"
-);
+const EXPORTED_SYMBOLS = ["AlarmProxy"];
+
 const { Log } = ChromeUtils.import("resource://gre/modules/Log.jsm");
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { XPCOMUtils } = ChromeUtils.import(
@@ -14,18 +13,16 @@ const { XPCOMUtils } = ChromeUtils.import(
 );
 
 const REQUEST_CPU_LOCK_TIMEOUT = 10 * 1000; // 10 seconds.
-
-function getLogger() {
-  var logger = Log.repository.getLogger("AlarmProxy");
-  logger.addAppender(new Log.DumpAppender(new Log.BasicFormatter()));
+if (Services.prefs.getBoolPref("dom.alarm.debug", false)) {
+  let logger = Log.repository.getLogger("AlarmProxy");
+  logger.addAppender(new Log.ConsoleAppender(new Log.BasicFormatter()));
   logger.level = Log.Level.Debug;
-  return logger;
-}
 
-const logger = getLogger();
-
-function debug(aStr) {
-  AppConstants.DEBUG_ALARM && logger.debug(aStr);
+  this.debug = function debug(aStr) {
+    logger.debug(aStr);
+  };
+} else {
+  this.debug = function debug(aStr) {};
 }
 
 XPCOMUtils.defineLazyServiceGetter(
@@ -173,5 +170,3 @@ AlarmProxy.prototype = {
     Ci.nsISupportsWeakReference,
   ]),
 };
-
-var EXPORTED_SYMBOLS = ["AlarmProxy"];

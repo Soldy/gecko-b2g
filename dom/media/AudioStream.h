@@ -170,8 +170,7 @@ class AudioBufferWriter : private AudioBufferCursor {
 // callers, or made from a single thread.  One exception is that access to
 // GetPosition, GetPositionInFrames, SetVolume, and Get{Rate,Channels},
 // SetMicrophoneActive is thread-safe without external synchronization.
-class AudioStream final
-{
+class AudioStream final {
   virtual ~AudioStream();
 
  public:

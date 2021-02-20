@@ -2404,6 +2404,20 @@ MobileConnectionProvider.prototype = {
     aCallback.notifyGetDeviceIdentitiesRequestSuccess(deviceId);
   },
 
+  stopNetworkScan(aCallback) {
+    this._radioInterface.sendWorkerMessage("stopNetworkScan", null, function(
+      aResponse
+    ) {
+      if (aResponse.errorMsg) {
+        aCallback.notifyError(aResponse.errorMsg);
+        return false;
+      }
+
+      aCallback.notifySuccess();
+      return false;
+    });
+  },
+
   initUt() {
     if (!this._imsUt) {
       if (this._imsRegHandler && this._imsRegHandler) {

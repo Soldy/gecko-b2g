@@ -28,4 +28,4 @@ api-daemon:
     fetch:
         type: git
         repo: https://github.com/kaiostech/api-daemon/
-        revision: e3e9d6a3b34fbd617e14d62930f665772a58fbb4
+        revision: f232a2d80990af5b9ef9e7b2ca449003d4259f78

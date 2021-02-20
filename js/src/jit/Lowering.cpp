@@ -302,13 +302,13 @@ void LIRGenerator::visitArgumentsObjectLength(MArgumentsObjectLength* ins) {
   define(lir, ins);
 }
 
-void LIRGenerator::visitGuardArgumentsObjectNotOverriddenIterator(
-    MGuardArgumentsObjectNotOverriddenIterator* ins) {
+void LIRGenerator::visitGuardArgumentsObjectFlags(
+    MGuardArgumentsObjectFlags* ins) {
   MDefinition* argsObj = ins->getArgsObject();
   MOZ_ASSERT(argsObj->type() == MIRType::Object);
 
-  auto* lir = new (alloc())
-      LGuardArgumentsObjectNotOverriddenIterator(useRegister(argsObj), temp());
+  auto* lir =
+      new (alloc()) LGuardArgumentsObjectFlags(useRegister(argsObj), temp());
   assignSnapshot(lir, ins->bailoutKind());
   add(lir, ins);
   redefine(ins, argsObj);
@@ -450,6 +450,27 @@ void LIRGenerator::visitApplyArgs(MApplyArgs* apply) {
   LApplyArgsGeneric* lir = new (alloc()) LApplyArgsGeneric(
       useFixedAtStart(apply->getFunction(), CallTempReg3),
       useFixedAtStart(apply->getArgc(), CallTempReg0),
+      useBoxFixedAtStart(apply->getThis(), CallTempReg4, CallTempReg5),
+      tempFixed(CallTempReg1),   // object register
+      tempFixed(CallTempReg2));  // stack counter register
+
+  // Bailout is needed in the case of too many values in the arguments array.
+  assignSnapshot(lir, apply->bailoutKind());
+
+  defineReturn(lir, apply);
+  assignSafepoint(lir, apply);
+}
+
+void LIRGenerator::visitApplyArgsObj(MApplyArgsObj* apply) {
+  MOZ_ASSERT(apply->getFunction()->type() == MIRType::Object);
+
+  // Assert if the return value is already erased.
+  static_assert(CallTempReg2 != JSReturnReg_Type);
+  static_assert(CallTempReg2 != JSReturnReg_Data);
+
+  LApplyArgsObj* lir = new (alloc()) LApplyArgsObj(
+      useFixedAtStart(apply->getFunction(), CallTempReg3),
+      useFixedAtStart(apply->getArgsObj(), CallTempReg0),
       useBoxFixedAtStart(apply->getThis(), CallTempReg4, CallTempReg5),
       tempFixed(CallTempReg1),   // object register
       tempFixed(CallTempReg2));  // stack counter register
@@ -2228,6 +2249,7 @@ void LIRGenerator::visitInt32ToIntPtr(MInt32ToIntPtr* ins) {
   MOZ_ASSERT(input->type() == MIRType::Int32);
   MOZ_ASSERT(ins->type() == MIRType::IntPtr);
 
+#ifdef JS_64BIT
   // If the result is only used by instructions that expect a bounds-checked
   // index, we must have eliminated or hoisted a bounds check and we can assume
   // the index is non-negative. This lets us generate more efficient code.
@@ -2249,8 +2271,17 @@ void LIRGenerator::visitInt32ToIntPtr(MInt32ToIntPtr* ins) {
     }
   }
 
-  auto* lir = new (alloc()) LInt32ToIntPtr(useRegisterAtStart(input));
-  define(lir, ins);
+  if (ins->canBeNegative()) {
+    auto* lir = new (alloc()) LInt32ToIntPtr(useAnyAtStart(input));
+    define(lir, ins);
+  } else {
+    auto* lir = new (alloc()) LInt32ToIntPtr(useRegisterAtStart(input));
+    defineReuseInput(lir, ins, 0);
+  }
+#else
+  // On 32-bit platforms this is a no-op.
+  redefine(ins, input);
+#endif
 }
 
 void LIRGenerator::visitNonNegativeIntPtrToInt32(
@@ -2259,12 +2290,24 @@ void LIRGenerator::visitNonNegativeIntPtrToInt32(
   MOZ_ASSERT(input->type() == MIRType::IntPtr);
   MOZ_ASSERT(ins->type() == MIRType::Int32);
 
+#ifdef JS_64BIT
   auto* lir =
       new (alloc()) LNonNegativeIntPtrToInt32(useRegisterAtStart(input));
-#ifdef JS_64BIT
   assignSnapshot(lir, ins->bailoutKind());
-#endif
   defineReuseInput(lir, ins, 0);
+#else
+  // On 32-bit platforms this is a no-op.
+  redefine(ins, input);
+#endif
+}
+
+void LIRGenerator::visitIntPtrToDouble(MIntPtrToDouble* ins) {
+  MDefinition* input = ins->input();
+  MOZ_ASSERT(input->type() == MIRType::IntPtr);
+  MOZ_ASSERT(ins->type() == MIRType::Double);
+
+  auto* lir = new (alloc()) LIntPtrToDouble(useRegister(input));
+  define(lir, ins);
 }
 
 void LIRGenerator::visitAdjustDataViewLength(MAdjustDataViewLength* ins) {
@@ -2565,21 +2608,6 @@ void LIRGenerator::visitUnaryCache(MUnaryCache* ins) {
 
   LUnaryCache* lir = new (alloc()) LUnaryCache(useBox(input));
   defineBox(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
-void LIRGenerator::visitClassConstructor(MClassConstructor* ins) {
-  LClassConstructor* lir = new (alloc()) LClassConstructor();
-  defineReturn(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
-void LIRGenerator::visitDerivedClassConstructor(MDerivedClassConstructor* ins) {
-  MDefinition* proto = ins->prototype();
-  MOZ_ASSERT(ins->type() == MIRType::Object);
-
-  auto* lir = new (alloc()) LDerivedClassConstructor(useRegisterAtStart(proto));
-  defineReturn(lir, ins);
   assignSafepoint(lir, ins);
 }
 
@@ -2937,16 +2965,12 @@ void LIRGenerator::visitGetNextEntryForIterator(MGetNextEntryForIterator* ins) {
   define(lir, ins);
 }
 
-void LIRGenerator::visitArrayBufferByteLengthInt32(
-    MArrayBufferByteLengthInt32* ins) {
+void LIRGenerator::visitArrayBufferByteLength(MArrayBufferByteLength* ins) {
   MOZ_ASSERT(ins->object()->type() == MIRType::Object);
-  MOZ_ASSERT(ins->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->type() == MIRType::IntPtr);
 
-  auto* lir = new (alloc())
-      LArrayBufferByteLengthInt32(useRegisterAtStart(ins->object()));
-#ifdef JS_64BIT
-  assignSnapshot(lir, ins->bailoutKind());
-#endif
+  auto* lir =
+      new (alloc()) LArrayBufferByteLength(useRegisterAtStart(ins->object()));
   define(lir, ins);
 }
 
@@ -2962,13 +2986,10 @@ void LIRGenerator::visitArrayBufferViewLength(MArrayBufferViewLength* ins) {
 void LIRGenerator::visitArrayBufferViewByteOffset(
     MArrayBufferViewByteOffset* ins) {
   MOZ_ASSERT(ins->object()->type() == MIRType::Object);
-  MOZ_ASSERT(ins->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->type() == MIRType::IntPtr);
 
   auto* lir = new (alloc())
       LArrayBufferViewByteOffset(useRegisterAtStart(ins->object()));
-#ifdef JS_64BIT
-  assignSnapshot(lir, ins->bailoutKind());
-#endif
   define(lir, ins);
 }
 
@@ -2979,11 +3000,22 @@ void LIRGenerator::visitArrayBufferViewElements(MArrayBufferViewElements* ins) {
          ins);
 }
 
-void LIRGenerator::visitTypedArrayElementShift(MTypedArrayElementShift* ins) {
+void LIRGenerator::visitTypedArrayElementSize(MTypedArrayElementSize* ins) {
   MOZ_ASSERT(ins->object()->type() == MIRType::Object);
   define(new (alloc())
-             LTypedArrayElementShift(useRegisterAtStart(ins->object())),
+             LTypedArrayElementSize(useRegisterAtStart(ins->object())),
          ins);
+}
+
+void LIRGenerator::visitGuardHasAttachedArrayBuffer(
+    MGuardHasAttachedArrayBuffer* ins) {
+  MOZ_ASSERT(ins->object()->type() == MIRType::Object);
+
+  auto* lir = new (alloc())
+      LGuardHasAttachedArrayBuffer(useRegister(ins->object()), temp());
+  assignSnapshot(lir, ins->bailoutKind());
+  add(lir, ins);
+  redefine(ins, ins->object());
 }
 
 void LIRGenerator::visitGuardNumberToIntPtrIndex(
@@ -3327,12 +3359,17 @@ void LIRGenerator::visitStringSplit(MStringSplit* ins) {
 void LIRGenerator::visitLoadUnboxedScalar(MLoadUnboxedScalar* ins) {
   MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
   MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
+  MOZ_ASSERT(IsNumericType(ins->type()) || ins->type() == MIRType::Boolean);
+
+  if (Scalar::isBigIntType(ins->storageType()) &&
+      ins->requiresMemoryBarrier()) {
+    lowerAtomicLoad64(ins);
+    return;
+  }
 
   const LUse elements = useRegister(ins->elements());
   const LAllocation index = useRegisterOrIndexConstant(
       ins->index(), ins->storageType(), ins->offsetAdjustment());
-
-  MOZ_ASSERT(IsNumericType(ins->type()) || ins->type() == MIRType::Boolean);
 
   Synchronization sync = Synchronization::Load();
   if (ins->requiresMemoryBarrier()) {
@@ -3496,6 +3533,11 @@ void LIRGenerator::visitStoreUnboxedScalar(MStoreUnboxedScalar* ins) {
     MOZ_ASSERT(ins->value()->type() == MIRType::BigInt);
   } else {
     MOZ_ASSERT(ins->value()->type() == MIRType::Int32);
+  }
+
+  if (ins->isBigIntWrite() && ins->requiresMemoryBarrier()) {
+    lowerAtomicStore64(ins);
+    return;
   }
 
   LUse elements = useRegister(ins->elements());

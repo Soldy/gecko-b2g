@@ -92,6 +92,14 @@ class nsTableWrapperFrame : public nsContainerFrame {
   virtual nscoord GetMinISize(gfxContext* aRenderingContext) override;
   virtual nscoord GetPrefISize(gfxContext* aRenderingContext) override;
 
+  SizeComputationResult ComputeSize(
+      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
+      const mozilla::LogicalSize& aMargin,
+      const mozilla::LogicalSize& aBorderPadding,
+      const mozilla::StyleSizeOverrides& aSizeOverrides,
+      mozilla::ComputeSizeFlags aFlags) override;
+
   mozilla::LogicalSize ComputeAutoSize(
       gfxContext* aRenderingContext, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
@@ -179,38 +187,39 @@ class nsTableWrapperFrame : public nsContainerFrame {
     return map->GetEffectiveRowSpan(aRowIdx, aColIdx);
   }
 
-  /**
-   * The CB size to use for the inner table frame if we're a grid item.
-   */
-  NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridItemCBSizeProperty,
-                                      mozilla::LogicalSize);
-
  protected:
   explicit nsTableWrapperFrame(ComputedStyle* aStyle,
                                nsPresContext* aPresContext,
                                ClassID aID = kClassID);
   virtual ~nsTableWrapperFrame();
 
-  // Get a NS_STYLE_CAPTION_SIDE_* value, or NO_SIDE if no caption is present.
+  using MaybeCaptionSide = Maybe<mozilla::StyleCaptionSide>;
+
+  // Get a StyleCaptionSide value, or Nothing if no caption is present.
+  //
   // (Remember that caption-side values are interpreted logically, despite
   // having "physical" names.)
-  uint8_t GetCaptionSide() const;
+  MaybeCaptionSide GetCaptionSide() const;
 
   bool HasSideCaption() const {
-    uint8_t captionSide = GetCaptionSide();
-    return captionSide == NS_STYLE_CAPTION_SIDE_LEFT ||
-           captionSide == NS_STYLE_CAPTION_SIDE_RIGHT;
+    auto captionSide = GetCaptionSide();
+    return captionSide && IsSideCaption(*captionSide);
+  }
+
+  static bool IsSideCaption(const mozilla::StyleCaptionSide aCaptionSide) {
+    return aCaptionSide == mozilla::StyleCaptionSide::Left ||
+           aCaptionSide == mozilla::StyleCaptionSide::Right;
   }
 
   mozilla::StyleVerticalAlignKeyword GetCaptionVerticalAlign() const;
 
-  nscoord ComputeFinalBSize(uint8_t aCaptionSide,
+  nscoord ComputeFinalBSize(const MaybeCaptionSide&,
                             const mozilla::LogicalSize& aInnerSize,
                             const mozilla::LogicalSize& aCaptionSize,
                             const mozilla::LogicalMargin& aCaptionMargin,
                             const mozilla::WritingMode aWM) const;
 
-  nsresult GetCaptionOrigin(uint32_t aCaptionSide,
+  nsresult GetCaptionOrigin(mozilla::StyleCaptionSide,
                             const mozilla::LogicalSize& aContainBlockSize,
                             const mozilla::LogicalSize& aInnerSize,
                             const mozilla::LogicalSize& aCaptionSize,
@@ -218,7 +227,7 @@ class nsTableWrapperFrame : public nsContainerFrame {
                             mozilla::LogicalPoint& aOrigin,
                             mozilla::WritingMode aWM);
 
-  nsresult GetInnerOrigin(uint32_t aCaptionSide,
+  nsresult GetInnerOrigin(const MaybeCaptionSide&,
                           const mozilla::LogicalSize& aContainBlockSize,
                           const mozilla::LogicalSize& aCaptionSize,
                           const mozilla::LogicalMargin& aCaptionMargin,
@@ -226,13 +235,26 @@ class nsTableWrapperFrame : public nsContainerFrame {
                           mozilla::LogicalPoint& aOrigin,
                           mozilla::WritingMode aWM);
 
+  // Returns the area occupied by the caption within our content box depending
+  // on the caption side.
+  //
+  // @param aCaptionMarginBoxSize the caption's margin-box size in our
+  //        writing-mode.
+  mozilla::LogicalSize GetAreaOccupiedByCaption(
+      mozilla::StyleCaptionSide,
+      const mozilla::LogicalSize& aCaptionMarginBoxSize) const;
+
   // Create and init the child reflow input, using passed-in aChildRI, so that
   // caller can use it after we return.
-  void CreateReflowInputForInnerTable(nsPresContext* aPresContext,
-                                      nsTableFrame* aTableFrame,
-                                      const ReflowInput& aOuterRI,
-                                      Maybe<ReflowInput>& aChildRI,
-                                      const nscoord aAvailISize) const;
+  //
+  // @param aAreaOccupiedByCaption the value computed by
+  //        GetAreaOccupiedByCaption() if we have a caption.
+  void CreateReflowInputForInnerTable(
+      nsPresContext* aPresContext, nsTableFrame* aTableFrame,
+      const ReflowInput& aOuterRI, Maybe<ReflowInput>& aChildRI,
+      const nscoord aAvailISize,
+      const mozilla::Maybe<mozilla::LogicalSize>& aAreaOccupiedByCaption =
+          mozilla::Nothing()) const;
   void CreateReflowInputForCaption(nsPresContext* aPresContext,
                                    nsIFrame* aCaptionFrame,
                                    const ReflowInput& aOuterRI,
@@ -258,16 +280,40 @@ class nsTableWrapperFrame : public nsContainerFrame {
 
   /**
    * Helper for ComputeAutoSize.
-   * Compute the margin-box inline size of aChildFrame given the inputs.
-   * If aMarginResult is non-null, fill it with the part of the
-   * margin-isize that was contributed by the margin.
+   * Compute the margin-box inline size of the frame given the inputs.
+   *
+   * Note: CaptionShrinkWrapISize doesn't need StyleSizeOverrides parameter.
    */
-  nscoord ChildShrinkWrapISize(
-      gfxContext* aRenderingContext, nsIFrame* aChildFrame,
-      mozilla::WritingMode aWM, mozilla::LogicalSize aCBSize,
+  nscoord InnerTableShrinkWrapISize(
+      gfxContext* aRenderingContext, nsTableFrame* aTableFrame,
+      mozilla::WritingMode aWM, const mozilla::LogicalSize& aCBSize,
       nscoord aAvailableISize,
       const mozilla::StyleSizeOverrides& aSizeOverrides,
-      nscoord* aMarginResult = nullptr) const;
+      mozilla::ComputeSizeFlags aFlag) const;
+  nscoord CaptionShrinkWrapISize(gfxContext* aRenderingContext,
+                                 nsIFrame* aCaptionFrame,
+                                 mozilla::WritingMode aWM,
+                                 const mozilla::LogicalSize& aCBSize,
+                                 nscoord aAvailableISize,
+                                 mozilla::ComputeSizeFlags aFlag) const;
+
+  /**
+   * Create a new StyleSize by reducing the size by aAmountToReduce.
+   *
+   * @param aStyleSize must be a Length.
+   */
+  mozilla::StyleSize ReduceStyleSizeBy(const mozilla::StyleSize& aStyleSize,
+                                       const nscoord aAmountToReduce) const;
+
+  /**
+   * Compute StyleSizeOverrides for inner table frame given the overrides of the
+   * table wrapper frame.
+   */
+  mozilla::StyleSizeOverrides ComputeSizeOverridesForInnerTable(
+      const nsTableFrame* aTableFrame,
+      const mozilla::StyleSizeOverrides& aWrapperSizeOverrides,
+      const mozilla::LogicalSize& aBorderPadding,
+      const mozilla::LogicalSize& aAreaOccupiedByCaption) const;
 
  private:
   nsFrameList mCaptionFrames;

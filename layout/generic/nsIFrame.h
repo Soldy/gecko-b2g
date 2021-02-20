@@ -2669,6 +2669,7 @@ class nsIFrame : public nsQueryFrame {
     nscoord padding = 0;
     nscoord border = 0;
     nscoord margin = 0;
+    nscoord BorderPadding() const { return border + padding; };
   };
 
   /**
@@ -3297,6 +3298,9 @@ class nsIFrame : public nsQueryFrame {
     // other).
     eSupportsContainLayoutAndPaint = 1 << 12,
 
+    // Does this frame class support `aspect-ratio` property.
+    eSupportsAspectRatio = 1 << 13,
+
     // These are to allow nsIFrame::Init to assert that IsFrameOfType
     // implementations all call the base class method.  They are only
     // meaningful in DEBUG builds.
@@ -3317,7 +3321,8 @@ class nsIFrame : public nsQueryFrame {
                           nsIFrame::eDEBUGAllFrames |
 #endif
                           nsIFrame::eSupportsCSSTransforms |
-                          nsIFrame::eSupportsContainLayoutAndPaint));
+                          nsIFrame::eSupportsContainLayoutAndPaint |
+                          nsIFrame::eSupportsAspectRatio));
   }
 
   /**
@@ -3829,6 +3834,8 @@ class nsIFrame : public nsQueryFrame {
     /** whether we met selectable text frame that isn't editable during the
      *  search */
     bool mHasSelectableFrame = false;
+    /** whether we ignored a br frame */
+    bool mIgnoredBrFrame = false;
 
     FrameSearchResult PeekOffsetNoAmount(bool aForward) {
       return mFrame->PeekOffsetNoAmount(aForward, &mOffset);

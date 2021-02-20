@@ -225,11 +225,11 @@ void nsPrintSettingsWin::InitWithInitializer(
       case DMDUP_SIMPLEX:
         SetDuplex(kDuplexNone);
         break;
-      case DMDUP_HORIZONTAL:
-        SetDuplex(kDuplexFlipOnSideEdge);
-        break;
       case DMDUP_VERTICAL:
-        SetDuplex(kDuplexFlipOnTopEdge);
+        SetDuplex(kDuplexFlipOnLongEdge);
+        break;
+      case DMDUP_HORIZONTAL:
+        SetDuplex(kDuplexFlipOnShortEdge);
         break;
     }
   }
@@ -334,8 +334,9 @@ void nsPrintSettingsWin::CopyFromNative(HDC aHdc, DEVMODEW* aDevMode) {
     const bool arePagesPortraitMode =
         (areSheetsOfPaperPortraitMode != HasOrthogonalSheetsAndPages());
 
-    mOrientation = int32_t(arePagesPortraitMode ? kLandscapeOrientation
-                                                : kPortraitOrientation);
+    // Record the orientation of the pages (determined above) in mOrientation:
+    mOrientation = int32_t(arePagesPortraitMode ? kPortraitOrientation
+                                                : kLandscapeOrientation);
   }
 
   if (aDevMode->dmFields & DM_COPIES) {
@@ -350,11 +351,11 @@ void nsPrintSettingsWin::CopyFromNative(HDC aHdc, DEVMODEW* aDevMode) {
       case DMDUP_SIMPLEX:
         mDuplex = kDuplexNone;
         break;
-      case DMDUP_HORIZONTAL:
-        mDuplex = kDuplexFlipOnSideEdge;
-        break;
       case DMDUP_VERTICAL:
-        mDuplex = kDuplexFlipOnTopEdge;
+        mDuplex = kDuplexFlipOnLongEdge;
+        break;
+      case DMDUP_HORIZONTAL:
+        mDuplex = kDuplexFlipOnShortEdge;
         break;
     }
   }
@@ -480,12 +481,12 @@ void nsPrintSettingsWin::CopyToNative(DEVMODEW* aDevMode) {
       aDevMode->dmDuplex = DMDUP_SIMPLEX;
       aDevMode->dmFields |= DM_DUPLEX;
       break;
-    case kDuplexFlipOnSideEdge:
-      aDevMode->dmDuplex = DMDUP_HORIZONTAL;
+    case kDuplexFlipOnLongEdge:
+      aDevMode->dmDuplex = DMDUP_VERTICAL;
       aDevMode->dmFields |= DM_DUPLEX;
       break;
-    case kDuplexFlipOnTopEdge:
-      aDevMode->dmDuplex = DMDUP_VERTICAL;
+    case kDuplexFlipOnShortEdge:
+      aDevMode->dmDuplex = DMDUP_HORIZONTAL;
       aDevMode->dmFields |= DM_DUPLEX;
       break;
     default:

@@ -28,6 +28,8 @@
 #include "js/PropertySpec.h"
 #include "js/SourceText.h"  // JS::SourceText
 #include "nsCOMPtr.h"
+#include "nsDirectoryServiceDefs.h"
+#include "nsDirectoryServiceUtils.h"
 #include "nsExceptionHandler.h"
 #include "nsIComponentManager.h"
 #include "mozilla/Module.h"
@@ -45,7 +47,6 @@
 #include "nsContentUtils.h"
 #include "nsReadableUtils.h"
 #include "nsXULAppAPI.h"
-#include "GeckoProfiler.h"
 #include "WrapperFactory.h"
 
 #include "AutoMemMap.h"
@@ -56,6 +57,8 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/MacroForEach.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/ScriptPreloader.h"
 #include "mozilla/ScopeExit.h"
@@ -184,6 +187,8 @@ static nsresult MOZ_FORMAT_PRINTF(2, 3)
   return NS_OK;
 }
 
+NS_IMPL_ISUPPORTS(mozJSComponentLoader, nsIMemoryReporter)
+
 mozJSComponentLoader::mozJSComponentLoader()
     : mModules(16),
       mImports(16),
@@ -263,7 +268,7 @@ class MOZ_STACK_CLASS ComponentLoaderInfo {
 
   const nsACString& Key() { return mLocation; }
 
-  MOZ_MUST_USE nsresult GetLocation(nsCString& aLocation) {
+  [[nodiscard]] nsresult GetLocation(nsCString& aLocation) {
     nsresult rv = EnsureURI();
     NS_ENSURE_SUCCESS(rv, rv);
     return mURI->GetSpec(aLocation);
@@ -505,6 +510,7 @@ void mozJSComponentLoader::FindTargetObject(JSContext* aCx,
 void mozJSComponentLoader::InitStatics() {
   MOZ_ASSERT(!sSelf);
   sSelf = new mozJSComponentLoader();
+  RegisterWeakMemoryReporter(sSelf);
 }
 
 void mozJSComponentLoader::Unload() {
@@ -515,6 +521,7 @@ void mozJSComponentLoader::Unload() {
 
 void mozJSComponentLoader::Shutdown() {
   MOZ_ASSERT(sSelf);
+  UnregisterWeakMemoryReporter(sSelf);
   sSelf = nullptr;
 }
 
@@ -538,6 +545,73 @@ size_t mozJSComponentLoader::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) {
   n += mLocations.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += SizeOfTableExcludingThis(mInProgressImports, aMallocSizeOf);
   return n;
+}
+
+// Memory report paths are split on '/', with each component displayed as a
+// separate layer of a visual tree. Any slashes which are meant to belong to a
+// particular path component, rather than be used to build a hierarchy,
+// therefore need to be replaced with backslashes, which are displayed as
+// slashes in the UI.
+//
+// If `aAnonymize` is true, this function also attempts to translate any file:
+// URLs to replace the path of the GRE directory with a placeholder containing
+// no private information, and strips all other file: URIs of everything upto
+// their last `/`.
+static nsAutoCString MangleURL(const char* aURL, bool aAnonymize) {
+  nsAutoCString url(aURL);
+
+  if (aAnonymize) {
+    static nsCString greDirURI;
+    if (greDirURI.IsEmpty()) {
+      nsCOMPtr<nsIFile> file;
+      Unused << NS_GetSpecialDirectory(NS_GRE_DIR, getter_AddRefs(file));
+      if (file) {
+        nsCOMPtr<nsIURI> uri;
+        NS_NewFileURI(getter_AddRefs(uri), file);
+        if (uri) {
+          uri->GetSpec(greDirURI);
+          RunOnShutdown([&]() { greDirURI.Truncate(0); });
+        }
+      }
+    }
+
+    url.ReplaceSubstring(greDirURI, "<GREDir>/"_ns);
+
+    if (FindInReadable("file:"_ns, url)) {
+      if (StringBeginsWith(url, "jar:file:"_ns)) {
+        int32_t idx = url.RFindChar('!');
+        url = "jar:file://<anonymized>!"_ns + Substring(url, idx);
+      } else {
+        int32_t idx = url.RFindChar('/');
+        url = "file://<anonymized>/"_ns + Substring(url, idx);
+      }
+    }
+  }
+
+  url.ReplaceChar('/', '\\');
+  return url;
+}
+
+NS_IMETHODIMP
+mozJSComponentLoader::CollectReports(nsIHandleReportCallback* aHandleReport,
+                                     nsISupports* aData, bool aAnonymize) {
+  for (const auto& entry : mImports) {
+    nsAutoCString path("js-component-loader/modules/");
+    path.Append(MangleURL(entry.GetData()->location, aAnonymize));
+
+    aHandleReport->Callback(""_ns, path, KIND_NONHEAP, UNITS_COUNT, 1,
+                            "Loaded JS modules"_ns, aData);
+  }
+
+  for (const auto& entry : mModules) {
+    nsAutoCString path("js-component-loader/components/");
+    path.Append(MangleURL(entry.GetData()->location, aAnonymize));
+
+    aHandleReport->Callback(""_ns, path, KIND_NONHEAP, UNITS_COUNT, 1,
+                            "Loaded JS components"_ns, aData);
+  }
+
+  return NS_OK;
 }
 
 void mozJSComponentLoader::CreateLoaderGlobal(JSContext* aCx,
@@ -1238,7 +1312,7 @@ nsresult mozJSComponentLoader::Import(JSContext* aCx,
       return NS_ERROR_UNEXPECTED;
     }
 
-    mLocations.Put(newEntry->resolvedURL, new nsCString(info.Key()));
+    mLocations.Put(newEntry->resolvedURL, MakeUnique<nsCString>(info.Key()));
 
     RootedValue exception(aCx);
     {
@@ -1252,6 +1326,7 @@ nsresult mozJSComponentLoader::Import(JSContext* aCx,
     }
 
     if (NS_FAILED(rv)) {
+      mLocations.Remove(newEntry->resolvedURL);
       if (!exception.isUndefined()) {
         // An exception was thrown during compilation. Propagate it
         // out to our caller so they can report it.
@@ -1284,13 +1359,14 @@ nsresult mozJSComponentLoader::Import(JSContext* aCx,
   }
 
   if (exports && !JS_WrapObject(aCx, &exports)) {
+    mLocations.Remove(newEntry->resolvedURL);
     return NS_ERROR_FAILURE;
   }
   aModuleExports.set(exports);
 
   // Cache this module for later
   if (newEntry) {
-    mImports.Put(info.Key(), newEntry.release());
+    mImports.Put(info.Key(), std::move(newEntry));
   }
 
   return NS_OK;

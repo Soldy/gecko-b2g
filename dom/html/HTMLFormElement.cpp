@@ -11,6 +11,7 @@
 #include "jsapi.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/BinarySearch.h"
+#include "mozilla/Components.h"
 #include "mozilla/ContentEvents.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventStates.h"
@@ -578,6 +579,11 @@ nsresult HTMLFormElement::PostHandleEvent(EventChainPostVisitor& aVisitor) {
             // to forget it and the form element will build a new one
             mPendingSubmission = nullptr;
           }
+          if (!aVisitor.mEvent->IsTrusted()) {
+            // Warning about the form submission is from untrusted event.
+            OwnerDoc()->WarnOnceAbout(
+                DeprecatedOperations::eFormSubmissionUntrustedEvent);
+          }
           DoSubmit(aVisitor.mDOMEvent);
           break;
         }
@@ -663,8 +669,7 @@ nsresult HTMLFormElement::DoSubmit(Event* aEvent) {
   nsresult rv = BuildSubmission(getter_Transfers(submission), aEvent);
 
   // Don't raise an error if form cannot navigate.
-  if (StaticPrefs::dom_formdata_event_enabled() &&
-      rv == NS_ERROR_NOT_AVAILABLE) {
+  if (rv == NS_ERROR_NOT_AVAILABLE) {
     return NS_OK;
   }
 
@@ -739,7 +744,7 @@ nsresult HTMLFormElement::BuildSubmission(HTMLFormSubmission** aFormSubmission,
 
   // Step 9. If form cannot navigate, then return.
   // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#form-submission-algorithm
-  if (StaticPrefs::dom_formdata_event_enabled() && !GetComposedDoc()) {
+  if (!GetComposedDoc()) {
     return NS_ERROR_NOT_AVAILABLE;
   }
 
@@ -934,7 +939,7 @@ nsresult HTMLFormElement::DoSecureToInsecureSubmitCheck(nsIURI* aActionURL,
 
   nsCOMPtr<nsIStringBundle> stringBundle;
   nsCOMPtr<nsIStringBundleService> stringBundleService =
-      mozilla::services::GetStringBundleService();
+      mozilla::components::StringBundle::Service();
   if (!stringBundleService) {
     return NS_ERROR_FAILURE;
   }
@@ -1008,8 +1013,7 @@ nsresult HTMLFormElement::NotifySubmitObservers(nsIURI* aActionURL,
 
 nsresult HTMLFormElement::ConstructEntryList(FormData* aFormData) {
   MOZ_ASSERT(aFormData, "Must have FormData!");
-  bool isFormDataEventEnabled = StaticPrefs::dom_formdata_event_enabled();
-  if (isFormDataEventEnabled && mIsConstructingEntryList) {
+  if (mIsConstructingEntryList) {
     // Step 2.2 of https://xhr.spec.whatwg.org/#dom-formdata.
     return NS_ERROR_DOM_INVALID_STATE_ERR;
   }
@@ -1032,18 +1036,16 @@ nsresult HTMLFormElement::ConstructEntryList(FormData* aFormData) {
     sortedControls[i]->SubmitNamesValues(aFormData);
   }
 
-  if (isFormDataEventEnabled) {
-    FormDataEventInit init;
-    init.mBubbles = true;
-    init.mCancelable = false;
-    init.mFormData = aFormData;
-    RefPtr<FormDataEvent> event =
-        FormDataEvent::Constructor(this, u"formdata"_ns, init);
-    event->SetTrusted(true);
+  FormDataEventInit init;
+  init.mBubbles = true;
+  init.mCancelable = false;
+  init.mFormData = aFormData;
+  RefPtr<FormDataEvent> event =
+      FormDataEvent::Constructor(this, u"formdata"_ns, init);
+  event->SetTrusted(true);
 
-    EventDispatcher::DispatchDOMEvent(ToSupports(this), nullptr, event, nullptr,
-                                      nullptr);
-  }
+  EventDispatcher::DispatchDOMEvent(ToSupports(this), nullptr, event, nullptr,
+                                    nullptr);
 
   return NS_OK;
 }
@@ -2168,12 +2170,10 @@ HTMLFormElement::WalkRadioGroup(const nsAString& aName,
 void HTMLFormElement::AddToRadioGroup(const nsAString& aName,
                                       HTMLInputElement* aRadio) {
   if (aRadio->IsRequired()) {
-    auto entry = mRequiredRadioButtonCounts.LookupForAdd(aName);
-    if (!entry) {
-      entry.OrInsert([]() { return 1; });
-    } else {
-      ++entry.Data();
-    }
+    mRequiredRadioButtonCounts.WithEntryHandle(aName, [](auto&& entry) {
+      uint32_t& value = entry.OrInsert(0);
+      ++value;
+    });
   }
 }
 
@@ -2275,81 +2275,83 @@ struct RadioNodeListAdaptor {
 nsresult HTMLFormElement::AddElementToTableInternal(
     nsInterfaceHashtable<nsStringHashKey, nsISupports>& aTable,
     nsIContent* aChild, const nsAString& aName) {
-  auto entry = aTable.LookupForAdd(aName);
-  if (!entry) {
-    // No entry found, add the element
-    entry.OrInsert([&aChild]() { return aChild; });
-    ++mExpandoAndGeneration.generation;
-  } else {
-    // Found something in the hash, check its type
-    nsCOMPtr<nsIContent> content = do_QueryInterface(entry.Data());
-
-    if (content) {
-      // Check if the new content is the same as the one we found in the
-      // hash, if it is then we leave it in the hash as it is, this will
-      // happen if a form control has both a name and an id with the same
-      // value
-      if (content == aChild) {
-        return NS_OK;
-      }
-
-      // Found an element, create a list, add the element to the list and put
-      // the list in the hash
-      RadioNodeList* list = new RadioNodeList(this);
-
-      // If an element has a @form, we can assume it *might* be able to not have
-      // a parent and still be in the form.
-      NS_ASSERTION(
-          (content->IsElement() &&
-           content->AsElement()->HasAttr(kNameSpaceID_None, nsGkAtoms::form)) ||
-              content->GetParent(),
-          "Item in list without parent");
-
-      // Determine the ordering between the new and old element.
-      bool newFirst = nsContentUtils::PositionIsBefore(aChild, content);
-
-      list->AppendElement(newFirst ? aChild : content.get());
-      list->AppendElement(newFirst ? content.get() : aChild);
-
-      nsCOMPtr<nsISupports> listSupports = do_QueryObject(list);
-
-      // Replace the element with the list.
-      entry.Data() = listSupports;
+  return aTable.WithEntryHandle(aName, [&](auto&& entry) {
+    if (!entry) {
+      // No entry found, add the element
+      entry.Insert(aChild);
+      ++mExpandoAndGeneration.generation;
     } else {
-      // There's already a list in the hash, add the child to the list.
-      MOZ_ASSERT(nsCOMPtr<RadioNodeList>(do_QueryInterface(entry.Data())));
-      auto* list = static_cast<RadioNodeList*>(entry.Data().get());
+      // Found something in the hash, check its type
+      nsCOMPtr<nsIContent> content = do_QueryInterface(entry.Data());
 
-      NS_ASSERTION(list->Length() > 1,
-                   "List should have been converted back to a single element");
+      if (content) {
+        // Check if the new content is the same as the one we found in the
+        // hash, if it is then we leave it in the hash as it is, this will
+        // happen if a form control has both a name and an id with the same
+        // value
+        if (content == aChild) {
+          return NS_OK;
+        }
 
-      // Fast-path appends; this check is ok even if the child is
-      // already in the list, since if it tests true the child would
-      // have come at the end of the list, and the PositionIsBefore
-      // will test false.
-      if (nsContentUtils::PositionIsBefore(list->Item(list->Length() - 1),
-                                           aChild)) {
-        list->AppendElement(aChild);
-        return NS_OK;
+        // Found an element, create a list, add the element to the list and put
+        // the list in the hash
+        RadioNodeList* list = new RadioNodeList(this);
+
+        // If an element has a @form, we can assume it *might* be able to not
+        // have a parent and still be in the form.
+        NS_ASSERTION(
+            (content->IsElement() && content->AsElement()->HasAttr(
+                                         kNameSpaceID_None, nsGkAtoms::form)) ||
+                content->GetParent(),
+            "Item in list without parent");
+
+        // Determine the ordering between the new and old element.
+        bool newFirst = nsContentUtils::PositionIsBefore(aChild, content);
+
+        list->AppendElement(newFirst ? aChild : content.get());
+        list->AppendElement(newFirst ? content.get() : aChild);
+
+        nsCOMPtr<nsISupports> listSupports = do_QueryObject(list);
+
+        // Replace the element with the list.
+        entry.Data() = listSupports;
+      } else {
+        // There's already a list in the hash, add the child to the list.
+        MOZ_ASSERT(nsCOMPtr<RadioNodeList>(do_QueryInterface(entry.Data())));
+        auto* list = static_cast<RadioNodeList*>(entry.Data().get());
+
+        NS_ASSERTION(
+            list->Length() > 1,
+            "List should have been converted back to a single element");
+
+        // Fast-path appends; this check is ok even if the child is
+        // already in the list, since if it tests true the child would
+        // have come at the end of the list, and the PositionIsBefore
+        // will test false.
+        if (nsContentUtils::PositionIsBefore(list->Item(list->Length() - 1),
+                                             aChild)) {
+          list->AppendElement(aChild);
+          return NS_OK;
+        }
+
+        // If a control has a name equal to its id, it could be in the
+        // list already.
+        if (list->IndexOf(aChild) != -1) {
+          return NS_OK;
+        }
+
+        size_t idx;
+        DebugOnly<bool> found =
+            BinarySearchIf(RadioNodeListAdaptor(list), 0, list->Length(),
+                           PositionComparator(aChild), &idx);
+        MOZ_ASSERT(!found, "should not have found an element");
+
+        list->InsertElementAt(aChild, idx);
       }
-
-      // If a control has a name equal to its id, it could be in the
-      // list already.
-      if (list->IndexOf(aChild) != -1) {
-        return NS_OK;
-      }
-
-      size_t idx;
-      DebugOnly<bool> found =
-          BinarySearchIf(RadioNodeListAdaptor(list), 0, list->Length(),
-                         PositionComparator(aChild), &idx);
-      MOZ_ASSERT(!found, "should not have found an element");
-
-      list->InsertElementAt(aChild, idx);
     }
-  }
 
-  return NS_OK;
+    return NS_OK;
+  });
 }
 
 nsresult HTMLFormElement::AddImageElement(HTMLImageElement* aChild) {
@@ -2384,7 +2386,7 @@ void HTMLFormElement::AddToPastNamesMap(const nsAString& aName,
   // previous entry with the same name, if any.
   nsCOMPtr<nsIContent> node = do_QueryInterface(aChild);
   if (node) {
-    mPastNameLookupTable.Put(aName, node);
+    mPastNameLookupTable.Put(aName, ToSupports(node));
     node->SetFlags(MAY_BE_IN_PAST_NAMES_MAP);
   }
 }

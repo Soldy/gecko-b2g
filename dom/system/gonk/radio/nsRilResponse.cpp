@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsRilResponse.h"
+#include "nsRilWorker.h"
 
 /* Logging related */
 #undef LOG_TAG
@@ -1641,6 +1642,56 @@ Return<void> nsRilResponse::setSimCardPowerResponse(
 }
 
 Return<void> nsRilResponse::acknowledgeRequest(int32_t /*serial*/) {
+  return Void();
+}
+
+Return<void> nsRilResponse::setCarrierInfoForImsiEncryptionResponse(
+    const RadioResponseInfo& info) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
+  return Void();
+}
+
+Return<void> nsRilResponse::setSimCardPowerResponse_1_1(
+    const RadioResponseInfo& info) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
+  return Void();
+}
+
+Return<void> nsRilResponse::startNetworkScanResponse(
+    const RadioResponseInfo& info) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
+  return Void();
+}
+
+Return<void> nsRilResponse::stopNetworkScanResponse(
+    const RadioResponseInfo& info) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
+  defaultResponse(rspInfo, u"stopNetworkScan"_ns);
+  return Void();
+}
+
+Return<void> nsRilResponse::startKeepaliveResponse(
+    const RadioResponseInfo& info,
+    const KeepaliveStatus& status) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
+  return Void();
+}
+
+Return<void> nsRilResponse::stopKeepaliveResponse(
+    const RadioResponseInfo& info) {
+  rspInfo = info;
+  mRIL->processResponse(rspInfo.type);
+
   return Void();
 }
 

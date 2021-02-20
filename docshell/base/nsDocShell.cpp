@@ -36,7 +36,6 @@
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/ScrollTypes.h"
-#include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_docshell.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -3602,7 +3601,8 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
     addHostPort = true;
     error = "netInterrupt";
   } else if (NS_ERROR_NET_TIMEOUT == aError ||
-             NS_ERROR_PROXY_GATEWAY_TIMEOUT == aError) {
+             NS_ERROR_PROXY_GATEWAY_TIMEOUT == aError ||
+             NS_ERROR_NET_TIMEOUT_EXTERNAL == aError) {
     NS_ENSURE_ARG_POINTER(aURI);
     // Get the host
     nsAutoCString host;
@@ -4304,10 +4304,18 @@ nsDocShell::Stop(uint32_t aStopFlags) {
   }
 
   if (nsIWebNavigation::STOP_CONTENT & aStopFlags) {
-    // Stop the document loading
+    // Stop the document loading and animations
     if (mContentViewer) {
       nsCOMPtr<nsIContentViewer> cv = mContentViewer;
       cv->Stop();
+    }
+  } else if (nsIWebNavigation::STOP_NETWORK & aStopFlags) {
+    // Stop the document loading only
+    if (mContentViewer) {
+      RefPtr<Document> doc = mContentViewer->GetDocument();
+      if (doc) {
+        doc->StopDocumentLoad();
+      }
     }
   }
 
@@ -6381,6 +6389,7 @@ nsresult nsDocShell::FilterStatusForErrorPage(
   }
 
   if (aStatus == NS_ERROR_NET_TIMEOUT ||
+      aStatus == NS_ERROR_NET_TIMEOUT_EXTERNAL ||
       aStatus == NS_ERROR_PROXY_GATEWAY_TIMEOUT ||
       aStatus == NS_ERROR_REDIRECT_LOOP ||
       aStatus == NS_ERROR_UNKNOWN_SOCKET_TYPE ||
@@ -7371,14 +7380,6 @@ nsresult nsDocShell::RestoreFromHistory() {
     mSavingOldViewer = CanSavePresentation(mLoadType, request, doc);
   }
 
-  nsCOMPtr<nsIContentViewer> oldCv(mContentViewer);
-  nsCOMPtr<nsIContentViewer> newCv(viewer);
-  float overrideDPPX = 0.0f;
-
-  if (oldCv) {
-    oldCv->GetOverrideDPPX(&overrideDPPX);
-  }
-
   // Protect against mLSHE going away via a load triggered from
   // pagehide or unload.
   nsCOMPtr<nsISHEntry> origLSHE = mLSHE;
@@ -7599,10 +7600,6 @@ nsresult nsDocShell::RestoreFromHistory() {
   // in CreateContentViewer.
   if (++gNumberOfDocumentsLoading == 1) {
     FavorPerformanceHint(true);
-  }
-
-  if (oldCv) {
-    newCv->SetOverrideDPPX(overrideDPPX);
   }
 
   if (document) {
@@ -8171,7 +8168,6 @@ nsresult nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer,
 
   const Encoding* hintCharset = nullptr;
   int32_t hintCharsetSource = kCharsetUninitialized;
-  float overrideDPPX = 1.0;
   // |newMUDV| also serves as a flag to set the data from the above vars
   nsCOMPtr<nsIContentViewer> newCv;
 
@@ -8202,8 +8198,6 @@ nsresult nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer,
       if (newCv) {
         hintCharset = oldCv->GetHintCharset();
         NS_ENSURE_SUCCESS(oldCv->GetHintCharacterSetSource(&hintCharsetSource),
-                          NS_ERROR_FAILURE);
-        NS_ENSURE_SUCCESS(oldCv->GetOverrideDPPX(&overrideDPPX),
                           NS_ERROR_FAILURE);
       }
     }
@@ -8261,8 +8255,9 @@ nsresult nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer,
     newCv->SetHintCharset(hintCharset);
     NS_ENSURE_SUCCESS(newCv->SetHintCharacterSetSource(hintCharsetSource),
                       NS_ERROR_FAILURE);
-    NS_ENSURE_SUCCESS(newCv->SetOverrideDPPX(overrideDPPX), NS_ERROR_FAILURE);
   }
+
+  NS_ENSURE_TRUE(mContentViewer, NS_ERROR_FAILURE);
 
   // Stuff the bgcolor from the old pres shell into the new
   // pres shell. This improves page load continuity.
@@ -9161,6 +9156,39 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
   return NS_OK;
 }
 
+static bool NavigationShouldTakeFocus(nsDocShell* aDocShell,
+                                      nsDocShellLoadState* aLoadState) {
+  const auto& sourceBC = aLoadState->SourceBrowsingContext();
+  if (!sourceBC || !sourceBC->IsActive()) {
+    // If the navigation didn't come from a foreground tab, then we don't steal
+    // focus.
+    return false;
+  }
+  auto* bc = aDocShell->GetBrowsingContext();
+  if (sourceBC.get() == bc) {
+    // If it comes from the same tab / frame, don't steal focus either.
+    return false;
+  }
+  auto* fm = nsFocusManager::GetFocusManager();
+  if (fm && bc->IsActive() && fm->IsInActiveWindow(bc)) {
+    // If we're already on the foreground tab of the foreground window, then we
+    // don't need to do this. This helps to e.g. not steal focus from the
+    // browser chrome unnecessarily.
+    return false;
+  }
+  if (auto* doc = aDocShell->GetExtantDocument()) {
+    if (doc->IsInitialDocument()) {
+      // If we're the initial load for the browsing context, the browser
+      // chrome determines what to focus. This is important because the
+      // browser chrome may want to e.g focus the url-bar
+      return false;
+    }
+  }
+  // Take loadDivertedInBackground into account so the behavior would be the
+  // same as how the tab first opened.
+  return !Preferences::GetBool("browser.tabs.loadDivertedInBackground", false);
+}
+
 nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
                                   Maybe<uint32_t> aCacheKey) {
   MOZ_ASSERT(aLoadState, "need a load state!");
@@ -9175,13 +9203,7 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
     return NS_ERROR_NOT_AVAILABLE;
   }
 
-  // Take loadDivertedInBackground into account so the behavior would be the
-  // same as how the tab first opened.
-  const bool shouldTakeFocus =
-      aLoadState->SourceBrowsingContext() &&
-      aLoadState->SourceBrowsingContext()->IsActive() &&
-      !mBrowsingContext->IsActive() &&
-      !Preferences::GetBool("browser.tabs.loadDivertedInBackground", false);
+  const bool shouldTakeFocus = NavigationShouldTakeFocus(this, aLoadState);
 
   mOriginalUriString.Truncate();
 
@@ -12184,7 +12206,7 @@ void nsDocShell::SaveLastVisit(nsIChannel* aChannel, nsIURI* aURI,
     return;
   }
 
-  nsCOMPtr<IHistory> history = services::GetHistory();
+  nsCOMPtr<IHistory> history = components::History::Service();
 
   if (history) {
     uint32_t visitURIFlags = 0;
@@ -12272,7 +12294,7 @@ nsresult nsDocShell::GetPromptAndStringBundle(nsIPrompt** aPrompt,
                     NS_ERROR_FAILURE);
 
   nsCOMPtr<nsIStringBundleService> stringBundleService =
-      mozilla::services::GetStringBundleService();
+      mozilla::components::StringBundle::Service();
   NS_ENSURE_TRUE(stringBundleService, NS_ERROR_FAILURE);
 
   NS_ENSURE_SUCCESS(
@@ -13196,7 +13218,7 @@ void nsDocShell::UpdateGlobalHistoryTitle(nsIURI* aURI) {
     return;
   }
 
-  if (nsCOMPtr<IHistory> history = services::GetHistory()) {
+  if (nsCOMPtr<IHistory> history = components::History::Service()) {
     history->SetURITitle(aURI, mTitle);
   }
 }

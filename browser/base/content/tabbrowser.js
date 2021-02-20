@@ -290,6 +290,7 @@
     set selectedTab(val) {
       if (
         gSharedTabWarning.willShowSharedTabWarning(val) ||
+        document.documentElement.hasAttribute("window-modal-open") ||
         (gNavToolbox.collapsed && !this._allowTabChange)
       ) {
         return;
@@ -1227,7 +1228,7 @@
       }
 
       updateUserContextUIIndicator();
-      gIdentityHandler.updateSharingIndicator();
+      gPermissionPanel.updateSharingIndicator();
 
       // Enable touch events to start a native dragging
       // session to allow the user to easily drag the selected tab.
@@ -1402,7 +1403,7 @@
       tab.removeAttribute("sharing");
       this._tabAttrModified(tab, ["sharing"]);
       if (aBrowser == this.selectedBrowser) {
-        gIdentityHandler.updateSharingIndicator();
+        gPermissionPanel.updateSharingIndicator();
       }
     },
 
@@ -1431,7 +1432,7 @@
       }
 
       if (aBrowser == this.selectedBrowser) {
-        gIdentityHandler.updateSharingIndicator();
+        gPermissionPanel.updateSharingIndicator();
       }
     },
 
@@ -2947,7 +2948,7 @@
           }
         } else {
           if (tab.hidden) {
-            tab.setAttribute("hidden", "true");
+            tab.hidden = true;
             hiddenTabs.set(tab, tabData.extData && tabData.extData.hiddenBy);
           }
 
@@ -4187,6 +4188,7 @@
       // Also reset DOS mitigations for the basic auth prompt on reload.
       delete browser.authPromptAbuseCounter;
       gIdentityHandler.hidePopup();
+      gPermissionPanel.hidePopup();
       browser.reload();
     },
 

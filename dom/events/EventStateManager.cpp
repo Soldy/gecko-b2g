@@ -116,7 +116,7 @@
 
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
-#include "GeckoProfiler.h"
+#include "mozilla/ProfilerLabels.h"
 #include "Units.h"
 
 #ifdef XP_MACOSX
@@ -723,15 +723,17 @@ nsresult EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
       }
       [[fallthrough]];
     case ePointerMove: {
+      if (!mInTouchDrag &&
+          mouseEvent->mInputSource != dom::MouseEvent_Binding::MOZ_SOURCE_PEN &&
+          mouseEvent->mReason != WidgetMouseEvent::eSynthesized) {
+        GenerateDragGesture(aPresContext, mouseEvent);
+      }
       // on the Mac, GenerateDragGesture() may not return until the drag
       // has completed and so |aTargetFrame| may have been deleted (moving
       // a bookmark, for example).  If this is the case, however, we know
       // that ClearFrameRefs() has been called and it cleared out
       // |mCurrentTarget|. As a result, we should pass |mCurrentTarget|
       // into UpdateCursor().
-      if (!mInTouchDrag) {
-        GenerateDragGesture(aPresContext, mouseEvent);
-      }
       UpdateCursor(aPresContext, aEvent, mCurrentTarget, aStatus);
 
       UpdateLastRefPointOfMouseEvent(mouseEvent);
@@ -4749,8 +4751,11 @@ OverOutElementsWrapper* EventStateManager::GetWrapperByEventID(
     }
     return mMouseEnterLeaveHelper;
   }
-  return mPointersEnterLeaveHelper.LookupForAdd(pointer->pointerId)
-      .OrInsert([]() { return new OverOutElementsWrapper(); });
+  return mPointersEnterLeaveHelper.WithEntryHandle(
+      pointer->pointerId, [](auto&& entry) {
+        return entry.OrInsertWith([] { return new OverOutElementsWrapper(); })
+            .get();
+      });
 }
 
 /* static */

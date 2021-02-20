@@ -10,12 +10,6 @@ interface nsIAlarmFiredCb : nsISupports
   void onAlarmFired();
 };
 
-[scriptable, function, uuid(e6662911-c066-4358-9388-8661065c65a2)]
-interface nsITimezoneChangedCb : nsISupports
-{
-  void onTimezoneChanged(in int32_t aTimezoneOffset);
-};
-
 %{C++
 #define NS_ALARMHALSERVICE_CID { 0x7dafea4c, 0x7163, 0x4b70, { 0x95, 0x4e, 0x5a, 0xd4, 0x09, 0x94, 0x83, 0xd7 } }
 #define ALARMHALSERVICE_CONTRACTID "@mozilla.org/alarmHalService;1"
@@ -26,9 +20,6 @@ interface nsIAlarmHalService : nsISupports
 {
   bool setAlarm(in int32_t aSeconds, in int32_t aNanoseconds);
   void setAlarmFiredCb(in nsIAlarmFiredCb aAlarmFiredCb);
-  /* TODO: hal timezone change
-  void setTimezoneChangedCb(in nsITimezoneChangedCb aTimezoneChangedCb);
-  */
 };
 
 

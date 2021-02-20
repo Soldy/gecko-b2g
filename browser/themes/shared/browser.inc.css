@@ -7,7 +7,7 @@
 
 %filter substitution
 %define identityBoxPaddingInline 6px
-%define identityBoxMarginInlineEnd 2px
+%define identityBoxMarginInline 3px
 %define lwtPopupBrighttextLinkColor #74c0ff
 %define themeTransition background-color 0.1s cubic-bezier(.17,.67,.83,.67)
 %define urlbarBreakoutExtend 2px
@@ -19,6 +19,32 @@
   --short-notification-background: #0250BB;
   --short-notification-gradient: #9059FF;
 }
+
+@supports not -moz-bool-pref("browser.proton.enabled") {
+  :root {
+    --focus-outline-width: 0;
+  }
+}
+
+/*** END !proton ***/
+
+@supports -moz-bool-pref("browser.proton.enabled") {
+  :root {
+    --focus-outline-width: 2px;
+    --focus-outline-color: currentColor;
+    --focus-outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  }
+
+  @media not (prefers-contrast) {
+    :root {
+      --focus-outline-color: #0061E0;
+    }
+
+    :root:-moz-lwtheme-brighttext {
+      --focus-outline-color: #00DDFF;
+    }
+  }
+} /*** END proton ***/
 
 :root[extradragspace][tabsintitlebar]:not([inFullscreen]) {
   --space-above-tabbar: 8px;
@@ -62,6 +88,14 @@
   border-bottom-style: none;
 }
 
+@supports -moz-bool-pref("browser.proton.toolbar.enabled") {
+/*** Adds padding to beginning of toolbar while making that space click the first button ***/
+#nav-bar-customization-target > toolbarbutton:first-child,
+#nav-bar-customization-target > toolbaritem:first-child > toolbarbutton {
+  padding-inline-start: var(--toolbar-start-end-padding);
+}
+} /*** END proton ***/
+
 :root[sessionrestored] #nav-bar:-moz-lwtheme {
   transition: @themeTransition@;
 }
@@ -71,8 +105,19 @@
 #PersonalToolbar {
   overflow: clip;
   max-height: 4em;
+}
+
+@supports not -moz-bool-pref("browser.proton.toolbar.enabled") {
+#PersonalToolbar {
   padding: 2px 6px;
 }
+} /*** END !proton ***/
+
+@supports -moz-bool-pref("browser.proton.toolbar.enabled") {
+#PersonalToolbar {
+  padding-inline: 2px;
+}
+} /*** END proton ***/
 
 :root[uidensity=compact] #PersonalToolbar {
   padding-inline: 2px;

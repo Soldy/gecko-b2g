@@ -1235,11 +1235,12 @@ security:
       - 1265472
       - 1558870
       - 1630155
+      - 1689269
     description: >
       Counts of how often Web Authentication was used in this session, keyed
       by authenticator protocol, method and result. Currently: U2FRegisterFinish,
       U2FRegisterAbort, U2FSignFinish, U2FSignAbort.
-    expires: "88"
+    expires: "100"
     kind: uint
     keyed: true
     notification_emails:
@@ -2241,37 +2242,19 @@ media:
     record_in_processes:
       - 'content'
 
-avif:
-  dav1d_decode_error:
+  wmf_process_usage:
     bug_numbers:
-      - 1670827
+      - 1690372
     description: >
-      Image-decode Error from dav1d decoder
-    kind: uint
-    expires: "never"
+      Record whether the WMF decoder module is used in content or chrome process.
+    expires: "93"
+    kind: boolean
     notification_emails:
-      - cchang@mozilla.com
-      - jbauman@mozilla.com
+      - alwu@mozilla.com
+      - bvandyk@mozilla.com
+    release_channel_collection: opt-out
     products:
       - 'firefox'
-      - 'geckoview_streaming'
-    record_in_processes:
-      - 'main'
-      - 'content'
-
-  aom_decode_error:
-    bug_numbers:
-      - 1670827
-    description: >
-      Image-decode Error from aom decoder
-    kind: uint
-    expires: "never"
-    notification_emails:
-      - cchang@mozilla.com
-      - jbauman@mozilla.com
-    products:
-      - 'firefox'
-      - 'geckoview_streaming'
     record_in_processes:
       - 'main'
       - 'content'
@@ -3544,6 +3527,7 @@ gfx.hdr:
   windows_display_colorspace_bitfield:
     bug_numbers:
       - 1514840
+      - 1690597
     description: >
       A bitfield representation of the available DXGI color spaces of the connected displays on Windows.
       See (https://docs.microsoft.com/en-us/windows/desktop/api/dxgicommon/ne-dxgicommon-dxgi_color_space_type)
@@ -3551,13 +3535,12 @@ gfx.hdr:
       index 'N' is available on at least one connected monitor.
     keyed: false
     kind: uint
-    expires: "70"
+    expires: never
     notification_emails:
       - gfx-telemetry-alerts@mozilla.com
-      - rhunt@mozilla.com
+      - jmuizelaaar@mozilla.com
     products:
       - 'firefox'
-      - 'fennec'
     record_in_processes:
       - 'main'
 
@@ -5194,11 +5177,14 @@ browser.searchinit:
   engine_invalid_webextension:
     bug_numbers:
       - 1665938
+      - 1691050
     description: >
       Records the WebExtension ID of a search engine where the WebExtension
-      is not installed (= 1), disabled (= 2) or where the submission URL
-      is different between the search engine and the WebExtension (= 3)
-    expires: "89"
+      is not installed (= 1), disabled (= 2), search engine no longer specified (= 4),
+      a different name (= 5), where the submission URL is different between the
+      search engine and the WebExtension (= 6). The value '3' has been replaced
+      by '6' to distinguish newer entries.
+    expires: "94"
     keyed: true
     kind: uint
     notification_emails:
@@ -5285,7 +5271,7 @@ startup:
           A first run of the application created a new profile to use.
         default:
           The default profile was selected as normal.
-    expires: "88"
+    expires: "99"
     keyed: false
     kind: string
     notification_emails:
@@ -5294,6 +5280,7 @@ startup:
       - gkaberere@mozilla.com
       - jhollek@mozilla.com
       - echo@mozilla.com
+      - wlachance@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -5427,7 +5414,7 @@ script.preloader:
     description:
       How many times we ended up recompiling a script from the script preloader
       on the main thread.
-    expires: "88"
+    expires: "100"
     keyed: false
     kind: uint
     notification_emails:
@@ -5437,84 +5424,6 @@ script.preloader:
     products:
       - 'firefox'
       - 'fennec'
-    record_in_processes:
-      - 'main'
-      - 'content'
-
-wasm:
-  compile_time_baseline_us:
-    bug_numbers:
-      - 1656638
-    description:
-      How many microseconds we spent in the baseline WebAssembly compiler.
-    expires: "88"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - cfallin@mozilla.com
-      - bbouvier@mozilla.com
-      - jseward@mozilla.com
-    release_channel_collection: opt-in
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-      - 'content'
-
-  compile_time_cranelift_us:
-    bug_numbers:
-      - 1656638
-    description:
-      How many microseconds we spent in the Cranelift WebAssembly compiler.
-    expires: "88"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - cfallin@mozilla.com
-      - bbouvier@mozilla.com
-      - jseward@mozilla.com
-    release_channel_collection: opt-in
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-
-  compile_time_ion_us:
-    bug_numbers:
-      - 1656638
-    description:
-      How many microseconds we spent in the IonMonkey WebAssembly compiler.
-    expires: "88"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - cfallin@mozilla.com
-      - bbouvier@mozilla.com
-      - jseward@mozilla.com
-    release_channel_collection: opt-in
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-      - 'content'
-
-js:
-  run_time_us:
-    bug_numbers:
-      - 1656638
-    description:
-      How many microseconds we spent in running user code in SpiderMonkey,
-      including JavaScript code and WebAssembly code.
-    expires: "88"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - cfallin@mozilla.com
-      - bbouvier@mozilla.com
-      - jseward@mozilla.com
-    release_channel_collection: opt-in
-    products:
-      - 'firefox'
     record_in_processes:
       - 'main'
       - 'content'
@@ -5717,17 +5626,37 @@ networking:
       - 'main'
       - 'content'
 
+  https_rr_prefs_usage:
+    bug_numbers:
+      - 1686421
+    description: >
+      A bitfield representation for the usage of HTTPS RR prefs.
+      bit 0: network.dns.upgrade_with_https_rr is enabled or not.
+      bit 1: network.dns.use_https_rr_as_altsvc is enabled or not.
+      bit 2: network.dns.echconfig.enabled is enabled or not.
+    expires: never
+    kind: uint
+    keyed: false
+    notification_emails:
+      - necko@mozilla.com
+      - kershaw@mozilla.com
+    products:
+      - 'firefox'
+    record_in_processes:
+      - 'main'
+
 blocklist:
   lastModified_rs_addons:
     bug_numbers:
       - 1572711
       - 1607744
       - 1649960
+      - 1689274
     description: >
       Keep track of the last time the "addons" remotesetting blocklist has been successfully
       updated (as a datetime string in UTC format), set to "Missing Date" when the timestamp
       couldn't be retrieved.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:
@@ -5746,11 +5675,12 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of the last time the "addons-bloomfilters" remotesetting blocklist has been successfully
       updated (as a datetime string in UTC format), set to "Missing Date" when the timestamp
       couldn't be retrieved.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:
@@ -5768,11 +5698,12 @@ blocklist:
       - 1572711
       - 1607744
       - 1649960
+      - 1689274
     description: >
       Keep track of the last time the "plugins" remotesetting blocklist has been successfully
       updated (as a datetime string in UTC format), set to "Missing Date" when the timestamp
       couldn't be retrieved.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:
@@ -5790,10 +5721,11 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of whether the addons blocklist engine uses bloom filters (blocklist v3).
       If false, the blocklist v2 is used instead.
-    expires: "88"
+    expires: "95"
     kind: boolean
     release_channel_collection: opt-out
     notification_emails:
@@ -5810,12 +5742,13 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of whether the bloomfilter-based blocklist engine uses stashes from the
       addons-bloomfilters collection, together with an infrequently updated base bloomfilter.
       If false, the latest (full) bloom filter is downloaded on every update of the addon blocklist.
       This metric is only meaningful if mlbf_enabled is true.
-    expires: "88"
+    expires: "95"
     kind: boolean
     release_channel_collection: opt-out
     notification_emails:
@@ -5832,12 +5765,13 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of the generation time of the addon blocklist's bloom filter. This marks the
       point in time until which signed add-ons are recognized by the selected bloom filter from the
       addons-bloomfilters collection.
       The value is a datetime string in UTC format, or  "Missing Date" when unavailable.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:
@@ -5854,11 +5788,12 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of the timestamp of the oldest stash of the addons blocklist.
       Only meaningful when mlbf_enabled and mlbf_stashes are true.
       The value is a datetime string in UTC format, or "Missing Date" when unavailable.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:
@@ -5875,11 +5810,12 @@ blocklist:
     bug_numbers:
       - 1633466
       - 1649960
+      - 1689274
     description: >
       Keep track of the timestamp of the most recent stash of the addons blocklist.
       Only meaningful when mlbf_enabled and mlbf_stashes are true.
       The value is a datetime string in UTC format, or "Missing Date" when unavailable.
-    expires: "88"
+    expires: "95"
     kind: string
     release_channel_collection: opt-out
     notification_emails:

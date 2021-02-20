@@ -15,5 +15,10 @@ void EnableSensorNotifications(SensorType aSensor) {}
 
 void DisableSensorNotifications(SensorType aSensor) {}
 
+/**
+ * Determine whether the headphone switch event is from input device
+ */
+bool IsHeadphoneEventFromInputDev() { return false; }
+
 }  // namespace hal_impl
 }  // namespace mozilla

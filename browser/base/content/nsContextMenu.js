@@ -333,6 +333,7 @@ class nsContextMenu {
     this.initClickToPlayItems();
     this.initPasswordManagerItems();
     this.initSyncItems();
+    this.initViewSourceItems();
   }
 
   initPageMenuSeparator() {
@@ -719,13 +720,9 @@ class nsContextMenu {
 
     // Hide menu entries for images, show otherwise
     if (this.inFrame) {
-      if (
-        BrowserUtils.mimeTypeIsTextBased(this.target.ownerDocument.contentType)
-      ) {
-        this.viewFrameSourceElement.removeAttribute("hidden");
-      } else {
-        this.viewFrameSourceElement.setAttribute("hidden", "true");
-      }
+      this.viewFrameSourceElement.hidden = !BrowserUtils.mimeTypeIsTextBased(
+        this.target.ownerDocument.contentType
+      );
     }
 
     // BiDi UI
@@ -1059,6 +1056,40 @@ class nsContextMenu {
 
   initSyncItems() {
     gSync.updateContentContextMenu(this);
+  }
+
+  initViewSourceItems() {
+    const getString = name => {
+      const { bundle } = gViewSourceUtils.getPageActor(this.browser);
+      return bundle.GetStringFromName(name);
+    };
+    const showViewSourceItem = (id, check, accesskey) => {
+      const fullId = `context-viewsource-${id}`;
+      this.showItem(fullId, onViewSource);
+      if (!onViewSource) {
+        return;
+      }
+      check().then(checked => this.setItemAttr(fullId, "checked", checked));
+      this.setItemAttr(fullId, "label", getString(`context_${id}_label`));
+      if (accesskey) {
+        this.setItemAttr(
+          fullId,
+          "accesskey",
+          getString(`context_${id}_accesskey`)
+        );
+      }
+    };
+
+    const onViewSource = this.browser.currentURI.schemeIs("view-source");
+
+    showViewSourceItem("goToLine", async () => false, true);
+    showViewSourceItem("wrapLongLines", () =>
+      gViewSourceUtils.getPageActor(this.browser).queryIsWrapping()
+    );
+    showViewSourceItem("highlightSyntax", () =>
+      gViewSourceUtils.getPageActor(this.browser).queryIsSyntaxHighlighting()
+    );
+    this.showItem("context-sep-viewsource-commands", onViewSource);
   }
 
   openPasswordManager() {

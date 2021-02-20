@@ -13,6 +13,7 @@
 #include "nsFrameSelection.h"
 #include "TextRange.h"
 #include "TreeWalker.h"
+#include "nsPersistentProperties.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -24,10 +25,17 @@ class HyperTextIterator {
   HyperTextIterator(HyperTextAccessible* aStartContainer, int32_t aStartOffset,
                     HyperTextAccessible* aEndContainer, int32_t aEndOffset)
       : mCurrentContainer(aStartContainer),
-        mCurrentStartOffset(aStartOffset),
-        mCurrentEndOffset(aStartOffset),
+        mCurrentStartOffset(0),
+        mCurrentEndOffset(0),
         mEndContainer(aEndContainer),
-        mEndOffset(aEndOffset) {}
+        mEndOffset(0) {
+    mCurrentStartOffset =
+        std::min(aStartOffset,
+                 static_cast<int32_t>(mCurrentContainer->CharacterCount()));
+    mCurrentEndOffset = mCurrentStartOffset;
+    mEndOffset = std::min(
+        aEndOffset, static_cast<int32_t>(mEndContainer->CharacterCount()));
+  }
 
   bool Next();
 
@@ -66,8 +74,8 @@ bool HyperTextIterator::NormalizeForward() {
       // If we are not a link, it is a root hypertext accessible.
       return false;
     }
-    if (!mCurrentContainer->Parent() ||
-        !mCurrentContainer->Parent()->IsHyperText()) {
+    if (!mCurrentContainer->LocalParent() ||
+        !mCurrentContainer->LocalParent()->IsHyperText()) {
       // If we are a link, but our parent is not a hypertext accessible
       // treat the current container as the root hypertext accessible.
       // This can be the case with some XUL containers that are not
@@ -76,7 +84,7 @@ bool HyperTextIterator::NormalizeForward() {
     }
     uint32_t endOffset = mCurrentContainer->EndOffset();
     if (endOffset != 0) {
-      mCurrentContainer = mCurrentContainer->Parent()->AsHyperText();
+      mCurrentContainer = mCurrentContainer->LocalParent()->AsHyperText();
       mCurrentStartOffset = endOffset;
 
       if (mCurrentContainer == mEndContainer &&
@@ -135,8 +143,8 @@ bool HyperTextIterator::NormalizeBackward() {
       // If we are not a link, it is a root hypertext accessible.
       return false;
     }
-    if (!mCurrentContainer->Parent() ||
-        !mCurrentContainer->Parent()->IsHyperText()) {
+    if (!mCurrentContainer->LocalParent() ||
+        !mCurrentContainer->LocalParent()->IsHyperText()) {
       // If we are a link, but our parent is not a hypertext accessible
       // treat the current container as the root hypertext accessible.
       // This can be the case with some XUL containers that are not
@@ -145,7 +153,7 @@ bool HyperTextIterator::NormalizeBackward() {
     }
 
     uint32_t startOffset = mCurrentContainer->StartOffset();
-    mCurrentContainer = mCurrentContainer->Parent()->AsHyperText();
+    mCurrentContainer = mCurrentContainer->LocalParent()->AsHyperText();
     mCurrentStartOffset = startOffset;
 
     // Call NormalizeBackward recursively to get top-most link if at the
@@ -250,6 +258,63 @@ void HyperTextAccessibleWrap::TextForRange(nsAString& aText,
     iter.mCurrentContainer->TextSubstring(iter.mCurrentStartOffset,
                                           iter.mCurrentEndOffset, text);
     aText.Append(text);
+  }
+}
+
+void HyperTextAccessibleWrap::AttributedTextForRange(
+    nsTArray<nsString>& aStrings,
+    nsTArray<nsCOMPtr<nsIPersistentProperties>>& aProperties,
+    nsTArray<Accessible*>& aContainers, int32_t aStartOffset,
+    HyperTextAccessible* aEndContainer, int32_t aEndOffset) {
+  if (IsHTMLListItem()) {
+    Accessible* maybeBullet = GetChildAtOffset(aStartOffset - 1);
+    if (maybeBullet) {
+      Accessible* bullet = AsHTMLListItem()->Bullet();
+      if (maybeBullet == bullet) {
+        nsAutoString text;
+        TextSubstring(0, nsAccUtils::TextLength(bullet), text);
+
+        int32_t unusedAttrStartOffset, unusedAttrEndOffset;
+        nsCOMPtr<nsIPersistentProperties> props =
+            TextAttributes(true, aStartOffset - 1, &unusedAttrStartOffset,
+                           &unusedAttrEndOffset);
+        nsTArray<Attribute> textAttrArray;
+        nsAccUtils::PersistentPropertiesToArray(props, &textAttrArray);
+
+        aStrings.AppendElement(text);
+        aProperties.AppendElement(props);
+        aContainers.AppendElement(this);
+      }
+    }
+  }
+
+  HyperTextIterator iter(this, aStartOffset, aEndContainer, aEndOffset);
+  while (iter.Next()) {
+    int32_t attrStartOffset = 0;
+    int32_t attrEndOffset = iter.mCurrentStartOffset;
+    do {
+      int32_t oldEndOffset = attrEndOffset;
+      nsCOMPtr<nsIPersistentProperties> props =
+          iter.mCurrentContainer->TextAttributes(
+              true, attrEndOffset, &attrStartOffset, &attrEndOffset);
+
+      if (oldEndOffset == attrEndOffset) {
+        MOZ_ASSERT_UNREACHABLE("new attribute end offset should be different");
+        break;
+      }
+
+      nsAutoString text;
+      iter.mCurrentContainer->TextSubstring(
+          attrStartOffset < iter.mCurrentStartOffset ? iter.mCurrentStartOffset
+                                                     : attrStartOffset,
+          attrEndOffset < iter.mCurrentEndOffset ? attrEndOffset
+                                                 : iter.mCurrentEndOffset,
+          text);
+
+      aStrings.AppendElement(text);
+      aProperties.AppendElement(props);
+      aContainers.AppendElement(iter.mCurrentContainer);
+    } while (attrEndOffset < iter.mCurrentEndOffset);
   }
 }
 
@@ -454,11 +519,11 @@ void HyperTextAccessibleWrap::ParagraphAt(int32_t aOffset,
     return;
   }
 
-  if (end.mOffset == -1 && Parent() && Parent()->IsHyperText()) {
+  if (end.mOffset == -1 && LocalParent() && LocalParent()->IsHyperText()) {
     // If end offset is -1 we didn't find a paragraph boundary.
     // This must be an inline container, go to its parent to
     // retrieve paragraph boundaries.
-    static_cast<HyperTextAccessibleWrap*>(Parent()->AsHyperText())
+    static_cast<HyperTextAccessibleWrap*>(LocalParent()->AsHyperText())
         ->ParagraphAt(StartOffset(), aStartContainer, aStartOffset,
                       aEndContainer, aEndOffset);
     return;
@@ -486,9 +551,9 @@ void HyperTextAccessibleWrap::StyleAt(int32_t aOffset,
     return;
   }
 
-  MOZ_ASSERT(leaf->Parent()->IsHyperText());
+  MOZ_ASSERT(leaf->LocalParent()->IsHyperText());
   HyperTextAccessibleWrap* container =
-      static_cast<HyperTextAccessibleWrap*>(leaf->Parent()->AsHyperText());
+      static_cast<HyperTextAccessibleWrap*>(leaf->LocalParent()->AsHyperText());
   if (!container) {
     return;
   }
@@ -529,7 +594,7 @@ void HyperTextAccessibleWrap::PreviousClusterAt(
 void HyperTextAccessibleWrap::RangeOfChild(Accessible* aChild,
                                            int32_t* aStartOffset,
                                            int32_t* aEndOffset) {
-  MOZ_ASSERT(aChild->Parent() == this);
+  MOZ_ASSERT(aChild->LocalParent() == this);
   *aStartOffset = *aEndOffset = -1;
   int32_t index = GetIndexOf(aChild);
   if (index != -1) {
@@ -552,7 +617,7 @@ Accessible* HyperTextAccessibleWrap::LeafAtOffset(int32_t aOffset) {
       return text;
     }
 
-    child = text->GetChildAt(childIdx);
+    child = text->LocalChildAt(childIdx);
     if (!child || nsAccUtils::MustPrune(text)) {
       return text;
     }
@@ -600,16 +665,16 @@ TextPoint HyperTextAccessibleWrap::FindTextPoint(
       return TextPoint(text, 0);
     }
 
-    child = text->GetChildAt(childIdx);
+    child = text->LocalChildAt(childIdx);
     if (child->IsHyperText() && !child->ChildCount()) {
       // If this is a childless hypertext, jump to its
       // previous or next sibling, depending on
       // direction.
       if (aDirection == eDirPrevious && childIdx > 0) {
-        child = text->GetChildAt(--childIdx);
+        child = text->LocalChildAt(--childIdx);
       } else if (aDirection == eDirNext &&
                  childIdx + 1 < static_cast<int32_t>(text->ChildCount())) {
-        child = text->GetChildAt(++childIdx);
+        child = text->LocalChildAt(++childIdx);
       }
     }
 
@@ -622,7 +687,7 @@ TextPoint HyperTextAccessibleWrap::FindTextPoint(
       // its search there.
       childIdx--;
       innerOffset -= text->GetChildOffset(childIdx);
-      child = text->GetChildAt(childIdx);
+      child = text->LocalChildAt(childIdx);
     } else {
       innerOffset -= childOffset;
     }
@@ -692,7 +757,8 @@ TextPoint HyperTextAccessibleWrap::FindTextPoint(
 
 HyperTextAccessibleWrap* HyperTextAccessibleWrap::EditableRoot() {
   Accessible* editable = nullptr;
-  for (Accessible* acc = this; acc && acc != Document(); acc = acc->Parent()) {
+  for (Accessible* acc = this; acc && acc != Document();
+       acc = acc->LocalParent()) {
     if (acc->NativeState() & states::EDITABLE) {
       editable = acc;
     } else {

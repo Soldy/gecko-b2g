@@ -208,7 +208,6 @@ export type Target = {
   chrome: boolean,
   url: URL,
   isParentProcess: boolean,
-  isServiceWorker: boolean,
   targetForm: Object,
   reconfigure: Object,
 
@@ -262,6 +261,7 @@ export type TargetList = {
   unwatchTargets: (Array<string>, Function, Function) => void,
   getAllTargets: (Array<string>) => Array<Target>,
   targetFront: Target,
+  updateConfiguration: Object => Promise<*>,
   hasTargetWatcherSupport: string => boolean,
   watcherFront: WatcherFront,
   TYPES: {
