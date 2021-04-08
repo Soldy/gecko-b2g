@@ -234,7 +234,20 @@ this.TopSitesFeed = class TopSitesFeed {
       if (siteData.search_shortcut) {
         link = await this.topSiteToSearchTopSite(link);
       } else if (siteData.sponsored_position) {
-        link.sponsored_position = siteData.sponsored_position;
+        const {
+          sponsored_position,
+          sponsored_tile_id,
+          sponsored_impression_url,
+          sponsored_click_url,
+        } = siteData;
+        link = {
+          sponsored_position,
+          sponsored_tile_id,
+          sponsored_impression_url,
+          sponsored_click_url,
+          show_sponsored_label: link.hostname !== "yandex",
+          ...link,
+        };
       }
       DEFAULT_TOP_SITES.push(link);
     }
@@ -462,8 +475,7 @@ this.TopSitesFeed = class TopSitesFeed {
   async getLinksWithDefaults(isStartup = false) {
     const prefValues = this.store.getState().Prefs.values;
     const numItems = prefValues[ROWS_PREF] * TOP_SITES_MAX_SITES_PER_ROW;
-    const searchShortcutsExperiment =
-      !this._useRemoteSetting && prefValues[SEARCH_SHORTCUTS_EXPERIMENT];
+    const searchShortcutsExperiment = prefValues[SEARCH_SHORTCUTS_EXPERIMENT];
     // We must wait for search services to initialize in order to access default
     // search engine properties without triggering a synchronous initialization
     await Services.search.init();
@@ -498,7 +510,13 @@ this.TopSitesFeed = class TopSitesFeed {
     let notBlockedDefaultSites = [];
     let sponsored = [];
     for (let link of DEFAULT_TOP_SITES) {
-      if (this.shouldFilterSearchTile(link.hostname)) {
+      // For sponsored Yandex links, default filtering is reversed: we only
+      // show them if Yandex is the default search engine.
+      if (link.sponsored_position && link.hostname === "yandex") {
+        if (link.hostname !== this._currentSearchHostname) {
+          continue;
+        }
+      } else if (this.shouldFilterSearchTile(link.hostname)) {
         continue;
       }
       // Drop blocked default sites.
@@ -1113,7 +1131,7 @@ this.TopSitesFeed = class TopSitesFeed {
         break;
       // All these actions mean we need new top sites
       case at.PLACES_HISTORY_CLEARED:
-      case at.PLACES_LINK_DELETED:
+      case at.PLACES_LINKS_DELETED:
         this.frecentCache.expire();
         this.refresh({ broadcast: true });
         break;

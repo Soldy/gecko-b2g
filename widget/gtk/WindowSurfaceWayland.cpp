@@ -487,6 +487,11 @@ WindowSurfaceWayland::WindowSurfaceWayland(nsWindow* aWindow)
   for (int i = 0; i < BACK_BUFFER_NUM; i++) {
     mShmBackupBuffer[i] = nullptr;
   }
+  // Use slow compositing on KDE only.
+  const char* currentDesktop = getenv("XDG_CURRENT_DESKTOP");
+  if (currentDesktop && strstr(currentDesktop, "KDE") != nullptr) {
+    mSmoothRendering = CACHE_NONE;
+  }
 }
 
 WindowSurfaceWayland::~WindowSurfaceWayland() {
@@ -737,10 +742,6 @@ already_AddRefed<gfx::DrawTarget> WindowSurfaceWayland::Lock(
     return nullptr;
   }
 
-  // Wait until all pending events are processed. There may be queued
-  // wl_buffer release event which releases our wl_buffer for further rendering.
-  mWaylandDisplay->WaitForSyncEnd();
-
   // Lock the surface *after* WaitForSyncEnd() call as is can fire
   // FlushPendingCommits().
   MutexAutoLock lock(mSurfaceLock);
@@ -817,13 +818,12 @@ already_AddRefed<gfx::DrawTarget> WindowSurfaceWayland::Lock(
     mMozContainerRect = mozContainerSize;
   }
 
-  // We can draw directly only when we redraw significant part of the window
-  // to avoid flickering or do only fullscreen updates in smooth mode.
-  mDrawToWaylandBufferDirectly =
-      mSmoothRendering
-          ? windowRedraw
-          : (windowRedraw || (lockSize.width * 2 > mozContainerSize.width &&
-                              lockSize.height * 2 > mozContainerSize.height));
+  mDrawToWaylandBufferDirectly = windowRedraw || mSmoothRendering == CACHE_NONE;
+  if (!mDrawToWaylandBufferDirectly && mSmoothRendering == CACHE_SMALL) {
+    mDrawToWaylandBufferDirectly =
+        (lockSize.width * 2 > mozContainerSize.width &&
+         lockSize.height * 2 > mozContainerSize.height);
+  }
 
   if (!mDrawToWaylandBufferDirectly) {
     // Don't switch wl_buffers when we cache drawings.

@@ -159,15 +159,15 @@ static const char kODoHKey[] = "odoh key";
 static const char kODoHNonce[] = "odoh nonce";
 
 struct ObliviousDoHConfigContents {
-  uint16_t mKemId;
-  uint16_t mKdfId;
-  uint16_t mAeadId;
+  uint16_t mKemId{};
+  uint16_t mKdfId{};
+  uint16_t mAeadId{};
   nsTArray<uint8_t> mPublicKey;
 };
 
 struct ObliviousDoHConfig {
-  uint16_t mVersion;
-  uint16_t mLength;
+  uint16_t mVersion{};
+  uint16_t mLength{};
   ObliviousDoHConfigContents mContents;
   nsTArray<uint8_t> mConfigId;
 };
@@ -178,7 +178,7 @@ enum ObliviousDoHMessageType : uint8_t {
 };
 
 struct ObliviousDoHMessage {
-  ObliviousDoHMessageType mType;
+  ObliviousDoHMessageType mType{ODOH_QUERY};
   nsTArray<uint8_t> mKeyId;
   nsTArray<uint8_t> mEncryptedMessage;
 };

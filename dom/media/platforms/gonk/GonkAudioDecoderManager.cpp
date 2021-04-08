@@ -11,6 +11,7 @@
 #include "VideoUtils.h"
 #include "nsTArray.h"
 #include "mozilla/Logging.h"
+#include "mozilla/ScopeExit.h"
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MetaDataBase.h>
 #include <media/stagefright/MediaErrors.h>
@@ -64,7 +65,7 @@ RefPtr<MediaDataDecoder::InitPromise> GonkAudioDecoderManager::Init() {
 
 bool GonkAudioDecoderManager::InitMediaCodecProxy() {
   status_t rv = OK;
-  if (!InitLoopers(MediaData::Type::AUDIO_DATA)) {
+  if (!InitThreads(MediaData::Type::AUDIO_DATA)) {
     return false;
   }
 
@@ -113,19 +114,19 @@ bool GonkAudioDecoderManager::InitMediaCodecProxy() {
   return rv == OK;
 }
 
-nsresult GonkAudioDecoderManager::CreateAudioData(MediaBuffer* aBuffer,
-                                                  int64_t aStreamOffset) {
-  if (!(aBuffer != nullptr && aBuffer->data() != nullptr)) {
+nsresult GonkAudioDecoderManager::CreateAudioData(
+    const sp<SimpleMediaBuffer>& aBuffer, int64_t aStreamOffset) {
+  if (!aBuffer || !aBuffer->Data()) {
     LOGE("Audio Buffer is not valid!");
     return NS_ERROR_UNEXPECTED;
   }
 
   int64_t timeUs;
-  if (!aBuffer->meta_data().findInt64(kKeyTime, &timeUs)) {
+  if (!aBuffer->MetaData().findInt64(kKeyTime, &timeUs)) {
     return NS_ERROR_UNEXPECTED;
   }
 
-  if (aBuffer->range_length() == 0) {
+  if (aBuffer->Size() == 0) {
     // Some decoders may return spurious empty buffers that we just want to
     // ignore quoted from Android's AwesomePlayer.cpp
     return NS_ERROR_NOT_AVAILABLE;
@@ -138,9 +139,8 @@ nsresult GonkAudioDecoderManager::CreateAudioData(MediaBuffer* aBuffer,
   }
   mLastTime = timeUs;
 
-  const uint8_t* data = static_cast<const uint8_t*>(aBuffer->data());
-  size_t dataOffset = aBuffer->range_offset();
-  size_t size = aBuffer->range_length();
+  const uint8_t* data = static_cast<const uint8_t*>(aBuffer->Data());
+  size_t size = aBuffer->Size();
 
   uint64_t frames = size / (2 * mAudioChannels);
 
@@ -151,8 +151,7 @@ nsresult GonkAudioDecoderManager::CreateAudioData(MediaBuffer* aBuffer,
 
   typedef AudioCompactor::NativeCopy OmxCopy;
   mAudioCompactor.Push(aStreamOffset, timeUs, mAudioRate, frames,
-                       mAudioChannels,
-                       OmxCopy(data + dataOffset, size, mAudioChannels));
+                       mAudioChannels, OmxCopy(data, size, mAudioChannels));
   return NS_OK;
 }
 
@@ -160,19 +159,21 @@ nsresult GonkAudioDecoderManager::GetOutput(
     int64_t aStreamOffset, MediaDataDecoder::DecodedData& aOutData) {
   aOutData.Clear();
   if (mAudioQueue.AtEndOfStream()) {
-    return NS_ERROR_ABORT;
+    return NS_ERROR_DOM_MEDIA_END_OF_STREAM;
   }
   if (mAudioQueue.GetSize() > 0) {
     while (mAudioQueue.GetSize() > 0) {
       aOutData.AppendElement(mAudioQueue.PopFront());
     }
-    return mAudioQueue.AtEndOfStream() ? NS_ERROR_ABORT : NS_OK;
+    return mAudioQueue.AtEndOfStream() ? NS_ERROR_DOM_MEDIA_END_OF_STREAM
+                                       : NS_OK;
   }
 
-  MediaBuffer* audioBuffer = nullptr;
+  sp<SimpleMediaBuffer> audioBuffer;
   status_t err;
   err = mDecoder->Output(&audioBuffer, READ_OUTPUT_BUFFER_TIMEOUT_US);
-  AutoReleaseMediaBuffer a(audioBuffer, mDecoder.get());
+
+  auto raii = MakeScopeExit([&] { mDecoder->ReleaseMediaBuffer(audioBuffer); });
 
   switch (err) {
     case OK: {
@@ -186,7 +187,7 @@ nsresult GonkAudioDecoderManager::GetOutput(
       sp<AMessage> audioCodecFormat;
 
       if (mDecoder->getOutputFormat(&audioCodecFormat) != OK ||
-          audioCodecFormat == nullptr) {
+          !audioCodecFormat) {
         return NS_ERROR_UNEXPECTED;
       }
 
@@ -220,7 +221,7 @@ nsresult GonkAudioDecoderManager::GetOutput(
       // some decoders may return EOS with empty buffers that we just want to
       // ignore quoted from Android's AwesomePlayer.cpp
       if (rv != NS_ERROR_NOT_AVAILABLE) {
-        NS_ENSURE_SUCCESS(rv, NS_ERROR_ABORT);
+        NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_MEDIA_END_OF_STREAM);
         MOZ_ASSERT(mAudioQueue.GetSize() > 0);
       }
       mAudioQueue.Finish();
@@ -240,18 +241,18 @@ nsresult GonkAudioDecoderManager::GetOutput(
     while (mAudioQueue.GetSize() > 0) {
       aOutData.AppendElement(mAudioQueue.PopFront());
     }
-    // Return NS_ERROR_ABORT at the last sample.
-    return mAudioQueue.AtEndOfStream() ? NS_ERROR_ABORT : NS_OK;
+    // Return NS_ERROR_DOM_MEDIA_END_OF_STREAM at the last sample.
+    return mAudioQueue.AtEndOfStream() ? NS_ERROR_DOM_MEDIA_END_OF_STREAM
+                                       : NS_OK;
   }
 
   return NS_ERROR_NOT_AVAILABLE;
 }
 
-void GonkAudioDecoderManager::ProcessFlush() {
+void GonkAudioDecoderManager::FlushInternal() {
   LOG("FLUSH<<<");
   mAudioQueue.Reset();
   LOG(">>>FLUSH");
-  GonkDecoderManager::ProcessFlush();
 }
 
 }  // namespace mozilla

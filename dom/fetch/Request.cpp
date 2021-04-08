@@ -548,6 +548,24 @@ SafeRefPtr<Request> Request::Constructor(nsIGlobalObject* aGlobal,
       return nullptr;
     }
 
+    // Check if the systemXHR permission is set and configure the headers
+    // accordingly.
+    nsCOMPtr<nsIPrincipal> principal = aGlobal->PrincipalOrNull();
+    if (principal) {
+      nsresult rv;
+      nsCOMPtr<nsIPermissionManager> permMgr =
+          do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+      bool isSystemXHR = false;
+      if (NS_SUCCEEDED(rv)) {
+        uint32_t perm;
+        rv = permMgr->TestPermissionFromPrincipal(principal, "systemXHR"_ns,
+                                                  &perm);
+        isSystemXHR =
+            NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION;
+        requestHeaders->SetHasSystemXHRPerm(isSystemXHR);
+      }
+    }
+
     requestHeaders->SetGuard(HeadersGuardEnum::Request_no_cors, aRv);
     if (aRv.Failed()) {
       return nullptr;

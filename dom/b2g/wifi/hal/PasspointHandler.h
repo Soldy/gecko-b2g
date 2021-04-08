@@ -9,7 +9,7 @@
 #include "WifiCommon.h"
 #include "PasspointEventCallback.h"
 #include "nsClassHashtable.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsISupportsImpl.h"
 #include "mozilla/StaticMutex.h"
 
@@ -70,7 +70,7 @@ class PasspointHandler final : public nsISupports,
   // The map holds the ANQP time information per bssid
   nsClassHashtable<nsStringHashKey, AnqpRequestTime> mAnqpRequestTime;
   // The map holds the ANQP network key per bssid
-  nsDataHashtable<nsStringHashKey, nsString> mAnqpPendingRequest;
+  nsTHashMap<nsStringHashKey, nsString> mAnqpPendingRequest;
 
   DISALLOW_COPY_AND_ASSIGN(PasspointHandler);
 };

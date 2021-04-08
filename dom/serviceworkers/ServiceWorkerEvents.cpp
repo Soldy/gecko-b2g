@@ -1249,6 +1249,10 @@ SystemMessageData::WebActivityRequestHandler(ErrorResult& aRv) {
 
   RefPtr<mozilla::dom::WebActivityRequestHandler> handler =
       mozilla::dom::WebActivityRequestHandler::Create(mOwner, mData);
+  if (!handler) {
+    aRv.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
   return handler.forget();
 }
 

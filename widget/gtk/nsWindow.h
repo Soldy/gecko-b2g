@@ -32,7 +32,7 @@
 #include "mozilla/Maybe.h"
 
 #ifdef ACCESSIBILITY
-#  include "mozilla/a11y/Accessible.h"
+#  include "mozilla/a11y/LocalAccessible.h"
 #endif
 #include "mozilla/EventForwards.h"
 #include "mozilla/TouchEvents.h"
@@ -65,19 +65,6 @@ extern mozilla::LazyLogModule gWidgetDrawLog;
 #  define LOGDRAW(args)
 
 #endif /* MOZ_LOGGING */
-
-#ifdef MOZ_WAYLAND
-class nsWaylandDragContext;
-
-gboolean WindowDragMotionHandler(GtkWidget* aWidget,
-                                 GdkDragContext* aDragContext,
-                                 nsWaylandDragContext* aWaylandDragContext,
-                                 gint aX, gint aY, guint aTime);
-gboolean WindowDragDropHandler(GtkWidget* aWidget, GdkDragContext* aDragContext,
-                               nsWaylandDragContext* aWaylandDragContext,
-                               gint aX, gint aY, guint aTime);
-void WindowDragLeaveHandler(GtkWidget* aWidget);
-#endif
 
 class gfxPattern;
 class nsIFrame;
@@ -229,7 +216,7 @@ class nsWindow final : public nsBaseWidget {
   void UpdateTopLevelOpaqueRegion();
 
   virtual already_AddRefed<mozilla::gfx::DrawTarget> StartRemoteDrawingInRegion(
-      LayoutDeviceIntRegion& aInvalidRegion,
+      const LayoutDeviceIntRegion& aInvalidRegion,
       mozilla::layers::BufferMode* aBufferMode) override;
   virtual void EndRemoteDrawingInRegion(
       mozilla::gfx::DrawTarget* aDrawTarget,
@@ -241,6 +228,7 @@ class nsWindow final : public nsBaseWidget {
   bool GetCSDDecorationOffset(int* aDx, int* aDy);
   void SetEGLNativeWindowSize(const LayoutDeviceIntSize& aEGLWindowSize);
   static nsWindow* GetFocusedWindow();
+  void WaylandDragWorkaround(GdkEventButton* aEvent);
 #endif
 
   RefPtr<mozilla::gfx::VsyncSource> GetVsyncSource() override;
@@ -341,14 +329,16 @@ class nsWindow final : public nsBaseWidget {
 
   virtual void ReparentNativeWidget(nsIWidget* aNewParent) override;
 
-  virtual nsresult SynthesizeNativeMouseEvent(LayoutDeviceIntPoint aPoint,
-                                              uint32_t aNativeMessage,
-                                              uint32_t aModifierFlags,
-                                              nsIObserver* aObserver) override;
+  virtual nsresult SynthesizeNativeMouseEvent(
+      LayoutDeviceIntPoint aPoint, NativeMouseMessage aNativeMessage,
+      mozilla::MouseButton aButton, nsIWidget::Modifiers aModifierFlags,
+      nsIObserver* aObserver) override;
 
   virtual nsresult SynthesizeNativeMouseMove(LayoutDeviceIntPoint aPoint,
                                              nsIObserver* aObserver) override {
-    return SynthesizeNativeMouseEvent(aPoint, GDK_MOTION_NOTIFY, 0, aObserver);
+    return SynthesizeNativeMouseEvent(
+        aPoint, NativeMouseMessage::Move, mozilla::MouseButton::eNotPressed,
+        nsIWidget::Modifiers::NO_MODIFIERS, aObserver);
   }
 
   virtual nsresult SynthesizeNativeMouseScrollEvent(
@@ -581,7 +571,7 @@ class nsWindow final : public nsBaseWidget {
   bool mAlwaysOnTop;
 
 #ifdef ACCESSIBILITY
-  RefPtr<mozilla::a11y::Accessible> mRootAccessible;
+  RefPtr<mozilla::a11y::LocalAccessible> mRootAccessible;
 
   /**
    * Request to create the accessible for this window if it is top level.

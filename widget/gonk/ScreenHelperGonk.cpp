@@ -767,7 +767,7 @@ already_AddRefed<Screen> ScreenHelperGonk::MakeScreen(
       GetGonkDisplay()->GetNativeData(displayType, nullptr);
   RefPtr<nsScreenGonk> screengonk =
       new nsScreenGonk(id, displayType, nativeData, aEventVisibility);
-  mScreenGonks.Put(id, screengonk);
+  mScreenGonks.InsertOrUpdate(id, screengonk);
 
   if (aEventVisibility == NotifyDisplayChangedEvent::Observable) {
     NotifyDisplayChange(id, true);
@@ -807,7 +807,7 @@ void ScreenHelperGonk::Refresh() {
   if (!screen) {
     screen = MakeScreen(id);
     if (screen) {
-      mScreens.Put(id, screen);
+      mScreens.InsertOrUpdate(id, screen);
     }
   }
 
@@ -827,7 +827,7 @@ void ScreenHelperGonk::AddScreen(uint32_t aScreenId, DisplayType aDisplayType,
 
   RefPtr<Screen> screen = MakeScreen(aScreenId, aEventVisibility);
 
-  mScreens.Put(aScreenId, screen);
+  mScreens.InsertOrUpdate(aScreenId, screen);
   Refresh();
 }
 
@@ -866,7 +866,7 @@ already_AddRefed<nsScreenGonk> ScreenHelperGonk::ScreenGonkForId(
   if (!screen && aScreenId == 0) {
     RefPtr<Screen> screen2 = MakeScreen(aScreenId);
     if (screen2) {
-      mScreens.Put(0, screen2);
+      mScreens.InsertOrUpdate(0, screen2);
     }
     screen = mScreenGonks.Get(aScreenId);
   }
@@ -911,8 +911,6 @@ void ScreenHelperGonk::SetCompositorVsyncScheduler(
     mozilla::layers::CompositorVsyncScheduler* aObserver) {
   MOZ_ASSERT(NS_IsMainThread());
 
-  // We assume on b2g that there is only 1 CompositorBridgeParent
-  MOZ_ASSERT(mCompositorVsyncScheduler == nullptr);
   MOZ_ASSERT(aObserver);
   mCompositorVsyncScheduler = aObserver;
   mCompositorVsyncScheduler->SetDisplay(mDisplayEnabled);

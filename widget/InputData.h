@@ -299,6 +299,11 @@ class MouseInput : public InputData {
   ScreenPoint mOrigin;
   ParentLayerPoint mLocalOrigin;
   bool mHandledByAPZ;
+  /**
+   * If click event should not be fired in the content after the "mousedown"
+   * event or following "mouseup", set to true.
+   */
+  bool mPreventClickEvent;
 };
 
 /**
@@ -504,6 +509,17 @@ class PinchGestureInput : public InputData {
 
   double ComputeDeltaY(nsIWidget* aWidget) const;
 
+  // Set mLineOrPageDeltaY based on ComputeDeltaY().
+  // Return false if the caller should drop this event to ensure
+  // that preventDefault() is respected. (More specifically, this will be
+  // true for event types other than PINCHGESTURE_END if the computed
+  // mLineOrPageDeltaY is zero. In such cases, the resulting DOMMouseScroll
+  // event will not be dispatched, which is a problem if the page is relying
+  // on DOMMouseScroll to prevent browser zooming).
+  // Note that even if the function returns false, the delta from the event
+  // is accumulated and available to be sent in a later event.
+  bool SetLineOrPageDeltaY(nsIWidget* aWidget);
+
   static gfx::IntPoint GetIntegerDeltaForEvent(bool aIsStart, float x, float y);
 
   // Warning, this class is serialized and sent over IPC. Any change to its
@@ -588,6 +604,8 @@ class TapGestureInput : public InputData {
                   const ParentLayerPoint& aLocalPoint, Modifiers aModifiers);
 
   bool TransformToLocal(const ScreenToParentLayerMatrix4x4& aTransform);
+
+  WidgetSimpleGestureEvent ToWidgetEvent(nsIWidget* aWidget) const;
 
   // Warning, this class is serialized and sent over IPC. Any change to its
   // fields must be reflected in its ParamTraits<>, in nsGUIEventIPC.h

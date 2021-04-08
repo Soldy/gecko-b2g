@@ -218,6 +218,20 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
         }
 
         /**
+         * Enable the Enteprise Roots feature.
+         *
+         * When Enabled, GeckoView will fetch the third-party root certificates added to the
+         * Android OS CA store and will use them internally.
+         *
+         * @param enabled whether to enable this feature or not
+         * @return The builder instance
+         */
+        public @NonNull Builder enterpiseRootsEnabled(final boolean enabled) {
+            getSettings().setEnterpriseRootsEnabled(enabled);
+            return this;
+        }
+
+        /**
          * Set whether or not font inflation for non mobile-friendly pages should be enabled. The
          * default value of this setting is <code>false</code>.
          *
@@ -484,6 +498,8 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
         "geckoview.console.enabled", false);
     /* package */ final Pref<Integer> mFontSizeFactor = new Pref<>(
         "font.size.systemFontScale", 100);
+    /* package */ final Pref<Boolean> mEnterpriseRootsEnabled = new Pref<>(
+            "security.enterprise_roots.enabled", false);
     /* package */ final Pref<Integer> mFontInflationMinTwips = new Pref<>(
         "font.size.inflation.minTwips", 0);
     /* package */ final Pref<Boolean> mInputAutoZoom = new Pref<>(
@@ -510,6 +526,10 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
         "dom.security.https_only_mode", false);
     /* package */ final Pref<Boolean> mHttpsOnlyPrivateMode = new Pref<Boolean>(
         "dom.security.https_only_mode_pbm", false);
+    /* package */ final Pref<Integer> mProcessCount = new Pref<>(
+            "dom.ipc.processCount", BuildConfig.RELEASE_OR_BETA
+                ? 1
+                : BuildConfig.MOZ_ANDROID_CONTENT_SERVICE_COUNT);
 
     /* package */ int mPreferredColorScheme = COLOR_SCHEME_SYSTEM;
 
@@ -763,19 +783,19 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     }
 
     private String computeAcceptLanguages() {
-        ArrayList<String> locales = new ArrayList<String>();
+        final ArrayList<String> locales = new ArrayList<String>();
 
         // Explicitly-set app prefs come first:
         if (mRequestedLocales != null) {
-            for (String locale : mRequestedLocales) {
+            for (final String locale : mRequestedLocales) {
                 locales.add(locale.toLowerCase(Locale.ROOT));
             }
         }
         // OS prefs come second:
-        for (String locale : getDefaultLocales()) {
-            locale = locale.toLowerCase(Locale.ROOT);
-            if (!locales.contains(locale)) {
-                locales.add(locale);
+        for (final String locale : getDefaultLocales()) {
+            final String localeLowerCase = locale.toLowerCase(Locale.ROOT);
+            if (!locales.contains(localeLowerCase)) {
+                locales.add(localeLowerCase);
             }
         }
 
@@ -785,13 +805,13 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     private static String[] getDefaultLocales() {
         if (VERSION.SDK_INT >= 24) {
             final LocaleList localeList = LocaleList.getDefault();
-            String[] locales = new String[localeList.size()];
+            final String[] locales = new String[localeList.size()];
             for (int i = 0; i < localeList.size(); i++) {
                 locales[i] = localeList.get(i).toLanguageTag();
             }
             return locales;
         }
-        String[] locales = new String[1];
+        final String[] locales = new String[1];
         final Locale locale = Locale.getDefault();
         if (VERSION.SDK_INT >= 21) {
             locales[0] = locale.toLanguageTag();
@@ -913,6 +933,29 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
             throw new IllegalStateException("Not allowed when automatic font size adjustment is enabled");
         }
         return setFontSizeFactorInternal(fontSizeFactor);
+    }
+
+    /*
+     * Enable the Enteprise Roots feature.
+     *
+     * When Enabled, GeckoView will fetch the third-party root certificates added to the
+     * Android OS CA store and will use them internally.
+     *
+     * @param enabled whether to enable this feature or not
+     * @return This GeckoRuntimeSettings instance
+     */
+    public @NonNull GeckoRuntimeSettings setEnterpriseRootsEnabled(final boolean enabled) {
+        mEnterpriseRootsEnabled.commit(enabled);
+        return this;
+    }
+
+    /**
+     * Gets whether the Enteprise Roots feature is enabled or not.
+     *
+     * @return true if the feature is enabled, false otherwise.
+     */
+    public boolean getEnterpriseRootsEnabled() {
+        return mEnterpriseRootsEnabled.get();
     }
 
     private final static float DEFAULT_FONT_SIZE_FACTOR = 1f;
@@ -1171,8 +1214,8 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
      * @return One of the {@link GeckoRuntimeSettings#ALLOW_ALL HttpsOnlyMode} constants.
      */
     public @HttpsOnlyMode int getAllowInsecureConnections() {
-        boolean httpsOnly = mHttpsOnly.get();
-        boolean httpsOnlyPrivate = mHttpsOnlyPrivateMode.get();
+        final boolean httpsOnly = mHttpsOnly.get();
+        final boolean httpsOnlyPrivate = mHttpsOnlyPrivateMode.get();
         if (httpsOnly) {
             return HTTPS_ONLY;
         } else if (httpsOnlyPrivate) {
@@ -1205,6 +1248,12 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
             default:
                 throw new IllegalArgumentException("Invalid setting for setAllowInsecureConnections");
         }
+        return this;
+    }
+
+    // For internal use only
+    /* protected */ @NonNull GeckoRuntimeSettings setProcessCount(final int processCount) {
+        mProcessCount.commit(processCount);
         return this;
     }
 
@@ -1247,7 +1296,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
                         (Class<? extends Service>) Class.forName(crashHandlerName);
 
                 mCrashHandler = handler;
-            } catch (ClassNotFoundException e) {
+            } catch (final ClassNotFoundException e) {
             }
         }
 

@@ -93,6 +93,10 @@ NSRect nsCocoaUtils::GeckoRectToCocoaRect(const DesktopIntRect& geckoRect) {
                     geckoRect.height);
 }
 
+NSPoint nsCocoaUtils::GeckoPointToCocoaPoint(const mozilla::DesktopPoint& aPoint) {
+  return NSMakePoint(aPoint.x, MenuBarScreenHeight() - aPoint.y);
+}
+
 NSRect nsCocoaUtils::GeckoRectToCocoaRectDevPix(const LayoutDeviceIntRect& aGeckoRect,
                                                 CGFloat aBackingScale) {
   return NSMakeRect(aGeckoRect.x / aBackingScale,
@@ -154,99 +158,12 @@ NSPoint nsCocoaUtils::EventLocationForWindow(NSEvent* anEvent, NSWindow* aWindow
   NS_OBJC_END_TRY_BLOCK_RETURN(NSMakePoint(0.0, 0.0));
 }
 
-@interface NSEvent (ScrollPhase)
-// 10.5 and 10.6
-- (long long)_scrollPhase;
-// 10.7 and above
-- (NSEventPhase)phase;
-- (NSEventPhase)momentumPhase;
-@end
-
-NSEventPhase nsCocoaUtils::EventPhase(NSEvent* aEvent) {
-  if ([aEvent respondsToSelector:@selector(phase)]) {
-    return [aEvent phase];
-  }
-  return NSEventPhaseNone;
-}
-
-NSEventPhase nsCocoaUtils::EventMomentumPhase(NSEvent* aEvent) {
-  if ([aEvent respondsToSelector:@selector(momentumPhase)]) {
-    return [aEvent momentumPhase];
-  }
-  if ([aEvent respondsToSelector:@selector(_scrollPhase)]) {
-    switch ([aEvent _scrollPhase]) {
-      case 1:
-        return NSEventPhaseBegan;
-      case 2:
-        return NSEventPhaseChanged;
-      case 3:
-        return NSEventPhaseEnded;
-      default:
-        return NSEventPhaseNone;
-    }
-  }
-  return NSEventPhaseNone;
-}
-
 BOOL nsCocoaUtils::IsMomentumScrollEvent(NSEvent* aEvent) {
-  return [aEvent type] == NSEventTypeScrollWheel && EventMomentumPhase(aEvent) != NSEventPhaseNone;
-}
-
-@interface NSEvent (HasPreciseScrollingDeltas)
-// 10.7 and above
-- (BOOL)hasPreciseScrollingDeltas;
-// For 10.6 and below, see the comment in nsChildView.h about _eventRef
-- (EventRef)_eventRef;
-@end
-
-BOOL nsCocoaUtils::HasPreciseScrollingDeltas(NSEvent* aEvent) {
-  if ([aEvent respondsToSelector:@selector(hasPreciseScrollingDeltas)]) {
-    return [aEvent hasPreciseScrollingDeltas];
-  }
-
-  // For events that don't contain pixel scrolling information, the event
-  // kind of their underlaying carbon event is kEventMouseWheelMoved instead
-  // of kEventMouseScroll.
-  EventRef carbonEvent = [aEvent _eventRef];
-  return carbonEvent && ::GetEventKind(carbonEvent) == kEventMouseScroll;
-}
-
-@interface NSEvent (ScrollingDeltas)
-// 10.6 and below
-- (CGFloat)deviceDeltaX;
-- (CGFloat)deviceDeltaY;
-// 10.7 and above
-- (CGFloat)scrollingDeltaX;
-- (CGFloat)scrollingDeltaY;
-@end
-
-void nsCocoaUtils::GetScrollingDeltas(NSEvent* aEvent, CGFloat* aOutDeltaX, CGFloat* aOutDeltaY) {
-  if ([aEvent respondsToSelector:@selector(scrollingDeltaX)]) {
-    *aOutDeltaX = [aEvent scrollingDeltaX];
-    *aOutDeltaY = [aEvent scrollingDeltaY];
-    return;
-  }
-  if ([aEvent respondsToSelector:@selector(deviceDeltaX)] && HasPreciseScrollingDeltas(aEvent)) {
-    // Calling deviceDeltaX/Y on those events that do not contain pixel
-    // scrolling information triggers a Cocoa assertion and an
-    // Objective-C NSInternalInconsistencyException.
-    *aOutDeltaX = [aEvent deviceDeltaX];
-    *aOutDeltaY = [aEvent deviceDeltaY];
-    return;
-  }
-
-  // This is only hit pre-10.7 when we are called on a scroll event that does
-  // not contain pixel scrolling information.
-  CGFloat lineDeltaPixels = 12;
-  *aOutDeltaX = [aEvent deltaX] * lineDeltaPixels;
-  *aOutDeltaY = [aEvent deltaY] * lineDeltaPixels;
+  return [aEvent type] == NSEventTypeScrollWheel && [aEvent momentumPhase] != NSEventPhaseNone;
 }
 
 BOOL nsCocoaUtils::EventHasPhaseInformation(NSEvent* aEvent) {
-  if (![aEvent respondsToSelector:@selector(phase)]) {
-    return NO;
-  }
-  return EventPhase(aEvent) != NSEventPhaseNone || EventMomentumPhase(aEvent) != NSEventPhaseNone;
+  return [aEvent phase] != NSEventPhaseNone || [aEvent momentumPhase] != NSEventPhaseNone;
 }
 
 void nsCocoaUtils::HideOSChromeOnScreen(bool aShouldHide) {
@@ -471,6 +388,7 @@ nsresult nsCocoaUtils::CreateNSImageFromCGImage(CGImageRef aInputImage, NSImage*
 }
 
 nsresult nsCocoaUtils::CreateNSImageFromImageContainer(imgIContainer* aImage, uint32_t aWhichFrame,
+                                                       const ComputedStyle* aComputedStyle,
                                                        NSImage** aResult, CGFloat scaleFactor,
                                                        bool* aIsEntirelyBlack) {
   RefPtr<SourceSurface> surface;
@@ -479,7 +397,7 @@ nsresult nsCocoaUtils::CreateNSImageFromImageContainer(imgIContainer* aImage, ui
   aImage->GetHeight(&height);
 
   // Render a vector image at the correct resolution on a retina display
-  if (aImage->GetType() == imgIContainer::TYPE_VECTOR && scaleFactor != 1.0f) {
+  if (aImage->GetType() == imgIContainer::TYPE_VECTOR) {
     IntSize scaledSize = IntSize::Ceil(width * scaleFactor, height * scaleFactor);
 
     RefPtr<DrawTarget> drawTarget = gfxPlatform::GetPlatform()->CreateOffscreenContentDrawTarget(
@@ -492,9 +410,13 @@ nsresult nsCocoaUtils::CreateNSImageFromImageContainer(imgIContainer* aImage, ui
     RefPtr<gfxContext> context = gfxContext::CreateOrNull(drawTarget);
     MOZ_ASSERT(context);
 
-    mozilla::image::ImgDrawResult res = aImage->Draw(
-        context, scaledSize, ImageRegion::Create(scaledSize), aWhichFrame, SamplingFilter::POINT,
-        /* no SVGImageContext */ Nothing(), imgIContainer::FLAG_SYNC_DECODE, 1.0);
+    Maybe<SVGImageContext> svgContext;
+    if (aComputedStyle) {
+      SVGImageContext::MaybeStoreContextPaint(svgContext, aComputedStyle, aImage);
+    }
+    mozilla::image::ImgDrawResult res =
+        aImage->Draw(context, scaledSize, ImageRegion::Create(scaledSize), aWhichFrame,
+                     SamplingFilter::POINT, svgContext, imgIContainer::FLAG_SYNC_DECODE, 1.0);
 
     if (res != mozilla::image::ImgDrawResult::SUCCESS) {
       return NS_ERROR_FAILURE;
@@ -527,10 +449,9 @@ nsresult nsCocoaUtils::CreateNSImageFromImageContainer(imgIContainer* aImage, ui
   return NS_OK;
 }
 
-nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(imgIContainer* aImage,
-                                                                         uint32_t aWhichFrame,
-                                                                         NSImage** aResult,
-                                                                         bool* aIsEntirelyBlack) {
+nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
+    imgIContainer* aImage, uint32_t aWhichFrame, const ComputedStyle* aComputedStyle,
+    NSImage** aResult, bool* aIsEntirelyBlack) {
   int32_t width = 0, height = 0;
   aImage->GetWidth(&width);
   aImage->GetHeight(&height);
@@ -540,7 +461,7 @@ nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(imgICon
 
   NSImage* newRepresentation = nil;
   nsresult rv = nsCocoaUtils::CreateNSImageFromImageContainer(
-      aImage, aWhichFrame, &newRepresentation, 1.0f, aIsEntirelyBlack);
+      aImage, aWhichFrame, aComputedStyle, &newRepresentation, 1.0f, aIsEntirelyBlack);
   if (NS_FAILED(rv) || !newRepresentation) {
     return NS_ERROR_FAILURE;
   }
@@ -550,8 +471,8 @@ nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(imgICon
   [newRepresentation release];
   newRepresentation = nil;
 
-  rv = nsCocoaUtils::CreateNSImageFromImageContainer(aImage, aWhichFrame, &newRepresentation, 2.0f,
-                                                     aIsEntirelyBlack);
+  rv = nsCocoaUtils::CreateNSImageFromImageContainer(aImage, aWhichFrame, aComputedStyle,
+                                                     &newRepresentation, 2.0f, aIsEntirelyBlack);
   if (NS_FAILED(rv) || !newRepresentation) {
     return NS_ERROR_FAILURE;
   }
@@ -687,11 +608,6 @@ NSEvent* nsCocoaUtils::MakeNewCococaEventFromWidgetEvent(const WidgetKeyboardEve
 }
 
 // static
-void nsCocoaUtils::InitNPCocoaEvent(NPCocoaEvent* aNPCocoaEvent) {
-  memset(aNPCocoaEvent, 0, sizeof(NPCocoaEvent));
-}
-
-// static
 void nsCocoaUtils::InitInputEvent(WidgetInputEvent& aInputEvent, NSEvent* aNativeEvent) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
@@ -804,12 +720,9 @@ bool nsCocoaUtils::HiDPIEnabled() {
       if ([desc objectForKey:NSDeviceIsScreen] == nil) {
         continue;
       }
-      CGFloat scale = [screen respondsToSelector:@selector(backingScaleFactor)]
-                          ? [screen backingScaleFactor]
-                          : 1.0;
       // Currently, we only care about differentiating "1.0" and "2.0",
       // so we set one of the two low bits to record which.
-      if (scale > 1.0) {
+      if ([screen backingScaleFactor] > 1.0) {
         scaleFactors |= 2;
       } else {
         scaleFactors |= 1;
@@ -1038,6 +951,38 @@ uint32_t nsCocoaUtils::ConvertGeckoKeyCodeToMacCharCode(uint32_t aKeyCode) {
   }
 
   return 0;
+}
+
+NSEventModifierFlags nsCocoaUtils::ConvertWidgetModifiersToMacModifierFlags(
+    nsIWidget::Modifiers aNativeModifiers) {
+  if (!aNativeModifiers) {
+    return 0;
+  }
+  struct ModifierFlagMapEntry {
+    nsIWidget::Modifiers mWidgetModifier;
+    NSEventModifierFlags mModifierFlags;
+  };
+  static constexpr ModifierFlagMapEntry sModifierFlagMap[] = {
+      {nsIWidget::CAPS_LOCK, NSEventModifierFlagCapsLock},
+      {nsIWidget::SHIFT_L, NSEventModifierFlagShift | 0x0002},
+      {nsIWidget::SHIFT_R, NSEventModifierFlagShift | 0x0004},
+      {nsIWidget::CTRL_L, NSEventModifierFlagControl | 0x0001},
+      {nsIWidget::CTRL_R, NSEventModifierFlagControl | 0x2000},
+      {nsIWidget::ALT_L, NSEventModifierFlagOption | 0x0020},
+      {nsIWidget::ALT_R, NSEventModifierFlagOption | 0x0040},
+      {nsIWidget::COMMAND_L, NSEventModifierFlagCommand | 0x0008},
+      {nsIWidget::COMMAND_R, NSEventModifierFlagCommand | 0x0010},
+      {nsIWidget::NUMERIC_KEY_PAD, NSEventModifierFlagNumericPad},
+      {nsIWidget::HELP, NSEventModifierFlagHelp},
+      {nsIWidget::FUNCTION, NSEventModifierFlagFunction}};
+
+  NSEventModifierFlags modifierFlags = 0;
+  for (const ModifierFlagMapEntry& entry : sModifierFlagMap) {
+    if (aNativeModifiers & entry.mWidgetModifier) {
+      modifierFlags |= entry.mModifierFlags;
+    }
+  }
+  return modifierFlags;
 }
 
 NSMutableAttributedString* nsCocoaUtils::GetNSMutableAttributedString(

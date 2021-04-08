@@ -59,7 +59,8 @@ interface nsIMobileMessageService : nsISupports
                                       in AString          body,
                                       in unsigned long long unreadCount,
                                       in AString          aLastMessageType,
-                                      in boolean            isGroup);
+                                      in boolean          isGroup,
+                                      in AString          aLastMessageAttachmentStatus);
 
   nsIDeletedMessageInfo createDeletedMessageInfo(
     [array, size_is(msgCount)] in long messageIds,

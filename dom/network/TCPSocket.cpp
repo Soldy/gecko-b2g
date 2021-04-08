@@ -464,9 +464,10 @@ void TCPSocket::ActivateTLS() {
 }
 
 NS_IMETHODIMP
-TCPSocket::FireErrorEvent(const nsAString& aName, const nsAString& aType) {
+TCPSocket::FireErrorEvent(const nsAString& aName, const nsAString& aType,
+                          nsresult aErrorCode) {
   if (mSocketBridgeParent) {
-    mSocketBridgeParent->FireErrorEvent(aName, aType, mReadyState);
+    mSocketBridgeParent->FireErrorEvent(aName, aType, aErrorCode, mReadyState);
     return NS_OK;
   }
 
@@ -475,6 +476,8 @@ TCPSocket::FireErrorEvent(const nsAString& aName, const nsAString& aType) {
   init.mCancelable = false;
   init.mName = aName;
   init.mMessage = aType;
+  static_assert(std::is_same_v<std::underlying_type_t<nsresult>, uint32_t>);
+  init.mErrorCode = uint32_t(aErrorCode);
 
   RefPtr<TCPSocketErrorEvent> event =
       TCPSocketErrorEvent::Constructor(this, u"error"_ns, init);
@@ -701,7 +704,7 @@ nsresult TCPSocket::MaybeReportErrorAndCloseIfOpen(nsresult status) {
       }
     }
 
-    Unused << NS_WARN_IF(NS_FAILED(FireErrorEvent(errName, errorType)));
+    Unused << NS_WARN_IF(NS_FAILED(FireErrorEvent(errName, errorType, status)));
   }
 
   return FireEvent(u"close"_ns);

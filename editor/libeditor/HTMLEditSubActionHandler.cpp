@@ -25,6 +25,7 @@
 #include "mozilla/RangeUtils.h"
 #include "mozilla/StaticPrefs_editor.h"  // for StaticPrefs::editor_*
 #include "mozilla/TextComposition.h"
+#include "mozilla/TypeInState.h"  // for SpecifiedStyle
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/AncestorIterator.h"
@@ -71,7 +72,8 @@ class nsISupports;
 namespace mozilla {
 
 using namespace dom;
-using ChildBlockBoundary = HTMLEditUtils::ChildBlockBoundary;
+using LeafNodeType = HTMLEditUtils::LeafNodeType;
+using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
 using StyleDifference = HTMLEditUtils::StyleDifference;
 
 /********************************************************
@@ -221,11 +223,11 @@ void HTMLEditor::OnStartToHandleTopLevelEditSubAction(
     // Get the selection location
     // XXX This may occur so that I think that we shouldn't throw exception
     //     in this case.
-    if (NS_WARN_IF(!SelectionRefPtr()->RangeCount())) {
+    if (NS_WARN_IF(!SelectionRef().RangeCount())) {
       aRv.Throw(NS_ERROR_UNEXPECTED);
       return;
     }
-    if (const nsRange* range = SelectionRefPtr()->GetRangeAt(0)) {
+    if (const nsRange* range = SelectionRef().GetRangeAt(0)) {
       TopLevelEditSubActionDataRef().mSelectedRange->StoreRange(*range);
     }
   }
@@ -416,7 +418,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
         TopLevelEditSubActionDataRef().mDidDeleteNonCollapsedRange &&
         !TopLevelEditSubActionDataRef().mDidDeleteEmptyParentBlocks) {
       EditorDOMPoint newCaretPosition =
-          EditorBase::GetStartPoint(*SelectionRefPtr());
+          EditorBase::GetStartPoint(SelectionRef());
       if (!newCaretPosition.IsSet()) {
         NS_WARNING("There was no selection range");
         return NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE;
@@ -495,7 +497,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
         EditorRawDOMPoint pointToAdjust(GetCompositionEndPoint());
         if (!pointToAdjust.IsSet()) {
           // Otherwise, adjust current selection start point.
-          pointToAdjust = EditorBase::GetStartPoint(*SelectionRefPtr());
+          pointToAdjust = EditorBase::GetStartPoint(SelectionRef());
           if (NS_WARN_IF(!pointToAdjust.IsSet())) {
             return NS_ERROR_FAILURE;
           }
@@ -550,7 +552,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
 
     // If we created a new block, make sure caret is in it.
     if (TopLevelEditSubActionDataRef().mNewBlockElement &&
-        SelectionRefPtr()->IsCollapsed()) {
+        SelectionRef().IsCollapsed()) {
       nsresult rv = EnsureCaretInBlockElement(
           MOZ_KnownLive(*TopLevelEditSubActionDataRef().mNewBlockElement));
       if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
@@ -566,7 +568,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
     // are removed, Selection should've been adjusted by the method which
     // did it.
     if (!TopLevelEditSubActionDataRef().mDidDeleteEmptyParentBlocks &&
-        SelectionRefPtr()->IsCollapsed()) {
+        SelectionRef().IsCollapsed()) {
       switch (GetTopLevelEditSubAction()) {
         case EditSubAction::eInsertText:
         case EditSubAction::eInsertTextComingFromIME:
@@ -608,7 +610,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
     }
     if (reapplyCachedStyle) {
       DebugOnly<nsresult> rvIgnored =
-          mTypeInState->UpdateSelState(SelectionRefPtr());
+          mTypeInState->UpdateSelState(SelectionRef());
       NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
                            "TypeInState::UpdateSelState() failed, but ignored");
       rv = ReapplyCachedStyles();
@@ -641,7 +643,7 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
 
   // adjust selection HINT if needed
   if (!TopLevelEditSubActionDataRef().mDidExplicitlySetInterLine &&
-      SelectionRefPtr()->IsCollapsed()) {
+      SelectionRef().IsCollapsed()) {
     SetSelectionInterlinePosition();
   }
 
@@ -656,11 +658,11 @@ EditActionResult HTMLEditor::CanHandleHTMLEditSubAction() const {
   }
 
   // If there is not selection ranges, we should ignore the result.
-  if (!SelectionRefPtr()->RangeCount()) {
+  if (!SelectionRef().RangeCount()) {
     return EditActionCanceled();
   }
 
-  const nsRange* range = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* range = SelectionRef().GetRangeAt(0);
   nsINode* selStartNode = range->GetStartContainer();
   if (NS_WARN_IF(!selStartNode)) {
     return EditActionResult(NS_ERROR_FAILURE);
@@ -711,11 +713,11 @@ MOZ_CAN_RUN_SCRIPT static nsStaticAtom& MarginPropertyAtomForIndent(
 
 nsresult HTMLEditor::EnsureCaretNotAfterPaddingBRElement() {
   MOZ_ASSERT(IsEditActionDataAvailable());
-  MOZ_ASSERT(SelectionRefPtr()->IsCollapsed());
+  MOZ_ASSERT(SelectionRef().IsCollapsed());
 
   // If we are after a padding `<br>` element for empty last line in the same
   // block, then move selection to be before it
-  const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return NS_ERROR_FAILURE;
   }
@@ -763,7 +765,7 @@ nsresult HTMLEditor::EnsureCaretNotAfterPaddingBRElement() {
 
 nsresult HTMLEditor::PrepareInlineStylesForCaret() {
   MOZ_ASSERT(IsTopLevelEditSubActionDataAvailable());
-  MOZ_ASSERT(SelectionRefPtr()->IsCollapsed());
+  MOZ_ASSERT(SelectionRef().IsCollapsed());
 
   // XXX This method works with the top level edit sub-action, but this
   //     must be wrong if we are handling nested edit action.
@@ -809,7 +811,7 @@ EditActionResult HTMLEditor::HandleInsertText(
 
   // If the selection isn't collapsed, delete it.  Don't delete existing inline
   // tags, because we're hopefully going to insert text (bug 787432).
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv =
         DeleteSelectionAsSubAction(nsIEditor::eNone, nsIEditor::eNoStrip);
     if (NS_FAILED(rv)) {
@@ -828,7 +830,7 @@ EditActionResult HTMLEditor::HandleInsertText(
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionHandled(NS_ERROR_EDITOR_DESTROYED);
@@ -852,7 +854,7 @@ EditActionResult HTMLEditor::HandleInsertText(
     return EditActionHandled(NS_ERROR_FAILURE);
   }
 
-  RefPtr<const nsRange> firstRange = SelectionRefPtr()->GetRangeAt(0);
+  RefPtr<const nsRange> firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return EditActionHandled(NS_ERROR_FAILURE);
   }
@@ -866,7 +868,7 @@ EditActionResult HTMLEditor::HandleInsertText(
     return EditActionHandled(rv);
   }
 
-  firstRange = SelectionRefPtr()->GetRangeAt(0);
+  firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return EditActionHandled(NS_ERROR_FAILURE);
   }
@@ -1108,7 +1110,7 @@ EditActionResult HTMLEditor::HandleInsertText(
   }
 
   IgnoredErrorResult ignoredError;
-  SelectionRefPtr()->SetInterlinePosition(false, ignoredError);
+  SelectionRef().SetInterlinePosition(false, ignoredError);
   NS_WARNING_ASSERTION(!ignoredError.Failed(),
                        "Failed to unset interline position");
 
@@ -1166,7 +1168,7 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
   UndefineCaretBidiLevel();
 
   // If the selection isn't collapsed, delete it.
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv =
         DeleteSelectionAsSubAction(nsIEditor::eNone, nsIEditor::eStrip);
     if (NS_FAILED(rv)) {
@@ -1184,7 +1186,7 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionIgnored(NS_ERROR_EDITOR_DESTROYED);
@@ -1206,7 +1208,7 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
   // Split any mailcites in the way.  Should we abort this if we encounter
   // table cell boundaries?
   if (IsMailEditor()) {
-    EditorDOMPoint pointToSplit(EditorBase::GetStartPoint(*SelectionRefPtr()));
+    EditorDOMPoint pointToSplit(EditorBase::GetStartPoint(SelectionRef()));
     if (NS_WARN_IF(!pointToSplit.IsSet())) {
       return EditActionIgnored(NS_ERROR_FAILURE);
     }
@@ -1222,7 +1224,7 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
   }
 
   // Smart splitting rules
-  const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return EditActionIgnored(NS_ERROR_FAILURE);
   }
@@ -1245,6 +1247,19 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
   RefPtr<Element> editingHost = GetActiveEditingHost();
   if (NS_WARN_IF(!editingHost)) {
     return EditActionIgnored(NS_ERROR_FAILURE);
+  }
+  // If the editing host parent element is editable, it means that the editing
+  // host must be a <body> element and the selection may be outside the body
+  // element.  If the selection is outside the editing host, we should not
+  // insert new paragraph nor <br> element.
+  // XXX Currently, we don't support editing outside <body> element, but Blink
+  //     does it.
+  if (editingHost->GetParentElement() &&
+      HTMLEditUtils::IsSimplyEditableNode(*editingHost->GetParentElement()) &&
+      (!atStartOfSelection.IsInContentNode() ||
+       !nsContentUtils::ContentIsFlattenedTreeDescendantOf(
+           atStartOfSelection.ContainerAsContent(), editingHost))) {
+    return EditActionHandled(NS_ERROR_EDITOR_NO_EDITABLE_RANGE);
   }
 
   // Look for the nearest parent block.  However, don't return error even if
@@ -1320,7 +1335,7 @@ EditActionResult HTMLEditor::InsertParagraphSeparatorAsSubAction() {
                          "HTMLEditor::FormatBlockContainerWithTransaction() "
                          "failed, but ignored");
 
-    firstRange = SelectionRefPtr()->GetRangeAt(0);
+    firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return EditActionIgnored(NS_ERROR_FAILURE);
     }
@@ -1527,7 +1542,7 @@ nsresult HTMLEditor::InsertBRElement(const EditorDOMPoint& aPointToBreak) {
     //     modifying the DOM tree.  So, now, the <br> element may not be
     //     between blocks.
     IgnoredErrorResult ignoredError;
-    SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+    SelectionRef().SetInterlinePosition(true, ignoredError);
     NS_WARNING_ASSERTION(
         !ignoredError.Failed(),
         "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -1579,7 +1594,7 @@ nsresult HTMLEditor::InsertBRElement(const EditorDOMPoint& aPointToBreak) {
   // node.  Then we stick to the left to avoid an uber caret.
   nsIContent* nextSiblingOfBRElement = brElement->GetNextSibling();
   IgnoredErrorResult ignoredError;
-  SelectionRefPtr()->SetInterlinePosition(
+  SelectionRef().SetInterlinePosition(
       !(nextSiblingOfBRElement &&
         HTMLEditUtils::IsBlockElement(*nextSiblingOfBRElement)),
       ignoredError);
@@ -1694,7 +1709,7 @@ EditActionResult HTMLEditor::SplitMailCiteElements(
   {
     AutoEditorDOMPointChildInvalidator lockOffset(atBRElement);
     IgnoredErrorResult ignoredError;
-    SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+    SelectionRef().SetInterlinePosition(true, ignoredError);
     NS_WARNING_ASSERTION(
         !ignoredError.Failed(),
         "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -2195,7 +2210,8 @@ HTMLEditor::DeleteTextAndNormalizeSurroundingWhiteSpaces(
       // Try to put caret next to immediately after previous editable leaf.
       nsIContent* previousContent =
           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
-              newCaretPosition, *currentBlock, editingHost);
+              newCaretPosition, *currentBlock,
+              {LeafNodeType::LeafNodeOrNonEditableNode}, editingHost);
       if (previousContent && !HTMLEditUtils::IsBlockElement(*previousContent)) {
         newCaretPosition =
             previousContent->IsText() ||
@@ -2207,7 +2223,9 @@ HTMLEditor::DeleteTextAndNormalizeSurroundingWhiteSpaces(
       // a child block, look for next editable leaf instead.
       else if (nsIContent* nextContent =
                    HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-                       newCaretPosition, *currentBlock, editingHost)) {
+                       newCaretPosition, *currentBlock,
+                       {LeafNodeType::LeafNodeOrNonEditableNode},
+                       editingHost)) {
         newCaretPosition = nextContent->IsText() ||
                                    HTMLEditUtils::IsContainerNode(*nextContent)
                                ? EditorDOMPoint(nextContent, 0)
@@ -2391,7 +2409,7 @@ EditActionResult HTMLEditor::MakeOrChangeListAndListItemAsSubAction(
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionResult(NS_ERROR_EDITOR_DESTROYED);
@@ -2434,7 +2452,7 @@ EditActionResult HTMLEditor::MakeOrChangeListAndListItemAsSubAction(
   // Expands selection range to include the immediate block parent, and then
   // further expands to include any ancestors whose children are all in the
   // range.
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -2519,7 +2537,7 @@ EditActionResult HTMLEditor::ChangeSelectedHardLinesToList(
       }
     }
 
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return EditActionResult(NS_ERROR_FAILURE);
     }
@@ -2963,7 +2981,7 @@ nsresult HTMLEditor::RemoveListAtSelectionAsSubAction() {
       !ignoredError.Failed(),
       "HTMLEditor::OnStartToHandleTopLevelEditSubAction() failed, but ignored");
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -3034,7 +3052,7 @@ nsresult HTMLEditor::RemoveListAtSelectionAsSubAction() {
 nsresult HTMLEditor::FormatBlockContainerWithTransaction(nsAtom& blockType) {
   MOZ_ASSERT(IsTopLevelEditSubActionDataAvailable());
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -3063,7 +3081,7 @@ nsresult HTMLEditor::FormatBlockContainerWithTransaction(nsAtom& blockType) {
   // empty block.
   // XXX Isn't this odd if there are only non-editable visible nodes?
   if (IsEmptyOneHardLine(arrayOfContents)) {
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return NS_ERROR_FAILURE;
     }
@@ -3222,11 +3240,11 @@ nsresult HTMLEditor::MaybeInsertPaddingBRElementForEmptyLastLineAtSelection() {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     return NS_OK;
   }
 
-  const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return NS_ERROR_FAILURE;
   }
@@ -3397,7 +3415,7 @@ EditActionResult HTMLEditor::HandleIndentAtSelection() {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionResult(NS_ERROR_EDITOR_DESTROYED);
@@ -3437,7 +3455,7 @@ nsresult HTMLEditor::HandleCSSIndentAtSelection() {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -3470,8 +3488,8 @@ nsresult HTMLEditor::HandleCSSIndentAtSelectionInternal() {
   // short circuit: detect case of collapsed selection inside an <li>.
   // just sublist that <li>.  This prevents bug 97797.
 
-  if (SelectionRefPtr()->IsCollapsed()) {
-    EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(*SelectionRefPtr()));
+  if (SelectionRef().IsCollapsed()) {
+    EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(SelectionRef()));
     if (NS_WARN_IF(!atCaret.IsSet())) {
       return NS_ERROR_FAILURE;
     }
@@ -3502,7 +3520,7 @@ nsresult HTMLEditor::HandleCSSIndentAtSelectionInternal() {
   // XXX Isn't this odd if there are only non-editable visible nodes?
   if (IsEmptyOneHardLine(arrayOfContents)) {
     // get selection location
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return NS_ERROR_FAILURE;
     }
@@ -3666,7 +3684,7 @@ nsresult HTMLEditor::HandleHTMLIndentAtSelection() {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -3719,7 +3737,7 @@ nsresult HTMLEditor::HandleHTMLIndentAtSelectionInternal() {
   // empty block.
   // XXX Isn't this odd if there are only non-editable visible nodes?
   if (IsEmptyOneHardLine(arrayOfContents)) {
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return NS_ERROR_FAILURE;
     }
@@ -3974,7 +3992,7 @@ EditActionResult HTMLEditor::HandleOutdentAtSelection() {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return EditActionHandled(rv);
@@ -4000,13 +4018,13 @@ EditActionResult HTMLEditor::HandleOutdentAtSelection() {
     return EditActionHandled();
   }
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     return EditActionHandled();
   }
 
   // Push selection past end of left element of last split indented element.
   if (outdentResult.GetLeftContent()) {
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return EditActionHandled();
     }
@@ -4035,7 +4053,7 @@ EditActionResult HTMLEditor::HandleOutdentAtSelection() {
   // And pull selection before beginning of right element of last split
   // indented element.
   if (outdentResult.GetRightContent()) {
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return EditActionHandled();
     }
@@ -4593,8 +4611,9 @@ nsresult HTMLEditor::CreateStyleForInsertText(
     AutoTransactionsConserveSelection dontChangeMySelection(*this);
 
     while (item && pointToPutCaret.GetContainer() != documentRootElement) {
-      EditResult result = ClearStyleAt(
-          pointToPutCaret, MOZ_KnownLive(item->tag), MOZ_KnownLive(item->attr));
+      EditResult result =
+          ClearStyleAt(pointToPutCaret, MOZ_KnownLive(item->tag),
+                       MOZ_KnownLive(item->attr), item->specifiedStyle);
       if (result.Failed()) {
         NS_WARNING("HTMLEditor::ClearStyleAt() failed");
         return result.Rv();
@@ -4740,7 +4759,7 @@ EditActionResult HTMLEditor::AlignAsSubAction(const nsAString& aAlignType) {
     return EditActionHandled(NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE);
   }
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionResult(NS_ERROR_EDITOR_DESTROYED);
@@ -4759,7 +4778,7 @@ EditActionResult HTMLEditor::AlignAsSubAction(const nsAString& aAlignType) {
     }
   }
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -4851,7 +4870,7 @@ nsresult HTMLEditor::AlignContentsAtSelection(const nsAString& aAlignType) {
       //      node because of the fact that arrayOfContents can be empty?  We
       //      should probably revisit this issue. - kin
 
-      const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+      const nsRange* firstRange = SelectionRef().GetRangeAt(0);
       if (NS_WARN_IF(!firstRange)) {
         return NS_ERROR_FAILURE;
       }
@@ -4892,7 +4911,7 @@ EditActionResult HTMLEditor::AlignContentsAtSelectionWithEmptyDivElement(
   MOZ_ASSERT(IsTopLevelEditSubActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return EditActionResult(NS_ERROR_FAILURE);
   }
@@ -5301,11 +5320,11 @@ nsresult HTMLEditor::MaybeExtendSelectionToHardLineEdgesForBlockEditAction() {
   // We don't need to mess with cell selections, and we assume multirange
   // selections are those.
   // XXX Why?  Even in <input>, user can select 2 or more ranges.
-  if (SelectionRefPtr()->RangeCount() != 1) {
+  if (SelectionRef().RangeCount() != 1) {
     return NS_OK;
   }
 
-  const RefPtr<nsRange> range = SelectionRefPtr()->GetRangeAt(0);
+  const RefPtr<nsRange> range = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!range)) {
     return NS_ERROR_FAILURE;
   }
@@ -5344,7 +5363,7 @@ nsresult HTMLEditor::MaybeExtendSelectionToHardLineEdgesForBlockEditAction() {
       // endpoint is just after the close of a block.
       nsIContent* child = HTMLEditUtils::GetLastLeafChild(
           *wsScannerAtEnd.StartReasonOtherBlockElementPtr(),
-          ChildBlockBoundary::TreatAsLeaf);
+          {LeafNodeType::LeafNodeOrChildBlock});
       if (child) {
         newEndPoint.SetAfter(child);
       }
@@ -5378,7 +5397,7 @@ nsresult HTMLEditor::MaybeExtendSelectionToHardLineEdgesForBlockEditAction() {
       // startpoint is just before the start of a block.
       nsINode* child = HTMLEditUtils::GetFirstLeafChild(
           *wsScannerAtStart.EndReasonOtherBlockElementPtr(),
-          ChildBlockBoundary::TreatAsLeaf);
+          {LeafNodeType::LeafNodeOrChildBlock});
       if (child) {
         newStartPoint.Set(child);
       }
@@ -5430,8 +5449,7 @@ nsresult HTMLEditor::MaybeExtendSelectionToHardLineEdgesForBlockEditAction() {
   // Otherwise set selection to new values.  Note that end point may be prior
   // to start point.  So, we cannot use Selection::SetStartAndEndInLimit() here.
   ErrorResult error;
-  MOZ_KnownLive(SelectionRefPtr())
-      ->SetBaseAndExtentInLimiter(newStartPoint, newEndPoint, error);
+  SelectionRef().SetBaseAndExtentInLimiter(newStartPoint, newEndPoint, error);
   if (NS_WARN_IF(Destroyed())) {
     error = NS_ERROR_EDITOR_DESTROYED;
   } else if (error.Failed()) {
@@ -5646,9 +5664,9 @@ void HTMLEditor::GetSelectionRangesExtendedToIncludeAdjuscentWhiteSpaces(
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(aOutArrayOfRanges.IsEmpty());
 
-  aOutArrayOfRanges.SetCapacity(SelectionRefPtr()->RangeCount());
-  for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); i++) {
-    const nsRange* selectionRange = SelectionRefPtr()->GetRangeAt(i);
+  aOutArrayOfRanges.SetCapacity(SelectionRef().RangeCount());
+  for (uint32_t i = 0; i < SelectionRef().RangeCount(); i++) {
+    const nsRange* selectionRange = SelectionRef().GetRangeAt(i);
     MOZ_ASSERT(selectionRange);
 
     RefPtr<nsRange> extendedRange =
@@ -5666,12 +5684,12 @@ void HTMLEditor::GetSelectionRangesExtendedToHardLineStartAndEnd(
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(aOutArrayOfRanges.IsEmpty());
 
-  aOutArrayOfRanges.SetCapacity(SelectionRefPtr()->RangeCount());
-  for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); i++) {
+  aOutArrayOfRanges.SetCapacity(SelectionRef().RangeCount());
+  for (uint32_t i = 0; i < SelectionRef().RangeCount(); i++) {
     // Make a new adjusted range to represent the appropriate block content.
     // The basic idea is to push out the range endpoints to truly enclose the
     // blocks that we will affect.  This call alters opRange.
-    nsRange* selectionRange = SelectionRefPtr()->GetRangeAt(i);
+    nsRange* selectionRange = SelectionRef().GetRangeAt(i);
     MOZ_ASSERT(selectionRange);
 
     RefPtr<nsRange> extendedRange = CreateRangeExtendedToHardLineStartAndEnd(
@@ -6126,8 +6144,8 @@ Element* HTMLEditor::GetParentListElementAtSelection() const {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(!IsSelectionRangeContainerNotContent());
 
-  for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); ++i) {
-    nsRange* range = SelectionRefPtr()->GetRangeAt(i);
+  for (uint32_t i = 0; i < SelectionRef().RangeCount(); ++i) {
+    nsRange* range = SelectionRef().GetRangeAt(i);
     for (nsINode* parent = range->GetClosestCommonInclusiveAncestor(); parent;
          parent = parent->GetParentNode()) {
       if (HTMLEditUtils::IsAnyListElement(parent)) {
@@ -6396,9 +6414,10 @@ nsresult HTMLEditor::HandleInsertParagraphInHeadingElement(Element& aHeader,
   if (NS_WARN_IF(Destroyed())) {
     return NS_ERROR_EDITOR_DESTROYED;
   }
-  NS_WARNING_ASSERTION(
-      splitHeaderResult.Succeeded(),
-      "HTMLEditor::SplitNodeDeepWithTransaction() failed, but ignored");
+  if (splitHeaderResult.Failed()) {
+    NS_WARNING("HTMLEditor::SplitNodeDeepWithTransaction() failed");
+    return NS_ERROR_FAILURE;
+  }
 
   // If the previous heading of split point is empty, put a padding <br>
   // element for empty last line into it.
@@ -6493,7 +6512,7 @@ EditActionResult HTMLEditor::HandleInsertParagraphInParagraph(
     Element& aParentDivOrP) {
   MOZ_ASSERT(IsEditActionDataAvailable());
 
-  nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return EditActionResult(NS_ERROR_FAILURE);
   }
@@ -6765,7 +6784,7 @@ nsresult HTMLEditor::SplitParagraph(
   // selection to beginning of right hand para;
   // look inside any containers that are up front.
   nsCOMPtr<nsIContent> child = HTMLEditUtils::GetFirstLeafChild(
-      aParentDivOrP, ChildBlockBoundary::TreatAsLeaf);
+      aParentDivOrP, {LeafNodeType::LeafNodeOrChildBlock});
   if (child && (child->IsText() || HTMLEditUtils::IsContainerNode(*child))) {
     nsresult rv = CollapseSelectionToStartOf(*child);
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
@@ -7738,7 +7757,7 @@ nsresult HTMLEditor::ReapplyCachedStyles() {
   // reinserted when new content is added.
 
   if (TopLevelEditSubActionDataRef().mCachedInlineStyles->IsEmpty() ||
-      !SelectionRefPtr()->RangeCount()) {
+      !SelectionRef().RangeCount()) {
     return NS_OK;
   }
 
@@ -7746,7 +7765,7 @@ nsresult HTMLEditor::ReapplyCachedStyles() {
   bool useCSS = IsCSSEnabled();
 
   const RangeBoundary& atStartOfSelection =
-      SelectionRefPtr()->GetRangeAt(0)->StartRef();
+      SelectionRef().GetRangeAt(0)->StartRef();
   nsCOMPtr<nsIContent> startContainerContent =
       atStartOfSelection.Container() &&
               atStartOfSelection.Container()->IsContent()
@@ -7857,9 +7876,9 @@ nsresult HTMLEditor::InsertBRElementToEmptyListItemsAndTableCellsInRange(
 
 nsresult HTMLEditor::EnsureCaretInBlockElement(Element& aElement) {
   MOZ_ASSERT(IsEditActionDataAvailable());
-  MOZ_ASSERT(SelectionRefPtr()->IsCollapsed());
+  MOZ_ASSERT(SelectionRef().IsCollapsed());
 
-  EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(*SelectionRefPtr()));
+  EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(SelectionRef()));
   if (NS_WARN_IF(!atCaret.IsSet())) {
     return NS_ERROR_FAILURE;
   }
@@ -7928,10 +7947,10 @@ nsresult HTMLEditor::EnsureCaretInBlockElement(Element& aElement) {
 
 void HTMLEditor::SetSelectionInterlinePosition() {
   MOZ_ASSERT(IsEditActionDataAvailable());
-  MOZ_ASSERT(SelectionRefPtr()->IsCollapsed());
+  MOZ_ASSERT(SelectionRef().IsCollapsed());
 
   // Get the (collapsed) selection location
-  const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+  const nsRange* firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return;
   }
@@ -7952,7 +7971,7 @@ void HTMLEditor::SetSelectionInterlinePosition() {
           GetPreviousEditableHTMLNodeInBlock(atCaret)) {
     if (previousEditableContentInBlock->IsHTMLElement(nsGkAtoms::br)) {
       IgnoredErrorResult ignoredError;
-      SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+      SelectionRef().SetInterlinePosition(true, ignoredError);
       NS_WARNING_ASSERTION(
           !ignoredError.Failed(),
           "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -7972,7 +7991,7 @@ void HTMLEditor::SetSelectionInterlinePosition() {
           GetPriorHTMLSibling(atCaret.GetChild())) {
     if (HTMLEditUtils::IsBlockElement(*previousEditableContentInBlockAtCaret)) {
       IgnoredErrorResult ignoredError;
-      SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+      SelectionRef().SetInterlinePosition(true, ignoredError);
       NS_WARNING_ASSERTION(
           !ignoredError.Failed(),
           "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -7988,7 +8007,7 @@ void HTMLEditor::SetSelectionInterlinePosition() {
           GetNextHTMLSibling(atCaret.GetChild())) {
     if (HTMLEditUtils::IsBlockElement(*nextEditableContentInBlockAtCaret)) {
       IgnoredErrorResult ignoredError;
-      SelectionRefPtr()->SetInterlinePosition(false, ignoredError);
+      SelectionRef().SetInterlinePosition(false, ignoredError);
       NS_WARNING_ASSERTION(
           !ignoredError.Failed(),
           "Selection::SetInterlinePosition(false) failed, but ignored");
@@ -7999,9 +8018,9 @@ void HTMLEditor::SetSelectionInterlinePosition() {
 nsresult HTMLEditor::AdjustCaretPositionAndEnsurePaddingBRElement(
     nsIEditor::EDirection aDirectionAndAmount) {
   MOZ_ASSERT(IsEditActionDataAvailable());
-  MOZ_ASSERT(SelectionRefPtr()->IsCollapsed());
+  MOZ_ASSERT(SelectionRef().IsCollapsed());
 
-  EditorDOMPoint point(EditorBase::GetStartPoint(*SelectionRefPtr()));
+  EditorDOMPoint point(EditorBase::GetStartPoint(SelectionRef()));
   if (NS_WARN_IF(!point.IsInContentNode())) {
     return NS_ERROR_FAILURE;
   }
@@ -8088,7 +8107,7 @@ nsresult HTMLEditor::AdjustCaretPositionAndEnsurePaddingBRElement(
         // Selection stays *before* padding `<br>` element for empty last
         // line, sticking to it.
         IgnoredErrorResult ignoredError;
-        SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+        SelectionRef().SetInterlinePosition(true, ignoredError);
         if (NS_WARN_IF(Destroyed())) {
           return NS_ERROR_EDITOR_DESTROYED;
         }
@@ -8110,7 +8129,7 @@ nsresult HTMLEditor::AdjustCaretPositionAndEnsurePaddingBRElement(
           // Make it stick to the padding `<br>` element so that it will be
           // on blank line.
           IgnoredErrorResult ignoredError;
-          SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+          SelectionRef().SetInterlinePosition(true, ignoredError);
           NS_WARNING_ASSERTION(
               !ignoredError.Failed(),
               "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -8383,8 +8402,8 @@ nsresult HTMLEditor::RemoveEmptyNodesIn(nsRange& aRange) {
 bool HTMLEditor::StartOrEndOfSelectionRangesIsIn(nsIContent& aContent) const {
   MOZ_ASSERT(IsEditActionDataAvailable());
 
-  for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); ++i) {
-    const nsRange* range = SelectionRefPtr()->GetRangeAt(i);
+  for (uint32_t i = 0; i < SelectionRef().RangeCount(); ++i) {
+    const nsRange* range = SelectionRef().GetRangeAt(i);
     nsINode* startContainer = range->GetStartContainer();
     if (startContainer) {
       if (&aContent == startContainer) {
@@ -8593,7 +8612,7 @@ nsresult HTMLEditor::EnsureSelectionInBodyOrDocumentElement() {
     return NS_ERROR_FAILURE;
   }
 
-  EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(*SelectionRefPtr()));
+  EditorRawDOMPoint atCaret(EditorBase::GetStartPoint(SelectionRef()));
   if (NS_WARN_IF(!atCaret.IsSet())) {
     return NS_ERROR_FAILURE;
   }
@@ -8623,8 +8642,7 @@ nsresult HTMLEditor::EnsureSelectionInBodyOrDocumentElement() {
     return NS_OK;
   }
 
-  EditorRawDOMPoint selectionEndPoint(
-      EditorBase::GetEndPoint(*SelectionRefPtr()));
+  EditorRawDOMPoint selectionEndPoint(EditorBase::GetEndPoint(SelectionRef()));
   if (NS_WARN_IF(!selectionEndPoint.IsSet())) {
     return NS_ERROR_FAILURE;
   }
@@ -9066,7 +9084,7 @@ EditActionResult HTMLEditor::SetSelectionToAbsoluteAsSubAction() {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionResult(NS_ERROR_EDITOR_DESTROYED);
@@ -9091,7 +9109,7 @@ EditActionResult HTMLEditor::SetSelectionToAbsoluteAsSubAction() {
     return EditActionHandled();
   }
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = MaybeExtendSelectionToHardLineEdgesForBlockEditAction();
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -9172,7 +9190,7 @@ nsresult HTMLEditor::MoveSelectedContentsToDivElementToMakeItAbsolutePosition(
   // empty block.
   // XXX Isn't this odd if there are only non-editable visible nodes?
   if (IsEmptyOneHardLine(arrayOfContents)) {
-    const nsRange* firstRange = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange)) {
       return NS_ERROR_FAILURE;
     }
@@ -9452,7 +9470,7 @@ EditActionResult HTMLEditor::SetSelectionToStaticAsSubAction() {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionResult(NS_ERROR_EDITOR_DESTROYED);
@@ -9533,7 +9551,7 @@ EditActionResult HTMLEditor::AddZIndexAsSubAction(int32_t aChange) {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditActionHandled(NS_ERROR_EDITOR_DESTROYED);

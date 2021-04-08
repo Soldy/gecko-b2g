@@ -72,7 +72,7 @@ class SpeechTaskParent : public nsSpeechTask {
 
  public:
   SpeechTaskParent(float aVolume, const nsAString& aUtterance, bool aIsChrome)
-      : nsSpeechTask(aVolume, aUtterance, aIsChrome), mActor(nullptr) {}
+      : nsSpeechTask(aVolume, aUtterance, aIsChrome), mActor(nullptr), mState(TASK_STATE_INIT) {}
 
   nsresult DispatchStartImpl(const nsAString& aUri) override;
 
@@ -91,8 +91,17 @@ class SpeechTaskParent : public nsSpeechTask {
   nsresult DispatchMarkImpl(const nsAString& aName, float aElapsedTime,
                             uint32_t aCharIndex) override;
 
+  enum {
+    TASK_STATE_INIT,
+    TASK_STATE_SPEAK,
+    TASK_STATE_PAUSE,
+    TASK_STATE_CANCEL
+  };
+
  private:
   SpeechSynthesisRequestParent* mActor;
+
+  uint32_t mState;
 };
 
 }  // namespace dom

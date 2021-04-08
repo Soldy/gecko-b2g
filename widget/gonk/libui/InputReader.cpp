@@ -51,7 +51,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
-#include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_dom.h"
 
 #define INDENT "  "
 #define INDENT2 "    "
@@ -60,7 +60,6 @@
 #define INDENT5 "          "
 
 using namespace mozilla;
-using namespace mozilla::dom;
 
 namespace android {
 
@@ -1989,8 +1988,8 @@ KeyboardInputMapper::KeyboardInputMapper(InputDevice* device, uint32_t source,
                                          int32_t keyboardType)
     : InputMapper(device), mSource(source), mKeyboardType(keyboardType) {
   mNeedMicrophoneToggleKey =
-      Preferences::GetBool("dom.microphonetoggle.supported") &&
-      !Preferences::GetBool("dom.microphonetoggle.hardwareKey");
+      StaticPrefs::dom_microphonetoggle_supported() &&
+      !StaticPrefs::dom_microphonetoggle_hardwareKey();
 }
 
 KeyboardInputMapper::~KeyboardInputMapper() {}

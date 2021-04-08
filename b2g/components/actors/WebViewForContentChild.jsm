@@ -157,9 +157,13 @@ class WebViewForContentChild extends JSWindowActorChild {
   }
 
   actorCreated() {
-    if (this.hasPermission("web-view")) {
-      this.exportCustomElements();
+    if (
+      this.document.nodePrincipal.isSystemPrincipal ||
+      !this.hasPermission("web-view")
+    ) {
+      return;
     }
+    this.exportCustomElements();
   }
 
   handleEvent(event) {}

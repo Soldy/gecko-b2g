@@ -111,8 +111,9 @@ IccCallback::NotifyCardLockError(const nsAString& aErrorMsg,
 NS_IMETHODIMP
 IccCallback::NotifyRetrievedIccContacts(nsIIccContact** aContacts,
                                         uint32_t aCount) {
-  MOZ_ASSERT(aContacts);
-
+  if(aCount > 0) {
+    MOZ_ASSERT(aContacts);
+  }
   AutoJSAPI jsapi;
   if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;

@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 from abc import ABCMeta, abstractmethod
+from io import open
 
 import six
 from logger.logger import RaptorLogger
@@ -17,7 +18,7 @@ from output import RaptorOutput, BrowsertimeOutput
 
 LOG = RaptorLogger(component="perftest-results-handler")
 KNOWN_TEST_MODIFIERS = [
-    "nocondprof",
+    "condprof-settled",
     "fission",
     "live",
     "gecko_profile",
@@ -38,7 +39,7 @@ class PerftestResultsHandler(object):
         memory_test=False,
         live_sites=False,
         app=None,
-        no_conditioned_profile=False,
+        conditioned_profile=None,
         cold=False,
         enable_webrender=False,
         chimera=False,
@@ -50,6 +51,7 @@ class PerftestResultsHandler(object):
         self.memory_test = memory_test
         self.live_sites = live_sites
         self.app = app
+        self.conditioned_profile = conditioned_profile
         self.results = []
         self.page_timeout_list = []
         self.images = []
@@ -60,7 +62,6 @@ class PerftestResultsHandler(object):
         self.webrender_enabled = enable_webrender
         self.browser_version = None
         self.browser_name = None
-        self.no_conditioned_profile = no_conditioned_profile
         self.cold = cold
         self.chimera = chimera
 
@@ -75,8 +76,8 @@ class PerftestResultsHandler(object):
         # checking all known fields. Otherwise, we only check
         # the fields that were given to us.
         if modifiers is None:
-            if self.no_conditioned_profile:
-                extra_options.append("nocondprof")
+            if self.conditioned_profile:
+                extra_options.append("condprof-%s" % self.conditioned_profile)
             if self.fission_enabled:
                 extra_options.append("fission")
             if self.live_sites:
@@ -229,7 +230,7 @@ class PerftestResultsHandler(object):
         )
         LOG.info("Validating PERFHERDER_DATA against %s" % schema_path)
         try:
-            with open(schema_path) as f:
+            with open(schema_path, encoding="utf-8") as f:
                 schema = json.load(f)
             if output.summarized_results:
                 data = output.summarized_results
@@ -255,7 +256,10 @@ class RaptorResultsHandler(PerftestResultsHandler):
         new_result_json.setdefault("extra_options", []).extend(
             self.build_extra_options(
                 [
-                    (self.no_conditioned_profile, "nocondprof"),
+                    (
+                        self.conditioned_profile,
+                        "condprof-%s" % self.conditioned_profile,
+                    ),
                     (self.fission_enabled, "fission"),
                     (self.webrender_enabled, "webrender"),
                 ]
@@ -553,12 +557,18 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
                 vismet_result["statistics"] = raw_result["statistics"]["visualMetrics"]
                 results.append(vismet_result)
 
-            custom_types = raw_result["browserScripts"][0].get("custom")
+            custom_types = raw_result["extras"][0]
             if custom_types:
                 for custom_type in custom_types:
-                    bt_result["measurements"].update(
-                        {k: [v] for k, v in custom_types[custom_type].items()}
-                    )
+                    # TODO (bug 1702689): Fix non-youtube-playback multi-cycle data so we
+                    # don't have to use this hack
+                    if any(["youtube" in k for k in custom_types[custom_type]]):
+                        for k, v in custom_types[custom_type].items():
+                            bt_result["measurements"].setdefault(k, []).append([v])
+                    else:
+                        bt_result["measurements"].update(
+                            {k: [v] for k, v in custom_types[custom_type].items()}
+                        )
             else:
                 # extracting values from browserScripts and statistics
                 for bt, raptor in conversion:
@@ -573,9 +583,6 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
                         )
                         and bt in ("fnbpaint", "dcf")
                     ):
-                        continue
-                    # fennec doesn't support 'fcp'
-                    if self.app and "fennec" in self.app.lower() and bt == "fcp":
                         continue
 
                     # FCP uses a different path to get the timing, so we need to do
@@ -673,7 +680,7 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
                 return False
 
             try:
-                with open(bt_res_json, "r") as f:
+                with open(bt_res_json, "r", encoding="utf8") as f:
                     raw_btresults = json.load(f)
             except Exception as e:
                 LOG.error("Exception reading %s" % bt_res_json)

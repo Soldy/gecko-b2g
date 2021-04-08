@@ -33,7 +33,7 @@ static nsClassHashtable<nsUint32HashKey, PointerInfo>* sActivePointersIds;
 
 // Keeps track of which BrowserParent requested pointer capture for a pointer
 // id.
-static nsDataHashtable<nsUint32HashKey, BrowserParent*>*
+static nsTHashMap<nsUint32HashKey, BrowserParent*>*
     sPointerCaptureRemoteTargetTable = nullptr;
 
 /* static */
@@ -44,7 +44,7 @@ void PointerEventHandler::InitializeStatics() {
   sActivePointersIds = new nsClassHashtable<nsUint32HashKey, PointerInfo>;
   if (XRE_IsParentProcess()) {
     sPointerCaptureRemoteTargetTable =
-        new nsDataHashtable<nsUint32HashKey, BrowserParent*>;
+        new nsTHashMap<nsUint32HashKey, BrowserParent*>;
   }
 }
 
@@ -76,7 +76,7 @@ void PointerEventHandler::UpdateActivePointerState(WidgetMouseEvent* aEvent,
   switch (aEvent->mMessage) {
     case eMouseEnterIntoWidget:
       // In this case we have to know information about available mouse pointers
-      sActivePointersIds->Put(
+      sActivePointersIds->InsertOrUpdate(
           aEvent->pointerId,
           MakeUnique<PointerInfo>(false, aEvent->mInputSource, true, nullptr));
 
@@ -88,7 +88,7 @@ void PointerEventHandler::UpdateActivePointerState(WidgetMouseEvent* aEvent,
         // XXXedgar, test could possibly synthesize a mousedown event on a
         // coordinate outside the browser window and cause aTargetContent to be
         // nullptr, not sure if this also happens on real usage.
-        sActivePointersIds->Put(
+        sActivePointersIds->InsertOrUpdate(
             pointerEvent->pointerId,
             MakeUnique<PointerInfo>(
                 true, pointerEvent->mInputSource, pointerEvent->mIsPrimary,
@@ -107,7 +107,7 @@ void PointerEventHandler::UpdateActivePointerState(WidgetMouseEvent* aEvent,
       if (WidgetPointerEvent* pointerEvent = aEvent->AsPointerEvent()) {
         if (pointerEvent->mInputSource !=
             MouseEvent_Binding::MOZ_SOURCE_TOUCH) {
-          sActivePointersIds->Put(
+          sActivePointersIds->InsertOrUpdate(
               pointerEvent->pointerId,
               MakeUnique<PointerInfo>(false, pointerEvent->mInputSource,
                                       pointerEvent->mIsPrimary, nullptr));
@@ -182,10 +182,10 @@ void PointerEventHandler::ReleasePointerCaptureById(uint32_t aPointerId) {
 
 /* static */
 void PointerEventHandler::ReleaseAllPointerCapture() {
-  for (auto iter = sPointerCaptureList->Iter(); !iter.Done(); iter.Next()) {
-    PointerCaptureInfo* data = iter.UserData();
+  for (const auto& entry : *sPointerCaptureList) {
+    PointerCaptureInfo* data = entry.GetWeak();
     if (data && data->mPendingElement) {
-      ReleasePointerCaptureById(iter.Key());
+      ReleasePointerCaptureById(entry.GetKey());
     }
   }
 }
@@ -207,7 +207,7 @@ bool PointerEventHandler::SetPointerCaptureRemoteTarget(
     return false;
   }
 
-  sPointerCaptureRemoteTargetTable->Put(aPointerId, aBrowserParent);
+  sPointerCaptureRemoteTargetTable->InsertOrUpdate(aPointerId, aBrowserParent);
   return true;
 }
 
@@ -444,11 +444,11 @@ Element* PointerEventHandler::GetPointerCapturingElement(
 void PointerEventHandler::ReleaseIfCaptureByDescendant(nsIContent* aContent) {
   // We should check that aChild does not contain pointer capturing elements.
   // If it does we should release the pointer capture for the elements.
-  for (auto iter = sPointerCaptureList->Iter(); !iter.Done(); iter.Next()) {
-    PointerCaptureInfo* data = iter.UserData();
+  for (const auto& entry : *sPointerCaptureList) {
+    PointerCaptureInfo* data = entry.GetWeak();
     if (data && data->mPendingElement &&
         data->mPendingElement->IsInclusiveDescendantOf(aContent)) {
-      ReleasePointerCaptureById(iter.Key());
+      ReleasePointerCaptureById(entry.GetKey());
     }
   }
 }
@@ -709,6 +709,17 @@ void PointerEventHandler::NotifyDestroyPresContext(
       iter.Remove();
     }
   }
+}
+
+bool PointerEventHandler::IsDragAndDropEnabled(WidgetMouseEvent& aEvent) {
+#ifdef XP_WIN
+  if (StaticPrefs::dom_w3c_pointer_events_dispatch_by_pointer_messages()) {
+    // WM_POINTER does not support drag and drop, see bug 1692277
+    return (aEvent.mInputSource != dom::MouseEvent_Binding::MOZ_SOURCE_PEN &&
+            aEvent.mReason != WidgetMouseEvent::eSynthesized);  // bug 1692151
+  }
+#endif
+  return true;
 }
 
 /* static */

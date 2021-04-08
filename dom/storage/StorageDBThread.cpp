@@ -325,9 +325,7 @@ bool StorageDBThread::ShouldPreloadOrigin(const nsACString& aOrigin) {
 
 void StorageDBThread::GetOriginsHavingData(nsTArray<nsCString>* aOrigins) {
   MonitorAutoLock monitor(mThreadObserver->GetMonitor());
-  for (auto iter = mOriginsHavingData.Iter(); !iter.Done(); iter.Next()) {
-    aOrigins->AppendElement(iter.Get()->GetKey());
-  }
+  AppendToArray(*aOrigins, mOriginsHavingData);
 }
 
 nsresult StorageDBThread::InsertDBOp(
@@ -620,7 +618,7 @@ nsresult StorageDBThread::InitDatabase() {
     NS_ENSURE_SUCCESS(rv, rv);
 
     MonitorAutoLock monitor(mThreadObserver->GetMonitor());
-    mOriginsHavingData.PutEntry(foundOrigin);
+    mOriginsHavingData.Insert(foundOrigin);
   }
 
   return NS_OK;
@@ -1089,7 +1087,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_SUCCESS(rv, rv);
 
       MonitorAutoLock monitor(aThread->mThreadObserver->GetMonitor());
-      aThread->mOriginsHavingData.PutEntry(Origin());
+      aThread->mOriginsHavingData.Insert(Origin());
       break;
     }
 
@@ -1140,7 +1138,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_SUCCESS(rv, rv);
 
       MonitorAutoLock monitor(aThread->mThreadObserver->GetMonitor());
-      aThread->mOriginsHavingData.RemoveEntry(Origin());
+      aThread->mOriginsHavingData.Remove(Origin());
       break;
     }
 
@@ -1335,7 +1333,7 @@ void StorageDBThread::PendingOperations::Add(
     case DBOperation::opUpdateItem:
     case DBOperation::opRemoveItem:
       // Override any existing operation for the target (=scope+key).
-      mUpdates.Put(aOperation->Target(), std::move(aOperation));
+      mUpdates.InsertOrUpdate(aOperation->Target(), std::move(aOperation));
       break;
 
       // Clear operations
@@ -1372,14 +1370,14 @@ void StorageDBThread::PendingOperations::Add(
         iter.Remove();
       }
 
-      mClears.Put(aOperation->Target(), std::move(aOperation));
+      mClears.InsertOrUpdate(aOperation->Target(), std::move(aOperation));
       break;
 
     case DBOperation::opClearAll:
       // Drop simply everything, this is a super-operation.
       mUpdates.Clear();
       mClears.Clear();
-      mClears.Put(aOperation->Target(), std::move(aOperation));
+      mClears.InsertOrUpdate(aOperation->Target(), std::move(aOperation));
       break;
 
     default:
@@ -1414,7 +1412,10 @@ nsresult StorageDBThread::PendingOperations::Execute(StorageDBThread* aThread) {
 
   mozStorageTransaction transaction(aThread->mWorkerConnection, false);
 
-  nsresult rv;
+  nsresult rv = transaction.Start();
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
 
   for (uint32_t i = 0; i < mExecList.Length(); ++i) {
     const auto& task = mExecList[i];
@@ -1491,9 +1492,9 @@ bool StorageDBThread::PendingOperations::IsOriginClearPending(
     const nsACString& aOriginSuffix, const nsACString& aOriginNoSuffix) const {
   // Called under the lock
 
-  for (auto iter = mClears.ConstIter(); !iter.Done(); iter.Next()) {
+  for (const auto& clear : mClears.Values()) {
     if (FindPendingClearForOrigin(aOriginSuffix, aOriginNoSuffix,
-                                  iter.UserData())) {
+                                  clear.get())) {
       return true;
     }
   }
@@ -1532,9 +1533,9 @@ bool StorageDBThread::PendingOperations::IsOriginUpdatePending(
     const nsACString& aOriginSuffix, const nsACString& aOriginNoSuffix) const {
   // Called under the lock
 
-  for (auto iter = mUpdates.ConstIter(); !iter.Done(); iter.Next()) {
+  for (const auto& update : mUpdates.Values()) {
     if (FindPendingUpdateForOrigin(aOriginSuffix, aOriginNoSuffix,
-                                   iter.UserData())) {
+                                   update.get())) {
       return true;
     }
   }

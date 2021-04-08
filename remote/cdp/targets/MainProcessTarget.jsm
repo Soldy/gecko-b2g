@@ -6,15 +6,16 @@
 
 var EXPORTED_SYMBOLS = ["MainProcessTarget"];
 
-const { Target } = ChromeUtils.import(
-  "chrome://remote/content/cdp/targets/Target.jsm"
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
 );
-const { MainProcessSession } = ChromeUtils.import(
-  "chrome://remote/content/cdp/sessions/MainProcessSession.jsm"
-);
-const { RemoteAgent } = ChromeUtils.import(
-  "chrome://remote/content/components/RemoteAgent.jsm"
-);
+
+XPCOMUtils.defineLazyModuleGetters(this, {
+  MainProcessSession:
+    "chrome://remote/content/cdp/sessions/MainProcessSession.jsm",
+  RemoteAgent: "chrome://remote/content/components/RemoteAgent.jsm",
+  Target: "chrome://remote/content/cdp/targets/Target.jsm",
+});
 
 /**
  * The main process Target.
@@ -24,10 +25,10 @@ const { RemoteAgent } = ChromeUtils.import(
  */
 class MainProcessTarget extends Target {
   /*
-   * @param Targets targets
+   * @param TargetList targetList
    */
-  constructor(targets) {
-    super(targets, MainProcessSession);
+  constructor(targetList) {
+    super(targetList, MainProcessSession);
 
     this.type = "browser";
 

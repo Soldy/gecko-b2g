@@ -39,7 +39,7 @@ dictionary PushSubscriptionInit
   BufferSource? appServerKey;
 };
 
-[Exposed=(Window,Worker), Pref="dom.push.enabled", Func="nsContentUtils::PushVisible"]
+[Exposed=(Window,Worker), Pref="dom.push.enabled"]
 interface PushSubscription
 {
   [Throws, ChromeOnly]

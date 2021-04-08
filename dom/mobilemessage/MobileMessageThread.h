@@ -52,6 +52,8 @@ class MobileMessageThread final : public nsISupports, public nsWrapperCache {
 
   bool IsGroup() const;
 
+  void GetLastMessageAttachmentStatus(nsString& aRetVal) const;
+
  private:
   // Don't try to use the default constructor.
   MobileMessageThread() = delete;

@@ -74,7 +74,6 @@ DIRS += [
     "network",
     "permission",
     "plugins/base",
-    "plugins/ipc",
     "prototype",
     "indexedDB",
     "system",
@@ -112,11 +111,6 @@ DIRS += [
     "l10n",
     "pco",
 ]
-
-if CONFIG["OS_ARCH"] == "WINNT":
-    DIRS += ["plugins/ipc/hangui"]
-
-DIRS += ["presentation"]
 
 # MOZ_B2G_RIL
 if CONFIG["MOZ_B2G_RIL"]:

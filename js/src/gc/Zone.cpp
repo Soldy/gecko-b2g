@@ -35,7 +35,7 @@ using namespace js::gc;
 Zone* const Zone::NotOnList = reinterpret_cast<Zone*>(1);
 
 ZoneAllocator::ZoneAllocator(JSRuntime* rt, Kind kind)
-    : JS::shadow::Zone(rt, &rt->gc.marker, kind),
+    : JS::shadow::Zone(rt, &rt->gc.barrierTracer, kind),
       gcHeapSize(&rt->gc.heapSize),
       mallocHeapSize(nullptr),
       jitHeapSize(nullptr),
@@ -167,7 +167,7 @@ JS::Zone::Zone(JSRuntime* rt, Kind kind)
       gcWeakKeys_(this, SystemAllocPolicy(), rt->randomHashCodeScrambler()),
       gcNurseryWeakKeys_(this, SystemAllocPolicy(),
                          rt->randomHashCodeScrambler()),
-      typeDescrObjects_(this, this),
+      rttValueObjects_(this, this),
       markedAtoms_(this),
       atomCache_(this),
       externalStringCache_(this),
@@ -175,7 +175,6 @@ JS::Zone::Zone(JSRuntime* rt, Kind kind)
       propertyTree_(this, this),
       baseShapes_(this, this),
       initialShapes_(this, this),
-      nurseryShapes_(this),
       finalizationRegistries_(this, this),
       finalizationRecordMap_(this, this),
       jitZone_(this, nullptr),
@@ -200,8 +199,11 @@ JS::Zone::Zone(JSRuntime* rt, Kind kind)
 
 Zone::~Zone() {
   MOZ_ASSERT(helperThreadUse_ == HelperThreadUse::None);
-  MOZ_ASSERT(gcWeakMapList().isEmpty());
   MOZ_ASSERT_IF(regExps_.ref(), regExps().empty());
+
+  DebugAPI::deleteDebugScriptMap(debugScriptMap);
+
+  MOZ_ASSERT(gcWeakMapList().isEmpty());
 
   JSRuntime* rt = runtimeFromAnyThread();
   if (this == rt->gc.systemZone) {
@@ -492,15 +494,14 @@ void JS::Zone::beforeClearDelegateInternal(JSObject* wrapper,
   MOZ_ASSERT(js::gc::detail::GetDelegate(wrapper) == delegate);
   MOZ_ASSERT(needsIncrementalBarrier());
   MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(this));
-  GCMarker::fromTracer(barrierTracer())->severWeakDelegate(wrapper, delegate);
+  runtimeFromMainThread()->gc.marker.severWeakDelegate(wrapper, delegate);
 }
 
 void JS::Zone::afterAddDelegateInternal(JSObject* wrapper) {
   MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(this));
   JSObject* delegate = js::gc::detail::GetDelegate(wrapper);
   if (delegate) {
-    GCMarker::fromTracer(barrierTracer())
-        ->restoreWeakDelegate(wrapper, delegate);
+    runtimeFromMainThread()->gc.marker.restoreWeakDelegate(wrapper, delegate);
   }
 }
 
@@ -593,12 +594,12 @@ void Zone::fixupAfterMovingGC() {
   fixupInitialShapeTable();
 }
 
-bool Zone::addTypeDescrObject(JSContext* cx, HandleObject obj) {
+bool Zone::addRttValueObject(JSContext* cx, HandleObject obj) {
   // Type descriptor objects are always tenured so we don't need post barriers
   // on the set.
   MOZ_ASSERT(!IsInsideNursery(obj));
 
-  if (!typeDescrObjects().put(obj)) {
+  if (!rttValueObjects().put(obj)) {
     ReportOutOfMemory(cx);
     return false;
   }
@@ -807,6 +808,11 @@ void Zone::traceScriptTableRoots(JSTracer* trc) {
       MOZ_ASSERT(script == r.front().key(), "const_cast is only a work-around");
     }
   }
+
+  // Trace the debugger's DebugScript weak map.
+  if (debugScriptMap) {
+    DebugAPI::traceDebugScriptMap(trc, debugScriptMap);
+  }
 }
 
 void Zone::fixupScriptMapsAfterMovingGC(JSTracer* trc) {
@@ -825,16 +831,6 @@ void Zone::fixupScriptMapsAfterMovingGC(JSTracer* trc) {
 
   if (scriptLCovMap) {
     for (ScriptLCovMap::Enum e(*scriptLCovMap); !e.empty(); e.popFront()) {
-      BaseScript* script = e.front().key();
-      if (!IsAboutToBeFinalizedUnbarriered(&script) &&
-          script != e.front().key()) {
-        e.rekeyFront(script);
-      }
-    }
-  }
-
-  if (debugScriptMap) {
-    for (DebugScriptMap::Enum e(*debugScriptMap); !e.empty(); e.popFront()) {
       BaseScript* script = e.front().key();
       if (!IsAboutToBeFinalizedUnbarriered(&script) &&
           script != e.front().key()) {
@@ -892,18 +888,6 @@ void Zone::checkScriptMapsAfterMovingGC() {
     }
   }
 
-  if (debugScriptMap) {
-    for (auto r = debugScriptMap->all(); !r.empty(); r.popFront()) {
-      BaseScript* script = r.front().key();
-      MOZ_ASSERT(script->zone() == this);
-      CheckGCThingAfterMovingGC(script);
-      DebugScript* ds = r.front().value().get();
-      DebugAPI::checkDebugScriptAfterMovingGC(ds);
-      auto ptr = debugScriptMap->lookup(script);
-      MOZ_RELEASE_ASSERT(ptr.found() && &*ptr == &r.front());
-    }
-  }
-
 #  ifdef MOZ_VTUNE
   if (scriptVTuneIdMap) {
     for (auto r = scriptVTuneIdMap->all(); !r.empty(); r.popFront()) {
@@ -939,10 +923,17 @@ void Zone::clearScriptCounts(Realm* realm) {
   // ScriptCounts entries of the given realm.
   for (auto i = scriptCountsMap->modIter(); !i.done(); i.next()) {
     BaseScript* script = i.get().key();
-    if (script->realm() == realm) {
-      script->clearHasScriptCounts();
-      i.remove();
+    if (script->realm() != realm) {
+      continue;
     }
+    // We can't destroy the ScriptCounts yet if the script has Baseline code,
+    // because Baseline code bakes in pointers to the counters. The ScriptCounts
+    // will be destroyed in Zone::discardJitCode when discarding the JitScript.
+    if (script->hasBaselineScript()) {
+      continue;
+    }
+    script->clearHasScriptCounts();
+    i.remove();
   }
 }
 

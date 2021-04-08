@@ -70,6 +70,10 @@ const SPOOFED_PLATFORM = {
   other: "Linux x86_64",
 };
 
+// If comparison with this value fails in the future,
+// it's time to evaluate if exposing a new Windows
+// version to the Web is appropriate. See
+// https://bugzilla.mozilla.org/show_bug.cgi?id=1693295
 const WindowsOscpu =
   cpuArch == "x86_64"
     ? `Windows NT ${osVersion}; Win64; x64`
@@ -121,6 +125,27 @@ const CONST_PRODUCT = "Gecko";
 const CONST_PRODUCTSUB = "20100101";
 const CONST_VENDOR = "";
 const CONST_VENDORSUB = "";
+
+const appVersion = parseInt(Services.appinfo.version);
+const spoofedVersion = appVersion - ((appVersion - 78) % 13);
+
+const LEGACY_UA_GECKO_TRAIL = "20100101";
+
+const DEFAULT_UA_GECKO_TRAIL = {
+  linux: LEGACY_UA_GECKO_TRAIL,
+  win: LEGACY_UA_GECKO_TRAIL,
+  macosx: LEGACY_UA_GECKO_TRAIL,
+  android: `${appVersion}.0`,
+  other: LEGACY_UA_GECKO_TRAIL,
+};
+
+const SPOOFED_UA_GECKO_TRAIL = {
+  linux: LEGACY_UA_GECKO_TRAIL,
+  win: LEGACY_UA_GECKO_TRAIL,
+  macosx: LEGACY_UA_GECKO_TRAIL,
+  android: `${spoofedVersion}.0`,
+  other: LEGACY_UA_GECKO_TRAIL,
+};
 
 async function testUserAgentHeader() {
   const BASE =
@@ -306,10 +331,11 @@ async function testWorkerNavigator() {
 }
 
 add_task(async function setupDefaultUserAgent() {
-  let appVersion = parseInt(Services.appinfo.version);
   let defaultUserAgent = `Mozilla/5.0 (${
     DEFAULT_UA_OS[AppConstants.platform]
-  }; rv:${appVersion}.0) Gecko/20100101 Firefox/${appVersion}.0`;
+  }; rv:${appVersion}.0) Gecko/${
+    DEFAULT_UA_GECKO_TRAIL[AppConstants.platform]
+  } Firefox/${appVersion}.0`;
   expectedResults = {
     testDesc: "default",
     appVersion: DEFAULT_APPVERSION[AppConstants.platform],
@@ -338,16 +364,15 @@ add_task(async function setupResistFingerprinting() {
     set: [["privacy.resistFingerprinting", true]],
   });
 
-  let appVersion = parseInt(Services.appinfo.version);
-  let spoofedVersion = appVersion - ((appVersion - 78) % 13);
+  let spoofedGeckoTrail = SPOOFED_UA_GECKO_TRAIL[AppConstants.platform];
 
   let spoofedUserAgentNavigator = `Mozilla/5.0 (${
     SPOOFED_UA_NAVIGATOR_OS[AppConstants.platform]
-  }; rv:${spoofedVersion}.0) Gecko/20100101 Firefox/${spoofedVersion}.0`;
+  }; rv:${spoofedVersion}.0) Gecko/${spoofedGeckoTrail} Firefox/${spoofedVersion}.0`;
 
   let spoofedUserAgentHeader = `Mozilla/5.0 (${
     SPOOFED_UA_HTTPHEADER_OS[AppConstants.platform]
-  }; rv:${spoofedVersion}.0) Gecko/20100101 Firefox/${spoofedVersion}.0`;
+  }; rv:${spoofedVersion}.0) Gecko/${spoofedGeckoTrail} Firefox/${spoofedVersion}.0`;
 
   expectedResults = {
     testDesc: "spoofed",

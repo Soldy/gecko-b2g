@@ -22,6 +22,7 @@
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/StaticPrefs_network.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TelemetryComms.h"
 #include "private/pprio.h"
@@ -822,7 +823,11 @@ nsJARChannel::SetContentLength(int64_t aContentLength) {
 }
 
 static void RecordZeroLengthEvent(bool aIsSync, const nsCString& aSpec,
-                                  nsresult aStatus) {
+                                  nsresult aStatus, bool aCanceled) {
+  if (!StaticPrefs::network_jar_record_failure_reason()) {
+    return;
+  }
+
   // The event can only hold 80 characters.
   // We only save the file name and path inside the jar.
   auto findFilenameStart = [](const nsCString& aSpec) -> uint32_t {
@@ -847,9 +852,20 @@ static void RecordZeroLengthEvent(bool aIsSync, const nsCString& aSpec,
   uint32_t from = findFilenameStart(aSpec);
   nsAutoCString fileName(Substring(aSpec, from));
 
+  // Bug 1702937: Filter aboutNetError.xhtml.
+  // Note that aboutNetError.xhtml is causing ~90% of the XHTML error events. We
+  // should investigate this in the future.
+  if (StringEndsWith(fileName, "aboutNetError.xhtml"_ns)) {
+    return;
+  }
+
+  nsAutoCString errorCString;
+  mozilla::GetErrorName(aStatus, errorCString);
+
   // To test this telemetry we use a zip file and we want to make
   // sure don't filter it out.
   bool isTest = fileName.Find("test_empty_file.zip!") != -1;
+  bool isOmniJa = StringBeginsWith(fileName, "omni.ja!"_ns);
 
   Telemetry::SetEventRecordingEnabled("zero_byte_load"_ns, true);
   Telemetry::EventID eventType = Telemetry::EventID::Zero_byte_load_Load_Others;
@@ -870,41 +886,113 @@ static void RecordZeroLengthEvent(bool aIsSync, const nsCString& aSpec,
     // We're going to skip reporting telemetry on JS loads
     // coming not from omni.ja.
     // See Bug 1693711 for investigation into those empty loads.
-    if (!isTest && !StringBeginsWith(fileName, "omni.ja!"_ns)) {
+    if (!isTest && !isOmniJa) {
       return;
     }
     eventType = Telemetry::EventID::Zero_byte_load_Load_Js;
   } else if (StringEndsWith(fileName, ".xml"_ns)) {
     eventType = Telemetry::EventID::Zero_byte_load_Load_Xml;
   } else if (StringEndsWith(fileName, ".xhtml"_ns)) {
+    // This error seems to be very common and is not strongly
+    // correlated to YSOD.
+    if (aStatus == NS_ERROR_PARSED_DATA_CACHED) {
+      return;
+    }
+
+    // We're not investigating YSODs from extensions for now.
+    if (!isOmniJa) {
+      return;
+    }
+
     eventType = Telemetry::EventID::Zero_byte_load_Load_Xhtml;
+  } else if (StringEndsWith(fileName, ".css"_ns)) {
+    // Bug 1702937: Filter out svg+'css'+'png'/NS_BINDING_ABORTED combo.
+    if (aStatus == NS_BINDING_ABORTED) {
+      return;
+    }
+
+    // Bug 1702937: Filter css/NS_ERROR_CORRUPTED_CONTENT that is coming from
+    // outside of omni.ja.
+    if (!isOmniJa && aStatus == NS_ERROR_CORRUPTED_CONTENT) {
+      return;
+    }
+    eventType = Telemetry::EventID::Zero_byte_load_Load_Css;
+  } else if (StringEndsWith(fileName, ".json"_ns)) {
+    eventType = Telemetry::EventID::Zero_byte_load_Load_Json;
+  } else if (StringEndsWith(fileName, ".html"_ns)) {
+    eventType = Telemetry::EventID::Zero_byte_load_Load_Html;
+    // See bug 1695560. Filter out non-omni.ja HTML.
+    if (!isOmniJa) {
+      return;
+    }
+
+    // See bug 1695560. "activity-stream-noscripts.html" with NS_ERROR_FAILURE
+    // is filtered out.
+    if (fileName.EqualsLiteral("omni.ja!/chrome/browser/res/activity-stream/"
+                               "prerendered/activity-stream-noscripts.html") &&
+        aStatus == NS_ERROR_FAILURE) {
+      return;
+    }
+  } else if (StringEndsWith(fileName, ".png"_ns)) {
+    eventType = Telemetry::EventID::Zero_byte_load_Load_Png;
+    // See bug 1695560.
+    // Bug 1702937: Filter out svg+'css'+'png'/NS_BINDING_ABORTED combo.
+    if (!isOmniJa || aStatus == NS_BINDING_ABORTED) {
+      return;
+    }
+  } else if (StringEndsWith(fileName, ".svg"_ns)) {
+    eventType = Telemetry::EventID::Zero_byte_load_Load_Svg;
+    // See bug 1695560.
+    // Bug 1702937: Filter out svg+'css'+'png'/NS_BINDING_ABORTED combo.
+    if (!isOmniJa || aStatus == NS_BINDING_ABORTED) {
+      return;
+    }
   }
 
-  // We're going to skip reporting telemetry on other types of files.
+  // We're going to, for now, filter out `other` category.
   // See Bug 1693711 for investigation into those empty loads.
-  if (!isTest && eventType == Telemetry::EventID::Zero_byte_load_Load_Others) {
+  // Bug 1702937: Filter other/*.ico/NS_BINDING_ABORTED.
+  if (!isTest && eventType == Telemetry::EventID::Zero_byte_load_Load_Others &&
+      (!isOmniJa || (aStatus == NS_BINDING_ABORTED &&
+                     StringEndsWith(fileName, ".ico"_ns)))) {
     return;
   }
-
-  nsAutoCString errorCString;
-  mozilla::GetErrorName(aStatus, errorCString);
 
   // FTL uses I/O to test for file presence, so we get
   // a high volume of events from it, but it is not erronous.
   // Also, Fluent is resilient to empty loads, so even if any
   // of the errors are real errors, they don't cause YSOD.
   // We can investigate them separately.
-  if (!isTest && eventType == Telemetry::EventID::Zero_byte_load_Load_Ftl &&
-      errorCString.EqualsLiteral("NS_ERROR_FILE_NOT_FOUND")) {
+  if (!isTest &&
+      (eventType == Telemetry::EventID::Zero_byte_load_Load_Ftl ||
+       eventType == Telemetry::EventID::Zero_byte_load_Load_Json) &&
+      aStatus == NS_ERROR_FILE_NOT_FOUND) {
+    return;
+  }
+
+  // See bug 1695560. "search-extensions/google/favicon.ico" with
+  // NS_BINDING_ABORTED is filtered out.
+  if (fileName.EqualsLiteral(
+          "omni.ja!/chrome/browser/search-extensions/google/favicon.ico") &&
+      aStatus == NS_BINDING_ABORTED) {
+    return;
+  }
+
+  // See bug 1695560. "update.locale" with
+  // NS_ERROR_FILE_NOT_FOUND is filtered out.
+  if (fileName.EqualsLiteral("omni.ja!/update.locale") &&
+      aStatus == NS_ERROR_FILE_NOT_FOUND) {
     return;
   }
 
   auto res = CopyableTArray<Telemetry::EventExtraEntry>{};
-  res.SetCapacity(3);
+  res.SetCapacity(4);
   res.AppendElement(
       Telemetry::EventExtraEntry{"sync"_ns, aIsSync ? "true"_ns : "false"_ns});
   res.AppendElement(Telemetry::EventExtraEntry{"file_name"_ns, fileName});
   res.AppendElement(Telemetry::EventExtraEntry{"status"_ns, errorCString});
+  res.AppendElement(Telemetry::EventExtraEntry{
+      "cancelled"_ns, aCanceled ? "true"_ns : "false"_ns});
   Telemetry::RecordEvent(eventType, Nothing{}, Some(res));
 }
 
@@ -918,7 +1006,7 @@ nsJARChannel::Open(nsIInputStream** aStream) {
 
   auto recordEvent = MakeScopeExit([&] {
     if (mContentLength <= 0 || NS_FAILED(rv)) {
-      RecordZeroLengthEvent(true, mSpec, rv);
+      RecordZeroLengthEvent(true, mSpec, rv, mCanceled);
     }
   });
 
@@ -1131,7 +1219,7 @@ nsJARChannel::OnStopRequest(nsIRequest* req, nsresult status) {
 
   if (mListener) {
     if (!mOnDataCalled || NS_FAILED(status)) {
-      RecordZeroLengthEvent(false, mSpec, status);
+      RecordZeroLengthEvent(false, mSpec, status, mCanceled);
     }
 
     mListener->OnStopRequest(this, status);
@@ -1163,6 +1251,11 @@ nsJARChannel::OnDataAvailable(nsIRequest* req, nsIInputStream* stream,
   LOG(("nsJARChannel::OnDataAvailable [this=%p %s]\n", this, mSpec.get()));
 
   nsresult rv;
+
+  // don't send out OnDataAvailable notifications if we've been canceled.
+  if (mCanceled) {
+    return mStatus;
+  }
 
   mOnDataCalled = true;
   rv = mListener->OnDataAvailable(this, stream, offset, count);

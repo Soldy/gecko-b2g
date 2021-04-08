@@ -50,9 +50,10 @@ const EVENTS = {
  * render Accessibility Tree of the current debugger target and the sidebar that
  * displays current relevant accessible details.
  */
-function AccessibilityPanel(iframeWindow, toolbox) {
+function AccessibilityPanel(iframeWindow, toolbox, commands) {
   this.panelWin = iframeWindow;
   this._toolbox = toolbox;
+  this._commands = commands;
 
   this.onTabNavigated = this.onTabNavigated.bind(this);
   this.onTargetUpdated = this.onTargetUpdated.bind(this);
@@ -102,10 +103,12 @@ AccessibilityPanel.prototype = {
       EVENTS.ACCESSIBILITY_INSPECTOR_UPDATED,
       this.onAccessibilityInspectorUpdated
     );
+    // Expose a promise so that tests can wait for the UI to be ready.
+    this._accessibilityViewInitialized = this.panelWin.once(EVENTS.INITIALIZED);
 
     this.shouldRefresh = true;
 
-    this.accessibilityProxy = new AccessibilityProxy(this._toolbox);
+    this.accessibilityProxy = new AccessibilityProxy(this._commands);
     this.accessibilityProxy.startListeningForTargetUpdated(
       this.onTargetUpdated
     );
@@ -128,8 +131,6 @@ AccessibilityPanel.prototype = {
       shutdown: this.onLifecycleEvent,
     });
 
-    this.isReady = true;
-    this.emit("ready");
     resolver(this);
     return this._opening;
   },
@@ -172,9 +173,15 @@ AccessibilityPanel.prototype = {
    * refreshed immediatelly if it's currently selected or lazily when the user
    * actually selects it.
    */
-  onTabNavigated() {
+  async onTabNavigated() {
     this.shouldRefresh = true;
-    this._opening.then(() => this.refresh());
+    await this._opening;
+
+    const onUpdated = this.panelWin.once(EVENTS.INITIALIZED);
+    this.refresh();
+    await onUpdated;
+
+    this.emit("reloaded");
   },
 
   onTargetUpdated({ isTargetSwitching }) {

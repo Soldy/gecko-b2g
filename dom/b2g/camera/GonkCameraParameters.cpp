@@ -21,7 +21,7 @@
 // TODO: to support IsLowMemoryPlatform, need to solve base namespace amibiguous
 // issue
 //#include "mozilla/Hal.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsPrintfCString.h"
 
 using namespace mozilla;
@@ -109,7 +109,7 @@ nsresult GonkCameraParameters::Unflatten(const String8& aFlatParameters) {
       data = nullptr;
     }
 
-    mParams.Put(key, MakeUnique<nsCString>(*value));
+    mParams.InsertOrUpdate(key, MakeUnique<nsCString>(*value));
   }
 
   if (mInitialized) {
@@ -363,7 +363,7 @@ nsresult GonkCameraParameters::Initialize() {
       continue;
     }
     *mIsoModes.AppendElement() = s;
-    mIsoModeMap.Put(s, MakeUnique<nsCString>(isoModes[i]));
+    mIsoModeMap.InsertOrUpdate(s, MakeUnique<nsCString>(isoModes[i]));
   }
 
   GetListAsArray(CAMERA_PARAM_SUPPORTED_SCENEMODES, mSceneModes);
@@ -379,13 +379,13 @@ nsresult GonkCameraParameters::Initialize() {
 
   // Some platforms have strange duplicate metering mode values.
   // We filter any out here.
-  nsDataHashtable<nsStringHashKey, bool> uniqueModes;
+  nsTHashMap<nsStringHashKey, bool> uniqueModes;
   GetListAsArray(CAMERA_PARAM_SUPPORTED_METERINGMODES, mMeteringModes);
   nsTArray<nsCString>::index_type i = mMeteringModes.Length();
   while (i > 0) {
     --i;
     if (!uniqueModes.Get(mMeteringModes[i])) {
-      uniqueModes.Put(mMeteringModes[i], true);
+      uniqueModes.InsertOrUpdate(mMeteringModes[i], true);
     } else {
       DOM_CAMERA_LOGW("Dropped duplicate metering mode '%s' (index=%u)\n",
                       NS_ConvertUTF16toUTF8(mMeteringModes[i]).get(), i);

@@ -9,48 +9,8 @@
 
 var { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-ChromeUtils.defineModuleGetter(
-  this,
-  "BrowserUtils",
-  "resource://gre/modules/BrowserUtils.jsm"
-);
-
 // BrowserChildGlobal
 var global = this;
-
-var WebBrowserChrome = {
-  onBeforeLinkTraversal(originalTarget, linkURI, linkNode, isAppTab) {
-    return BrowserUtils.onBeforeLinkTraversal(
-      originalTarget,
-      linkURI,
-      linkNode,
-      isAppTab
-    );
-  },
-
-  // Check whether this URI should load in the current process
-  shouldLoadURI(
-    aDocShell,
-    aURI,
-    aReferrerInfo,
-    aHasPostData,
-    aTriggeringPrincipal,
-    aCsp
-  ) {
-    return true;
-  },
-
-  shouldLoadURIInThisProcess(aURI) {
-    return true;
-  },
-};
-
-if (Services.appinfo.processType == Services.appinfo.PROCESS_TYPE_CONTENT) {
-  let tabchild = docShell
-    .QueryInterface(Ci.nsIInterfaceRequestor)
-    .getInterface(Ci.nsIBrowserChild);
-  tabchild.webBrowserChrome = WebBrowserChrome;
-}
 
 Services.obs.notifyObservers(this, "tab-content-frameloader-created");
 

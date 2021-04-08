@@ -15,6 +15,9 @@ const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { BinderServices } = ChromeUtils.import(
   "resource://gre/modules/BinderServices.jsm"
 );
+const { libcutils } = ChromeUtils.import(
+  "resource://gre/modules/systemlibs.js"
+);
 
 const NETWORKMANAGER_CID = Components.ID(
   "{1ba9346b-53b5-4660-9dc6-58f0b258d0a6}"
@@ -2147,6 +2150,16 @@ NetworkManager.prototype = {
     return Promise.all(promises);
   },
 
+  updateDNSProperty(activeNetworkDnses) {
+    libcutils.property_set("net.dns1", activeNetworkDnses[0] || "");
+    libcutils.property_set("net.dns2", activeNetworkDnses[1] || "");
+    let dnsChange = libcutils.property_get("net.dnschange", "0");
+    libcutils.property_set(
+      "net.dnschange",
+      (parseInt(dnsChange, 10) + 1).toString()
+    );
+  },
+
   /**
    * Determine the active interface and configure it.
    */
@@ -2565,6 +2578,7 @@ NetworkManager.prototype = {
 
       gNetworkService.setDefaultNetwork(networkInfo.name, aSuccess => {
         this.setNetworkProxy(aNetwork);
+        this.updateDNSProperty(networkInfo.dnses);
         aResolve();
       });
     });

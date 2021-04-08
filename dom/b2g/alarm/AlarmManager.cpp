@@ -5,6 +5,7 @@
 
 #include "mozilla/dom/AlarmManager.h"
 #include "mozilla/dom/AlarmManagerWorker.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "nsComponentManagerUtils.h"

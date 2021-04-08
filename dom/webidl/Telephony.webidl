@@ -98,6 +98,12 @@ interface Telephony : EventTarget {
   // CheckAllPermissions="audio-channel-telephony"]
   void ownAudioChannel();
 
+  [NewObject]
+  Promise<void> sendUSSD(DOMString ussd, optional unsigned long serviceId);
+
+  [NewObject]
+  Promise<void> cancelUSSD(optional unsigned long serviceId);
+
   /**
    * Test purpose.
    * To test loopback mode, please setup preference telephony.vt.loopback.enabled properly.

@@ -48,9 +48,11 @@ bool js::PromiseLookup::isDataPropertyNative(JSContext* cx, NativeObject* obj,
   return fun->maybeNative() == native && fun->realm() == cx->realm();
 }
 
-bool js::PromiseLookup::isAccessorPropertyNative(JSContext* cx, Shape* shape,
+bool js::PromiseLookup::isAccessorPropertyNative(JSContext* cx,
+                                                 NativeObject* holder,
+                                                 uint32_t getterSlot,
                                                  JSNative native) {
-  JSObject* getter = shape->getterObject();
+  JSObject* getter = holder->getGetter(getterSlot);
   return getter && IsNativeFunction(getter, native) &&
          getter->as<JSFunction>().realm() == cx->realm();
 }
@@ -113,13 +115,15 @@ void js::PromiseLookup::initialize(JSContext* cx) {
   // Look up the '@@species' value on Promise.
   Shape* speciesShape =
       promiseCtor->lookup(cx, SYMBOL_TO_JSID(cx->wellKnownSymbols().species));
-  if (!speciesShape || !speciesShape->hasGetterObject()) {
+  if (!speciesShape || !promiseCtor->hasGetter(speciesShape)) {
     return;
   }
 
   // Get the referred value, ensure it holds the canonical Promise[@@species]
   // function.
-  if (!isAccessorPropertyNative(cx, speciesShape, Promise_static_species)) {
+  uint32_t speciesGetterSlot = speciesShape->slot();
+  if (!isAccessorPropertyNative(cx, promiseCtor, speciesGetterSlot,
+                                Promise_static_species)) {
     return;
   }
 
@@ -145,10 +149,8 @@ void js::PromiseLookup::initialize(JSContext* cx) {
 
   state_ = State::Initialized;
   promiseConstructorShape_ = promiseCtor->lastProperty();
-#ifdef DEBUG
-  promiseSpeciesShape_ = speciesShape;
-#endif
   promiseProtoShape_ = promiseProto->lastProperty();
+  promiseSpeciesGetterSlot_ = speciesGetterSlot;
   promiseResolveSlot_ = resolveShape->slot();
   promiseProtoConstructorSlot_ = ctorShape->slot();
   promiseProtoThenSlot_ = thenShape->slot();
@@ -192,13 +194,10 @@ bool js::PromiseLookup::isPromiseStateStillSane(JSContext* cx) {
   }
 
   // Ensure the species getter contains the canonical @@species function.
-  // Note: This is currently guaranteed to be always true, because modifying
-  // the getter property implies a new shape is generated. If this ever
-  // changes, convert this assertion into an if-statement.
-#ifdef DEBUG
-  MOZ_ASSERT(isAccessorPropertyNative(cx, promiseSpeciesShape_,
-                                      Promise_static_species));
-#endif
+  if (!isAccessorPropertyNative(cx, promiseCtor, promiseSpeciesGetterSlot_,
+                                Promise_static_species)) {
+    return false;
+  }
 
   // Ensure that Promise.resolve is the canonical "resolve" function.
   if (!isDataPropertyNative(cx, promiseCtor, promiseResolveSlot_,

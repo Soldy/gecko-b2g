@@ -12,7 +12,6 @@ body {
   flex-direction: column;
   justify-content: flex-start;
   overflow: hidden;
-  background: var(--in-content-box-background);
 }
 
 body[loading] #print {
@@ -116,7 +115,6 @@ input[type="number"],
 input[type="text"] {
   padding: 2px;
   padding-inline-start: 4px;
-  outline: none !important;
 }
 
 .toggle-group-label {
@@ -241,13 +239,6 @@ input[type="text"] {
   content: url("chrome://global/content/portrait.svg");
 }
 
-select:invalid,
-input[type="text"]:invalid,
-input[type="number"]:invalid {
-  border: 1px solid #D70022;
-  box-shadow: 0 0 0 1px #D70022, 0 0 0 4px rgba(215, 0, 34, 0.3);
-}
-
 .error-message {
   font-size: 12px;
   color: #D70022;
@@ -292,6 +283,7 @@ input[type="number"].photon-number::-moz-number-spin-down {
   background-position: center;
   -moz-context-properties: fill;
   fill: currentColor;
+  appearance: none;
 }
 
 input[type="number"].photon-number::-moz-number-spin-up {

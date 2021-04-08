@@ -52,18 +52,26 @@ class AlarmGetAllReturnedRunnable final : public WorkerRunnable,
 
   bool WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override {
     LOG("AlarmGetAllReturnedRunnable::WorkerRun");
+
+    if (NS_WARN_IF(!mProxy)) {
+      LOG("!mProxy");
+      return false;
+    }
+
     RefPtr<Promise> promise = mProxy->WorkerPromise();
 
     JS::RootedObject globalObject(aCx, JS::CurrentGlobalOrNull(aCx));
     if (NS_WARN_IF(!globalObject)) {
       LOG("!globalObject");
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     nsCOMPtr<nsIGlobalObject> global = xpc::NativeGlobal(globalObject);
     if (NS_WARN_IF(!global)) {
       LOG("!global");
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     JS::RootedValue result(aCx);
@@ -72,6 +80,7 @@ class AlarmGetAllReturnedRunnable final : public WorkerRunnable,
     if (NS_WARN_IF(rv.Failed())) {
       LOG("Read failed. rv:[%u]", rv.ErrorCodeAsInt());
       promise->MaybeReject(NS_ERROR_DOM_OPERATION_ERR);
+      mProxy->CleanUp();
       return false;
     }
     JS_WrapValue(aCx, &result);
@@ -82,17 +91,12 @@ class AlarmGetAllReturnedRunnable final : public WorkerRunnable,
       promise->MaybeReject(result);
     }
 
+    mProxy->CleanUp();
     return true;
   }
 
  private:
-  ~AlarmGetAllReturnedRunnable() {
-    if (NS_WARN_IF(!mProxy)) {
-      LOG("!mProxy on ~AlarmGetAllReturnedRunnable()");
-      return;
-    }
-    mProxy->CleanUp();
-  };
+  ~AlarmGetAllReturnedRunnable() = default;
 
   RefPtr<PromiseWorkerProxy> mProxy;
   nsresult mStatus;
@@ -197,18 +201,25 @@ class AlarmAddReturnedRunnable final : public WorkerRunnable,
 
   bool WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override {
     LOG("AlarmAddReturnedRunnable::WorkerRun");
+    if (NS_WARN_IF(!mProxy)) {
+      LOG("!mProxy");
+      return false;
+    }
+
     RefPtr<Promise> promise = mProxy->WorkerPromise();
 
     JS::RootedObject globalObject(aCx, JS::CurrentGlobalOrNull(aCx));
     if (NS_WARN_IF(!globalObject)) {
       LOG("!globalObject");
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     nsCOMPtr<nsIGlobalObject> global = xpc::NativeGlobal(globalObject);
     if (NS_WARN_IF(!global)) {
       LOG("!global");
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     JS::RootedValue result(aCx);
@@ -217,6 +228,7 @@ class AlarmAddReturnedRunnable final : public WorkerRunnable,
     if (NS_WARN_IF(rv.Failed())) {
       LOG("Read failed. rv:[%u]", rv.ErrorCodeAsInt());
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     JS_WrapValue(aCx, &result);
@@ -227,17 +239,12 @@ class AlarmAddReturnedRunnable final : public WorkerRunnable,
       promise->MaybeReject(result);
     }
 
+    mProxy->CleanUp();
     return true;
   }
 
  private:
-  ~AlarmAddReturnedRunnable() {
-    if (NS_WARN_IF(!mProxy)) {
-      LOG("!mProxy");
-      return;
-    }
-    mProxy->CleanUp();
-  };
+  ~AlarmAddReturnedRunnable() = default;
 
   RefPtr<PromiseWorkerProxy> mProxy;
   nsresult mStatus;

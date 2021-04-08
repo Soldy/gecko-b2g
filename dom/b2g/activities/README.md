@@ -6,23 +6,13 @@ The `WebActivity` interface exposes to both *Window* and *Worker* scope, in the 
 
 ## Starting an activity
 
-To initiate an activity, apps can first create a `WebActivity` object with proper `WebActivityOptions`, for example:
+The constructor of `WebActivity` takes a name of the activity and an optional Object specifying its filter type or other information, for example:
 
 ```javascript
-var options = { name: "pick", data: { type: "image/jpeg" } };
-var activity = new WebActivity(options);
+let activity = new WebActivity("pick", { type: "image/ipeg" });
 ```
 
-In this example, we are trying to initiate a "pick" activity, and the handlers should support providing at least jpeg images.
-
-
-<dl>
-<b>WebActivityOptions</b>
-    <dt>name</dt>
-    <dd>A string represents the name of the activity request.</dd>
-    <dt>data</dt>
-    <dd>An object represents data that will be sent to activity handler, also refers to the filter of activity handlers.</dd>
-</dl>
+In this example, we are trying to initiate a "pick" activity, and the handlers should support providing at least jpeg images. Please note that the constructor may throw and return a null object with illegal access.
 
 Then, start the activity by `start()` method, if an activity handler (i.e. Gallery App) is launched and the request is handled successfully, the promise will be resolved with the picking result.
 
@@ -60,6 +50,16 @@ When handling `systemmessage` event of name *activity*, handler can decide wheth
 
 Use `WebActivityRequestHandler.postError()` to send back an error message if something goes wrong.
 
+`WebActivityRequestHandler.source` is a `WebActivityOptions` object, representing information sent from activity requester.
+
+<dl>
+<b>WebActivityOptions</b>
+    <dt>name</dt>
+    <dd>A string represents the name of the activity request.</dd>
+    <dt>data</dt>
+    <dd>An object represents data that is sent from activity requester.</dd>
+</dl>
+
 ```javascript
 self.onsystemmessage = e => {
   try {
@@ -74,7 +74,6 @@ self.onsystemmessage = e => {
 };
 
 ```
-
 <dl>
 <b>WebActivityRequestHandler</b>
     <dt>source</dt>

@@ -233,7 +233,8 @@ MouseInput::MouseInput()
       mButtonType(NONE),
       mInputSource(0),
       mButtons(0),
-      mHandledByAPZ(false) {}
+      mHandledByAPZ(false),
+      mPreventClickEvent(false) {}
 
 MouseInput::MouseInput(MouseType aType, ButtonType aButtonType,
                        uint16_t aInputSource, int16_t aButtons,
@@ -245,7 +246,8 @@ MouseInput::MouseInput(MouseType aType, ButtonType aButtonType,
       mInputSource(aInputSource),
       mButtons(aButtons),
       mOrigin(aPoint),
-      mHandledByAPZ(false) {}
+      mHandledByAPZ(false),
+      mPreventClickEvent(false) {}
 
 MouseInput::MouseInput(const WidgetMouseEventBase& aMouseEvent)
     : InputData(MOUSE_INPUT, aMouseEvent.mTime, aMouseEvent.mTimeStamp,
@@ -254,7 +256,9 @@ MouseInput::MouseInput(const WidgetMouseEventBase& aMouseEvent)
       mButtonType(NONE),
       mInputSource(aMouseEvent.mInputSource),
       mButtons(aMouseEvent.mButtons),
-      mHandledByAPZ(aMouseEvent.mFlags.mHandledByAPZ) {
+      mHandledByAPZ(aMouseEvent.mFlags.mHandledByAPZ),
+      mPreventClickEvent(aMouseEvent.mClass == eMouseEventClass &&
+                         aMouseEvent.AsMouseEvent()->mClickEventPrevented) {
   MOZ_ASSERT(NS_IsMainThread(),
              "Can only copy from WidgetTouchEvent on main thread");
 
@@ -396,6 +400,7 @@ WidgetMouseEvent MouseInput::ToWidgetEvent(nsIWidget* aWidget) const {
   event.mInputSource = mInputSource;
   event.mFocusSequenceNumber = mFocusSequenceNumber;
   event.mExitFrom = exitFrom;
+  event.mClickEventPrevented = mPreventClickEvent;
 
   return event;
 }
@@ -613,7 +618,7 @@ double PinchGestureInput::ComputeDeltaY(nsIWidget* aWidget) const {
   return (mPreviousSpan - 100.0) *
          (aWidget ? aWidget->GetDefaultScaleInternal() : 1.f);
 #else
-  // This calculation is based on what the Windows widget code does.
+  // This calculation is based on what the Windows and Linux widget code does.
   // Specifically, it creates a PinchGestureInput with |mCurrentSpan == 100.0 *
   // currentScale| and |mPreviousSpan == 100.0 * lastScale| where currentScale
   // is the scale from the current OS event and lastScale is the scale when the
@@ -625,12 +630,41 @@ double PinchGestureInput::ComputeDeltaY(nsIWidget* aWidget) const {
   // same formula as the macOS code
   // (|-100.0 * M * GetDefaultScaleInternal()|).
 
-  // XXX When we write the code for other platforms to do the same we'll need to
-  // make sure this calculation is reasonable.
-
   return (mPreviousSpan - mCurrentSpan) *
          (aWidget ? aWidget->GetDefaultScaleInternal() : 1.f);
 #endif
+}
+
+bool PinchGestureInput::SetLineOrPageDeltaY(nsIWidget* aWidget) {
+  double deltaY = ComputeDeltaY(aWidget);
+  if (deltaY == 0 && mType != PINCHGESTURE_END) {
+    return false;
+  }
+  gfx::IntPoint lineOrPageDelta = PinchGestureInput::GetIntegerDeltaForEvent(
+      (mType == PINCHGESTURE_START), 0, deltaY);
+  mLineOrPageDeltaY = lineOrPageDelta.y;
+  if (mLineOrPageDeltaY == 0) {
+    // For PINCHGESTURE_SCALE events, don't dispatch them. Note that the delta
+    // isn't lost; it remains in the accumulator in GetIntegerDeltaForEvent().
+    if (mType == PINCHGESTURE_SCALE) {
+      return false;
+    }
+    // On Windows, drop PINCHGESTURE_START as well (the Windows widget code will
+    // defer the START event until we accumulate enough delta).
+    // The Linux widget code doesn't support this, so instead set the event's
+    // mLineOrPageDeltaY to the smallest nonzero amount in the relevant
+    // direction.
+    if (mType == PINCHGESTURE_START) {
+#ifdef XP_WIN
+      return false;
+#else
+      mLineOrPageDeltaY = (deltaY >= 0) ? 1 : -1;
+#endif
+    }
+    // For PINCHGESTURE_END events, not dispatching a DOMMouseScroll for them is
+    // fine.
+  }
+  return true;
 }
 
 /* static */ gfx::IntPoint PinchGestureInput::GetIntegerDeltaForEvent(
@@ -672,6 +706,23 @@ bool TapGestureInput::TransformToLocal(
   }
   mLocalPoint = *point;
   return true;
+}
+
+WidgetSimpleGestureEvent TapGestureInput::ToWidgetEvent(
+    nsIWidget* aWidget) const {
+  WidgetSimpleGestureEvent event(true, eTapGesture, aWidget);
+
+  event.mTime = mTime;
+  event.mTimeStamp = mTimeStamp;
+  event.mLayersId = mLayersId;
+  event.mRefPoint = ViewAs<LayoutDevicePixel>(
+      mPoint,
+      PixelCastJustification::LayoutDeviceIsScreenForUntransformedEvent);
+  event.mButtons = 0;
+  event.mClickCount = 1;
+  event.mModifiers = modifiers;
+
+  return event;
 }
 
 ScrollWheelInput::ScrollWheelInput()

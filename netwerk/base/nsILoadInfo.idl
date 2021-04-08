@@ -542,6 +542,11 @@ interface nsILoadInfo : nsISupports
   [infallible] attribute boolean hasStoragePermission;
 
   /**
+   * True if the load was triggered by a meta refresh.
+   */
+  [infallible] attribute boolean isMetaRefresh;
+
+  /**
    * If forceInheritPrincipal is true, the data coming from the channel should
    * inherit its principal, even when the data is loaded over http:// or another
    * protocol that would normally use a URI-based principal.
@@ -1247,6 +1252,12 @@ interface nsILoadInfo : nsISupports
   [infallible] attribute boolean allowListFutureDocumentsCreatedFromThisRedirectChain;
 
   /**
+   * Indicates that we need to check if we should apply the anti-tracking
+   * heuristic after the channel has been classified.
+   */
+  [infallible] attribute boolean needForCheckingAntiTrackingHeuristic;
+
+  /**
    * A snapshot of the nonce at load start time which is used for CSP
    * checks and only set for:
    *  * TYPE_SCRIPT and
@@ -1348,4 +1359,16 @@ interface nsILoadInfo : nsISupports
    */
   [infallible] attribute nsILoadInfo_CrossOriginEmbedderPolicy
         loadingEmbedderPolicy;
+
+  /**
+   * This attribute will be true if this is a load triggered by a media
+   * element.
+   */
+  [infallible] attribute boolean isMediaRequest;
+
+  /**
+   * This attribute will be true if this is a load triggered by a media
+   * element and it's an initial request.
+   */
+  [infallible] attribute boolean isMediaInitialRequest;
 };

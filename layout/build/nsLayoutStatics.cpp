@@ -43,7 +43,6 @@
 #include "nsTextFrame.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsTextFragment.h"
-#include "nsMediaFeatures.h"
 #include "nsCORSListenerProxy.h"
 #include "nsHtml5Module.h"
 #include "nsHTMLTags.h"
@@ -123,12 +122,14 @@
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/quota/ActorsParent.h"
 #include "mozilla/dom/localstorage/ActorsParent.h"
+#include "mozilla/dom/VirtualCursorService.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "mozilla/RemoteLazyInputStreamStorage.h"
 #include "nsLayoutUtils.h"
 #include "nsThreadManager.h"
 #include "mozilla/css/ImageLoader.h"
 #include "gfxUserFontSet.h"
+#include "RestoreTabContentObserver.h"
 
 using namespace mozilla;
 using namespace mozilla::net;
@@ -283,8 +284,6 @@ nsresult nsLayoutStatics::Initialize() {
     mozilla::dom::RemoteWorkerService::Initialize();
   }
 
-  nsThreadManager::InitializeShutdownObserver();
-
   mozilla::Fuzzyfox::Start();
 
   ClearSiteData::Initialize();
@@ -298,6 +297,8 @@ nsresult nsLayoutStatics::Initialize() {
   }
 
   ThirdPartyUtil::Startup();
+
+  RestoreTabContentObserver::Initialize();
 
   return NS_OK;
 }
@@ -325,7 +326,6 @@ void nsLayoutStatics::Shutdown() {
   IMEStateManager::Shutdown();
   EditorController::Shutdown();
   HTMLEditorController::Shutdown();
-  nsMediaFeatures::Shutdown();
   HTMLDNSPrefetch::Shutdown();
   nsCSSRendering::Shutdown();
   StaticPresData::Shutdown();
@@ -375,6 +375,8 @@ void nsLayoutStatics::Shutdown() {
 
   PointerEventHandler::ReleaseStatics();
 
+  VirtualCursorService::Shutdown();
+
   TouchManager::ReleaseStatics();
 
   nsTreeSanitizer::ReleaseStatics();
@@ -409,4 +411,6 @@ void nsLayoutStatics::Shutdown() {
   css::ImageLoader::Shutdown();
 
   mozilla::net::UrlClassifierFeatureFactory::Shutdown();
+
+  RestoreTabContentObserver::Shutdown();
 }

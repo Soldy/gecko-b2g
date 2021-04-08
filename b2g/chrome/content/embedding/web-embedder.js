@@ -350,6 +350,24 @@ XPCOMUtils.defineLazyServiceGetter(
       }, "activity-aborted");
 
       Services.obs.addObserver((subject, topic, data) => {
+        _webembed_log("receive activity-opened");
+        this.dispatchEvent(
+          new CustomEvent(topic, {
+            detail: subject.wrappedJSObject,
+          })
+        );
+      }, "activity-opened");
+
+      Services.obs.addObserver((subject, topic, data) => {
+        _webembed_log("receive activity-closed");
+        this.dispatchEvent(
+          new CustomEvent(topic, {
+            detail: subject.wrappedJSObject,
+          })
+        );
+      }, "activity-closed");
+
+      Services.obs.addObserver((subject, topic, data) => {
         _webembed_log(`receive inputmethod-contextchange: ${data}`);
         if (data == null) {
           return;

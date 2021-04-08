@@ -11,13 +11,17 @@ var EXPORTED_SYMBOLS = [
   "UnsupportedError",
 ];
 
-const { Log } = ChromeUtils.import("chrome://remote/content/shared/Log.jsm");
-const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 
-XPCOMUtils.defineLazyGetter(this, "log", Log.get);
+XPCOMUtils.defineLazyModuleGetters(this, {
+  Services: "resource://gre/modules/Services.jsm",
+
+  Log: "chrome://remote/content/shared/Log.jsm",
+});
+
+XPCOMUtils.defineLazyGetter(this, "logger", () => Log.get());
 
 class RemoteAgentError extends Error {
   constructor(message = "", cause = undefined) {
@@ -33,7 +37,7 @@ class RemoteAgentError extends Error {
 
   notify() {
     Cu.reportError(this);
-    log.error(this.toString({ stack: true }));
+    logger.error(this.toString({ stack: true }));
   }
 
   toString({ stack = false } = {}) {
@@ -90,7 +94,7 @@ class FatalError extends RemoteAgentError {
   }
 
   notify() {
-    log.fatal(this.toString({ stack: true }));
+    logger.fatal(this.toString({ stack: true }));
   }
 
   quit(mode = Ci.nsIAppStartup.eForceQuit) {

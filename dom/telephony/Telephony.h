@@ -120,6 +120,13 @@ class Telephony final : public DOMEventTargetHelper,
   // notification.
   void OwnAudioChannel(ErrorResult& aRv);
 
+  already_AddRefed<Promise> SendUSSD(const nsAString& aUssd,
+                                     const Optional<uint32_t>& aServiceId,
+                                     ErrorResult& aRv);
+
+  already_AddRefed<Promise> CancelUSSD(const Optional<uint32_t>& aServiceId,
+                                       ErrorResult& aRv);
+
   bool GetMuted(ErrorResult& aRv) const;
 
   void SetMuted(bool aMuted, ErrorResult& aRv);

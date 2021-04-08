@@ -135,7 +135,9 @@ SavedNetworkSelector.prototype = {
     // network can be chosen.
     if (
       typeof scanResult.hasInternet !== "undefined" &&
-      !scanResult.hasInternet
+      !scanResult.hasInternet &&
+      (typeof scanResult.captivePortalDetected === "undefined" ||
+        !scanResult.captivePortalDetected)
     ) {
       score -= NO_INTERNET_PENALTY;
       debug(" No internet Penalty: -" + NO_INTERNET_PENALTY);

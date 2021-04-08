@@ -344,6 +344,13 @@ void gc::GCRuntime::endVerifyPreBarriers() {
 
   MOZ_ASSERT(!JS::IsGenerationalGCEnabled(rt));
 
+  // Flush the barrier tracer's buffer to ensure the pre-barrier has marked
+  // everything it's going to. This usually happens as part of GC.
+  SliceBudget budget = SliceBudget::unlimited();
+  marker.traceBarrieredCells(budget);
+
+  // Now that barrier marking has finished, prepare the heap to allow this
+  // method to trace cells and discover their outgoing edges.
   AutoPrepareForTracing prep(rt->mainContextFromOwnThread());
 
   bool compartmentCreated = false;
@@ -687,7 +694,7 @@ void js::gc::MarkingValidator::validate() {
     MarkBitmap* incBitmap = &chunk->markBits;
 
     for (size_t i = 0; i < ArenasPerChunk; i++) {
-      if (chunk->decommittedArenas[i]) {
+      if (chunk->decommittedPages[chunk->pageIndex(i)]) {
         continue;
       }
       Arena* arena = &chunk->arenas[i];

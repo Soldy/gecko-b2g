@@ -72,14 +72,16 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
  *   'error': An error occured
  *
  * @param {Toolbox} toolbox
+ * @param {Object} commands Object defined from devtools/shared/commands to interact with the devtools backend
  * @param {Document} panelDoc
  *        Document of the toolbox panel to populate UI in.
  * @param {CssProperties} A css properties database.
  */
-function StyleEditorUI(toolbox, panelDoc, cssProperties) {
+function StyleEditorUI(toolbox, commands, panelDoc, cssProperties) {
   EventEmitter.decorate(this);
 
   this._toolbox = toolbox;
+  this._commands = commands;
   this._panelDoc = panelDoc;
   this._cssProperties = cssProperties;
   this._window = this._panelDoc.defaultView;
@@ -120,7 +122,7 @@ StyleEditorUI.prototype = {
   },
 
   get currentTarget() {
-    return this._toolbox.targetList.targetFront;
+    return this._commands.targetCommand.targetFront;
   },
 
   /*
@@ -138,8 +140,8 @@ StyleEditorUI.prototype = {
   async initialize() {
     this.createUI();
 
-    await this._toolbox.targetList.watchTargets(
-      [this._toolbox.targetList.TYPES.FRAME],
+    await this._commands.targetCommand.watchTargets(
+      [this._commands.targetCommand.TYPES.FRAME],
       this._onTargetAvailable
     );
 
@@ -1185,6 +1187,7 @@ StyleEditorUI.prototype = {
   },
 
   async _onResourceAvailable(resources) {
+    const promises = [];
     for (const resource of resources) {
       if (
         resource.resourceType === this._toolbox.resourceWatcher.TYPES.STYLESHEET
@@ -1195,8 +1198,7 @@ StyleEditorUI.prototype = {
           // In case of reloading/navigating and panel's opening
           this._loadingStyleSheets.push(onStyleSheetHandled);
         }
-
-        await onStyleSheetHandled;
+        promises.push(onStyleSheetHandled);
         continue;
       }
 
@@ -1208,15 +1210,26 @@ StyleEditorUI.prototype = {
         // will-navigate doesn't work when we navigate to a new process,
         // and for now, onTargetAvailable/onTargetDestroyed doesn't fire on navigation and
         // only when navigating to another process.
-        // So we fallback on DOCUMENT_EVENTS to be notified when we navigates. When we
-        // navigate within the same process as well as when we navigate to a new process.
+        // So we fallback on DOCUMENT_EVENTS to be notified when we navigates.
+        // The only catch is that when starting up a DevToolsServer, a dom-loading event
+        // is fired, and it might come _after_ the stylesheet resources; and in such case
+        // we shouldn't clear the stylesheets that where already handled.
+        // So here we bail out if we get this kind of event. At the moment, this will only
+        // happen for the initial target and for target switching (and luckily, in those
+        // case onTargetAvailable is called before we get any stylesheets).
+        // This means we still want to clear the UI on dom-loading for same-process navigation.
         // (We would probably revisit that in bug 1632141)
+        if (resource.shouldBeIgnoredAsRedundantWithTargetAvailable) {
+          continue;
+        }
+
         this._startLoadingStyleSheets();
         this._clear();
       } else if (resource.name === "dom-complete") {
-        await this._waitForLoadingStyleSheets();
+        promises.push(this._waitForLoadingStyleSheets());
       }
     }
+    await Promise.all(promises);
   },
 
   async _onResourceUpdated(updates) {
@@ -1254,13 +1267,15 @@ StyleEditorUI.prototype = {
 
   async _onTargetAvailable({ targetFront }) {
     if (targetFront.isTopLevel) {
+      this._startLoadingStyleSheets();
+      this._clear();
       await this.initializeHighlighter(targetFront);
     }
   },
 
   destroy: function() {
-    this._toolbox.targetList.unwatchTargets(
-      [this._toolbox.targetList.TYPES.FRAME],
+    this._commands.targetCommand.unwatchTargets(
+      [this._commands.targetCommand.TYPES.FRAME],
       this._onTargetAvailable
     );
 

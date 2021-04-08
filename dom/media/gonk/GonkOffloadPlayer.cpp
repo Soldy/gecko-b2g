@@ -374,6 +374,7 @@ void GonkOffloadPlayer::PlayStateChanged() {
       mMediaPlayer->pause();
     }
   }
+  UpdateAudibleState();
   MediaOffloadPlayer::PlayStateChanged();
 }
 
@@ -399,6 +400,12 @@ void GonkOffloadPlayer::PlaybackSettingsChanged() {
     rate.mPitch = mPreservesPitch ? 1.0f : (float)mPlaybackRate;
     mMediaPlayer->setPlaybackSettings(rate);
   }
+}
+
+void GonkOffloadPlayer::UpdateAudibleState() {
+  MOZ_ASSERT(OnTaskQueue());
+  mIsAudioDataAudible =
+      mInfo.HasAudio() && mMediaPlayer && mMediaPlayer->isPlaying();
 }
 
 }  // namespace mozilla

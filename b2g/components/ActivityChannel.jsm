@@ -37,7 +37,8 @@ this.ActivityChannel.prototype = {
   asyncOpen(aListener, aContext) {
     Services.cpmm.sendAsyncMessage(this._activityName, this._activityDetails);
     // Let the listener cleanup.
-    aListener.onStopRequest(this, aContext, Cr.NS_OK);
+    aListener.onStartRequest(this);
+    aListener.onStopRequest(this, Cr.NS_OK);
   },
 
   QueryInterface2: ChromeUtils.generateQI([Ci.nsIChannel]),

@@ -15,22 +15,23 @@ function getExpectedTargets() {
     "addons",
     "appMenu",
     "backForward",
-    "customize",
     "devtools",
     "help",
-    "home",
+    ...(CustomizableUI.protonToolbarEnabled ? [] : ["home"]),
     "library",
     "logins",
-    "pageActionButton",
     "pageAction-bookmark",
-    "pageAction-copyURL",
-    "pageAction-emailLink",
-    "pageAction-sendToDevice",
+    ...(UrlbarPrefs.get("browser.proton.urlbar.enabled")
+      ? []
+      : [
+          "pageAction-copyURL",
+          "pageAction-emailLink",
+          "pageAction-sendToDevice",
+        ]),
     ...(hasPocket ? ["pocket"] : []),
     "privateWindow",
     ...(hasQuit ? ["quit"] : []),
     "readerMode-urlBar",
-    "screenshots",
     "urlbar",
   ];
 }
@@ -38,7 +39,6 @@ function getExpectedTargets() {
 add_task(setup_UITourTest);
 
 add_UITour_task(async function test_availableTargets() {
-  await ensureScreenshotsEnabled();
   let data = await getConfigurationPromise("availableTargets");
   let expecteds = getExpectedTargets();
   ok_targets(data, expecteds);
@@ -85,14 +85,19 @@ add_UITour_task(async function test_availableTargets_search() {
 
 add_UITour_task(
   async function test_availableTargets_removeUrlbarPageActionsAll() {
+    if (gProton) {
+      ok(
+        true,
+        "In proton actions cannot be removed from or added to the URL bar."
+      );
+      return;
+    }
     pageActionsHelper.setActionsUrlbarState(false);
     UITour.clearAvailableTargetsCache();
     let data = await getConfigurationPromise("availableTargets");
     let expecteds = getExpectedTargets();
     ok_targets(data, expecteds);
     let expectedActions = [
-      ["pocket", "pageAction-panel-pocket"],
-      ["screenshots", "pageAction-panel-screenshots_mozilla_org"],
       ["pageAction-bookmark", "pageAction-panel-bookmark"],
       ["pageAction-copyURL", "pageAction-panel-copyURL"],
       ["pageAction-emailLink", "pageAction-panel-emailLink"],
@@ -106,14 +111,19 @@ add_UITour_task(
 );
 
 add_UITour_task(async function test_availableTargets_addUrlbarPageActionsAll() {
+  if (gProton) {
+    ok(
+      true,
+      "In proton actions cannot be removed from or added to the URL bar."
+    );
+    return;
+  }
   pageActionsHelper.setActionsUrlbarState(true);
   UITour.clearAvailableTargetsCache();
   let data = await getConfigurationPromise("availableTargets");
   let expecteds = getExpectedTargets();
   ok_targets(data, expecteds);
   let expectedActions = [
-    ["pocket", "pocket-button"],
-    ["screenshots", "pageAction-panel-screenshots_mozilla_org"],
     ["pageAction-bookmark", "star-button-box"],
     ["pageAction-copyURL", "pageAction-urlbar-copyURL"],
     ["pageAction-emailLink", "pageAction-urlbar-emailLink"],
@@ -135,11 +145,25 @@ function ok_targets(actualData, expectedTargets) {
   }
 
   ok(Array.isArray(actualData.targets), "data.targets should be an array");
-  is(
-    actualData.targets.sort().toString(),
-    expectedTargets.sort().toString(),
+  actualData.targets.sort();
+  expectedTargets.sort();
+  Assert.deepEqual(
+    actualData.targets,
+    expectedTargets,
     "Targets should be as expected"
   );
+  if (actualData.targets.toString() != expectedTargets.toString()) {
+    for (let actualItem of actualData.targets) {
+      if (!expectedTargets.includes(actualItem)) {
+        ok(false, `${actualItem} was an unexpected target.`);
+      }
+    }
+    for (let expectedItem of expectedTargets) {
+      if (!actualData.targets.includes(expectedItem)) {
+        ok(false, `${expectedItem} should have been a target.`);
+      }
+    }
+  }
 }
 
 async function assertTargetNode(targetName, expectedNodeId) {
@@ -166,12 +190,3 @@ var pageActionsHelper = {
     this._originalStates = null;
   },
 };
-
-function ensureScreenshotsEnabled() {
-  SpecialPowers.pushPrefEnv({
-    set: [["extensions.screenshots.disabled", false]],
-  });
-  return BrowserTestUtils.waitForCondition(() => {
-    return PageActions.actionForID("screenshots_mozilla_org");
-  }, "Should enable Screenshots");
-}

@@ -51,6 +51,10 @@ extern const char* kSmsDeletedObserverTopic;
 #define MESSAGE_TYPE_SMS u"sms"_ns
 #define MESSAGE_TYPE_MMS u"mms"_ns
 
+#define ATTACHMENT_STATUS_NONE u"none"_ns
+#define ATTACHMENT_STATUS_NOT_DOWNLOADED u"not-downloaded"_ns
+#define ATTACHMENT_STATUS_DOWNLOADED u"downloaded"_ns
+
 }  // namespace mobilemessage
 }  // namespace dom
 }  // namespace mozilla

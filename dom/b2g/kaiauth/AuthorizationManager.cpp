@@ -143,7 +143,6 @@ class AuthorizationRunnable : public Runnable {
     nsCOMPtr<nsIAuthorizationManager> authProxy =
         do_CreateInstance("@mozilla.org/kaiauth/authorization-manager;1");
     MOZ_ASSERT(authProxy);
-    authProxy->Init();
     authProxy->GetRestrictedToken(mServiceType, callback);
 
     return NS_OK;
@@ -178,7 +177,6 @@ already_AddRefed<Promise> AuthorizationManager::GetRestrictedToken(
       mAuthProxy =
           do_CreateInstance("@mozilla.org/kaiauth/authorization-manager;1");
       MOZ_ASSERT(mAuthProxy);
-      mAuthProxy->Init();
     }
     mAuthProxy->GetRestrictedToken(serviceType, callback);
   } else {

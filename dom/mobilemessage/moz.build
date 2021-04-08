@@ -35,11 +35,6 @@ EXTRA_JS_MODULES += [
     "gonk/WspPduHelper.jsm",
 ]
 
-EXTRA_COMPONENTS += [
-    "gonk/MobileMessageDatabaseService.manifest",
-    "gonk/SmsService.manifest",
-]
-
 XPCOM_MANIFESTS += [
     "components.conf",
 ]

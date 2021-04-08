@@ -127,6 +127,9 @@ function NetworkService() {
   this.addedRoutes = new Map();
   this.netWorkerRequestQueue = new NetworkWorkerRequestQueue(this);
   this.shutdown = false;
+  this.trafficStats = Cc["@mozilla.org/network/trafficstats;1"].createInstance(
+    Ci.nsITrafficStats
+  );
 
   Services.prefs.addObserver(PREF_NETWORK_DEBUG_ENABLED, this);
   Services.obs.addObserver(this, TOPIC_XPCOM_SHUTDOWN);
@@ -213,9 +216,25 @@ NetworkService.prototype = {
 
   // nsINetworkService
 
-  getNetworkInterfaceStats(aInterfaceName, aCallback) {
-    debug("getNetworkInterfaceStats for " + aInterfaceName);
+  getNetworkInterfaceStats(aInterfaces, aCallback) {
+    debug("getNetworkInterfaceStats for " + JSON.stringify(aInterfaces));
+    if (this.trafficStats) {
+      let statsInfos = {};
+      this.trafficStats.getStats(statsInfos);
+      let rxBytes = 0,
+        txBytes = 0,
+        now = Date.now();
+      for (let i = 0; i < statsInfos.value.length; i++) {
+        if (aInterfaces.includes(statsInfos.value[i].name)) {
+          rxBytes += statsInfos.value[i].rxBytes;
+          txBytes += statsInfos.value[i].txBytes;
+        }
+      }
+      aCallback.networkStatsAvailable(true, rxBytes, txBytes, now);
+      return;
+    }
 
+    // legacy parse kernel node.
     let file = new FileUtils.File("/proc/net/dev");
     if (!file) {
       aCallback.networkStatsAvailable(false, 0, 0, Date.now());
@@ -241,10 +260,9 @@ NetworkService.prototype = {
           ).split("\n");
           for (let i = 2; i < data.length; i++) {
             let parseResult = statExpr.exec(data[i]);
-            if (parseResult && parseResult[1] === aInterfaceName) {
-              rxBytes = parseInt(parseResult[2], 10);
-              txBytes = parseInt(parseResult[3], 10);
-              break;
+            if (parseResult && aInterfaces.includes(parseResult[1])) {
+              rxBytes += parseInt(parseResult[2], 10);
+              txBytes += parseInt(parseResult[3], 10);
             }
           }
         }
@@ -912,6 +930,24 @@ NetworkService.prototype = {
     });
   },
 
+  setIpv6Status(aInterfaceName, aEnable, aCallback) {
+    debug(
+      "setIpv6Status: interfaceName = " +
+        aInterfaceName +
+        ", enable = " +
+        aEnable
+    );
+    let params = {
+      cmd: "setIpv6Status",
+      ifname: aInterfaceName,
+      enable: aEnable,
+    };
+
+    this.controlMessage(params, function(aResult) {
+      aCallback.nativeCommandResult(!aResult.error);
+    });
+  },
+
   setIpv6PrivacyExtensions(aInterfaceName, aEnable, aCallback) {
     debug(
       "setIpv6PrivacyExtensions: interfaceName = " +
@@ -987,6 +1023,17 @@ NetworkService.prototype = {
 
     this.controlMessage(params, aResult => {
       aCallback.nativeCommandResult(aResult.result);
+    });
+  },
+
+  getTetherStats(aCallback) {
+    let params = {
+      cmd: "getTetherStats",
+    };
+
+    this.controlMessage(params, aResult => {
+      debug("getTetherStats result: " + JSON.stringify(aResult.tetherStats));
+      aCallback.getTetherStatsResult(aResult.result, aResult.tetherStats);
     });
   },
 };

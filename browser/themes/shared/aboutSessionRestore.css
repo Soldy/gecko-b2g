@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+@media not (-moz-proton) {
 .description-wrapper {
   background-image: url("chrome://browser/skin/illustrations/error-session-restore.svg");
   background-repeat: no-repeat;
@@ -10,6 +11,7 @@
   background-position: left center;
   min-height: 300px;
 }
+} /*** END !proton ***/
 
 .description-wrapper:dir(rtl) {
   background-position-x: right;
@@ -23,7 +25,7 @@
   cursor: pointer;
   /* Override button background-color and color from common.css */
   background-color: transparent;
-  color: #0a84ff !important;
+  color: var(--in-content-link-color) !important;
   -moz-context-properties: fill;
   fill: currentColor;
   border: none;
@@ -76,7 +78,7 @@ treechildren::-moz-tree-image(noicon) {
 }
 
 treechildren::-moz-tree-image(noicon) {
-  list-style-image: url("chrome://mozapps/skin/places/defaultFavicon.svg");
+  list-style-image: url("chrome://global/skin/icons/defaultFavicon.svg");
   -moz-context-properties: fill;
   fill: currentColor;
 }
@@ -84,22 +86,22 @@ treechildren::-moz-tree-image(container, noicon) {
   list-style-image: url("chrome://browser/skin/window.svg");
 }
 
+treechildren::-moz-tree-image(checked),
+treechildren::-moz-tree-image(partial) {
+  -moz-context-properties: fill, stroke;
+  fill: var(--in-content-accent-color);
+}
+
+treechildren::-moz-tree-image(checked, selected),
+treechildren::-moz-tree-image(partial, selected) {
+  fill: var(--in-content-item-selected-text);
+  stroke: var(--in-content-item-selected);
+}
+
 treechildren::-moz-tree-image(checked) {
   list-style-image: url("chrome://global/skin/icons/check.svg");
-  -moz-context-properties: fill, stroke;
-  fill: #2292d0;
-}
-treechildren::-moz-tree-image(checked, selected) {
-  fill: white;
-  stroke: #0095dd;
 }
 
 treechildren::-moz-tree-image(partial) {
   list-style-image: url("chrome://global/skin/icons/check-partial.svg");
-  -moz-context-properties: fill, stroke;
-  fill: #2292d0;
-}
-treechildren::-moz-tree-image(partial, selected) {
-  fill: white;
-  stroke: #0095dd;
 }

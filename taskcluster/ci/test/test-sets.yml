@@ -79,8 +79,6 @@ talos-ref-hw:
     - talos-webgl
 
 raptor-firefox:
-    - raptor-tp6
-    - raptor-tp6-live
     - raptor-speedometer-firefox
     - raptor-stylebench-firefox
     - raptor-motionmark-htmlsuite-firefox
@@ -166,8 +164,11 @@ raptor-fetch-chromium:
 
 browsertime:
     - browsertime-tp6
+    - browsertime-tp6-essential
     - browsertime-tp6-live
+    - browsertime-tp6-live-sheriffed
     - browsertime-benchmark
+    - browsertime-benchmark-wasm
     - browsertime-tp6-profiling
 
 # Raptor desktop power tests
@@ -203,6 +204,8 @@ desktop-screenshot-capture:
 ### Specific platform test sets
 
 # Linux
+linux32-gtest:
+    - gtest
 
 linux32-tests:
     - web-platform-tests
@@ -243,6 +246,7 @@ linux1804-qr-tests:
     - gtest
     # - jittest  # See comment in linux1804-ccov-tests set.
     - jsreftest
+    - marionette
     - mochitest-a11y
     - mochitest-chrome
     - mochitest-chrome-gpu
@@ -255,6 +259,7 @@ linux1804-qr-tests:
     - mochitest-webgl2-core
     - mochitest-webgl2-ext
     - reftest
+    - test-verify
     - xpcshell
 
 linux1804-ccov-tests:
@@ -275,6 +280,7 @@ linux-talos-flex:
 
 windows-qr-tests:
     - crashtest
+    - marionette
     - mochitest-chrome-gpu
     - mochitest-browser-chrome
     - mochitest-plain
@@ -283,6 +289,7 @@ windows-qr-tests:
     - mochitest-webgl1-core
     - mochitest-webgl2-core
     - reftest
+    - test-verify
 
 windows-reftest-gpu:
     - reftest-gpu
@@ -395,10 +402,16 @@ macosx1100-64-qr-failures-tests:
     - mochitest-media-apple-silicon
     - mochitest-browser-chrome-apple-silicon
 
-macosx1014-64-tests:
-    - crashtest
+macosx1015-64-qr-tests:
+    - reftest
+
+# debug only
+macosx1015-64-tests:
     - reftest
     - web-platform-tests-reftest
+
+macosx1014-64-tests:
+    - crashtest
 
 macosx1014-64-qr-tests:
     - cppunit
@@ -423,7 +436,6 @@ macosx1014-64-qr-tests:
     - mochitest-webgl2-core
     - mochitest-webgl2-ext
     - mochitest-webgpu
-    - reftest
     - telemetry-tests-client
     - test-verify
     - test-verify-gpu
@@ -485,7 +497,7 @@ android-hw-aarch64-opt-unittests:
     - jittest
 
 android-hw-arm7-pgo-unittests:
-    - jittest
+    - jittest-all
     - jsreftest
 
 android-hw-aarch64-pgo-unittests:
@@ -534,18 +546,10 @@ android-hw-aarch64-raptor-cpu-memory-power:
     - raptor-scn-cpu-memory-power-idle-bg-geckoview
     - raptor-scn-cpu-memory-power-idle-bg-refbrow
 
-android-hw-aarch64-browsertime:
+android-hw-browsertime:
     - browsertime-power
     - browsertime-tp6m
-    - browsertime-tp6m-live
-    - browsertime-tp6m-profiling
-    - browsertime-speedometer-mobile
-    - browsertime-youtube-playback-mobile
-    - browsertime-unity-webgl-mobile
-
-android-hw-arm7-browsertime:
-    - browsertime-power
-    - browsertime-tp6m
+    - browsertime-tp6m-essential
     - browsertime-tp6m-live
     - browsertime-tp6m-profiling
     - browsertime-speedometer-mobile

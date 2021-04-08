@@ -237,6 +237,8 @@ class MediaEncoder {
     return mDataAvailableEvent;
   }
 
+  static bool IsOMXEncoderEnabled();
+
  protected:
   ~MediaEncoder();
 

@@ -143,6 +143,7 @@ UniquePtr<SurfaceFactory> SurfaceFactory::Create(
 
     case layers::TextureType::Unknown:
     case layers::TextureType::DIB:
+    case layers::TextureType::GrallocBuffer:
     case layers::TextureType::Last:
       break;
   }

@@ -112,8 +112,6 @@
 #  include "nsIPrintSettingsService.h"
 #  include "nsISimpleEnumerator.h"
 
-#  include "nsIPluginDocument.h"
-
 #endif  // NS_PRINTING
 
 // focus
@@ -336,20 +334,6 @@ class nsDocumentViewer final : public nsIContentViewer,
 
   using CallChildFunc = FunctionRef<void(nsDocumentViewer*)>;
   void CallChildren(CallChildFunc aFunc);
-
-  using PresContextFunc = FunctionRef<void(nsPresContext*)>;
-  /**
-   * Calls a `CallChildFunc` on all children, a `PresContextFunc`
-   * on all external documents' pres contexts  of our document, and then
-   * finally on _this_ pres context, in that order.
-   *
-   * The children function is expected to call this function reentrantly, and
-   * thus the `PresContextFunc` won't be called for the children's pres context
-   * directly here.
-   *
-   * FIXME(emilio): Better name for this appreciated.
-   */
-  void PropagateToPresContextsHelper(CallChildFunc, PresContextFunc);
 
   // nsIDocumentViewerPrint Printing Methods
   NS_DECL_NSIDOCUMENTVIEWERPRINT
@@ -2557,25 +2541,6 @@ NS_IMETHODIMP nsDocumentViewer::SetCommandNode(nsINode* aNode) {
   return NS_OK;
 }
 
-void nsDocumentViewer::PropagateToPresContextsHelper(CallChildFunc aChildFunc,
-                                                     PresContextFunc aPcFunc) {
-  CallChildren(aChildFunc);
-
-  if (mDocument) {
-    auto resourceDoc = [aPcFunc](Document& aResourceDoc) {
-      if (nsPresContext* pc = aResourceDoc.GetPresContext()) {
-        aPcFunc(pc);
-      }
-      return CallState::Continue;
-    };
-    mDocument->EnumerateExternalResources(resourceDoc);
-  }
-
-  if (mPresContext) {
-    aPcFunc(mPresContext);
-  }
-}
-
 void nsDocumentViewer::CallChildren(CallChildFunc aFunc) {
   nsCOMPtr<nsIDocShell> docShell(mContainer);
   if (!docShell) {
@@ -2688,28 +2653,6 @@ nsDocumentViewer::SetHintCharset(const Encoding* aEncoding) {
   };
   // now set the force char set on all children of mContainer
   CallChildren(childFn);
-}
-
-NS_IMETHODIMP
-nsDocumentViewer::PausePainting() {
-  CallChildren([](nsDocumentViewer* aChild) { aChild->PausePainting(); });
-
-  if (PresShell* presShell = GetPresShell()) {
-    presShell->PausePainting();
-  }
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocumentViewer::ResumePainting() {
-  CallChildren([](nsDocumentViewer* aChild) { aChild->ResumePainting(); });
-
-  if (PresShell* presShell = GetPresShell()) {
-    presShell->ResumePainting();
-  }
-
-  return NS_OK;
 }
 
 nsresult nsDocumentViewer::GetContentSizeInternal(int32_t* aWidth,
@@ -3022,12 +2965,6 @@ nsDocumentViewer::Print(nsIPrintSettings* aPrintSettings,
   if (NS_WARN_IF(!mDocument) || NS_WARN_IF(!mDeviceContext)) {
     PR_PL(("Can't Print without a document and a device context"));
     return NS_ERROR_FAILURE;
-  }
-
-  // If we are hosting a full-page plugin, tell it to print
-  // first. It shows its own native print UI.
-  if (nsCOMPtr<nsIPluginDocument> pDoc = do_QueryInterface(mDocument)) {
-    return pDoc->Print();
   }
 
   if (NS_WARN_IF(mPrintJob && mPrintJob->GetIsPrinting())) {

@@ -484,6 +484,10 @@ DataCall.prototype = {
 
 function DataProfile(aAttributes) {
   for (let key in aAttributes) {
+    if (key === "carrier_enabled") {
+      this.enabled = aAttributes[key];
+      break;
+    }
     this[key] = aAttributes[key];
   }
 }
@@ -654,7 +658,7 @@ function RadioInterface(aClientId) {
   this._radioCapability = {};
 
   this._pendingSentSmsMap = {};
-  this._pendingSmsRequest = null;
+  this._pendingSmsRequest = {};
 
   this._isInEmergencyCbMode = false;
 
@@ -3924,8 +3928,8 @@ RadioInterface.prototype = {
               "RILJ: [" + response.rilMessageToken + "] < REQUEST_SEND_SMS"
             );
           }
-          let message = this._pendingSmsRequest;
-          this._pendingSmsRequest = null;
+          let message = this._pendingSmsRequest[response.rilMessageToken];
+          delete this._pendingSmsRequest[response.rilMessageToken];
           result = this.handleSmsSendResult(response, message);
         } else if (DEBUG) {
           this.debug(
@@ -6239,7 +6243,7 @@ RadioInterface.prototype = {
             message.body = message.segments[0].body;
             message.encodedBodyLength = message.segments[0].encodedBodyLength;
           }
-          this._pendingSmsRequest = message;
+          this._pendingSmsRequest[message.rilMessageToken] = message;
           let GsmPDUHelper = this.simIOcontext.GsmPDUHelper;
           GsmPDUHelper.initWith();
           GsmPDUHelper.writeMessage(message);
@@ -6384,7 +6388,7 @@ RadioInterface.prototype = {
               " , serviceClass = " +
               message.serviceClass +
               " , number = " +
-              message.number || ""
+              message.number
           );
         }
         let toaNumber = this._toaFromString(message.number);
@@ -6408,7 +6412,9 @@ RadioInterface.prototype = {
               " , serviceClass = " +
               message.serviceClass +
               " , number = " +
-              message.number || ""
+              message.number +
+              " , timeSeconds = " +
+              message.timeSeconds
           );
         }
         let number = this._toaFromString(message.number);
@@ -6417,13 +6423,15 @@ RadioInterface.prototype = {
         this._callForwardOptions.serviceClass = message.serviceClass;
         this._callForwardOptions.number = message.number || "";
         this._callForwardOptions.toaNumner = number || "";
+        this._callForwardOptions.timeSeconds = message.timeSeconds;
         this.rilworker.setCallForwardStatus(
           message.rilMessageToken,
           message.action,
           message.reason,
           message.serviceClass,
           message.number || "",
-          number || ""
+          number || "",
+          message.timeSeconds
         );
         break;
       case "queryCallWaiting":
@@ -6901,10 +6909,10 @@ RadioInterface.prototype = {
             "RILJ: [" +
               message.rilMessageToken +
               "] > RIL_REQUEST_ALLOW_DATA allowed = " +
-              message.allowed
+              message.attach
           );
         }
-        this.rilworker.setDataAllowed(message.rilMessageToken, message.allowed);
+        this.rilworker.setDataAllowed(message.rilMessageToken, message.attach);
         break;
       case "getIccAuthentication":
         this.processGetIccAuthentication(message);
@@ -6965,7 +6973,7 @@ RadioInterface.prototype = {
         this.processSendStkTimerExpiration(message);
         break;
       case "sendStkEventDownload":
-        this.processsendStkEventDownload(message);
+        this.processSendStkEventDownload(message);
         break;
       case "setCellBroadcastDisabled":
         // This is not a ril request.

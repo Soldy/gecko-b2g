@@ -190,14 +190,17 @@ void ChromeUtils::AddProfilerMarker(
     const Optional<nsACString>& aText) {
 #ifdef MOZ_GECKO_PROFILER
   MarkerOptions options;
+
   MarkerCategory category = ::geckoprofiler::category::JS;
 
   DOMHighResTimeStamp startTime = 0;
+  uint64_t innerWindowId = 0;
   if (aOptions.IsDouble()) {
     startTime = aOptions.GetAsDouble();
   } else {
     const ProfilerMarkerOptions& opt = aOptions.GetAsProfilerMarkerOptions();
     startTime = opt.mStartTime;
+    innerWindowId = opt.mInnerWindowId;
 
     if (opt.mCaptureStack) {
       options.Set(MarkerStack::Capture());
@@ -242,6 +245,12 @@ void ChromeUtils::AddProfilerMarker(
           TimeStamp::ProcessCreation() +
           TimeDuration::FromMilliseconds(startTime)));
     }
+  }
+
+  if (innerWindowId) {
+    options.Set(MarkerInnerWindowId(innerWindowId));
+  } else {
+    options.Set(MarkerInnerWindowIdFromJSContext(aGlobal.Context()));
   }
 
   {
@@ -339,7 +348,7 @@ void ChromeUtils::ShallowClone(GlobalObject& aGlobal, JS::HandleObject aObj,
       if (!JS_GetOwnPropertyDescriptorById(cx, obj, id, &desc)) {
         continue;
       }
-      if (desc.setter() || desc.getter()) {
+      if (desc.isAccessorDescriptor()) {
         continue;
       }
       valuesIds.infallibleAppend(id);
@@ -770,7 +779,6 @@ static WebIDLProcType ProcTypeToWebIDL(mozilla::ProcType aType) {
     PROCTYPE_TO_WEBIDL_CASE(WebCOOPCOEP, WithCoopCoep);
     PROCTYPE_TO_WEBIDL_CASE(WebLargeAllocation, WebLargeAllocation);
     PROCTYPE_TO_WEBIDL_CASE(Browser, Browser);
-    PROCTYPE_TO_WEBIDL_CASE(Plugin, Plugin);
     PROCTYPE_TO_WEBIDL_CASE(IPDLUnitTest, IpdlUnitTest);
     PROCTYPE_TO_WEBIDL_CASE(GMPlugin, GmpPlugin);
     PROCTYPE_TO_WEBIDL_CASE(GPU, Gpu);
@@ -853,9 +861,6 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
           }
           case GeckoProcessType::GeckoProcessType_Default:
             type = mozilla::ProcType::Browser;
-            break;
-          case GeckoProcessType::GeckoProcessType_Plugin:
-            type = mozilla::ProcType::Plugin;
             break;
           case GeckoProcessType::GeckoProcessType_GMPlugin:
             type = mozilla::ProcType::GMPlugin;
@@ -963,14 +968,14 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
 
     // Attach DOM window information to the process.
     nsTArray<WindowInfo> windows;
-    for (const auto& browserParentWrapper :
+    for (const auto& browserParentWrapperKey :
          contentParent->ManagedPBrowserParent()) {
-      for (const auto& windowGlobalParentWrapper :
-           browserParentWrapper.GetKey()->ManagedPWindowGlobalParent()) {
+      for (const auto& windowGlobalParentWrapperKey :
+           browserParentWrapperKey->ManagedPWindowGlobalParent()) {
         // WindowGlobalParent is the only immediate subclass of
         // PWindowGlobalParent.
-        auto* windowGlobalParent = static_cast<WindowGlobalParent*>(
-            windowGlobalParentWrapper.GetKey());
+        auto* windowGlobalParent =
+            static_cast<WindowGlobalParent*>(windowGlobalParentWrapperKey);
 
         nsString documentTitle;
         windowGlobalParent->GetDocumentTitle(documentTitle);

@@ -382,7 +382,6 @@ NS_EVENT_MESSAGE(eOpen)
 NS_EVENT_MESSAGE(eDeviceOrientation)
 NS_EVENT_MESSAGE(eAbsoluteDeviceOrientation)
 NS_EVENT_MESSAGE(eDeviceMotion)
-NS_EVENT_MESSAGE(eDeviceProximity)
 NS_EVENT_MESSAGE(eUserProximity)
 NS_EVENT_MESSAGE(eDeviceLight)
 #ifdef MOZ_B2G

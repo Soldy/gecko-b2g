@@ -84,8 +84,9 @@ static inline gint GetMonitorScaleFactor(nsPresContext* aPresContext) {
       // value. The computed monitor scale factor needs to be rounded before
       // casting to integer to avoid rounding errors which would lead to
       // returning 0.
-      int monitorScale = int(round(rootWidget->GetDefaultScale().scale /
-                                   gfxPlatformGtk::GetFontScaleFactor()));
+      int monitorScale = int(
+          round(rootWidget->GetDefaultScale().scale /
+                LookAndFeel::GetFloat(LookAndFeel::FloatID::TextScaleFactor)));
       // Monitor scale can be negative if it has not been initialized in the
       // puppet widget yet. We also make sure that we return positive value.
       if (monitorScale < 1) {
@@ -1093,7 +1094,7 @@ NS_IMETHODIMP
 nsNativeThemeGTK::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
                                        StyleAppearance aAppearance,
                                        const nsRect& aRect,
-                                       const nsRect& aDirtyRect) {
+                                       const nsRect& aDirtyRect, DrawOverflow) {
   GtkWidgetState state;
   WidgetNodeType gtkWidgetType;
   GtkTextDirection direction = GetTextDirection(aFrame);
@@ -1222,10 +1223,11 @@ bool nsNativeThemeGTK::CreateWebRenderCommandsForWidget(
   switch (aAppearance) {
     case StyleAppearance::Window:
     case StyleAppearance::Dialog:
-      aBuilder.PushRect(
-          bounds, bounds, true,
-          wr::ToColorF(ToDeviceColor(LookAndFeel::GetColor(
-              LookAndFeel::ColorID::WindowBackground, NS_RGBA(0, 0, 0, 0)))));
+      aBuilder.PushRect(bounds, bounds, true,
+                        wr::ToColorF(ToDeviceColor(LookAndFeel::Color(
+                            LookAndFeel::ColorID::WindowBackground,
+                            LookAndFeel::ColorScheme::Light,
+                            LookAndFeel::UseStandins::No, NS_TRANSPARENT))));
       return true;
 
     default:
@@ -1377,6 +1379,7 @@ bool nsNativeThemeGTK::GetWidgetPadding(nsDeviceContext* aContext,
   switch (aAppearance) {
     case StyleAppearance::ButtonFocus:
     case StyleAppearance::Toolbarbutton:
+    case StyleAppearance::Tooltip:
     case StyleAppearance::MozWindowButtonBox:
     case StyleAppearance::MozWindowButtonClose:
     case StyleAppearance::MozWindowButtonMinimize:
@@ -1631,7 +1634,7 @@ nsNativeThemeGTK::GetMinimumWidgetSize(nsPresContext* aPresContext,
         gfxFontStyle fieldFontStyle;
         nsAutoString unusedFontName;
         DebugOnly<bool> result = LookAndFeel::GetFont(
-            LookAndFeel::FontID::Field, unusedFontName, fieldFontStyle);
+            LookAndFeel::FontID::MozField, unusedFontName, fieldFontStyle);
         MOZ_ASSERT(result, "GTK look and feel supports the field font");
         // NOTE: GetFont returns font sizes in CSS pixels, and we want just
         // that.

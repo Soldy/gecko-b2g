@@ -28,6 +28,8 @@ class NetdEventListener : public android::BinderService<NetdEventListener>,
   explicit NetdEventListener(NetdEventCallback aCallback);
   ~NetdEventListener() = default;
 
+  void updateDebug(bool aEnable);
+
   static char const* getServiceName() { return "netdEventListener"; }
 
   android::binder::Status onDnsEvent(

@@ -220,9 +220,9 @@ class ScreenHelperGonk final : public ScreenManager::Helper {
       mozilla::layers::CompositorVsyncScheduler* aObserver);
 
  private:
-  nsDataHashtable<nsUint32HashKey, RefPtr<Screen>> mScreens;
+  nsTHashMap<nsUint32HashKey, RefPtr<Screen>> mScreens;
 
-  nsDataHashtable<nsUint32HashKey, RefPtr<nsScreenGonk>> mScreenGonks;
+  nsTHashMap<nsUint32HashKey, RefPtr<nsScreenGonk>> mScreenGonks;
 
   // nsScreenManagerGonk
   void VsyncControl(bool aEnabled);

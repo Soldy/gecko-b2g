@@ -11,6 +11,7 @@
 #include "base/task.h"          // for NewRunnableMethod, etc
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_widget.h"
+#include "WidgetUtilsGtk.h"
 
 namespace mozilla {
 namespace widget {
@@ -74,7 +75,7 @@ RefPtr<nsWaylandDisplay> WaylandDisplayGet(GdkDisplay* aGdkDisplay) {
 wl_display* WaylandDisplayGetWLDisplay(GdkDisplay* aGdkDisplay) {
   if (!aGdkDisplay) {
     aGdkDisplay = gdk_display_get_default();
-    if (!aGdkDisplay || GDK_IS_X11_DISPLAY(aGdkDisplay)) {
+    if (!GdkIsWaylandDisplay(aGdkDisplay)) {
       return nullptr;
     }
   }
@@ -112,6 +113,10 @@ void nsWaylandDisplay::SetPrimarySelectionDeviceManager(
 void nsWaylandDisplay::SetIdleInhibitManager(
     zwp_idle_inhibit_manager_v1* aIdleInhibitManager) {
   mIdleInhibitManager = aIdleInhibitManager;
+}
+
+void nsWaylandDisplay::SetViewporter(wp_viewporter* aViewporter) {
+  mViewporter = aViewporter;
 }
 
 static void global_registry_handler(void* data, wl_registry* registry,
@@ -174,6 +179,11 @@ static void global_registry_handler(void* data, wl_registry* registry,
     wl_proxy_set_queue((struct wl_proxy*)subcompositor,
                        display->GetEventQueue());
     display->SetSubcompositor(subcompositor);
+  } else if (strcmp(interface, "wp_viewporter") == 0) {
+    auto* viewporter = WaylandRegistryBind<wp_viewporter>(
+        registry, id, &wp_viewporter_interface, 1);
+    wl_proxy_set_queue((struct wl_proxy*)viewporter, display->GetEventQueue());
+    display->SetViewporter(viewporter);
   }
 }
 
@@ -238,6 +248,10 @@ void nsWaylandDisplay::QueueSyncBegin() {
 }
 
 void nsWaylandDisplay::WaitForSyncEnd() {
+  MOZ_RELEASE_ASSERT(
+      NS_IsMainThread(),
+      "nsWaylandDisplay::WaitForSyncEnd() can be called in main thread only!");
+
   // We're done here
   if (!mSyncCallback) {
     return;
@@ -272,6 +286,7 @@ nsWaylandDisplay::nsWaylandDisplay(wl_display* aDisplay, bool aLighWrapper)
       mPrimarySelectionDeviceManagerZwpV1(nullptr),
       mIdleInhibitManager(nullptr),
       mRegistry(nullptr),
+      mViewporter(nullptr),
       mExplicitSync(false) {
   if (!aLighWrapper) {
     mRegistry = wl_display_get_registry(mDisplay);

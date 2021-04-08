@@ -36,10 +36,8 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
-XPCOMUtils.defineLazyGetter(this, "gTabBrowserBundle", () => {
-  return Services.strings.createBundle(
-    "chrome://browser/locale/tabbrowser.properties"
-  );
+XPCOMUtils.defineLazyGetter(this, "gTabBrowserLocalization", () => {
+  return new Localization(["browser/tabbrowser.ftl"], true);
 });
 
 /**
@@ -124,6 +122,21 @@ class PromptParent extends JSWindowActorParent {
     }
   }
 
+  isAboutAddonsOptionsPage(browsingContext) {
+    const { embedderWindowGlobal, name } = browsingContext;
+    if (!embedderWindowGlobal) {
+      // Return earlier if there is no embedder global, this is definitely
+      // not an about:addons extensions options page.
+      return false;
+    }
+
+    return (
+      embedderWindowGlobal.documentPrincipal.isSystemPrincipal &&
+      embedderWindowGlobal.documentURI.spec === "about:addons" &&
+      name === "addon-inline-options"
+    );
+  }
+
   receiveMessage(message) {
     let args = message.data;
     let id = args._remoteId;
@@ -134,7 +147,8 @@ class PromptParent extends JSWindowActorParent {
           (args.modalType === Ci.nsIPrompt.MODAL_TYPE_CONTENT &&
             !contentPromptSubDialog) ||
           (args.modalType === Ci.nsIPrompt.MODAL_TYPE_TAB &&
-            !tabChromePromptSubDialog)
+            !tabChromePromptSubDialog) ||
+          this.isAboutAddonsOptionsPage(this.browsingContext)
         ) {
           return this.openContentPrompt(args, id);
         }
@@ -291,8 +305,9 @@ class PromptParent extends JSWindowActorParent {
       let bag;
 
       if (
-        args.modalType === Services.prompt.MODAL_TYPE_TAB ||
-        args.modalType === Services.prompt.MODAL_TYPE_CONTENT
+        (args.modalType === Services.prompt.MODAL_TYPE_TAB ||
+          args.modalType === Services.prompt.MODAL_TYPE_CONTENT) &&
+        win?.gBrowser?.getTabDialogBox
       ) {
         if (!browser) {
           let modal_type =
@@ -319,6 +334,9 @@ class PromptParent extends JSWindowActorParent {
           bag
         );
       } else {
+        // Ensure we set the correct modal type at this point.
+        // If we use window prompts as a fallback it may not be set.
+        args.modalType = Services.prompt.MODAL_TYPE_WINDOW;
         // Window prompt
         bag = PromptUtils.objectToPropBag(args);
         Services.ww.openWindow(
@@ -387,13 +405,19 @@ class PromptParent extends JSWindowActorParent {
       allowTabFocusByPromptPrincipal &&
       args.modalType === Services.prompt.MODAL_TYPE_CONTENT
     ) {
-      let allowTabswitchCheckboxLabel = gTabBrowserBundle.formatStringFromName(
-        "tabs.allowTabFocusByPromptForSite",
-        [allowTabFocusByPromptPrincipal.URI.host]
-      );
-
-      args.allowFocusCheckbox = true;
-      args.checkLabel = allowTabswitchCheckboxLabel;
+      let [allowFocusMsg] = gTabBrowserLocalization.formatMessagesSync([
+        {
+          id: "tabbrowser-allow-dialogs-to-get-focus",
+          args: {
+            domain: allowTabFocusByPromptPrincipal.URI.host,
+          },
+        },
+      ]);
+      let labelAttr = allowFocusMsg.attributes.find(a => a.name == "label");
+      if (labelAttr) {
+        args.allowFocusCheckbox = true;
+        args.checkLabel = labelAttr.value;
+      }
     }
   }
 }

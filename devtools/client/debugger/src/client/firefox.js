@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
-// @flow
-
 import { setupCommands, clientCommands } from "./firefox/commands";
 import {
   setupCreate,
@@ -16,35 +14,29 @@ import { recordEvent } from "../utils/telemetry";
 import sourceQueue from "../utils/source-queue";
 
 let actions;
-let targetList;
+let targetCommand;
 let resourceWatcher;
 
-export async function onConnect(
-  devToolsClient: any,
-  _targetList: any,
-  _resourceWatcher: any,
-  _actions: Object,
-  store: any
-): Promise<void> {
+export async function onConnect(commands, _resourceWatcher, _actions, store) {
   actions = _actions;
-  targetList = _targetList;
+  targetCommand = commands.targetCommand;
   resourceWatcher = _resourceWatcher;
 
-  setupCommands({ devToolsClient, targetList });
+  setupCommands(commands);
   setupCreate({ store });
   sourceQueue.initialize(actions);
-  const { targetFront } = targetList;
+  const { targetFront } = targetCommand;
   if (targetFront.isBrowsingContext || targetFront.isParentProcess) {
-    targetList.listenForWorkers = true;
+    targetCommand.listenForWorkers = true;
     if (targetFront.localTab && features.windowlessServiceWorkers) {
-      targetList.listenForServiceWorkers = true;
-      targetList.destroyServiceWorkersOnNavigation = true;
+      targetCommand.listenForServiceWorkers = true;
+      targetCommand.destroyServiceWorkersOnNavigation = true;
     }
-    await targetList.startListening();
+    await targetCommand.startListening();
   }
 
-  await targetList.watchTargets(
-    targetList.ALL_TYPES,
+  await targetCommand.watchTargets(
+    targetCommand.ALL_TYPES,
     onTargetAvailable,
     onTargetDestroyed
   );
@@ -63,8 +55,8 @@ export async function onConnect(
 }
 
 export function onDisconnect() {
-  targetList.unwatchTargets(
-    targetList.ALL_TYPES,
+  targetCommand.unwatchTargets(
+    targetCommand.ALL_TYPES,
     onTargetAvailable,
     onTargetDestroyed
   );
@@ -80,14 +72,11 @@ export function onDisconnect() {
   sourceQueue.clear();
 }
 
-async function onTargetAvailable({
-  targetFront,
-  isTargetSwitching,
-}): Promise<void> {
-  const isBrowserToolbox = targetList.targetFront.isParentProcess;
+async function onTargetAvailable({ targetFront, isTargetSwitching }) {
+  const isBrowserToolbox = targetCommand.targetFront.isParentProcess;
   const isNonTopLevelFrameTarget =
     !targetFront.isTopLevel &&
-    targetFront.targetType === targetList.TYPES.FRAME;
+    targetFront.targetType === targetCommand.TYPES.FRAME;
 
   if (isBrowserToolbox && isNonTopLevelFrameTarget) {
     // In the BrowserToolbox, non-top-level frame targets are already
@@ -143,7 +132,7 @@ async function onTargetAvailable({
   await actions.addTarget(targetFront);
 }
 
-function onTargetDestroyed({ targetFront }): void {
+function onTargetDestroyed({ targetFront }) {
   if (targetFront.isTopLevel) {
     targetFront.off("will-navigate", actions.willNavigate);
     targetFront.off("navigate", actions.navigated);

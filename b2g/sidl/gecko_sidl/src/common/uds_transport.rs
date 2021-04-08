@@ -261,8 +261,8 @@ impl UdsTransport {
                 // Try to reconnect every 5 seconds.
                 if recv_stream.is_none() {
                     loop {
-                        info!("Waiting 5 seconds to reconnect to {} ...", path);
-                        thread::sleep(std::time::Duration::from_secs(5));
+                        info!("Waiting 1 seconds to reconnect to {} ...", path);
+                        thread::sleep(std::time::Duration::from_secs(1));
                         if let Ok(stream) = UnixStream::connect(path) {
                             // Update the receiving stream.
                             recv_stream =

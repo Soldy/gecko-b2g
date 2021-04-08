@@ -42,7 +42,7 @@ XPCOMUtils.defineLazyGetter(this, "cpmm", () => {
   return Cc["@mozilla.org/childprocessmessagemanager;1"].getService();
 });
 
-// eslint-disable-next-line mozilla/reject-chromeutils-import-null
+// eslint-disable-next-line mozilla/reject-chromeutils-import-params
 var RIL_DEBUG = ChromeUtils.import(
   "resource://gre/modules/ril_consts_debug.js",
   null
@@ -221,7 +221,8 @@ DOMDataCallManager.prototype = {
           dataCall.name,
           dataCall.addresses,
           dataCall.gateways,
-          dataCall.dnses
+          dataCall.dnses,
+          dataCall.netId
         );
         let webidlObj = this._window.DataCall._create(
           this._window,
@@ -324,7 +325,8 @@ function DOMDataCall(
   aName,
   aAddresses,
   aGateways,
-  aDnses
+  aDnses,
+  aNetId
 ) {
   this._id = this._generateID();
 
@@ -348,6 +350,7 @@ function DOMDataCall(
   this.addresses = aAddresses.slice();
   this.gateways = aGateways.slice();
   this.dnses = aDnses.slice();
+  this.netId = aNetId;
 
   this.initDOMRequestHelper(this._window, DATACALL_IPC_MSG_ENTRIES);
 
@@ -385,6 +388,8 @@ DOMDataCall.prototype = {
   gateways: null,
 
   dnses: null,
+
+  netId: null,
 
   debug(aMsg) {
     dump(
@@ -439,6 +444,7 @@ DOMDataCall.prototype = {
     this.addresses = [];
     this.dnses = [];
     this.gateways = [];
+    this.netId = "";
   },
 
   _handleStateChanged(aData) {
@@ -453,6 +459,7 @@ DOMDataCall.prototype = {
       this.addresses = details.addresses;
       this.dnses = details.dnses;
       this.gateways = details.gateways;
+      this.netId = details.netId;
     } else if (this._isStateUnavailable() || this._isStateDisconnected()) {
       this._clearDataCallAttributes();
 

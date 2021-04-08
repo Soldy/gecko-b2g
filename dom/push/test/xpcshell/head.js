@@ -6,6 +6,9 @@
 var { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
+const { AppConstants } = ChromeUtils.import(
+  "resource://gre/modules/AppConstants.jsm"
+);
 var { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 var {
   clearInterval,
@@ -18,9 +21,14 @@ var {
 var { Preferences } = ChromeUtils.import(
   "resource://gre/modules/Preferences.jsm"
 );
-var { PlacesUtils } = ChromeUtils.import(
-  "resource://gre/modules/PlacesUtils.jsm"
-);
+
+const isB2G = "MOZ_B2G" in AppConstants ? AppConstants.MOZ_B2G : false;
+
+if (!isB2G) {
+  var { PlacesUtils } = ChromeUtils.import(
+    "resource://gre/modules/PlacesUtils.jsm"
+  );
+}
 var { ObjectUtils } = ChromeUtils.import(
   "resource://gre/modules/ObjectUtils.jsm"
 );

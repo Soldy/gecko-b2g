@@ -70,7 +70,7 @@ the interactive setup process.
     cd c:/
     mkdir mozilla-source
     cd mozilla-source
-    curl https://hg.mozilla.org/mozilla-central/raw-file/default/python/mozboot/bin/bootstrap.py -O
+    wget https://hg.mozilla.org/mozilla-central/raw-file/default/python/mozboot/bin/bootstrap.py
     python3 bootstrap.py
 
 .. note::
@@ -123,7 +123,7 @@ Now that your system is bootstrapped, you should be able to build!
 .. code-block:: shell
 
     rm bootstrap.py
-    cd mozilla-unified
+    cd mozilla-central
     ./mach build
     ./mach run
 

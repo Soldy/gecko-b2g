@@ -28,7 +28,6 @@ class MediaEngineGonkVideoSource : public MediaEngineCameraVideoSource,
   nsresult Reconfigure(const dom::MediaTrackConstraints& aConstraints,
                        const MediaEnginePrefs& aPrefs,
                        const char** aOutBadConstraint) override;
-  void Shutdown() override;
 
   void SetTrack(const RefPtr<MediaTrack>& aTrack,
                 const PrincipalHandle& aPrincipal) override;
@@ -89,11 +88,6 @@ class MediaEngineGonkVideoSource : public MediaEngineCameraVideoSource,
   // The capability currently chosen by constraints of the user of this source.
   // Set under mMutex on the owning thread. Accessed under one of the two.
   webrtc::CaptureCapability mCapability;
-
-  // Whether init has successfully completed.
-  // Set in Init(), reset in Shutdown().
-  // Owning thread only.
-  bool mInitDone = false;
 
   int mRotation = 0;
 

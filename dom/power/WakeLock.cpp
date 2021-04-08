@@ -170,6 +170,10 @@ void WakeLock::Unlock(ErrorResult& aRv) {
    * We throw NS_ERROR_DOM_INVALID_STATE_ERR on double unlock.
    */
   if (!mLocked) {
+    // Double unlock can happen if we received "pagehide" event before. In this
+    // case, we still need to detach event listeners to prevent future
+    // "pageshow" event from locking us forever.
+    DetachEventListener();
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return;
   }

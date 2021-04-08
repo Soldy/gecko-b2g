@@ -26,6 +26,8 @@ Screen::Screen(LayoutDeviceIntRect aRect, LayoutDeviceIntRect aAvailRect,
       mColorDepth(aColorDepth),
       mContentsScale(aContentsScale),
       mDefaultCssScale(aDefaultCssScale),
+      mScreenRotation(nsIScreen::ROTATION_0_DEG),
+      mNaturalBounds(aRect),
       mDPI(aDPI) {}
 
 Screen::Screen(const mozilla::dom::ScreenDetails& aScreen)
@@ -37,6 +39,8 @@ Screen::Screen(const mozilla::dom::ScreenDetails& aScreen)
       mColorDepth(aScreen.colorDepth()),
       mContentsScale(aScreen.contentsScaleFactor()),
       mDefaultCssScale(aScreen.defaultCSSScaleFactor()),
+      mScreenRotation(aScreen.screenRotation()),
+      mNaturalBounds(aScreen.naturalBounds()),
       mDPI(aScreen.dpi()) {}
 
 Screen::Screen(const Screen& aOther)
@@ -48,12 +52,15 @@ Screen::Screen(const Screen& aOther)
       mColorDepth(aOther.mColorDepth),
       mContentsScale(aOther.mContentsScale),
       mDefaultCssScale(aOther.mDefaultCssScale),
+      mScreenRotation(aOther.mScreenRotation),
+      mNaturalBounds(aOther.mNaturalBounds),
       mDPI(aOther.mDPI) {}
 
 mozilla::dom::ScreenDetails Screen::ToScreenDetails() {
   return mozilla::dom::ScreenDetails(
       mRect, mRectDisplayPix, mAvailRect, mAvailRectDisplayPix, mPixelDepth,
-      mColorDepth, mContentsScale, mDefaultCssScale, mDPI);
+      mColorDepth, mContentsScale, mDefaultCssScale, mScreenRotation,
+      mNaturalBounds, mDPI);
 }
 
 NS_IMETHODIMP
@@ -121,13 +128,24 @@ Screen::GetDpi(float* aDPI) {
 
 NS_IMETHODIMP
 Screen::GetRotation(uint32_t* aRotation) {
-  *aRotation = nsIScreen::ROTATION_0_DEG;
+  *aRotation = mScreenRotation;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 Screen::SetRotation(uint32_t aRotation) {
-  return NS_ERROR_NOT_AVAILABLE;
+  if (mScreenRotation == aRotation) {
+    return NS_OK;
+  }
+  mScreenRotation = aRotation;
+  if (mScreenRotation == nsIScreen::ROTATION_90_DEG || mScreenRotation == nsIScreen::ROTATION_270_DEG) {
+    mRect =
+        LayoutDeviceIntRect(0, 0, mNaturalBounds.height, mNaturalBounds.width);
+  } else {
+    mRect =
+        LayoutDeviceIntRect(0, 0, mNaturalBounds.width, mNaturalBounds.height);
+  }
+  return NS_OK;
 }
 
 }  // namespace widget

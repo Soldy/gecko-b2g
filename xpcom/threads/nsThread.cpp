@@ -186,6 +186,7 @@ NS_INTERFACE_MAP_BEGIN(nsThread)
   NS_INTERFACE_MAP_ENTRY(nsIEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsISerialEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsISupportsPriority)
+  NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIDelayedRunnableObserver, mEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsIDirectTaskDispatcher)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIThread)
   if (aIID.Equals(NS_GET_IID(nsIClassInfo))) {
@@ -236,6 +237,9 @@ class nsThreadShutdownEvent : public Runnable {
         mShutdownContext(aCtx) {}
   NS_IMETHOD Run() override {
     mThread->mShutdownContext = mShutdownContext;
+    if (mThread->mEventTarget) {
+      mThread->mEventTarget->NotifyShutdown();
+    }
     MessageLoop::current()->Quit();
     return NS_OK;
   }
@@ -974,10 +978,7 @@ mozilla::PerformanceCounter* nsThread::GetPerformanceCounterBase(
     nsIRunnable* aEvent) {
   RefPtr<SchedulerGroup::Runnable> docRunnable = do_QueryObject(aEvent);
   if (docRunnable) {
-    mozilla::dom::DocGroup* docGroup = docRunnable->DocGroup();
-    if (docGroup) {
-      return docGroup->GetPerformanceCounter();
-    }
+    return docRunnable->GetPerformanceCounter();
   }
   return nullptr;
 }
@@ -1389,6 +1390,18 @@ NS_IMETHODIMP nsThread::HaveDirectTasks(bool* aValue) {
 nsIEventTarget* nsThread::EventTarget() { return this; }
 
 nsISerialEventTarget* nsThread::SerialEventTarget() { return this; }
+
+void nsThread::OnDelayedRunnableCreated(mozilla::DelayedRunnable* aRunnable) {
+  mEventTarget->OnDelayedRunnableCreated(aRunnable);
+}
+
+void nsThread::OnDelayedRunnableScheduled(mozilla::DelayedRunnable* aRunnable) {
+  mEventTarget->OnDelayedRunnableScheduled(aRunnable);
+}
+
+void nsThread::OnDelayedRunnableRan(mozilla::DelayedRunnable* aRunnable) {
+  mEventTarget->OnDelayedRunnableRan(aRunnable);
+}
 
 nsLocalExecutionRecord nsThread::EnterLocalExecution() {
   MOZ_RELEASE_ASSERT(!mIsInLocalExecutionMode);

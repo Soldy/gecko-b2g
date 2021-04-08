@@ -15,6 +15,7 @@
 #include "mozilla/dom/AudioNode.h"
 #include "mozilla/dom/AudioStreamTrack.h"
 #include "mozilla/dom/Blob.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/MediaStreamTrack.h"
 #include "mozilla/dom/MutableBlobStorage.h"
 #include "mozilla/dom/VideoStreamTrack.h"
@@ -37,6 +38,11 @@
 #ifdef MOZ_WEBM_ENCODER
 #  include "VP8TrackEncoder.h"
 #  include "WebMWriter.h"
+#endif
+
+#ifdef MOZ_WIDGET_GONK
+#  include "OmxTrackEncoder.h"
+#  include "ISOMediaWriter.h"
 #endif
 
 mozilla::LazyLogModule gMediaEncoderLog("MediaEncoder");
@@ -478,6 +484,15 @@ MediaEncoder::~MediaEncoder() {
   MOZ_ASSERT(!mPipeTrack);
 }
 
+/* static */
+bool MediaEncoder::IsOMXEncoderEnabled() {
+#ifdef MOZ_WIDGET_GONK
+  return true;
+#else
+  return false;
+#endif
+}
+
 void MediaEncoder::EnsureGraphTrackFrom(MediaTrack* aTrack) {
   if (mGraphTrack) {
     return;
@@ -688,6 +703,12 @@ already_AddRefed<MediaEncoder> MediaEncoder::CreateEncoder(
                                                    *encodedVideoQueue,
                                                    FrameDroppingMode::DISALLOW);
       }
+#ifdef MOZ_WIDGET_GONK
+    } else if (codec.EqualsLiteral("amr")) {
+      audioEncoder =
+          MakeUnique<OmxAMRAudioTrackEncoder>(aTrackRate, *encodedAudioQueue);
+      NS_ENSURE_TRUE(audioEncoder, nullptr);
+#endif
     } else {
       MOZ_CRASH("Unknown codec");
     }
@@ -705,6 +726,11 @@ already_AddRefed<MediaEncoder> MediaEncoder::CreateEncoder(
     MOZ_ASSERT(audioEncoder);
     MOZ_ASSERT(!videoEncoder);
     writer = MakeUnique<OggWriter>();
+#ifdef MOZ_WIDGET_GONK
+  } else if (mimeType->Type() == MEDIAMIMETYPE(AUDIO_3GPP)) {
+    writer =
+        MakeUnique<ISOMediaWriter>(aTrackTypes, ISOMediaWriter::TYPE_FRAG_3GP);
+#endif
   }
   NS_ENSURE_TRUE(writer, nullptr);
 

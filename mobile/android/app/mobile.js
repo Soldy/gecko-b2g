@@ -102,6 +102,9 @@ pref("network.predictor.preserve", 50); // percentage of predictor data to keep 
 // Use JS mDNS as a fallback
 pref("network.mdns.use_js_fallback", false);
 
+// CookieBehavior setting for the private browsing.
+pref("network.cookie.cookieBehavior.pbmode", 4);
+
 /* How many times should have passed before the remote tabs list is refreshed */
 pref("browser.display.remotetabs.timeout", 10);
 
@@ -469,8 +472,6 @@ pref("devtools.console.stdout.chrome", true);
 // controls if we want camera support
 pref("device.camera.enabled", true);
 pref("media.realtime_decoder.enabled", true);
-
-pref("javascript.options.showInConsole", true);
 
 pref("full-screen-api.enabled", true);
 

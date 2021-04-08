@@ -90,8 +90,7 @@ class InputMethodServiceParent final
 
  private:
   ~InputMethodServiceParent();
-  nsDataHashtable<nsUint32HashKey, RefPtr<nsIEditableSupportListener>>
-      mRequestMap;
+  nsTHashMap<nsUint32HashKey, RefPtr<nsIEditableSupportListener>> mRequestMap;
 };
 
 }  // namespace dom

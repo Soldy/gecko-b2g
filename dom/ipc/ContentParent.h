@@ -34,7 +34,8 @@
 #include "mozilla/UniquePtr.h"
 
 #include "nsClassHashtable.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
+#include "nsTHashSet.h"
 #include "nsPluginTags.h"
 #include "nsHashKeys.h"
 #include "nsIAsyncShutdown.h"
@@ -337,16 +338,6 @@ class ContentParent final
 #endif
 
   mozilla::ipc::IPCResult RecvCreateGMPService();
-
-  mozilla::ipc::IPCResult RecvLoadPlugin(
-      const uint32_t& aPluginId, nsresult* aRv, uint32_t* aRunID,
-      Endpoint<PPluginModuleParent>* aEndpoint);
-
-  mozilla::ipc::IPCResult RecvMaybeReloadPlugins();
-
-  mozilla::ipc::IPCResult RecvConnectPluginBridge(
-      const uint32_t& aPluginId, nsresult* aRv,
-      Endpoint<PPluginModuleParent>* aEndpoint);
 
   mozilla::ipc::IPCResult RecvUngrabPointer(const uint32_t& aTime);
 
@@ -686,12 +677,12 @@ class ContentParent final
       const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
       uint64_t aActionId);
   mozilla::ipc::IPCResult RecvAdjustWindowFocus(
-      const MaybeDiscarded<BrowsingContext>& aContext, bool aCheckPermission,
-      bool aIsVisible);
+      const MaybeDiscarded<BrowsingContext>& aContext, bool aIsVisible,
+      uint64_t aActionId);
   mozilla::ipc::IPCResult RecvClearFocus(
       const MaybeDiscarded<BrowsingContext>& aContext);
   mozilla::ipc::IPCResult RecvSetFocusedBrowsingContext(
-      const MaybeDiscarded<BrowsingContext>& aContext);
+      const MaybeDiscarded<BrowsingContext>& aContext, uint64_t aActionId);
   mozilla::ipc::IPCResult RecvSetActiveBrowsingContext(
       const MaybeDiscarded<BrowsingContext>& aContext, uint64_t aActionId);
   mozilla::ipc::IPCResult RecvUnsetActiveBrowsingContext(
@@ -756,7 +747,7 @@ class ContentParent final
   static nsClassHashtable<nsCStringHashKey, nsTArray<ContentParent*>>*
       sBrowserContentParents;
   static UniquePtr<nsTArray<ContentParent*>> sPrivateContent;
-  static UniquePtr<nsDataHashtable<nsUint32HashKey, ContentParent*>>
+  static UniquePtr<nsTHashMap<nsUint32HashKey, ContentParent*>>
       sJSPluginContentParents;
   static UniquePtr<LinkedList<ContentParent>> sContentParents;
 
@@ -1066,13 +1057,6 @@ class ContentParent final
 
   bool DeallocPBenchmarkStorageParent(PBenchmarkStorageParent* aActor);
 
-  PPresentationParent* AllocPPresentationParent();
-
-  bool DeallocPPresentationParent(PPresentationParent* aActor);
-
-  virtual mozilla::ipc::IPCResult RecvPPresentationConstructor(
-      PPresentationParent* aActor) override;
-
 #ifdef MOZ_WEBSPEECH
   PSpeechSynthesisParent* AllocPSpeechSynthesisParent();
   bool DeallocPSpeechSynthesisParent(PSpeechSynthesisParent* aActor);
@@ -1178,7 +1162,8 @@ class ContentParent final
 
   mozilla::ipc::IPCResult RecvLoadURIExternal(
       nsIURI* uri, nsIPrincipal* triggeringPrincipal,
-      const MaybeDiscarded<BrowsingContext>& aContext);
+      const MaybeDiscarded<BrowsingContext>& aContext,
+      bool aWasExternallyTriggered);
   mozilla::ipc::IPCResult RecvExtProtocolChannelConnectParent(
       const uint64_t& registrarId);
 
@@ -1299,6 +1284,8 @@ class ContentParent final
 
   mozilla::ipc::IPCResult RecvCreateAudioIPCConnection(
       CreateAudioIPCConnectionResolver&& aResolver);
+
+  already_AddRefed<extensions::PExtensionsParent> AllocPExtensionsParent();
 
   PFileDescriptorSetParent* AllocPFileDescriptorSetParent(
       const mozilla::ipc::FileDescriptor&);
@@ -1491,10 +1478,6 @@ class ContentParent final
       uint64_t aHistoryEpoch, bool aRequireUserInteraction,
       HistoryGoResolver&& aResolveRequestedIndex);
 
-  mozilla::ipc::IPCResult RecvSessionHistoryUpdate(
-      const MaybeDiscarded<BrowsingContext>& aContext, const int32_t& aIndex,
-      const int32_t& aLength, const nsID& aChangeID);
-
   mozilla::ipc::IPCResult RecvSynchronizeLayoutHistoryState(
       const MaybeDiscarded<BrowsingContext>& aContext,
       nsILayoutHistoryState* aState);
@@ -1504,6 +1487,10 @@ class ContentParent final
 
   mozilla::ipc::IPCResult RecvSessionHistoryEntryScrollRestorationIsManual(
       const MaybeDiscarded<BrowsingContext>& aContext, const bool& aIsManual);
+
+  mozilla::ipc::IPCResult RecvSessionHistoryEntryScrollPosition(
+      const MaybeDiscarded<BrowsingContext>& aContext, const int32_t& aX,
+      const int32_t& aY);
 
   mozilla::ipc::IPCResult RecvSessionHistoryEntryCacheKey(
       const MaybeDiscarded<BrowsingContext>& aContext,
@@ -1516,6 +1503,9 @@ class ContentParent final
   mozilla::ipc::IPCResult RecvGetLoadingSessionHistoryInfoFromParent(
       const MaybeDiscarded<BrowsingContext>& aContext,
       GetLoadingSessionHistoryInfoFromParentResolver&& aResolver);
+
+  mozilla::ipc::IPCResult RecvRemoveFromBFCache(
+      const MaybeDiscarded<BrowsingContext>& aContext);
 
   mozilla::ipc::IPCResult RecvSetActiveSessionHistoryEntry(
       const MaybeDiscarded<BrowsingContext>& aContext,
@@ -1723,7 +1713,7 @@ class ContentParent final
   // GetFilesHelper can be aborted by receiving RecvDeleteGetFilesRequest.
   nsRefPtrHashtable<nsIDHashKey, GetFilesHelper> mGetFilesPendingRequests;
 
-  nsTHashtable<nsCStringHashKey> mActivePermissionKeys;
+  nsTHashSet<nsCString> mActivePermissionKeys;
 
   nsTArray<nsCString> mBlobURLs;
 
@@ -1752,7 +1742,7 @@ class ContentParent final
   static bool sEarlySandboxInit;
 #endif
 
-  nsTHashtable<nsRefPtrHashKey<BrowsingContextGroup>> mGroups;
+  nsTHashSet<RefPtr<BrowsingContextGroup>> mGroups;
 
   // See `BrowsingContext::mEpochs` for an explanation of this field.
   uint64_t mBrowsingContextFieldEpoch = 0;

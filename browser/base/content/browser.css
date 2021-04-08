@@ -17,39 +17,10 @@ body {
   text-rendering: optimizeLegibility;
   min-height: 95px;
   min-width: 95px;
-
-  /* variables */
-  --panelui-subview-transition-duration: 150ms;
-  --lwt-additional-images: none;
-  --lwt-background-alignment: right top;
-  --lwt-background-tiling: no-repeat;
-
-  --toolbar-bgcolor: var(--toolbar-non-lwt-bgcolor);
-  --toolbar-bgimage: var(--toolbar-non-lwt-bgimage);
-  --toolbar-color: var(--toolbar-non-lwt-textcolor);
 }
 
 :root:-moz-locale-dir(rtl) {
   direction: rtl;
-}
-
-:root:-moz-lwtheme {
-  --toolbar-bgcolor: rgba(255,255,255,.4);
-  --toolbar-bgimage: none;
-  --toolbar-color: var(--lwt-text-color, inherit);
-
-  background-color: var(--lwt-accent-color);
-  color: var(--lwt-text-color);
-}
-
-:root:-moz-lwtheme[lwtheme-image] {
-  background-image: var(--lwt-header-image) !important;
-  background-repeat: no-repeat;
-  background-position: right top !important;
-}
-
-:root:-moz-lwtheme:-moz-window-inactive {
-  background-color: var(--lwt-accent-color-inactive, var(--lwt-accent-color));
 }
 
 :root:not([chromehidden~="toolbar"]) {
@@ -72,12 +43,51 @@ body {
   -moz-box-flex: 1;
 }
 
-/* Set additional backgrounds alignment relative to toolbox */
-
 #navigator-toolbox:-moz-lwtheme {
   background-image: var(--lwt-additional-images);
-  background-position: var(--lwt-background-alignment);
   background-repeat: var(--lwt-background-tiling);
+  background-position: var(--lwt-background-alignment);
+}
+
+/* TODO bug 1695280: Remove these media selectors and merge the rule below
+   with the ruleset above. We must set background properties on :root and not
+   #navigator-toolbox on Windows 7/8 due to a WebRender bug that hides the
+   minimize/maximize/close buttons. */
+@media not (-moz-os-version: windows-win7) {
+  @media not (-moz-os-version: windows-win8) {
+    #navigator-toolbox:-moz-lwtheme {
+      background-color: var(--lwt-accent-color);
+    }
+
+    /* When a theme defines both theme_frame and additional_backgrounds, show
+       the latter atop the former. */
+   :root[lwtheme-image] #navigator-toolbox {
+     background-image: var(--lwt-header-image), var(--lwt-additional-images);
+     background-repeat: no-repeat, var(--lwt-background-tiling);
+     background-position: right top, var(--lwt-background-alignment);
+   }
+
+   #navigator-toolbox:-moz-window-inactive:-moz-lwtheme {
+     background-color: var(--lwt-accent-color-inactive, var(--lwt-accent-color));
+   }
+  }
+}
+/* TODO bug 1695280: Remove this block. */
+@media (-moz-os-version: windows-win7),
+       (-moz-os-version: windows-win8) {
+  :root:-moz-lwtheme {
+    background-color: var(--lwt-accent-color);
+  }
+
+  :root[lwtheme-image] {
+    background-image: var(--lwt-header-image) !important;
+    background-repeat: no-repeat;
+    background-position: right top !important;
+  }
+
+  :root:-moz-lwtheme:-moz-window-inactive {
+    background-color: var(--lwt-accent-color-inactive, var(--lwt-accent-color));
+  }
 }
 
 .search-one-offs[compact=true] .search-setting-button,
@@ -143,6 +153,12 @@ panelview[mainview] > .panel-header {
   overflow: visible;
   transition: height var(--panelui-subview-transition-duration);
 }
+
+@media (-moz-proton-doorhangers) {
+:is(panel, menupopup)::part(arrow) {
+  display: none;
+}
+} /** END Proton **/
 
 @supports -moz-bool-pref("layout.css.emulate-moz-box-with-flex") {
   #tabbrowser-tabs {
@@ -234,6 +250,7 @@ panelview[mainview] > .panel-header {
   pointer-events: none; /* avoid blocking dragover events on scroll buttons */
 }
 
+#tabbrowser-tabs[movingtab] > #tabbrowser-arrowscrollbox > .tabbrowser-tab[fadein]:not([selected]):not([multiselected]),
 .tabbrowser-tab[tab-grouping],
 .tabbrowser-tab[tabdrop-samewindow] {
   transition: transform 200ms var(--animation-easing-function);
@@ -391,7 +408,7 @@ toolbarpaletteitem {
 :root[inDOMFullscreen] #fullscr-toggler,
 :root[inDOMFullscreen] #sidebar-box,
 :root[inDOMFullscreen] #sidebar-splitter,
-:root[inFullscreen]:not([OSXLionFullscreen]) toolbar:not([fullscreentoolbar=true]),
+:root[inFullscreen]:not([macOSNativeFullscreen]) toolbar:not([fullscreentoolbar=true]),
 :root[inFullscreen] .global-notificationbox {
   visibility: collapse;
 }
@@ -754,6 +771,15 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
     display: none;
   }
 }
+
+@media (-moz-proton-urlbar) {
+  /* The page actions menu is hidden by default, it is only shown in small
+     windows as the overflow target of multiple page action buttons */
+  #pageActionButton {
+    visibility: collapse;
+  }
+}
+
 /* 680px is just below half of popular 1366px wide screens, so when putting two
    browser windows next to each other on such a screen, they'll be above this
    threshold. */
@@ -761,16 +787,22 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
   /* Page action buttons are duplicated in the page action menu so we can
      safely hide them in small windows. */
   #pageActionSeparator,
-  #pageActionButton ~ .urlbar-page-action {
+  #pageActionButton[multiple-children] ~ .urlbar-page-action {
     display: none;
+  }
+
+  @media (-moz-proton-urlbar) {
+    #pageActionButton[multiple-children] {
+      visibility: visible;
+    }
   }
 }
 @media (max-width: 550px) {
   #urlbar-container {
-    min-width: calc(225px + 24px + 2 * var(--toolbarbutton-inner-padding));
+    min-width: calc(216px + 24px + 2 * var(--toolbarbutton-inner-padding));
   }
   #nav-bar[downloadsbuttonshown] #urlbar-container {
-    min-width: 225px;
+    min-width: 216px;
   }
   #identity-icon-box {
     max-width: 70px;
@@ -779,6 +811,17 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
     display: none;
   }
 }
+
+@media not (-moz-proton) {
+@media (max-width: 550px) {
+  #urlbar-container {
+    min-width: calc(225px + 24px + 2 * var(--toolbarbutton-inner-padding));
+  }
+  #nav-bar[downloadsbuttonshown] #urlbar-container {
+    min-width: 225px;
+  }
+}
+} /*** END !proton ***/
 
 /* Flexible spacer sizing (gets overridden in the navbar) */
 toolbarpaletteitem[place=toolbar][id^=wrapper-customizableui-special-spring],
@@ -859,12 +902,6 @@ menupopup[emptyplacesresult="true"] > .hide-if-empty-places-result {
   transform: rotate(180deg);
 }
 
-/* Pocket */
-:root[pocketdisabled=true] #context-pocket,
-:root[pocketdisabled=true] #context-savelinktopocket {
-  display: none;
-}
-
 /*  Full Screen UI */
 
 #fullscr-toggler {
@@ -878,6 +915,7 @@ menupopup[emptyplacesresult="true"] > .hide-if-empty-places-result {
 
 #fullscreen-and-pointerlock-wrapper {
   position: fixed;
+  z-index: 2147483647 !important;
   width: 100vw;
   height: 100vh;
   top: 0;
@@ -886,7 +924,6 @@ menupopup[emptyplacesresult="true"] > .hide-if-empty-places-result {
 
 .pointerlockfswarning {
   position: fixed;
-  z-index: 2147483647 !important;
   visibility: visible;
   transition: transform 300ms ease-in;
   /* To center the warning box horizontally,
@@ -909,7 +946,7 @@ menupopup[emptyplacesresult="true"] > .hide-if-empty-places-result {
   /* Use -10px to hide the border and border-radius on the top */
   transform: translate(-50%, -10px);
 }
-:root[OSXLionFullscreen] .pointerlockfswarning[ontop] {
+:root[macOSNativeFullscreen] .pointerlockfswarning[ontop] {
   transform: translate(-50%, 80px);
 }
 
@@ -1035,8 +1072,12 @@ toolbarpaletteitem[place="palette"] > #downloads-button[indicator] > .toolbarbut
   scrollbar-width: var(--content-select-scrollbar-width, auto);
 }
 
-#ContentSelectDropdown > menupopup::part(arrowscrollbox) {
+#ContentSelectDropdown > menupopup[customoptionstyling="true"]::part(arrowscrollbox) {
+  /* When authors specify a custom background, we use background-image to specify the author-supplied color.
+   * In that case, we don't want stuff like custom appearance or custom
+   * backgrounds, so we make sure to apply it on top of the default background. */
   background-image: var(--content-select-background-image, none);
+  background-color: -moz-Combobox;
 }
 
 /* Indent options in optgroups */
@@ -1251,6 +1292,10 @@ toolbarpaletteitem > toolbaritem {
   -moz-box-pack: center;
 }
 
+toolbarpaletteitem > #stop-reload-button {
+  -moz-box-pack: inherit;
+}
+
 :root[customizing=true] .addon-banner-item,
 :root[customizing=true] .panel-banner-item {
   display: none;
@@ -1371,12 +1416,23 @@ toolbarpaletteitem > toolbaritem {
 #pageActionContextMenu > .pageActionContextMenuItem {
   visibility: collapse;
 }
+
+#pageActionContextMenu[state=extensionPinned] > .pageActionContextMenuItem.manageExtensionItem,
+#pageActionContextMenu[state=extensionUnpinned] > .pageActionContextMenuItem.manageExtensionItem,
+#pageActionContextMenu[state=extensionPinned] > .pageActionContextMenuItem.removeExtensionItem,
+#pageActionContextMenu[state=extensionUnpinned] > .pageActionContextMenuItem.removeExtensionItem {
+  visibility: visible;
+}
+
+@media not (-moz-proton-urlbar) {
+/* These pin/unpin menu options should be removed after Proton is released */
 #pageActionContextMenu[state=builtInPinned] > .pageActionContextMenuItem.builtInPinned,
 #pageActionContextMenu[state=builtInUnpinned] > .pageActionContextMenuItem.builtInUnpinned,
 #pageActionContextMenu[state=extensionPinned] > .pageActionContextMenuItem.extensionPinned,
 #pageActionContextMenu[state=extensionUnpinned] > .pageActionContextMenuItem.extensionUnpinned {
   visibility: visible;
 }
+} /*** !proton ***/
 
 /* Print pending */
 .printSettingsBrowser {
@@ -1496,26 +1552,28 @@ toolbar[keyNav=true]:not([collapsed=true], [customizing=true]) toolbartabstop {
 }
 
 .dialogOverlay[topmost="true"] {
-  background-color: rgba(0,0,0,0.5);
   z-index: 1;
 }
 
 .dialogBox {
   background-clip: content-box;
-  box-shadow: 0 2px 6px 0 rgba(0,0,0,0.3);
+  box-shadow: 0 2px 14px 0 rgba(58, 57, 68, 0.2);
   display: -moz-box;
   margin: 0;
-  /* Make dialogs overlap with upper chrome UI */
-  margin-top: -5px;
   padding: 0;
   overflow-x: auto;
+}
+
+@media (-moz-proton) {
+.dialogBox {
+  border-radius: 8px;
+}
 }
 
 .dialogBox[resizable="true"] {
   resize: both;
   overflow: hidden;
   min-height: 20em;
-  min-width: 66ch;
 }
 
 .dialogBox[sizeto="available"] {
@@ -1557,16 +1615,36 @@ toolbar[keyNav=true]:not([collapsed=true], [customizing=true]) toolbartabstop {
   }
 }
 
+.content-prompt-dialog > .dialogOverlay {
+  display: grid;
+  place-content: center;
+  /* 90% for 5% top/bottom margins, the document height so that
+   * smaller dialogs don't become too big. */
+  grid-auto-rows: min(90%, var(--doc-height-px));
+}
+
+#window-modal-dialog > .dialogOverlay > .dialogBox,
+.tab-prompt-dialog > .dialogOverlay > .dialogBox:not([sizeto=available]) {
+  /* For content-prompts, we size the item using the grid-auto-rows.
+   * For tab and window prompts, where we fully control the content,
+   * we use the document height directly.  */
+  min-height: var(--doc-height-px);
+}
+
+
+:not(.content-prompt-dialog) > .dialogOverlay > .dialogBox {
+  /* Make dialogs overlap with upper chrome UI. */
+  margin-top: -5px;
+}
+
 .dialogFrame {
   margin: 0;
   -moz-box-flex: 1;
   /* Default dialog dimensions */
-  width: 66ch;
-}
-
-.content-prompt-dialog > .dialogOverlay {
-  display: grid;
-  place-content: center;
+  width: 59.5ch;
+  /* will get overridden, but need to change the default so small
+   * dialogs don't end up being 150px tall */
+  height: 80px;
 }
 
 /* Override default <html:dialog> styles */
@@ -1575,8 +1653,16 @@ toolbar[keyNav=true]:not([collapsed=true], [customizing=true]) toolbartabstop {
   background-color: transparent;
 }
 
+.dialogOverlay[topmost="true"],
 #window-modal-dialog::backdrop {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(91, 91, 102, 0.45);
+}
+
+/* For the window-modal dialog, the background is supplied by the HTML dialog
+ * backdrop, so the dialogOverlay background above "double backgrounds" - so
+ * we remove it here: */
+#window-modal-dialog > .dialogOverlay[topmost="true"] {
+  background-color: transparent;
 }
 
 /* Hide tab-modal dialogs when a window-modal one is up. */
@@ -1587,3 +1673,11 @@ toolbar[keyNav=true]:not([collapsed=true], [customizing=true]) toolbartabstop {
 /**
  * End Dialogs
  */
+
+@media not (-moz-proton-doorhangers) {
+/* Password update/save doorhanger */
+#password-notification-username,
+#password-notification-password {
+  margin-inline-start: 6px;
+}
+} /** END not Proton **/

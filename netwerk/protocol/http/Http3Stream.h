@@ -33,7 +33,7 @@ class Http3Stream final : public nsAHttpSegmentReader,
   nsresult TryActivating();
 
   // TODO priorities
-  void TopLevelOuterContentWindowIdChanged(uint64_t windowId){};
+  void TopBrowsingContextIdChanged(uint64_t id){};
 
   [[nodiscard]] nsresult ReadSegments(nsAHttpSegmentReader*);
   [[nodiscard]] nsresult WriteSegments(nsAHttpSegmentWriter*, uint32_t,
@@ -134,9 +134,6 @@ class Http3Stream final : public nsAHttpSegmentReader,
   bool mResetRecv;
   nsTArray<uint8_t> mFlatResponseHeaders;
   uint32_t mRequestBodyLenRemaining;
-
-  // The underlying socket transport object is needed to propogate some events
-  RefPtr<nsISocketTransport> mSocketTransport;
 
   // For Progress Events
   uint64_t mTotalSent;

@@ -6,17 +6,17 @@
 add_task(async function test_support_tab_line() {
   for (let protonTabsEnabled of [true, false]) {
     SpecialPowers.pushPrefEnv({
-      set: [["browser.proton.tabs.enabled", protonTabsEnabled]],
+      set: [["browser.proton.enabled", protonTabsEnabled]],
     });
     let newWin = await BrowserTestUtils.openNewWindowWithFlushedXULCacheForMozSupports();
 
-    const TAB_LINE_COLOR = "#9400ff";
+    const TAB_LINE_COLOR = "#ff0000";
     let extension = ExtensionTestUtils.loadExtension({
       manifest: {
         theme: {
           colors: {
             frame: ACCENT_COLOR,
-            tab_background_text: TEXT_COLOR,
+            tab_background_text: "#000",
             tab_line: TAB_LINE_COLOR,
           },
         },
@@ -30,16 +30,20 @@ add_task(async function test_support_tab_line() {
       ".tabbrowser-tab[selected]"
     );
     let line = selectedTab.querySelector(".tab-line");
+    let tab = selectedTab.querySelector(".tab-background");
+    let element = protonTabsEnabled ? tab : line;
+    let property = protonTabsEnabled ? "boxShadow" : "backgroundColor";
+    let computedValue = newWin.getComputedStyle(element)[property];
+    let expectedColor = `rgb(${hexToRGB(TAB_LINE_COLOR).join(", ")})`;
     if (protonTabsEnabled) {
-      Assert.equal(
-        newWin.getComputedStyle(line).display,
-        "none",
-        "Tab line should not be displayed when Proton is enabled"
+      Assert.ok(
+        computedValue.includes(expectedColor),
+        `Tab line should be displayed in the box shadow of the tab when Proton is enabled: ${computedValue}`
       );
     } else {
       Assert.equal(
-        newWin.getComputedStyle(line).backgroundColor,
-        `rgb(${hexToRGB(TAB_LINE_COLOR).join(", ")})`,
+        computedValue,
+        expectedColor,
         "Tab line should have theme color"
       );
     }

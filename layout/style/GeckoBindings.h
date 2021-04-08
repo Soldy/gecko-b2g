@@ -295,7 +295,7 @@ NS_DECL_THREADSAFE_FFI_REFCOUNTING(mozilla::SharedFontList, SharedFontList);
 
 // will not run destructors on dst, give it uninitialized memory
 // font_id is LookAndFeel::FontID
-void Gecko_nsFont_InitSystem(nsFont* dst, int32_t font_id,
+void Gecko_nsFont_InitSystem(nsFont* dst, mozilla::StyleSystemFont font_id,
                              const nsStyleFont* font,
                              const mozilla::dom::Document*);
 
@@ -538,6 +538,8 @@ bool Gecko_IsDocumentBody(const mozilla::dom::Element* element);
 nscolor Gecko_GetLookAndFeelSystemColor(int32_t color_id,
                                         const mozilla::dom::Document*);
 
+int32_t Gecko_GetLookAndFeelInt(int32_t int_id);
+
 void Gecko_AddPropertyToSet(nsCSSPropertyIDSet*, nsCSSPropertyID);
 
 // Style-struct management.
@@ -623,8 +625,8 @@ void Gecko_MediaFeatures_GetDeviceSize(const mozilla::dom::Document*,
 
 float Gecko_MediaFeatures_GetResolution(const mozilla::dom::Document*);
 bool Gecko_MediaFeatures_PrefersReducedMotion(const mozilla::dom::Document*);
-mozilla::StyleContrastPref Gecko_MediaFeatures_PrefersContrast(
-    const mozilla::dom::Document*, const bool aForcedColors);
+mozilla::StylePrefersContrast Gecko_MediaFeatures_PrefersContrast(
+    const mozilla::dom::Document*);
 mozilla::StylePrefersColorScheme Gecko_MediaFeatures_PrefersColorScheme(
     const mozilla::dom::Document*);
 mozilla::StylePrefersTextSize Gecko_MediaFeatures_PrefersTextSize(
@@ -637,10 +639,6 @@ mozilla::PointerCapabilities Gecko_MediaFeatures_AllPointerCapabilities(
     const mozilla::dom::Document*);
 
 float Gecko_MediaFeatures_GetDevicePixelRatio(const mozilla::dom::Document*);
-
-bool Gecko_MediaFeatures_HasSystemMetric(const mozilla::dom::Document*,
-                                         nsAtom* metric,
-                                         bool is_accessible_from_content);
 
 bool Gecko_MediaFeatures_IsResourceDocument(const mozilla::dom::Document*);
 nsAtom* Gecko_MediaFeatures_GetOperatingSystemVersion(

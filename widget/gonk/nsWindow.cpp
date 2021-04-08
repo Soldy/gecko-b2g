@@ -290,7 +290,7 @@ void nsWindow::DispatchTouchInputViaAPZ(MultiTouchInput& aInput) {
   mozilla::layers::APZEventResult result =
       mAPZC->InputBridge()->ReceiveInputEvent(aInput);
   // If the APZ says to drop it, then we drop it
-  if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+  if (result.GetStatus() == nsEventStatus_eConsumeNoDefault) {
     return;
   }
 

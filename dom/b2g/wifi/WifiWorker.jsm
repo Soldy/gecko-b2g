@@ -1206,7 +1206,8 @@ var WifiManager = (function() {
         let networkId = WifiConfigManager.getNetworkId(config);
         WifiConfigManager.updateLastSelectedNetwork(networkId, ok => {
           manager.disconnect(function() {
-            handleScanRequest(true, function() {});
+            config.netId = networkId;
+            manager.startToConnect(config, function() {});
           });
         });
       });
@@ -1805,6 +1806,13 @@ var WifiManager = (function() {
               callback(ok);
             }
           );
+
+          gNetworkService.setIpv6PrivacyExtensions(
+            manager.ifname,
+            true,
+            function() {}
+          );
+          gNetworkService.setIpv6Status(manager.ifname, false, function() {});
           BinderServices.wifi.onWifiStateChanged(
             WifiConstants.WIFI_STATE_ENABLED
           );
@@ -1824,7 +1832,7 @@ var WifiManager = (function() {
         imsCapability == Ci.nsIImsRegHandler.IMS_CAPABILITY_VOICE_OVER_WIFI ||
         imsCapability == Ci.nsIImsRegHandler.IMS_CAPABILITY_VIDEO_OVER_WIFI
       ) {
-        notify("registerimslistener", { register: true });
+        notify("registerimslistener", { register: true, callback });
       } else {
         manager.setWifiDisable(callback);
       }
@@ -1840,8 +1848,8 @@ var WifiManager = (function() {
     // Note these following calls ignore errors. If we fail to kill the
     // supplicant gracefully, then we need to continue telling it to die
     // until it does.
-    let doDisableWifi = function() {
-      manager.state = "UNINITIALIZED";
+    manager.state = "UNINITIALIZED";
+    manager.disconnect(function() {
       gNetworkService.setInterfaceConfig(
         { ifname: manager.ifname, link: "down" },
         function(ok) {
@@ -1854,17 +1862,16 @@ var WifiManager = (function() {
           });
         }
       );
+    });
 
-      // We are going to terminate the connection between wpa_supplicant.
-      // Stop the polling timer immediately to prevent connection info update
-      // command blocking in control thread until socket timeout.
-      notify("stopconnectioninfotimer");
+    // We are going to terminate the connection between wpa_supplicant.
+    // Stop the polling timer immediately to prevent connection info update
+    // command blocking in control thread until socket timeout.
+    notify("stopconnectioninfotimer");
 
-      postDhcpSetup(function() {
-        manager.connectionDropped(function() {});
-      });
-    };
-    doDisableWifi();
+    postDhcpSetup(function() {
+      manager.connectionDropped(function() {});
+    });
   };
 
   // Get wifi interface and load wifi driver when enable Ap mode.
@@ -2054,11 +2061,19 @@ var WifiManager = (function() {
 
       let config = Object.create(null);
       for (let field in result.wifiConfig) {
-        config[field] = result.wifiConfig[field];
+        let value = result.wifiConfig[field];
+        if (typeof value == "string" && value.length == 0) {
+          continue;
+        }
+        config[field] = value;
       }
       config.bssid = WifiConstants.SUPPLICANT_BSSID_ANY;
       // Ignore the network ID from supplicant.
       delete config.netId;
+      // For OPEN network, 'psk' is invalid
+      if (config.keyMgmt === "NONE") {
+        delete config.psk;
+      }
 
       // Save WPS network configurations into config store.
       manager.saveNetwork(config, ok => {
@@ -2739,7 +2754,6 @@ function WifiWorker() {
       self._macAddress = result.macAddress;
       debug("Got mac: " + self._macAddress);
       self._fireEvent("wifiUp", { macAddress: self._macAddress });
-      self.requestDone();
     });
 
     // Use external processing for SIM/USIM operations.
@@ -2757,7 +2771,6 @@ function WifiWorker() {
 
     // Notify everybody, even if they didn't ask us to come up.
     self._fireEvent("wifiDown", {});
-    self.requestDone();
   };
 
   WifiManager.onnetworkdisable = function() {
@@ -2977,6 +2990,16 @@ function WifiWorker() {
 
     self._ipAddress = this.info.ipaddr_str;
 
+    if (autoRoaming) {
+      // TODO: We're doing this because we only support dual stack currently.
+      // We'll need arp/ns detection mechanism to achieve ipv4/ipv6 independent.
+
+      // Reset IPv6 interface to trigger neighbor solicit and
+      // router solicit immediately.
+      gNetworkService.setIpv6Status(WifiManager.ifname, false, function() {});
+      gNetworkService.setIpv6Status(WifiManager.ifname, true, function() {});
+    }
+
     // We start the connection information timer when we associate, but
     // don't have our IP address until here. Make sure that we fire a new
     // connectionInformation event with the IP address the next time the
@@ -3086,6 +3109,10 @@ function WifiWorker() {
             network.hasInternet = known.hasInternet;
           }
 
+          if ("captivePortalDetected" in known) {
+            network.captivePortalDetected = known.captivePortalDetected;
+          }
+
           if (
             network.netId == wifiInfo.networkId &&
             self._ipAddress &&
@@ -3173,12 +3200,15 @@ function WifiWorker() {
     }
     if (this.register) {
       imsService.registerListener(self);
-      let imsDelayTimeout = 7000;
-      imsDelayTimeout = Services.prefs.getIntPref("vowifi.delay.timer", 5000);
+      let imsDelayTimeout = Services.prefs.getIntPref(
+        "vowifi.delay.timer",
+        7000
+      );
       debug("delay " + imsDelayTimeout / 1000 + " secs for disabling wifi");
       self._wifiDisableDelayId = setTimeout(
         WifiManager.setWifiDisable,
-        imsDelayTimeout
+        imsDelayTimeout,
+        this.callback
       );
     } else {
       if (self._wifiDisableDelayId === null) {
@@ -3294,12 +3324,15 @@ WifiWorker.prototype = {
   notifyPreferredProfileChanged(aProfile) {},
 
   notifyCapabilityChanged(aCapability, aUnregisteredReason) {
+    let self = this;
     debug("notifyCapabilityChanged: aCapability = " + aCapability);
     if (
       aCapability != Ci.nsIImsRegHandler.IMS_CAPABILITY_VOICE_OVER_WIFI &&
       aCapability != Ci.nsIImsRegHandler.IMS_CAPABILITY_VIDEO_OVER_WIFI
     ) {
-      WifiManager.setWifiDisable();
+      WifiManager.setWifiDisable(function() {
+        self.requestDone();
+      });
     }
   },
 
@@ -4033,10 +4066,11 @@ WifiWorker.prototype = {
     );
 
     if (!enabled) {
-      // TODO: NS_ERROR_UNEXPECTED on nsIPrefBranch.getBoolPref
-      // let isWifiAffectTethering = Services.prefs.getBoolPref("wifi.affect.tethering");
+      let isWifiAffectTethering = Services.prefs.getBoolPref(
+        "wifi.affect.tethering"
+      );
       if (
-        /* isWifiAffectTethering && */
+        isWifiAffectTethering &&
         this.disconnectedByWifi &&
         this.isAirplaneMode() === false
       ) {
@@ -4266,10 +4300,11 @@ WifiWorker.prototype = {
     );
 
     if (!enabled) {
-      // TODO: NS_ERROR_UNEXPECTED on nsIPrefBranch.getBoolPref
-      // let isTetheringAffectWifi = Services.prefs.getBoolPref("tethering.affect.wifi");
+      let isTetheringAffectWifi = Services.prefs.getBoolPref(
+        "tethering.affect.wifi"
+      );
       if (
-        /* isTetheringAffectWifi && */
+        isTetheringAffectWifi &&
         this.disconnectedByWifiTethering &&
         this.isAirplaneMode() === false
       ) {
@@ -4433,6 +4468,7 @@ WifiWorker.prototype = {
         self._sendMessage(message, false, "Unable to remove the network", msg);
         return;
       }
+      WifiManager.removeNetworks(function() {});
       WifiManager.disconnect(function() {});
       self._sendMessage(message, true, true, msg);
     });
@@ -4883,9 +4919,7 @@ WifiWorker.prototype = {
   },
 
   _getDefaultServiceId() {
-    // FIXME: Component returned failure code: 0x8000ffff (NS_ERROR_UNEXPECTED)
-    // [nsIPrefBranch.getIntPref]
-    let id = 0; //Services.prefs.getIntPref(kPrefDefaultServiceId);
+    let id = Services.prefs.getIntPref(kPrefDefaultServiceId, 0);
     let numRil = Services.prefs.getIntPref(kPrefRilNumRadioInterfaces);
 
     if (id >= numRil || id < 0) {
@@ -5092,6 +5126,12 @@ WifiWorker.prototype = {
             uneval(lastNetwork)
         );
         lastNetwork.everCaptivePortalDetected = true;
+        WifiConfigManager.updateNetworkInternetAccess(
+          lastNetwork.netId,
+          lastNetwork.everValidated,
+          lastNetwork.everCaptivePortalDetected,
+          function() {}
+        );
         this._fireEvent("captiveportallogin", {
           loginSuccess: false,
           network: netToDOM(lastNetwork),

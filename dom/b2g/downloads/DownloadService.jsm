@@ -58,8 +58,25 @@ var DownloadService = {
     let self = this;
     (async function() {
       let list = await Downloads.getList(Downloads.ALL);
-      await list.addView(self);
 
+      // At the first time of calling Downloads.getList(), DownloadStore.load()
+      // loads persistent downloads from the file, and calls download.start()
+      // on the downloads which were in progress.
+      // On b2g, we choose to cancel these downloads, and let user restart the
+      // downloads manually, to avoid unexpected storage or network consumption.
+      let downloads = await list.getAll();
+      downloads.forEach(aDownload => {
+        if (!aDownload.succeeded && !aDownload.canceled && !aDownload.error) {
+          debug(
+            `cancel download on init ${JSON.stringify(
+              self.jsonDownload(aDownload)
+            )}`
+          );
+          aDownload.cancel();
+        }
+      });
+
+      await list.addView(self);
       debug("view added to download list.");
     })().then(null, Cu.reportError);
 

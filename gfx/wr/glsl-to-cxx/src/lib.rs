@@ -292,8 +292,7 @@ fn write_program_samplers(state: &mut OutputState, uniform_indices: &UniformIndi
         match tk {
             hir::TypeKind::Sampler2D
             | hir::TypeKind::Sampler2DRect
-            | hir::TypeKind::ISampler2D
-            | hir::TypeKind::Sampler2DArray => {
+            | hir::TypeKind::ISampler2D => {
                 write!(state, " ");
                 show_type_kind(state, &tk);
                 let suffix = if let hir::StorageClass::Sampler(format) = storage {
@@ -316,8 +315,7 @@ fn write_program_samplers(state: &mut OutputState, uniform_indices: &UniformIndi
         match tk {
             hir::TypeKind::Sampler2D
             | hir::TypeKind::Sampler2DRect
-            | hir::TypeKind::ISampler2D
-            | hir::TypeKind::Sampler2DArray => {
+            | hir::TypeKind::ISampler2D => {
                 write!(state, "  case {}:\n", index);
                 write!(state, "   {}_slot = value;\n", name);
                 write!(state, "   return true;\n");
@@ -344,9 +342,6 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &UniformIndices) {
                         name),
                     hir::TypeKind::ISampler2D => write!(state,
                         " {0} = lookup_isampler(&samplers.{0}_impl, samplers.{0}_slot);\n",
-                        name),
-                    hir::TypeKind::Sampler2DArray => write!(state,
-                        " {0} = lookup_sampler_array(&samplers.{0}_impl, samplers.{0}_slot);\n",
                         name),
                     _ => {}
                 };
@@ -398,9 +393,8 @@ fn write_set_uniform_4fv(
         if float4_compatible(tk.clone()) {
             write!(
                 state,
-                "  self->{} = {}_scalar(value);\n",
-                name,
-                tk.glsl_primitive_type_name().unwrap(),
+                "  self->{} = vec4_scalar::load_from_ptr(value);\n",
+                name
             );
         } else {
             write!(state, "  assert(0); // {}\n", name);
@@ -3164,7 +3158,7 @@ pub fn show_iteration_statement(state: &mut OutputState, ist: &hir::IterationSta
             show_statement(state, body);
             state.write(" while (");
             show_hir_expr(state, cond);
-            state.write(")\n");
+            state.write(");\n");
         }
         hir::IterationStatement::For(ref init, ref rest, ref body) => {
             state.write("for (");

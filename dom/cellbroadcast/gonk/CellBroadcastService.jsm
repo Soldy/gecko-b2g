@@ -414,6 +414,14 @@ CellBroadcastService.prototype = {
   ) {
     aBroadcastArea.forEach(geo => {
       if (geo.contains(aLatLng)) {
+        if (DEBUG) {
+          debug(
+            "Location " +
+              JSON.stringify(aLatLng) +
+              " inside geometry " +
+              JSON.stringify(geo)
+          );
+        }
         this.broadcastGeometryMessage(aServiceId, aCellBroadcastMessage);
       }
     });
@@ -471,13 +479,13 @@ CellBroadcastService.prototype = {
         maximumAge: 0,
       };
       let success = pos => {
+        let latLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         if (DEBUG) {
           debug(
-            "getCurrentPosition successfully with pos: " + JSON.stringify(pos)
+            "getCurrentPosition successfully with LatLng: " +
+              JSON.stringify(latLng)
           );
         }
-
-        let latLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         this._performGeoFencing(
           aServiceId,
           aGeometryMessage,
@@ -501,6 +509,7 @@ CellBroadcastService.prototype = {
   },
 
   _broadcastCellBroadcastMessage(aServiceId, aCellBroadcastMessage) {
+    this._acquireCbHandledWakeLock();
     // Broadcast CBS System message
     gCellbroadcastMessenger.notifyCbMessageReceived(
       aServiceId,
@@ -545,7 +554,6 @@ CellBroadcastService.prototype = {
    * nsIGonkCellBroadcastService interface
    */
   notifyMessageReceived(aServiceId, aCellBroadcastMessage) {
-    this._acquireCbHandledWakeLock();
     if (aCellBroadcastMessage.geoFencingTriggerType) {
       this._handleGeoFencingTrigger(aServiceId, aCellBroadcastMessage);
     } else if (aCellBroadcastMessage.geometries) {

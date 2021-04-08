@@ -110,7 +110,7 @@ eslint:
             cp -r /build/node_modules_eslint node_modules &&
             ln -s ../tools/lint/eslint/eslint-plugin-mozilla node_modules &&
             ln -s ../tools/lint/eslint/eslint-plugin-spidermonkey-js node_modules &&
-            ./mach lint -v -l eslint -f treeherder --quiet -f json:/builds/worker/mozlint.json *
+            ./mach lint -v -l eslint -f treeherder --quiet -f json:/builds/worker/mozlint.json
     when:
         files-changed:
             # Files that are likely audited.
@@ -194,19 +194,6 @@ mingw-cap:
             - '**/*.c'
             - '**/*.h'
             - 'tools/lint/mingw-capitalization.yml'
-
-py-compat:
-    description: lint for python 2/3 compatibility issues
-    treeherder:
-        symbol: py(py-compat)
-    run:
-        mach: lint -v -l py2 -l py3 -f treeherder -f json:/builds/worker/mozlint.json *
-    when:
-        files-changed:
-            - '**/*.py'
-            - '**/.flake8'
-            - 'tools/lint/py2.yml'
-            - 'tools/lint/py3.yml'
 
 py-flake8:
     description: flake8 run over the gecko codebase

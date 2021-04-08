@@ -30,7 +30,7 @@ JSObject* DocumentFragment::WrapNode(JSContext* aCx,
 
 bool DocumentFragment::IsNodeOfType(uint32_t aFlags) const { return false; }
 
-#ifdef DEBUG_FRAME_DUMP
+#if defined(DEBUG_FRAME_DUMP) || defined(MOZ_DOM_LIST)
 void DocumentFragment::List(FILE* out, int32_t aIndent) const {
   int32_t indent;
   for (indent = aIndent; --indent >= 0;) {

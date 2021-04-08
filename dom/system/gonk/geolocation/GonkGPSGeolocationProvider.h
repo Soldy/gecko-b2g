@@ -81,6 +81,15 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
   virtual ~GonkGPSGeolocationProvider();
 
   static GonkGPSGeolocationProvider* sSingleton;
+#ifdef MOZ_B2G_RIL
+  // APN setting key, could either be "ril.data.apn.sim1" or "ril.data.apn.sim2"
+  static nsString sSettingRilDataApn;
+  // APN setting key, could either be "ril.supl.apn.sim1" or "ril.supl.apn.sim2"
+  static nsString sSettingRilSuplApn;
+  static nsCString sRilDataApn;
+  static nsCString sRilSuplApn;
+#endif
+
   void Init();
   void SetupGnssHal();
   void CleanupGnssHal();
@@ -94,6 +103,7 @@ class GonkGPSGeolocationProvider : public nsIGeolocationProvider,
   NS_IMETHOD HandleSettings(nsISettingInfo* const info, bool isObserved);
 
 #ifdef MOZ_B2G_RIL
+  void UpdateApnObservers(uint32_t aServiceId);
   void UpdateRadioInterface();
   bool IsValidRilServiceId(uint32_t aServiceId);
   void SetupAGPS();

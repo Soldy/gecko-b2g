@@ -25,6 +25,7 @@
 #include "js/Value.h"
 #include "util/Memory.h"
 #include "vm/EqualityOperations.h"  // js::SameValue
+#include "vm/GetterSetter.h"        // js::GetterSetter
 #include "vm/PlainObject.h"         // js::PlainObject
 #include "vm/TypedArrayObject.h"
 
@@ -146,8 +147,8 @@ bool ObjectElements::FreezeOrSeal(JSContext* cx, HandleNativeObject obj,
   }
 
   if (level == IntegrityLevel::Frozen) {
-    if (!JSObject::setFlags(cx, obj, BaseShape::FROZEN_ELEMENTS,
-                            JSObject::GENERATE_SHAPE)) {
+    if (!JSObject::setFlag(cx, obj, ObjectFlag::FrozenElements,
+                           JSObject::GENERATE_SHAPE)) {
       return false;
     }
   }
@@ -177,7 +178,7 @@ void js::NativeObject::checkShapeConsistency() {
     return;
   }
 
-  MOZ_ASSERT(isNative());
+  MOZ_ASSERT(is<NativeObject>());
 
   Shape* shape = lastProperty();
   Shape* prev = nullptr;
@@ -202,7 +203,7 @@ void js::NativeObject::checkShapeConsistency() {
 
     shape = lastProperty();
     while (shape) {
-      MOZ_ASSERT_IF(!shape->isEmptyShape() && shape->isDataProperty(),
+      MOZ_ASSERT_IF(!shape->isEmptyShape() && shape->hasSlot(),
                     shape->slot() < slotSpan());
       if (!prev) {
         MOZ_ASSERT(lastProperty() == shape);
@@ -224,7 +225,7 @@ void js::NativeObject::checkShapeConsistency() {
         }
       }
       if (prev) {
-        MOZ_ASSERT_IF(shape->isDataProperty(),
+        MOZ_ASSERT_IF(shape->hasSlot(),
                       prev->maybeSlot() >= shape->maybeSlot());
         shape->children.checkHasChild(prev);
       }
@@ -299,12 +300,12 @@ bool js::NativeObject::isNumFixedSlots(uint32_t nfixed) const {
 #endif /* DEBUG */
 
 Shape* js::NativeObject::lookup(JSContext* cx, jsid id) {
-  MOZ_ASSERT(isNative());
+  MOZ_ASSERT(is<NativeObject>());
   return Shape::search(cx, lastProperty(), id);
 }
 
 Shape* js::NativeObject::lookupPure(jsid id) {
-  MOZ_ASSERT(isNative());
+  MOZ_ASSERT(is<NativeObject>());
   return Shape::searchNoHashify(lastProperty(), id);
 }
 
@@ -498,7 +499,7 @@ void NativeObject::shrinkSlots(JSContext* cx, uint32_t oldCapacity,
 
 bool NativeObject::willBeSparseElements(uint32_t requiredCapacity,
                                         uint32_t newElementsHint) {
-  MOZ_ASSERT(isNative());
+  MOZ_ASSERT(is<NativeObject>());
   MOZ_ASSERT(requiredCapacity > MIN_SPARSE_INDEX);
 
   uint32_t cap = getDenseCapacity();
@@ -565,8 +566,8 @@ DenseElementResult NativeObject::maybeDensifySparseElements(
   while (!shape->isEmptyShape()) {
     uint32_t index;
     if (IdIsIndex(shape->propid(), &index)) {
-      if (shape->attributes() == JSPROP_ENUMERATE &&
-          shape->hasDefaultGetter() && shape->hasDefaultSetter()) {
+      if (shape->attributes() == JSPROP_ENUMERATE) {
+        MOZ_ASSERT(shape->isDataProperty());
         numDenseElements++;
         newInitializedLength = std::max(newInitializedLength, index + 1);
       } else {
@@ -646,7 +647,7 @@ DenseElementResult NativeObject::maybeDensifySparseElements(
    * flag so that we will not start using sparse indexes again if we need
    * to grow the object.
    */
-  if (!NativeObject::clearFlag(cx, obj, BaseShape::INDEXED)) {
+  if (!NativeObject::clearFlag(cx, obj, ObjectFlag::Indexed)) {
     return DenseElementResult::Failure;
   }
 
@@ -1143,12 +1144,12 @@ void NativeObject::freeSlot(JSContext* cx, uint32_t slot) {
 }
 
 /* static */
-Shape* NativeObject::addDataProperty(JSContext* cx, HandleNativeObject obj,
-                                     HandlePropertyName name, uint32_t slot,
-                                     unsigned attrs) {
+Shape* NativeObject::addProperty(JSContext* cx, HandleNativeObject obj,
+                                 HandlePropertyName name, uint32_t slot,
+                                 unsigned attrs) {
   MOZ_ASSERT(!(attrs & (JSPROP_GETTER | JSPROP_SETTER)));
   RootedId id(cx, NameToId(name));
-  return addDataProperty(cx, obj, id, slot, attrs);
+  return addProperty(cx, obj, id, slot, attrs);
 }
 
 template <AllowGC allowGC>
@@ -1156,8 +1157,7 @@ bool js::NativeLookupOwnProperty(
     JSContext* cx, typename MaybeRooted<NativeObject*, allowGC>::HandleType obj,
     typename MaybeRooted<jsid, allowGC>::HandleType id,
     typename MaybeRooted<PropertyResult, allowGC>::MutableHandleType propp) {
-  bool done;
-  return LookupOwnPropertyInline<allowGC>(cx, obj, id, propp, &done);
+  return NativeLookupOwnPropertyInline<allowGC>(cx, obj, id, propp);
 }
 
 template bool js::NativeLookupOwnProperty<CanGC>(
@@ -1169,6 +1169,16 @@ template bool js::NativeLookupOwnProperty<NoGC>(
     FakeMutableHandle<PropertyResult> propp);
 
 /*** [[DefineOwnProperty]] **************************************************/
+
+static bool CallJSAddPropertyOp(JSContext* cx, JSAddPropertyOp op,
+                                HandleObject obj, HandleId id, HandleValue v) {
+  if (!CheckRecursionLimit(cx)) {
+    return false;
+  }
+
+  cx->check(obj, id, v);
+  return op(cx, obj, id, v);
+}
 
 static MOZ_ALWAYS_INLINE bool CallAddPropertyHook(JSContext* cx,
                                                   HandleNativeObject obj,
@@ -1224,7 +1234,7 @@ static bool WouldDefinePastNonwritableLength(ArrayObject* arr, uint32_t index) {
 
 static bool ReshapeForShadowedPropSlow(JSContext* cx, HandleNativeObject obj,
                                        HandleId id) {
-  MOZ_ASSERT(obj->isDelegate());
+  MOZ_ASSERT(obj->isUsedAsPrototype());
 
   // Lookups on integer ids cannot be cached through prototypes.
   if (JSID_IS_INT(id)) {
@@ -1234,7 +1244,7 @@ static bool ReshapeForShadowedPropSlow(JSContext* cx, HandleNativeObject obj,
   RootedObject proto(cx, obj->staticPrototype());
   while (proto) {
     // Lookups will not be cached through non-native protos.
-    if (!proto->isNative()) {
+    if (!proto->is<NativeObject>()) {
       break;
     }
 
@@ -1258,7 +1268,7 @@ static MOZ_ALWAYS_INLINE bool ReshapeForShadowedProp(JSContext* cx,
   // See also the 'Shape Teleporting Optimization' comment in jit/CacheIR.cpp.
 
   // Inlined fast path for non-prototype/non-native objects.
-  if (!obj->isDelegate() || !obj->isNative()) {
+  if (!obj->isUsedAsPrototype() || !obj->is<NativeObject>()) {
     return true;
   }
 
@@ -1271,23 +1281,73 @@ bool NativeObject::reshapeForShadowedProp(JSContext* cx,
   return generateOwnShape(cx, obj);
 }
 
-enum class IsAddOrChange { Add, AddOrChange };
+static bool ChangeProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
+                           HandleObject getter, HandleObject setter,
+                           unsigned attrs, PropertyResult* existing) {
+  MOZ_ASSERT(existing);
+
+  Rooted<GetterSetter*> gs(cx);
+
+  // If we're redefining a getter/setter property but the getter and setter
+  // objects are still the same, use the existing GetterSetter.
+  if (existing->isNativeProperty()) {
+    Shape* prop = existing->shape();
+    if (prop->isAccessorDescriptor()) {
+      GetterSetter* current = obj->getGetterSetter(prop);
+      if (current->getter() == getter && current->setter() == setter) {
+        gs = current;
+      }
+    }
+  }
+
+  if (!gs) {
+    gs = GetterSetter::create(cx, getter, setter);
+    if (!gs) {
+      return false;
+    }
+  }
+
+  Shape* shape = NativeObject::putProperty(cx, obj, id, attrs);
+  if (!shape) {
+    return false;
+  }
+
+  obj->setSlot(shape->slot(), PrivateGCThingValue(gs));
+  return true;
+}
+
+// Whether we're adding a new property or changing an existing property (this
+// can be either a property stored in the shape tree or a dense element).
+enum class IsAddOrChange { Add, Change };
 
 template <IsAddOrChange AddOrChange>
 static MOZ_ALWAYS_INLINE bool AddOrChangeProperty(
     JSContext* cx, HandleNativeObject obj, HandleId id,
-    Handle<PropertyDescriptor> desc) {
+    Handle<PropertyDescriptor> desc, PropertyResult* existing = nullptr) {
   desc.assertComplete();
+
+#ifdef DEBUG
+  if constexpr (AddOrChange == IsAddOrChange::Add) {
+    MOZ_ASSERT(existing == nullptr);
+    MOZ_ASSERT(!obj->containsPure(id));
+  } else {
+    static_assert(AddOrChange == IsAddOrChange::Change);
+    MOZ_ASSERT(existing);
+    MOZ_ASSERT(existing->isNativeProperty() || existing->isDenseElement());
+  }
+#endif
 
   if (!ReshapeForShadowedProp(cx, obj, id)) {
     return false;
   }
 
-  // Use dense storage for new indexed properties where possible.
-  if (JSID_IS_INT(id) && !desc.getter() && !desc.setter() &&
-      desc.attributes() == JSPROP_ENUMERATE &&
-      (!obj->isIndexed() || !obj->containsPure(id)) &&
-      !obj->is<TypedArrayObject>()) {
+  // Use dense storage for indexed properties where possible: when we have an
+  // integer key with default property attributes and are either adding a new
+  // property or changing a dense element.
+  if (id.isInt() && desc.attributes() == JSPROP_ENUMERATE &&
+      (AddOrChange == IsAddOrChange::Add || existing->isDenseElement())) {
+    MOZ_ASSERT(!desc.isAccessorDescriptor());
+    MOZ_ASSERT(!obj->is<TypedArrayObject>());
     uint32_t index = JSID_TO_INT(id);
     DenseElementResult edResult = obj->ensureDenseElements(cx, index, 1);
     if (edResult == DenseElementResult::Failure) {
@@ -1305,34 +1365,38 @@ static MOZ_ALWAYS_INLINE bool AddOrChangeProperty(
   // If we know this is a new property we can call addProperty instead of
   // the slower putProperty.
   if constexpr (AddOrChange == IsAddOrChange::Add) {
-    if (Shape::isDataProperty(desc.attributes(), desc.getter(),
-                              desc.setter())) {
-      Shape* shape = NativeObject::addDataProperty(
-          cx, obj, id, SHAPE_INVALID_SLOT, desc.attributes());
+    if (desc.isAccessorDescriptor()) {
+      Rooted<GetterSetter*> gs(cx, GetterSetter::create(cx, desc.getterObject(),
+                                                        desc.setterObject()));
+      if (!gs) {
+        return false;
+      }
+      Shape* shape = NativeObject::addProperty(cx, obj, id, SHAPE_INVALID_SLOT,
+                                               desc.attributes());
+      if (!shape) {
+        return false;
+      }
+      obj->initSlot(shape->slot(), PrivateGCThingValue(gs));
+    } else {
+      Shape* shape = NativeObject::addProperty(cx, obj, id, SHAPE_INVALID_SLOT,
+                                               desc.attributes());
       if (!shape) {
         return false;
       }
       obj->initSlot(shape->slot(), desc.value());
-    } else {
-      if (!NativeObject::addAccessorProperty(
-              cx, obj, id, desc.getter(), desc.setter(), desc.attributes())) {
-        return false;
-      }
     }
   } else {
-    if (Shape::isDataProperty(desc.attributes(), desc.getter(),
-                              desc.setter())) {
-      Shape* shape =
-          NativeObject::putDataProperty(cx, obj, id, desc.attributes());
+    if (desc.isAccessorDescriptor()) {
+      if (!ChangeProperty(cx, obj, id, desc.getterObject(), desc.setterObject(),
+                          desc.attributes(), existing)) {
+        return false;
+      }
+    } else {
+      Shape* shape = NativeObject::putProperty(cx, obj, id, desc.attributes());
       if (!shape) {
         return false;
       }
       obj->setSlot(shape->slot(), desc.value());
-    } else {
-      if (!NativeObject::putAccessorProperty(
-              cx, obj, id, desc.getter(), desc.setter(), desc.attributes())) {
-        return false;
-      }
     }
   }
 
@@ -1340,14 +1404,18 @@ static MOZ_ALWAYS_INLINE bool AddOrChangeProperty(
   // and investigate converting the object to dense indexes.
   if (JSID_IS_INT(id)) {
     uint32_t index = JSID_TO_INT(id);
-    obj->removeDenseElementForSparseIndex(index);
+    if constexpr (AddOrChange == IsAddOrChange::Add) {
+      MOZ_ASSERT(!obj->containsDenseElement(index));
+    } else {
+      obj->removeDenseElementForSparseIndex(index);
+    }
     DenseElementResult edResult =
         NativeObject::maybeDensifySparseElements(cx, obj);
     if (edResult == DenseElementResult::Failure) {
       return false;
     }
     if (edResult == DenseElementResult::Success) {
-      MOZ_ASSERT(!desc.setter());
+      MOZ_ASSERT(!desc.isAccessorDescriptor());
       return CallAddPropertyHookDense(cx, obj, index, desc.value());
     }
   }
@@ -1372,7 +1440,7 @@ static MOZ_ALWAYS_INLINE bool AddDataProperty(JSContext* cx,
     return false;
   }
 
-  obj->setSlot(shape->slot(), v);
+  obj->initSlot(shape->slot(), v);
 
   return CallAddPropertyHook(cx, obj, id, v);
 }
@@ -1471,26 +1539,21 @@ static bool DefinePropertyIsRedundant(JSContext* cx, HandleNativeObject obj,
       }
     }
 
-    GetterOp existingGetterOp =
-        prop.isNativeProperty() ? prop.shape()->getter() : nullptr;
-    if (desc.getter() != existingGetterOp) {
-      return true;
-    }
-
-    SetterOp existingSetterOp =
-        prop.isNativeProperty() ? prop.shape()->setter() : nullptr;
-    if (desc.setter() != existingSetterOp) {
+    // Check for custom data properties for ArrayObject/ArgumentsObject.
+    // PropertyDescriptor can't represent these properties so they're never
+    // redundant.
+    if (prop.isNativeProperty() && prop.shape()->isCustomDataProperty()) {
       return true;
     }
   } else {
     if (desc.hasGetterObject() &&
         (!(shapeAttrs & JSPROP_GETTER) ||
-         desc.getterObject() != prop.shape()->getterObject())) {
+         desc.getterObject() != obj->getGetter(prop.shape()))) {
       return true;
     }
     if (desc.hasSetterObject() &&
         (!(shapeAttrs & JSPROP_SETTER) ||
-         desc.setterObject() != prop.shape()->setterObject())) {
+         desc.setterObject() != obj->getSetter(prop.shape()))) {
       return true;
     }
   }
@@ -1537,7 +1600,9 @@ bool js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj,
     // 9.4.5.3 step 3. Indexed properties of typed arrays are special.
     Rooted<TypedArrayObject*> tobj(cx, &obj->as<TypedArrayObject>());
     mozilla::Maybe<uint64_t> index;
-    JS_TRY_VAR_OR_RETURN_FALSE(cx, index, IsTypedArrayIndex(cx, id));
+    if (!ToTypedArrayIndex(cx, id, &index)) {
+      return false;
+    }
 
     if (index) {
       MOZ_ASSERT(!cx->isHelperThreadContext());
@@ -1577,7 +1642,7 @@ bool js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj,
     // We are being called from a resolve or enumerate hook to reify a
     // lazily-resolved property. To avoid reentering the resolve hook and
     // recursing forever, skip the resolve hook when doing this lookup.
-    if (!NativeLookupOwnPropertyNoResolve(cx, obj, id, &prop)) {
+    if (!NativeLookupOwnPropertyNoResolve(cx, obj, id, prop.address())) {
       return false;
     }
   } else {
@@ -1597,7 +1662,7 @@ bool js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj,
   Rooted<PropertyDescriptor> desc(cx, desc_);
 
   // Step 2.
-  if (!prop) {
+  if (prop.isNotFound()) {
     // Note: We are sharing the property definition machinery with private
     //       fields. Private fields may be added to non-extensible objects.
     if (!obj->isExtensible() && !id.isPrivateName()) {
@@ -1662,8 +1727,8 @@ bool js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj,
       desc.setValue(currentValue);
       desc.setWritable(IsWritable(shapeAttrs));
     } else {
-      desc.setGetterObject(prop.shape()->getterObject());
-      desc.setSetterObject(prop.shape()->setterObject());
+      desc.setGetterObject(obj->getGetter(prop.shape()));
+      desc.setSetterObject(obj->getSetter(prop.shape()));
     }
   } else if (desc.isDataDescriptor() != IsDataDescriptor(shapeAttrs)) {
     // Step 6.
@@ -1723,29 +1788,30 @@ bool js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj,
     if (desc.hasSetterObject()) {
       // Step 8.a.i.
       if (!IsConfigurable(shapeAttrs) &&
-          desc.setterObject() != prop.shape()->setterObject()) {
+          desc.setterObject() != obj->getSetter(prop.shape())) {
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
       }
     } else {
       // Fill in desc.[[Set]] from shape.
-      desc.setSetterObject(prop.shape()->setterObject());
+      desc.setSetterObject(obj->getSetter(prop.shape()));
     }
     if (desc.hasGetterObject()) {
       // Step 8.a.ii.
       if (!IsConfigurable(shapeAttrs) &&
-          desc.getterObject() != prop.shape()->getterObject()) {
+          desc.getterObject() != obj->getGetter(prop.shape())) {
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
       }
     } else {
       // Fill in desc.[[Get]] from shape.
-      desc.setGetterObject(prop.shape()->getterObject());
+      desc.setGetterObject(obj->getGetter(prop.shape()));
     }
 
     // Step 8.a.iii (Omitted).
   }
 
   // Step 9.
-  if (!AddOrChangeProperty<IsAddOrChange::AddOrChange>(cx, obj, id, desc)) {
+  if (!AddOrChangeProperty<IsAddOrChange::Change>(cx, obj, id, desc,
+                                                  prop.address())) {
     return false;
   }
 
@@ -1762,37 +1828,10 @@ bool js::NativeDefineDataProperty(JSContext* cx, HandleNativeObject obj,
 }
 
 bool js::NativeDefineAccessorProperty(JSContext* cx, HandleNativeObject obj,
-                                      HandleId id, GetterOp getter,
-                                      SetterOp setter, unsigned attrs) {
-  Rooted<PropertyDescriptor> desc(cx);
-  desc.initFields(nullptr, UndefinedHandleValue, attrs, getter, setter);
-
-  ObjectOpResult result;
-  if (!NativeDefineProperty(cx, obj, id, desc, result)) {
-    return false;
-  }
-
-  if (!result) {
-    // Off-thread callers should not get here: they must call this
-    // function only with known-valid arguments. Populating a new
-    // PlainObject with configurable properties is fine.
-    MOZ_ASSERT(!cx->isHelperThreadContext());
-    result.reportError(cx, obj, id);
-    return false;
-  }
-
-  return true;
-}
-
-bool js::NativeDefineAccessorProperty(JSContext* cx, HandleNativeObject obj,
                                       HandleId id, HandleObject getter,
                                       HandleObject setter, unsigned attrs) {
   Rooted<PropertyDescriptor> desc(cx);
-  {
-    GetterOp getterOp = JS_DATA_TO_FUNC_PTR(GetterOp, getter.get());
-    SetterOp setterOp = JS_DATA_TO_FUNC_PTR(SetterOp, setter.get());
-    desc.initFields(nullptr, UndefinedHandleValue, attrs, getterOp, setterOp);
-  }
+  desc.initFields(nullptr, UndefinedHandleValue, attrs, getter, setter);
 
   ObjectOpResult result;
   if (!NativeDefineProperty(cx, obj, id, desc, result)) {
@@ -1857,7 +1896,9 @@ static bool DefineNonexistentProperty(JSContext* cx, HandleNativeObject obj,
   } else if (obj->is<TypedArrayObject>()) {
     // 9.4.5.5 step 2. Indexed properties of typed arrays are special.
     mozilla::Maybe<uint64_t> index;
-    JS_TRY_VAR_OR_RETURN_FALSE(cx, index, IsTypedArrayIndex(cx, id));
+    if (!ToTypedArrayIndex(cx, id, &index)) {
+      return false;
+    }
 
     if (index) {
       // This method is only called for non-existent properties, which
@@ -1897,11 +1938,11 @@ static bool DefineNonexistentProperty(JSContext* cx, HandleNativeObject obj,
   }
 
 #ifdef DEBUG
-  Rooted<PropertyResult> prop(cx);
+  PropertyResult prop;
   if (!NativeLookupOwnPropertyNoResolve(cx, obj, id, &prop)) {
     return false;
   }
-  MOZ_ASSERT(!prop, "didn't expect to find an existing property");
+  MOZ_ASSERT(prop.isNotFound(), "didn't expect to find an existing property");
 #endif
 
   // 9.1.6.3, ValidateAndApplyPropertyDescriptor.
@@ -1982,31 +2023,28 @@ bool js::NativeHasProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
   // This loop isn't explicit in the spec algorithm. See the comment on step
   // 7.a. below.
   for (;;) {
-    // Steps 2-3. ('done' is a SpiderMonkey-specific thing, used below.)
-    bool done;
-    if (!LookupOwnPropertyInline<CanGC>(cx, pobj, id, &prop, &done)) {
+    // Steps 2-3.
+    if (!NativeLookupOwnPropertyInline<CanGC>(cx, pobj, id, &prop)) {
       return false;
     }
 
     // Step 4.
-    if (prop) {
+    if (prop.isFound()) {
       *foundp = true;
       return true;
     }
 
-    // Step 5-6. The check for 'done' on this next line is tricky.
-    // done can be true in exactly these unlikely-sounding cases:
-    // - We're looking up an element, and pobj is a TypedArray that
-    //   doesn't have that many elements.
-    // - We're being called from a resolve hook to assign to the property
-    //   being resolved.
-    // What they all have in common is we do not want to keep walking
-    // the prototype chain, and always claim that the property
-    // doesn't exist.
-    JSObject* proto = done ? nullptr : pobj->staticPrototype();
+    // Step 5-6.
+    JSObject* proto = pobj->staticPrototype();
 
     // Step 8.
-    if (!proto) {
+    // As a side-effect of NativeLookupOwnPropertyInline, we may determine that
+    // a property is not found and the proto chain should not be searched. This
+    // can occur for:
+    //  - Out-of-range numeric properties of a TypedArrayObject
+    //  - Recursive resolve hooks (which is expected when they try to set the
+    //    property being resolved).
+    if (!proto || prop.shouldIgnoreProtoChain()) {
       *foundp = false;
       return true;
     }
@@ -2016,7 +2054,7 @@ bool js::NativeHasProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
     // plumbing of HasProperty; the top of the loop is where
     // we're going to end up anyway. But if pobj is non-native,
     // that optimization would be incorrect.
-    if (!proto->isNative()) {
+    if (!proto->is<NativeObject>()) {
       RootedObject protoRoot(cx, proto);
       return HasProperty(cx, protoRoot, id, foundp);
     }
@@ -2034,7 +2072,7 @@ bool js::NativeGetOwnPropertyDescriptor(
   if (!NativeLookupOwnProperty<CanGC>(cx, obj, id, &prop)) {
     return false;
   }
-  if (!prop) {
+  if (prop.isNotFound()) {
     desc.object().set(nullptr);
     return true;
   }
@@ -2050,13 +2088,13 @@ bool js::NativeGetOwnPropertyDescriptor(
     // than return true with desc incomplete, we fill out the missing
     // getter or setter with a null, following CompletePropertyDescriptor.
     if (desc.hasGetterObject()) {
-      desc.setGetterObject(prop.shape()->getterObject());
+      desc.setGetterObject(obj->getGetter(prop.shape()));
     } else {
       desc.setGetterObject(nullptr);
       desc.attributesRef() |= JSPROP_GETTER;
     }
     if (desc.hasSetterObject()) {
-      desc.setSetterObject(prop.shape()->setterObject());
+      desc.setSetterObject(obj->getSetter(prop.shape()));
     } else {
       desc.setSetterObject(nullptr);
       desc.attributesRef() |= JSPROP_SETTER;
@@ -2064,13 +2102,6 @@ bool js::NativeGetOwnPropertyDescriptor(
 
     desc.value().setUndefined();
   } else {
-    // This is either a straight-up data property or (rarely) a
-    // property with a JSGetterOp/JSSetterOp. The latter must be
-    // reported to the caller as a plain data property, so clear
-    // desc.getter/setter, and mask away the SHARED bit.
-    desc.setGetter(nullptr);
-    desc.setSetter(nullptr);
-
     if (prop.isDenseElement()) {
       desc.value().set(obj->getDenseElement(prop.denseElementIndex()));
     } else if (prop.isTypedArrayElement()) {
@@ -2080,6 +2111,11 @@ bool js::NativeGetOwnPropertyDescriptor(
         return false;
       }
     } else {
+      // This is either a straight-up data property or (rarely) a custom data
+      // property. The latter must be reported to the caller as a plain data
+      // property, so mask away the JSPROP_CUSTOM_DATA_PROP flag.
+      desc.attributesRef() &= ~JSPROP_CUSTOM_DATA_PROP;
+
       RootedShape shape(cx, prop.shape());
       if (!NativeGetExistingProperty(cx, obj, obj, shape, desc.value())) {
         return false;
@@ -2094,19 +2130,48 @@ bool js::NativeGetOwnPropertyDescriptor(
 
 /*** [[Get]] ****************************************************************/
 
-static inline bool CallGetter(JSContext* cx, HandleObject obj,
+static bool GetCustomDataProperty(JSContext* cx, HandleObject obj, HandleId id,
+                                  MutableHandleValue vp) {
+  if (!CheckRecursionLimit(cx)) {
+    return false;
+  }
+
+  cx->check(obj, id, vp);
+
+  const JSClass* clasp = obj->getClass();
+  if (clasp == &ArrayObject::class_) {
+    if (!ArrayLengthGetter(cx, obj, id, vp)) {
+      return false;
+    }
+  } else if (clasp == &MappedArgumentsObject::class_) {
+    if (!MappedArgGetter(cx, obj, id, vp)) {
+      return false;
+    }
+  } else {
+    MOZ_RELEASE_ASSERT(clasp == &UnmappedArgumentsObject::class_);
+    if (!UnmappedArgGetter(cx, obj, id, vp)) {
+      return false;
+    }
+  }
+
+  cx->check(vp);
+  return true;
+}
+
+static inline bool CallGetter(JSContext* cx, HandleNativeObject obj,
                               HandleValue receiver, HandleShape shape,
                               MutableHandleValue vp) {
-  MOZ_ASSERT(!shape->hasDefaultGetter());
+  MOZ_ASSERT(!shape->isDataProperty());
 
   if (shape->hasGetterValue()) {
-    RootedValue getter(cx, shape->getterValue());
+    RootedValue getter(cx, obj->getGetterValue(shape));
     return js::CallGetter(cx, receiver, getter, vp);
   }
 
-  // In contrast to normal getters JSGetterOps always want the holder.
+  MOZ_ASSERT(shape->isCustomDataProperty());
+
   RootedId id(cx, shape->propid());
-  return CallJSGetterOp(cx, shape->getterOp(), obj, id, vp);
+  return GetCustomDataProperty(cx, obj, id, vp);
 }
 
 template <AllowGC allowGC>
@@ -2116,15 +2181,13 @@ static MOZ_ALWAYS_INLINE bool GetExistingProperty(
     typename MaybeRooted<Shape*, allowGC>::HandleType shape,
     typename MaybeRooted<Value, allowGC>::MutableHandleType vp) {
   if (shape->isDataProperty()) {
-    MOZ_ASSERT(shape->hasDefaultGetter());
-
     vp.set(obj->getSlot(shape->slot()));
     return true;
   }
 
   vp.setUndefined();
 
-  if (shape->hasDefaultGetter()) {
+  if (!shape->isCustomDataProperty() && !obj->hasGetter(shape)) {
     return true;
   }
 
@@ -2256,13 +2319,12 @@ static MOZ_ALWAYS_INLINE bool NativeGetPropertyInline(
   // This loop isn't explicit in the spec algorithm. See the comment on step
   // 4.d below.
   for (;;) {
-    // Steps 2-3. ('done' is a SpiderMonkey-specific thing, used below.)
-    bool done;
-    if (!LookupOwnPropertyInline<allowGC>(cx, pobj, id, &prop, &done)) {
+    // Steps 2-3.
+    if (!NativeLookupOwnPropertyInline<allowGC>(cx, pobj, id, &prop)) {
       return false;
     }
 
-    if (prop) {
+    if (prop.isFound()) {
       // Steps 5-8. Special case for dense elements because
       // GetExistingProperty doesn't support those.
       if (prop.isDenseElement()) {
@@ -2279,19 +2341,12 @@ static MOZ_ALWAYS_INLINE bool NativeGetPropertyInline(
       return GetExistingProperty<allowGC>(cx, receiver, pobj, shape, vp);
     }
 
-    // Steps 4.a-b. The check for 'done' on this next line is tricky.
-    // done can be true in exactly these unlikely-sounding cases:
-    // - We're looking up an element, and pobj is a TypedArray that
-    //   doesn't have that many elements.
-    // - We're being called from a resolve hook to assign to the property
-    //   being resolved.
-    // What they all have in common is we do not want to keep walking
-    // the prototype chain.
-    JSObject* proto = done ? nullptr : pobj->staticPrototype();
+    // Steps 4.a-b.
+    JSObject* proto = pobj->staticPrototype();
 
     // Step 4.c. The spec algorithm simply returns undefined if proto is
     // null, but see the comment on GetNonexistentProperty.
-    if (!proto) {
+    if (!proto || prop.shouldIgnoreProtoChain()) {
       return GetNonexistentProperty(cx, id, nameLookup, vp);
     }
 
@@ -2366,6 +2421,25 @@ bool js::GetNameBoundInEnvironment(JSContext* cx, HandleObject envArg,
 
 /*** [[Set]] ****************************************************************/
 
+static bool SetCustomDataProperty(JSContext* cx, HandleObject obj, HandleId id,
+                                  HandleValue v, ObjectOpResult& result) {
+  if (!CheckRecursionLimit(cx)) {
+    return false;
+  }
+
+  cx->check(obj, id, v);
+
+  const JSClass* clasp = obj->getClass();
+  if (clasp == &ArrayObject::class_) {
+    return ArrayLengthSetter(cx, obj, id, v, result);
+  }
+  if (clasp == &MappedArgumentsObject::class_) {
+    return MappedArgSetter(cx, obj, id, v, result);
+  }
+  MOZ_RELEASE_ASSERT(clasp == &UnmappedArgumentsObject::class_);
+  return UnmappedArgSetter(cx, obj, id, v, result);
+}
+
 static bool MaybeReportUndeclaredVarAssignment(JSContext* cx, HandleId id) {
   {
     jsbytecode* pc;
@@ -2397,26 +2471,20 @@ static bool MaybeReportUndeclaredVarAssignment(JSContext* cx, HandleId id) {
 static bool NativeSetExistingDataProperty(JSContext* cx, HandleNativeObject obj,
                                           HandleShape shape, HandleValue v,
                                           ObjectOpResult& result) {
-  MOZ_ASSERT(obj->isNative());
+  MOZ_ASSERT(obj->is<NativeObject>());
   MOZ_ASSERT(shape->isDataDescriptor());
 
-  if (shape->hasDefaultSetter()) {
-    if (shape->isDataProperty()) {
-      // The common path. Standard data property.
-      obj->setSlot(shape->slot(), v);
-      return result.succeed();
-    }
-
-    // Bizarre: shared (slotless) property that's writable but has no
-    // JSSetterOp. JS code can't define such a property, but it can be done
-    // through the JSAPI. Treat it as non-writable.
-    return result.fail(JSMSG_GETTER_ONLY);
+  if (shape->isDataProperty()) {
+    // The common path. Standard data property.
+    obj->setSlot(shape->slot(), v);
+    return result.succeed();
   }
 
+  MOZ_ASSERT(shape->isCustomDataProperty());
   MOZ_ASSERT(!obj->is<WithEnvironmentObject>());  // See bug 1128681.
 
   RootedId id(cx, shape->propid());
-  return CallJSSetterOp(cx, shape->setterOp(), obj, id, v, result);
+  return SetCustomDataProperty(cx, obj, id, v, result);
 }
 
 /*
@@ -2439,22 +2507,22 @@ bool js::SetPropertyByDefining(JSContext* cx, HandleId id, HandleValue v,
   bool existing;
   {
     // Steps 5.c-d.
-    Rooted<PropertyDescriptor> desc(cx);
+    Rooted<mozilla::Maybe<PropertyDescriptor>> desc(cx);
     if (!GetOwnPropertyDescriptor(cx, receiver, id, &desc)) {
       return false;
     }
 
-    existing = !!desc.object();
+    existing = desc.isSome();
 
     // Step 5.e.
     if (existing) {
       // Step 5.e.i.
-      if (desc.isAccessorDescriptor()) {
+      if (desc->isAccessorDescriptor()) {
         return result.fail(JSMSG_OVERWRITING_ACCESSOR);
       }
 
       // Step 5.e.ii.
-      if (!desc.writable()) {
+      if (!desc->writable()) {
         return result.fail(JSMSG_READ_ONLY);
       }
     }
@@ -2615,12 +2683,13 @@ static bool SetExistingProperty(JSContext* cx, HandleId id, HandleValue v,
 
   // Steps 6-11.
   MOZ_ASSERT(shape->isAccessorDescriptor());
-  MOZ_ASSERT_IF(!shape->hasSetterObject(), shape->hasDefaultSetter());
-  if (shape->hasDefaultSetter()) {
+
+  JSObject* setterObject = pobj->getSetter(shape);
+  if (!setterObject) {
     return result.fail(JSMSG_GETTER_ONLY);
   }
 
-  RootedValue setter(cx, ObjectValue(*shape->setterObject()));
+  RootedValue setter(cx, ObjectValue(*setterObject));
   if (!js::CallSetter(cx, receiver, setter, v)) {
     return false;
   }
@@ -2648,27 +2717,25 @@ bool js::NativeSetProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
   // Bug 1502889 showed that this behavior isn't web-compatible. This issue is
   // also reported at <https://github.com/tc39/ecma262/issues/1541>.
   for (;;) {
-    // Steps 2-3. ('done' is a SpiderMonkey-specific thing, used below.)
-    bool done;
-    if (!LookupOwnPropertyInline<CanGC>(cx, pobj, id, &prop, &done)) {
+    // Steps 2-3.
+    if (!NativeLookupOwnPropertyInline<CanGC>(cx, pobj, id, &prop)) {
       return false;
     }
 
-    if (prop) {
+    if (prop.isFound()) {
       // Steps 5-6.
       return SetExistingProperty(cx, id, v, receiver, pobj, prop, result);
     }
 
-    // Steps 4.a-b. The check for 'done' on this next line is tricky.
-    // done can be true in exactly these unlikely-sounding cases:
-    // - We're looking up an element, and pobj is a TypedArray that
-    //   doesn't have that many elements.
-    // - We're being called from a resolve hook to assign to the property
-    //   being resolved.
-    // What they all have in common is we do not want to keep walking
-    // the prototype chain.
-    JSObject* proto = done ? nullptr : pobj->staticPrototype();
-    if (!proto) {
+    // Steps 4.a-b.
+    // As a side-effect of NativeLookupOwnPropertyInline, we may determine that
+    // a property is not found and the proto chain should not be searched. This
+    // can occur for:
+    //  - Out-of-range numeric properties of a TypedArrayObject
+    //  - Recursive resolve hooks (which is expected when they try to set the
+    //    property being resolved).
+    JSObject* proto = pobj->staticPrototype();
+    if (!proto || prop.shouldIgnoreProtoChain()) {
       // Step 4.d.i (and step 5).
       return SetNonexistentProperty<IsQualified>(cx, obj, id, v, receiver,
                                                  result);
@@ -2679,7 +2746,7 @@ bool js::NativeSetProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
     // plumbing of SetProperty; the top of the loop is where we're going to
     // end up anyway. But if pobj is non-native, that optimization would be
     // incorrect.
-    if (!proto->isNative()) {
+    if (!proto->is<NativeObject>()) {
       // Unqualified assignments are not specified to go through [[Set]]
       // at all, but they do go through this function. So check for
       // unqualified assignment to a nonexistent global (a strict error).
@@ -2725,6 +2792,20 @@ bool js::NativeSetElement(JSContext* cx, HandleNativeObject obj, uint32_t index,
 
 /*** [[Delete]] *************************************************************/
 
+static bool CallJSDeletePropertyOp(JSContext* cx, JSDeletePropertyOp op,
+                                   HandleObject receiver, HandleId id,
+                                   ObjectOpResult& result) {
+  if (!CheckRecursionLimit(cx)) {
+    return false;
+  }
+
+  cx->check(receiver, id);
+  if (op) {
+    return op(cx, receiver, id, result);
+  }
+  return result.succeed();
+}
+
 // ES6 draft rev31 9.1.10 [[Delete]]
 bool js::NativeDeleteProperty(JSContext* cx, HandleNativeObject obj,
                               HandleId id, ObjectOpResult& result) {
@@ -2735,7 +2816,7 @@ bool js::NativeDeleteProperty(JSContext* cx, HandleNativeObject obj,
   }
 
   // Step 4.
-  if (!prop) {
+  if (prop.isNotFound()) {
     // If no property call the class's delProperty hook, passing succeeded
     // as the result parameter. This always succeeds when there is no hook.
     return CallJSDeletePropertyOp(cx, obj->getClass()->getDelProperty(), obj,
@@ -2777,7 +2858,7 @@ bool js::CopyDataPropertiesNative(JSContext* cx, HandlePlainObject target,
                                   Handle<PlainObject*> excludedItems,
                                   bool* optimized) {
   MOZ_ASSERT(
-      !target->isDelegate(),
+      !target->isUsedAsPrototype(),
       "CopyDataPropertiesNative should only be called during object literal "
       "construction"
       "which precludes that |target| is the prototype of any other object");
@@ -2839,7 +2920,7 @@ bool js::CopyDataPropertiesNative(JSContext* cx, HandlePlainObject target,
     key = shape->propid();
     MOZ_ASSERT(!JSID_IS_INT(key));
 
-    MOZ_ASSERT(from->isNative());
+    MOZ_ASSERT(from->is<NativeObject>());
     MOZ_ASSERT(from->lastProperty() == fromShape);
 
     value = from->getSlot(shape->slot());
@@ -2847,7 +2928,7 @@ bool js::CopyDataPropertiesNative(JSContext* cx, HandlePlainObject target,
       MOZ_ASSERT(!target->contains(cx, key),
                  "didn't expect to find an existing property");
 
-      if (!AddDataPropertyNonDelegate(cx, target, key, value)) {
+      if (!AddDataPropertyNonPrototype(cx, target, key, value)) {
         return false;
       }
     } else {

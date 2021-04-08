@@ -21,7 +21,7 @@
 #include "mozilla/Observer.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/WakeLock.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsIAudioManager.h"
 #include "nsIObserver.h"
 
@@ -96,7 +96,7 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
     uint32_t mDevicesWithVolumeChange = 0;
     bool mIsDevicesChanged = true;
     bool mIsDeviceSpecificVolume = true;
-    nsDataHashtable<nsUint32HashKey, uint32_t> mVolumeIndexes;
+    nsTHashMap<nsUint32HashKey, uint32_t> mVolumeIndexes;
   };
 
  protected:
@@ -105,14 +105,24 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
   bool mIsVolumeInited = false;
 
   // Connected devices that are controlled by setDeviceConnectionState()
-  nsDataHashtable<nsUint32HashKey, nsCString> mConnectedDevices;
+  nsTHashMap<nsUint32HashKey, nsCString> mConnectedDevices;
 
   bool mSwitchDone = true;
 
-  bool mBluetoothA2dpEnabled = false;
 #ifdef MOZ_B2G_BT
+  void UpdateBluetoothA2dpRouting();
+  void UpdateBluetoothScoRouting();
+  bool mBluetoothA2dpEnabled = false;
+  bool mBluetoothScoEnabled = false;
   bool mA2dpSwitchDone = true;
+  // Allow BT audio by default, except:
+  // 1. Set to false when a headset is plugged in.
+  // 2. Set to true again when the headset is unplugged or a BT audio device is
+  //    connected.
+  bool mAllowBluetoothA2dp = true;
+  bool mAllowBluetoothSco = true;
 #endif
+
   nsTArray<UniquePtr<VolumeStreamState> > mStreamStates;
 
   RefPtr<mozilla::dom::WakeLock> mWakeLock;
@@ -178,6 +188,7 @@ class AudioManager final : public nsIAudioManager, public nsIObserver {
 
   AudioManager();
   ~AudioManager();
+  void Init();
 
   RefPtr<VolumeInitCallback> mVolumeInitCallback;
   RefPtr<VolumeSetCallback> mVolumeSetCallback;

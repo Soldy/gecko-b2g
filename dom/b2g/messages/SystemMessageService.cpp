@@ -26,8 +26,7 @@ namespace dom {
 const uint32_t kWakeLockHoldTime = 5000;
 
 static StaticRefPtr<SystemMessageService> sSystemMessageService;
-static nsDataHashtable<nsStringHashKey, nsCString>
-    sSystemMessagePermissionsTable;
+static nsTHashMap<nsStringHashKey, nsCString> sSystemMessagePermissionsTable;
 
 namespace {
 
@@ -36,7 +35,8 @@ namespace {
  * Key: Name of system message.
  * Data: Name of permission. (Please lookup from the PermissionsTable.jsm)
  *       For example, "alarm" messages require "alarms" permission, then do
- *       sSystemMessagePermissionsTable.Put(u"alarm"_ns, "alarms"_ns);
+ *       sSystemMessagePermissionsTable.InsertOrUpdate(u"alarm"_ns,
+ * "alarms"_ns);
  *
  *       If your system message do not need to specify any permission, please
  *       set EmptyCString().
@@ -53,49 +53,56 @@ void BuildPermissionsTable() {
    * For efficient lookup and systematic indexing, please help to arrange the
    * key names (system message names) in alphabetical order.
    **/
-  sSystemMessagePermissionsTable.Put(u"activity"_ns, EmptyCString());
-  sSystemMessagePermissionsTable.Put(u"alarm"_ns, "alarms"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-dialer-command"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-map-request"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"activity"_ns, EmptyCString());
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"alarm"_ns, "alarms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"bluetooth-dialer-command"_ns,
+                                                "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"bluetooth-map-request"_ns,
+                                                "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
       u"bluetooth-opp-receiving-file-confirmation"_ns,
       "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-opp-transfer-complete"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-opp-transfer-start"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-opp-update-progress"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-pairing-aborted"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-pairing-request"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"bluetooth-pbap-request"_ns,
-                                     "bluetooth-privileged"_ns);
-  sSystemMessagePermissionsTable.Put(u"cellbroadcast-received"_ns,
-                                     "cellbroadcast"_ns);
-  sSystemMessagePermissionsTable.Put(u"data-sms-received"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"icc-stkcommand"_ns,
-                                     "settings:read,settings:write"_ns);
-  sSystemMessagePermissionsTable.Put(u"media-button"_ns, EmptyCString());
-  sSystemMessagePermissionsTable.Put(u"sms-delivery-error"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"sms-delivery-success"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"sms-failed"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"sms-received"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"sms-sent"_ns, "sms"_ns);
-  sSystemMessagePermissionsTable.Put(u"system-time-change"_ns, "system-time:read"_ns);
-  sSystemMessagePermissionsTable.Put(u"telephony-call-ended"_ns,
-                                     "telephony"_ns);
-  sSystemMessagePermissionsTable.Put(u"telephony-hac-mode-changed"_ns,
-                                     "telephony"_ns);
-  sSystemMessagePermissionsTable.Put(u"telephony-new-call"_ns, "telephony"_ns);
-  sSystemMessagePermissionsTable.Put(u"telephony-tty-mode-changed"_ns,
-                                     "telephony"_ns);
-  sSystemMessagePermissionsTable.Put(u"ussd-received"_ns,
-                                     "mobileconnection"_ns);
-  sSystemMessagePermissionsTable.Put(u"wappush-received"_ns, "wappush"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"bluetooth-opp-transfer-complete"_ns, "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"bluetooth-opp-transfer-start"_ns, "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"bluetooth-opp-update-progress"_ns, "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"bluetooth-pairing-aborted"_ns,
+                                                "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"bluetooth-pairing-request"_ns,
+                                                "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"bluetooth-pbap-request"_ns,
+                                                "bluetooth-privileged"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"cellbroadcast-received"_ns,
+                                                "cellbroadcast"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"data-sms-received"_ns,
+                                                "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"icc-stkcommand"_ns, "settings:read,settings:write"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"media-button"_ns,
+                                                EmptyCString());
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"sms-delivery-error"_ns,
+                                                "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"sms-delivery-success"_ns,
+                                                "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"sms-failed"_ns, "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"sms-received"_ns, "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"sms-sent"_ns, "sms"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"system-time-change"_ns,
+                                                "system-time:read"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"telephony-call-ended"_ns,
+                                                "telephony"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"telephony-hac-mode-changed"_ns, "telephony"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"telephony-new-call"_ns,
+                                                "telephony"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(
+      u"telephony-tty-mode-changed"_ns, "telephony"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"ussd-received"_ns,
+                                                "mobileconnection"_ns);
+  sSystemMessagePermissionsTable.InsertOrUpdate(u"wappush-received"_ns,
+                                                "wappush"_ns);
   /**
    * Note: Please do NOT directly add new entries at the bottom of this table,
    * try to insert them alphabetically.
@@ -294,9 +301,9 @@ void SystemMessageService::DoSubscribe(const nsAString& aMessageName,
     return;
   }
 
-  SubscriberTable* table = mSubscribers.LookupOrAdd(aMessageName);
+  SubscriberTable* table = mSubscribers.GetOrInsertNew(aMessageName);
   UniquePtr<SubscriberInfo> info(new SubscriberInfo(aScope, aOriginSuffix));
-  table->Put(aOrigin, std::move(info));
+  table->InsertOrUpdate(aOrigin, std::move(info));
 
   if (aListener) {
     aListener->OnSubscribe(NS_OK);

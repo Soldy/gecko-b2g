@@ -9,6 +9,10 @@ Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/shared/test/shared-head.js",
   this
 );
+Services.scriptloader.loadSubScript(
+  "chrome://mochitests/content/browser/devtools/client/inspector/test/shared-head.js",
+  this
+);
 
 const EventEmitter = require("devtools/shared/event-emitter");
 
@@ -153,8 +157,6 @@ DevToolPanel.prototype = {
   open: function() {
     return new Promise(resolve => {
       executeSoon(() => {
-        this._isReady = true;
-        this.emit("ready");
         resolve(this);
       });
     });
@@ -171,12 +173,6 @@ DevToolPanel.prototype = {
   get toolbox() {
     return this._toolbox;
   },
-
-  get isReady() {
-    return this._isReady;
-  },
-
-  _isReady: false,
 
   destroy: function() {
     return Promise.resolve(null);

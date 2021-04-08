@@ -113,6 +113,9 @@ class MOZ_RAII CacheIROpsJitSpewer {
   void spewWasmValTypeImm(const char* name, wasm::ValType::Kind kind) {
     out_.printf("%s WasmValTypeKind(%u)", name, unsigned(kind));
   }
+  void spewAllocKindImm(const char* name, gc::AllocKind kind) {
+    out_.printf("%s AllocKind(%u)", name, unsigned(kind));
+  }
 
  public:
   CacheIROpsJitSpewer(GenericPrinter& out, const char* prefix)
@@ -246,6 +249,9 @@ class MOZ_RAII CacheIROpsJSONSpewer {
     spewArgImpl(name, "Imm", unsigned(kind));
   }
   void spewWasmValTypeImm(const char* name, wasm::ValType::Kind kind) {
+    spewArgImpl(name, "Imm", unsigned(kind));
+  }
+  void spewAllocKindImm(const char* name, gc::AllocKind kind) {
     spewArgImpl(name, "Imm", unsigned(kind));
   }
 
@@ -406,7 +412,7 @@ void CacheIRSpewer::valueProperty(const char* name, const Value& v) {
     }
 
     if (NativeObject* nobj =
-            object.isNative() ? &object.as<NativeObject>() : nullptr) {
+            object.is<NativeObject>() ? &object.as<NativeObject>() : nullptr) {
       j.beginListProperty("flags");
       {
         if (nobj->isIndexed()) {

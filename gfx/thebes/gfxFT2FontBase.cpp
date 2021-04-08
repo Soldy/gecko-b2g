@@ -37,7 +37,7 @@ gfxFT2FontBase::gfxFT2FontBase(
       mFTLoadFlags(aLoadFlags | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH |
                    FT_LOAD_COLOR),
       mEmbolden(aEmbolden),
-      mFTSize(1.0) {}
+      mFTSize(0.0) {}
 
 gfxFT2FontBase::~gfxFT2FontBase() { mFTFace->ForgetLockOwner(this); }
 
@@ -218,6 +218,26 @@ void gfxFT2FontBase::InitMetrics() {
     mSpaceGlyph = GetGlyph(' ');
     return;
   }
+
+  if (GetStyle()->sizeAdjust > 0.0 && mFTSize == 0.0) {
+    // If font-size-adjust is in effect, we need to get metrics in order to
+    // determine the aspect ratio, then compute the final adjusted size and
+    // re-initialize metrics.
+    // Setting mFTSize nonzero here ensures we will not recurse again; the
+    // actual value will be overridden by FindClosestSize below.
+    mFTSize = 1.0;
+    InitMetrics();
+    // Now do the font-size-adjust calculation and set the final size.
+    gfxFloat aspect = mMetrics.xHeight / mMetrics.emHeight;
+    mAdjustedSize = GetStyle()->GetAdjustedSize(aspect);
+    // Ensure the FT_Face will be reconfigured for the new size next time we
+    // need to use it.
+    mFTFace->ForgetLockOwner(this);
+  }
+
+  // Set mAdjustedSize if it hasn't already been set by a font-size-adjust
+  // computation.
+  mAdjustedSize = GetAdjustedSize();
 
   // Cairo metrics are normalized to em-space, so that whatever fixed size
   // might actually be chosen is factored out. They are then later scaled by
@@ -636,23 +656,20 @@ const gfxFT2FontBase::GlyphMetrics& gfxFT2FontBase::GetCachedGlyphMetrics(
     uint16_t aGID, IntRect* aBounds) {
   if (!mGlyphMetrics) {
     mGlyphMetrics =
-        mozilla::MakeUnique<nsDataHashtable<nsUint32HashKey, GlyphMetrics>>(
-            128);
+        mozilla::MakeUnique<nsTHashMap<nsUint32HashKey, GlyphMetrics>>(128);
   }
 
-  if (const GlyphMetrics* metrics = mGlyphMetrics->GetValue(aGID)) {
-    return *metrics;
-  }
-
-  GlyphMetrics& metrics = mGlyphMetrics->GetOrInsert(aGID);
-  IntRect bounds;
-  if (GetFTGlyphExtents(aGID, &metrics.mAdvance, &bounds)) {
-    metrics.SetBounds(bounds);
-    if (aBounds) {
-      *aBounds = bounds;
+  return mGlyphMetrics->LookupOrInsertWith(aGID, [&] {
+    GlyphMetrics metrics;
+    IntRect bounds;
+    if (GetFTGlyphExtents(aGID, &metrics.mAdvance, &bounds)) {
+      metrics.SetBounds(bounds);
+      if (aBounds) {
+        *aBounds = bounds;
+      }
     }
-  }
-  return metrics;
+    return metrics;
+  });
 }
 
 int32_t gfxFT2FontBase::GetGlyphWidth(uint16_t aGID) {

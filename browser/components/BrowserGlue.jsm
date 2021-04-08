@@ -27,6 +27,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ASRouterNewTabHook: "resource://activity-stream/lib/ASRouterNewTabHook.jsm",
   ASRouter: "resource://activity-stream/lib/ASRouter.jsm",
   AsyncShutdown: "resource://gre/modules/AsyncShutdown.jsm",
+  BackgroundUpdate: "resource://gre/modules/BackgroundUpdate.jsm",
   Blocklist: "resource://gre/modules/Blocklist.jsm",
   BookmarkHTMLUtils: "resource://gre/modules/BookmarkHTMLUtils.jsm",
   BookmarkJSONUtils: "resource://gre/modules/BookmarkJSONUtils.jsm",
@@ -44,7 +45,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
     "resource:///modules/DownloadsViewableInternally.jsm",
   E10SUtils: "resource://gre/modules/E10SUtils.jsm",
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
-  ExperimentAPI: "resource://messaging-system/experiments/ExperimentAPI.jsm",
+  ExperimentAPI: "resource://nimbus/ExperimentAPI.jsm",
   FeatureGate: "resource://featuregates/FeatureGate.jsm",
   FirefoxMonitor: "resource:///modules/FirefoxMonitor.jsm",
   FxAccounts: "resource://gre/modules/FxAccounts.jsm",
@@ -193,6 +194,7 @@ let JSWINDOWACTORS = {
         AboutLoginsImportFromBrowser: { wantUntrusted: true },
         AboutLoginsImportFromFile: { wantUntrusted: true },
         AboutLoginsImportReportInit: { wantUntrusted: true },
+        AboutLoginsImportReportReady: { wantUntrusted: true },
         AboutLoginsInit: { wantUntrusted: true },
         AboutLoginsGetHelp: { wantUntrusted: true },
         AboutLoginsOpenPreferences: { wantUntrusted: true },
@@ -414,6 +416,8 @@ let JSWINDOWACTORS = {
         DOMMetaAdded: {},
       },
     },
+
+    messageManagerGroups: ["browsers"],
   },
 
   ContentSearch: {
@@ -547,6 +551,8 @@ let JSWINDOWACTORS = {
         pagehide: {},
       },
     },
+
+    messageManagerGroups: ["browsers"],
   },
 
   NetError: {
@@ -601,6 +607,7 @@ let JSWINDOWACTORS = {
     allFrames: true,
   },
 
+  // GMP crash reporting
   Plugin: {
     parent: {
       moduleURI: "resource:///actors/PluginParent.jsm",
@@ -608,15 +615,8 @@ let JSWINDOWACTORS = {
     child: {
       moduleURI: "resource:///actors/PluginChild.jsm",
       events: {
-        PluginBindingAttached: { capture: true, wantUntrusted: true },
         PluginCrashed: { capture: true },
-        PluginOutdated: { capture: true },
-        PluginInstantiated: { capture: true },
-        PluginRemoved: { capture: true },
-        HiddenPlugin: { capture: true },
       },
-
-      observers: ["decoder-doctor-notification"],
     },
 
     allFrames: true,
@@ -735,6 +735,8 @@ let JSWINDOWACTORS = {
         mozUITour: { wantUntrusted: true },
       },
     },
+
+    messageManagerGroups: ["browsers"],
   },
 
   WebRTC: {
@@ -761,6 +763,7 @@ let JSWINDOWACTORS = {
   // Until bug 1450626 and bug 1488384 are fixed, skip the blank window when
   // using a non-default theme.
   if (
+    !Services.startup.showedPreXULSkeletonUI &&
     Services.prefs.getCharPref(
       "extensions.activeThemeID",
       "default-theme@mozilla.org"
@@ -1177,7 +1180,7 @@ BrowserGlue.prototype = {
         }
         break;
       case "sync-ui-state:update":
-        this._updateFxaBadges();
+        this._updateFxaBadges(BrowserWindowTracker.getTopWindow());
         break;
       case "handlersvc-store-initialized":
         // Initialize PdfJs when running in-process and remote. This only
@@ -1357,17 +1360,18 @@ BrowserGlue.prototype = {
 
     AddonManager.maybeInstallBuiltinAddon(
       "firefox-compact-light@mozilla.org",
-      "1.1",
+      "1.2",
       "resource://builtin-themes/light/"
     );
     AddonManager.maybeInstallBuiltinAddon(
       "firefox-compact-dark@mozilla.org",
-      "1.1",
+      "1.2",
       "resource://builtin-themes/dark/"
     );
+
     AddonManager.maybeInstallBuiltinAddon(
       "firefox-alpenglow@mozilla.org",
-      "1.2",
+      "1.4",
       "resource://builtin-themes/alpenglow/"
     );
 
@@ -1417,12 +1421,18 @@ BrowserGlue.prototype = {
 
   _onSafeModeRestart: function BG_onSafeModeRestart() {
     // prompt the user to confirm
+    let productName = gBrandBundle.GetStringFromName("brandShortName");
     let strings = gBrowserBundle;
-    let promptTitle = strings.GetStringFromName("safeModeRestartPromptTitle");
-    let promptMessage = strings.GetStringFromName(
-      "safeModeRestartPromptMessage"
+    let promptTitle = strings.formatStringFromName(
+      "troubleshootModeRestartPromptTitle",
+      [productName]
     );
-    let restartText = strings.GetStringFromName("safeModeRestartButton");
+    let promptMessage = strings.GetStringFromName(
+      "troubleshootModeRestartPromptMessage"
+    );
+    let restartText = strings.GetStringFromName(
+      "troubleshootModeRestartButton"
+    );
     let buttonFlags =
       Services.prompt.BUTTON_POS_0 * Services.prompt.BUTTON_TITLE_IS_STRING +
       Services.prompt.BUTTON_POS_1 * Services.prompt.BUTTON_TITLE_CANCEL +
@@ -1455,168 +1465,6 @@ BrowserGlue.prototype = {
     if (!cancelQuit.data) {
       Services.startup.restartInSafeMode(Ci.nsIAppStartup.eAttemptQuit);
     }
-  },
-
-  _trackSlowStartup() {
-    let disabled = Services.prefs.getBoolPref(
-      "browser.slowStartup.notificationDisabled"
-    );
-
-    Services.telemetry.scalarSet(
-      "browser.startup.slow_startup_notification_disabled",
-      disabled
-    );
-
-    if (Services.startup.interrupted || disabled) {
-      return;
-    }
-
-    let currentTime = Math.round(Cu.now());
-
-    Services.telemetry.scalarSet("browser.startup.recorded_time", currentTime);
-
-    let averageTime = 0;
-    let samples = 0;
-    try {
-      averageTime = Services.prefs.getIntPref(
-        "browser.slowStartup.averageTime"
-      );
-      samples = Services.prefs.getIntPref("browser.slowStartup.samples");
-    } catch (e) {}
-
-    let totalTime = averageTime * samples + currentTime;
-    samples++;
-    averageTime = totalTime / samples;
-
-    Services.telemetry.scalarSet("browser.startup.average_time", averageTime);
-    Services.telemetry.scalarSet(
-      "browser.startup.slow_startup_notified",
-      false
-    );
-    Services.telemetry.scalarSet(
-      "browser.startup.too_new_for_notification",
-      false
-    );
-
-    if (
-      samples >= Services.prefs.getIntPref("browser.slowStartup.maxSamples")
-    ) {
-      if (
-        averageTime >
-        Services.prefs.getIntPref("browser.slowStartup.timeThreshold")
-      ) {
-        this._calculateProfileAgeInDays().then(
-          this._showSlowStartupNotification,
-          null
-        );
-      }
-      averageTime = 0;
-      samples = 0;
-    }
-
-    Services.prefs.setIntPref("browser.slowStartup.averageTime", averageTime);
-    Services.prefs.setIntPref("browser.slowStartup.samples", samples);
-  },
-
-  async _calculateProfileAgeInDays() {
-    let ProfileAge = ChromeUtils.import(
-      "resource://gre/modules/ProfileAge.jsm",
-      {}
-    ).ProfileAge;
-    let profileAge = await ProfileAge();
-
-    let creationDate = await profileAge.created;
-    let resetDate = await profileAge.reset;
-
-    // if the profile was reset, consider the
-    // reset date for its age.
-    let profileDate = resetDate || creationDate;
-
-    const ONE_DAY = 24 * 60 * 60 * 1000;
-    return (Date.now() - profileDate) / ONE_DAY;
-  },
-
-  _showSlowStartupNotification(profileAge) {
-    if (profileAge < 90) {
-      // 3 months
-      Services.telemetry.scalarSet(
-        "browser.startup.too_new_for_notification",
-        true
-      );
-      return;
-    }
-
-    let win = BrowserWindowTracker.getTopWindow();
-    if (!win) {
-      return;
-    }
-
-    Services.telemetry.scalarSet("browser.startup.slow_startup_notified", true);
-
-    const NO_ACTION = 0;
-    const OPENED_SUMO = 1;
-    const NEVER_SHOW_AGAIN = 2;
-    const DISMISS_NOTIFICATION = 3;
-
-    Services.telemetry.scalarSet("browser.startup.action", NO_ACTION);
-
-    let productName = gBrandBundle.GetStringFromName("brandFullName");
-    let message = win.gNavigatorBundle.getFormattedString(
-      "slowStartup.message",
-      [productName]
-    );
-
-    let buttons = [
-      {
-        label: win.gNavigatorBundle.getString("slowStartup.helpButton.label"),
-        accessKey: win.gNavigatorBundle.getString(
-          "slowStartup.helpButton.accesskey"
-        ),
-        callback() {
-          Services.telemetry.scalarSet("browser.startup.action", OPENED_SUMO);
-          win.openTrustedLinkIn(
-            "https://support.mozilla.org/kb/reset-firefox-easily-fix-most-problems",
-            "tab"
-          );
-        },
-      },
-      {
-        label: win.gNavigatorBundle.getString(
-          "slowStartup.disableNotificationButton.label"
-        ),
-        accessKey: win.gNavigatorBundle.getString(
-          "slowStartup.disableNotificationButton.accesskey"
-        ),
-        callback() {
-          Services.telemetry.scalarSet(
-            "browser.startup.action",
-            NEVER_SHOW_AGAIN
-          );
-          Services.prefs.setBoolPref(
-            "browser.slowStartup.notificationDisabled",
-            true
-          );
-        },
-      },
-    ];
-
-    let closeCallback = closeType => {
-      if (closeType == "dismissed") {
-        Services.telemetry.scalarSet(
-          "browser.startup.action",
-          DISMISS_NOTIFICATION
-        );
-      }
-    };
-
-    win.gNotificationBox.appendNotification(
-      message,
-      "slow-startup",
-      "chrome://browser/skin/slowStartup-16.png",
-      win.gNotificationBox.PRIORITY_INFO_LOW,
-      buttons,
-      closeCallback
-    );
   },
 
   /**
@@ -1676,7 +1524,7 @@ BrowserGlue.prototype = {
     win.gNotificationBox.appendNotification(
       message,
       "reset-profile-notification",
-      "chrome://global/skin/icons/question-64.png",
+      "chrome://global/skin/icons/help.svg",
       win.gNotificationBox.PRIORITY_INFO_LOW,
       buttons
     );
@@ -1751,26 +1599,6 @@ BrowserGlue.prototype = {
     }
   },
 
-  _collectFirstPartyIsolationTelemetry() {
-    let update = aIsFirstPartyIsolated => {
-      Services.telemetry.scalarSet(
-        "privacy.feature.first_party_isolation_enabled",
-        aIsFirstPartyIsolated
-      );
-    };
-
-    XPCOMUtils.defineLazyPreferenceGetter(
-      this,
-      "_firstPartyIsolated",
-      "privacy.firstparty.isolate",
-      false,
-      (_data, _previous, latest) => {
-        update(latest);
-      }
-    );
-    update(this._firstPartyIsolated);
-  },
-
   // the first browser window has finished initializing
   _onFirstWindowLoaded: function BG__onFirstWindowLoaded(aWindow) {
     AboutNewTab.init();
@@ -1799,8 +1627,6 @@ BrowserGlue.prototype = {
         });
       }
     });
-
-    this._trackSlowStartup();
 
     // Offer to reset a user's profile if it hasn't been used for 60 days.
     const OFFER_PROFILE_RESET_INTERVAL_MS = 60 * 24 * 60 * 60 * 1000;
@@ -1866,8 +1692,6 @@ BrowserGlue.prototype = {
     this._firstWindowLoaded();
 
     this._collectStartupConditionsTelemetry();
-
-    this._collectFirstPartyIsolationTelemetry();
 
     if (!this._placesTelemetryGathered && TelemetryUtils.isTelemetryEnabled) {
       this._placesTelemetryGathered = true;
@@ -2496,6 +2320,47 @@ BrowserGlue.prototype = {
         },
       },
 
+      // Report pinning status and the type of shortcut used to launch
+      {
+        condition: AppConstants.platform == "win",
+        task: async () => {
+          let shellService = Cc[
+            "@mozilla.org/browser/shell-service;1"
+          ].getService(Ci.nsIWindowsShellService);
+
+          try {
+            Services.telemetry.scalarSet(
+              "os.environment.is_taskbar_pinned",
+              await shellService.isCurrentAppPinnedToTaskbarAsync()
+            );
+          } catch (ex) {
+            Cu.reportError(ex);
+          }
+
+          let classification;
+          let shortcut;
+          try {
+            shortcut = Services.appinfo.processStartupShortcut;
+            classification = shellService.classifyShortcut(shortcut);
+          } catch (ex) {
+            Cu.reportError(ex);
+          }
+
+          if (!classification) {
+            if (shortcut) {
+              classification = "OtherShortcut";
+            } else {
+              classification = "Other";
+            }
+          }
+
+          Services.telemetry.scalarSet(
+            "os.environment.launch_method",
+            classification
+          );
+        },
+      },
+
       {
         condition: AppConstants.platform == "win",
         task: () => {
@@ -2609,12 +2474,10 @@ BrowserGlue.prototype = {
       // pre-init buffer.
       {
         task: () => {
-          if (AppConstants.MOZ_GLEAN) {
-            let FOG = Cc["@mozilla.org/toolkit/glean;1"].createInstance(
-              Ci.nsIFOG
-            );
-            FOG.initializeFOG();
-          }
+          let FOG = Cc["@mozilla.org/toolkit/glean;1"].createInstance(
+            Ci.nsIFOG
+          );
+          FOG.initializeFOG();
         },
       },
 
@@ -2657,6 +2520,25 @@ BrowserGlue.prototype = {
       {
         task: () => {
           PlacesUIUtils.ensureBookmarkToolbarTelemetryListening();
+        },
+      },
+
+      {
+        condition:
+          AppConstants.MOZ_BACKGROUNDTASKS && AppConstants.MOZ_UPDATE_AGENT,
+        task: () => {
+          // Never in automation!  This is close to
+          // `UpdateService.disabledForTesting`, but without creating the
+          // service, which can perform a good deal of I/O in order to log its
+          // state.  Since this is in the startup path, we avoid all of that.
+          // We also don't test for Marionette and Remote Agent since they are
+          // not yet initialized.
+          let disabledForTesting =
+            Cu.isInAutomation &&
+            Services.prefs.getBoolPref("app.update.disabledForTesting", false);
+          if (!disabledForTesting) {
+            BackgroundUpdate.maybeScheduleBackgroundUpdateTask();
+          }
         },
       },
 
@@ -2898,8 +2780,8 @@ BrowserGlue.prototype = {
       );
 
       let stringID = sessionWillBeRestored
-        ? "tabs.closeWarningMultipleWindowsSessionRestore2"
-        : "tabs.closeWarningMultipleWindows";
+        ? "tabs.closeWarningMultipleWindowsSessionRestore3"
+        : "tabs.closeWarningMultipleWindows2";
       let windowString = gTabbrowserBundle.GetStringFromName(stringID);
       windowString = PluralForm.get(windowcount, windowString).replace(
         /#1/,
@@ -2908,8 +2790,8 @@ BrowserGlue.prototype = {
       warningMessage = windowString.replace(/%(?:1\$)?S/i, tabSubstring);
     } else {
       let stringID = sessionWillBeRestored
-        ? "tabs.closeWarningMultipleSessionRestore2"
-        : "tabs.closeWarningMultiple";
+        ? "tabs.closeWarningMultipleTabsSessionRestore"
+        : "tabs.closeWarningMultipleTabs";
       warningMessage = gTabbrowserBundle.GetStringFromName(stringID);
       warningMessage = PluralForm.get(pagecount, warningMessage).replace(
         "#1",
@@ -2920,14 +2802,14 @@ BrowserGlue.prototype = {
     let warnOnClose = { value: true };
     let titleId =
       AppConstants.platform == "win"
-        ? "tabs.closeAndQuitTitleTabsWin"
-        : "tabs.closeAndQuitTitleTabs";
+        ? "tabs.closeTabsAndQuitTitleWin"
+        : "tabs.closeTabsAndQuitTitle";
     let flags =
       Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
       Services.prompt.BUTTON_TITLE_CANCEL * Services.prompt.BUTTON_POS_1;
     // Only display the checkbox in the non-sessionrestore case.
     let checkboxLabel = !sessionWillBeRestored
-      ? gTabbrowserBundle.GetStringFromName("tabs.closeWarningPromptMe")
+      ? gTabbrowserBundle.GetStringFromName("tabs.closeWarningPrompt")
       : null;
 
     // buttonPressed will be 0 for closing, 1 for cancel (don't close/quit)
@@ -3217,29 +3099,9 @@ BrowserGlue.prototype = {
     var text = placesBundle.formatStringFromName("lockPrompt.text", [
       applicationName,
     ]);
-    var buttonText = placesBundle.GetStringFromName(
-      "lockPromptInfoButton.label"
-    );
-    var accessKey = placesBundle.GetStringFromName(
-      "lockPromptInfoButton.accessKey"
-    );
-
-    var helpTopic = "places-locked";
-    var url = Services.urlFormatter.formatURLPref("app.support.baseURL");
-    url += helpTopic;
 
     var win = BrowserWindowTracker.getTopWindow();
-
-    var buttons = [
-      {
-        label: buttonText,
-        accessKey,
-        popup: null,
-        callback(aNotificationBar, aButton) {
-          win.openTrustedLinkIn(url, "tab");
-        },
-      },
-    ];
+    var buttons = [{ supportPage: "places-locked" }];
 
     var notifyBox = win.gBrowser.getNotificationBox();
     var notification = notifyBox.appendNotification(
@@ -3290,7 +3152,7 @@ BrowserGlue.prototype = {
   _migrateUI: function BG__migrateUI() {
     // Use an increasing number to keep track of the current migration state.
     // Completely unrelated to the current Firefox release number.
-    const UI_VERSION = 107;
+    const UI_VERSION = 108;
     const BROWSER_DOCURL = AppConstants.BROWSER_CHROME_URL;
 
     if (!Services.prefs.prefHasUserValue("browser.migration.version")) {
@@ -3864,6 +3726,30 @@ BrowserGlue.prototype = {
       Services.prefs.setCharPref(kPref, migrations.join(","));
     }
 
+    if (currentUIVersion < 108) {
+      // Migrate old ctrlTab pref to new ctrlTab pref
+      let defaultValue = false;
+      let oldPrefName = "browser.ctrlTab.recentlyUsedOrder";
+      let oldPrefDefault = true;
+      // Use old pref value if the user used Ctrl+Tab before, elsewise use new default value
+      if (Services.prefs.getBoolPref("browser.engagement.ctrlTab.has-used")) {
+        let newPrefValue = Services.prefs.getBoolPref(
+          oldPrefName,
+          oldPrefDefault
+        );
+        Services.prefs.setBoolPref(
+          "browser.ctrlTab.sortByRecentlyUsed",
+          newPrefValue
+        );
+      } else {
+        Services.prefs.setBoolPref(
+          "browser.ctrlTab.sortByRecentlyUsed",
+          defaultValue
+        );
+      }
+      Services.prefs.clearUserPref(oldPrefName);
+    }
+
     // Update the migration version.
     Services.prefs.setIntPref("browser.migration.version", UI_VERSION);
   },
@@ -4191,15 +4077,12 @@ BrowserGlue.prototype = {
         accessKey: win.gNavigatorBundle.getString(
           "flashHang.helpButton.accesskey"
         ),
-        callback() {
-          win.openTrustedLinkIn(
-            "https://support.mozilla.org/kb/flash-protected-mode-autodisabled",
-            "tab"
-          );
-        },
+        link:
+          "https://support.mozilla.org/kb/flash-protected-mode-autodisabled",
       },
     ];
 
+    // XXXndeakin is this notification still relevant?
     win.gNotificationBox.appendNotification(
       message,
       "flash-hang",
@@ -4209,16 +4092,31 @@ BrowserGlue.prototype = {
     );
   },
 
-  _updateFxaBadges() {
+  _updateFxaBadges(win) {
+    let fxaButton = win.document.getElementById("fxa-toolbar-menu-button");
+    let badge = fxaButton.querySelector(".toolbarbutton-badge");
+
     let state = UIState.get();
     if (
       state.status == UIState.STATUS_LOGIN_FAILED ||
       state.status == UIState.STATUS_NOT_VERIFIED
     ) {
-      AppMenuNotifications.showBadgeOnlyNotification(
-        "fxa-needs-authentication"
-      );
+      // If the fxa toolbar button is in the toolbox, we display the notification
+      // on the fxa button instead of the app menu.
+      let navToolbox = win.document.getElementById("navigator-toolbox");
+      let isFxAButtonShown = navToolbox.contains(fxaButton);
+      if (isFxAButtonShown) {
+        state.status == UIState.STATUS_LOGIN_FAILED
+          ? fxaButton.setAttribute("badge-status", state.status)
+          : badge.classList.add("feature-callout");
+      } else {
+        AppMenuNotifications.showBadgeOnlyNotification(
+          "fxa-needs-authentication"
+        );
+      }
     } else {
+      fxaButton.removeAttribute("badge-status");
+      badge.classList.remove("feature-callout");
       AppMenuNotifications.removeNotification("fxa-needs-authentication");
     }
   },

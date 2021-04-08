@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #include "mozilla/Unused.h"
-#include "nsAppRunner.h"  // for IsWaylandDisabled on IsX11EGLEnabled
+#include "nsAppRunner.h"  // for IsWaylandEnabled on IsX11EGLEnabled
 #include "stdint.h"
 
 #ifdef __SUNPRO_CC
@@ -58,6 +58,7 @@ typedef XID GLXPbuffer;
 #  define GLX_RED_SIZE 8
 #  define GLX_GREEN_SIZE 9
 #  define GLX_BLUE_SIZE 10
+#  define GLX_DOUBLEBUFFER 5
 #endif
 
 // stuff from gl.h
@@ -717,8 +718,14 @@ static void get_glx_status(int* gotGlxInfo, int* gotDriDriver) {
                    1,        GLX_BLUE_SIZE, 1, None};
   XVisualInfo* vInfo = glXChooseVisual(dpy, DefaultScreen(dpy), attribs);
   if (!vInfo) {
-    record_error("No visuals found");
-    return;
+    int attribs2[] = {GLX_RGBA, GLX_RED_SIZE,  1, GLX_GREEN_SIZE,
+                      1,        GLX_BLUE_SIZE, 1, GLX_DOUBLEBUFFER,
+                      None};
+    vInfo = glXChooseVisual(dpy, DefaultScreen(dpy), attribs2);
+    if (!vInfo) {
+      record_error("No visuals found");
+      return;
+    }
   }
 
   // using a X11 Window instead of a GLXPixmap does not crash
@@ -1200,7 +1207,7 @@ int childgltest() {
   int pci_count = get_pci_status();
 
 #ifdef MOZ_WAYLAND
-  if (!IsWaylandDisabled()) {
+  if (IsWaylandEnabled()) {
     wayland_egltest();
   } else
 #endif

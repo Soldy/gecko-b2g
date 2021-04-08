@@ -14,9 +14,15 @@ varying vec2 v_uv;
 // sampling artifacts.
 flat varying vec4 v_uv_sample_bounds;
 
-// Layer index to sample.
+#if defined(PLATFORM_ANDROID) && !defined(SWGL)
+// Work around Adreno 3xx driver bug. See the v_perspective comment in
+// brush_image or bug 1630356 for details.
+flat varying vec2 v_perspective_vec;
+#define v_perspective v_perspective_vec.x
+#else
 // Flag to allow perspective interpolation of UV.
 flat varying float v_perspective;
+#endif
 
 flat varying float v_opacity;
 
@@ -33,7 +39,7 @@ void brush_vs(
     int brush_flags,
     vec4 unused
 ) {
-    ImageResource res = fetch_image_resource(prim_user_data.x);
+    ImageSource res = fetch_image_source(prim_user_data.x);
     vec2 uv0 = res.uv_rect.p0;
     vec2 uv1 = res.uv_rect.p1;
 
@@ -77,7 +83,7 @@ void swgl_drawSpanRGBA8() {
     float perspective_divisor = mix(swgl_forceScalar(gl_FragCoord.w), 1.0, v_perspective);
     vec2 uv = v_uv * perspective_divisor;
 
-    swgl_commitTextureLinearColorRGBA8(sColor0, uv, v_uv_sample_bounds, v_opacity, 0.0);
+    swgl_commitTextureLinearColorRGBA8(sColor0, uv, v_uv_sample_bounds, v_opacity);
 }
 #endif
 

@@ -526,7 +526,7 @@ void nsPicoService::Init() {
 
       if (!found) {
         voice = new PicoVoice(lang);
-        mVoices.Put(uri, RefPtr{voice});
+        mVoices.InsertOrUpdate(uri, RefPtr{voice});
       }
 
       // Each voice consists of two lingware files: A language resource file,

@@ -8,8 +8,9 @@
 #define MEDIA_CODEC_PROXY_H
 
 #include <nsString.h>
+#include <media/MediaCodecBuffer.h>
 #include <media/stagefright/MediaCodec.h>
-#include <media/stagefright/MediaBuffer.h>
+#include <media/stagefright/MetaData.h>
 #include <utils/threads.h>
 
 #include "mozilla/media/MediaSystemResourceClient.h"
@@ -20,6 +21,37 @@
 //#define DEBUG_BUFFER_USAGE
 
 namespace android {
+
+class SimpleMediaBuffer : public RefBase {
+ public:
+  explicit SimpleMediaBuffer(const sp<MediaCodecBuffer>& aMediaCodecBuffer)
+      : mMediaCodecBuffer(aMediaCodecBuffer) {}
+
+  void* Data() const { return mMediaCodecBuffer->data(); }
+
+  size_t Size() const { return mMediaCodecBuffer->size(); }
+
+  MetaDataBase& MetaData() { return mMetaData; }
+
+  void SetGraphicBuffer(const sp<GraphicBuffer>& aGraphicBuffer) {
+    mGraphicBuffer = aGraphicBuffer;
+  }
+
+  sp<GraphicBuffer> GetGraphicBuffer() { return mGraphicBuffer; }
+
+  void SetManager(const sp<RefBase>& aManager) { mManager = aManager; }
+
+  sp<RefBase> GetManager() { return mManager.promote(); }
+
+ private:
+  virtual ~SimpleMediaBuffer() = default;
+
+  sp<MediaCodecBuffer> mMediaCodecBuffer;
+  sp<GraphicBuffer> mGraphicBuffer;
+  wp<RefBase> mManager;
+  MetaDataBase mMetaData;
+};
+
 // This class is intended to be a proxy for MediaCodec with codec resource
 // management. Basically user can use it like MediaCodec, but need to handle
 // the listener when Codec is reserved for Async case. A good example is
@@ -49,7 +81,8 @@ class MediaCodecProxy : public RefBase,
   // Static MediaCodec methods
   // Only support MediaCodec::CreateByType()
   static sp<MediaCodecProxy> CreateByType(sp<ALooper> aLooper,
-                                          const char* aMime, bool aEncoder);
+                                          const char* aMime, bool aEncoder,
+                                          uint32_t aFlags = 0);
 
   // MediaCodec methods
   status_t configure(const sp<AMessage>& aFormat,
@@ -111,14 +144,14 @@ class MediaCodecProxy : public RefBase,
   status_t Input(const uint8_t* aData, uint32_t aDataSize,
                  int64_t aTimestampUsecs, uint64_t flags,
                  int64_t aTimeoutUs = 0);
-  status_t Output(MediaBuffer** aBuffer, int64_t aTimeoutUs);
+  status_t Output(sp<SimpleMediaBuffer>* aBuffer, int64_t aTimeoutUs);
   bool Prepare();
   void ReleaseMediaResources();
   // This updates mOutputBuffer when receiving INFO_OUTPUT_BUFFERS_CHANGED
   // event.
   bool UpdateOutputBuffers();
 
-  void ReleaseMediaBuffer(MediaBuffer* abuffer);
+  void ReleaseMediaBuffer(const sp<SimpleMediaBuffer>& aBuffer);
 
   // It allocates audio MediaCodec synchronously.
   bool AllocateAudioMediaCodec();
@@ -143,24 +176,19 @@ class MediaCodecProxy : public RefBase,
   const MediaCodecProxy& operator=(const MediaCodecProxy&) = delete;
 
   // Constructor for MediaCodecProxy::CreateByType
-  MediaCodecProxy(sp<ALooper> aLooper, const char* aMime, bool aEncoder);
+  MediaCodecProxy(sp<ALooper> aLooper, const char* aMime, bool aEncoder,
+                  uint32_t aFlags);
 
   // Allocate Codec Resource
   bool allocateCodec();
   // Release Codec Resource
   void releaseCodec();
 
-  // Convert AOSP MediaCodec's MediaCodecBuffer to AOSP MediaBuffer
-  // The caller takes the ownership of the result MediaBuffer.
-  MediaBuffer* CreateMediaBuffer(const sp<MediaCodecBuffer>& aMediaCodecBuffer);
-  // Callfer should take care the life of aGraphicBuffer.
-  MediaBuffer* CreateMediaBuffer(const GraphicBuffer* aGraphicBuffer,
-                                 size_t aSize);
-
   // MediaCodec Parameter
   sp<ALooper> mCodecLooper;
   nsCString mCodecMime;
   bool mCodecEncoder;
+  uint32_t mCodecFlags;
 
   mozilla::MozPromiseHolder<CodecPromise> mCodecPromise;
   // When mPromiseMonitor is held, mResourceClient's functions should not be

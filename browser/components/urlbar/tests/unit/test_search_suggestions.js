@@ -10,9 +10,6 @@ const { FormHistory } = ChromeUtils.import(
   "resource://gre/modules/FormHistory.jsm"
 );
 
-const ENGINE_NAME = "engine-suggestions.xml";
-// This is fixed to match the port number in engine-suggestions.xml.
-const SERVER_PORT = 9000;
 const SUGGEST_PREF = "browser.urlbar.suggest.searches";
 const SUGGEST_ENABLED_PREF = "browser.search.suggest.enabled";
 const PRIVATE_ENABLED_PREF = "browser.search.suggest.enabled.private";
@@ -28,6 +25,7 @@ const MAX_RESULTS = Services.prefs.getIntPref(MAX_RICH_RESULTS_PREF, 10);
 
 var suggestionsFn;
 var previousSuggestionsFn;
+let port;
 
 /**
  * Set the current suggestion funciton.
@@ -66,7 +64,7 @@ function makeFormHistoryResults(context, count) {
     results.push(
       makeFormHistoryResult(context, {
         suggestion: `${SEARCH_STRING} world Form History ${i}`,
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       })
     );
   }
@@ -85,12 +83,12 @@ function makeRemoteSuggestionResults(
   return [
     makeSearchResult(context, {
       query,
-      engineName: ENGINE_NAME,
+      engineName: SUGGESTIONS_ENGINE_NAME,
       suggestion: suggestionPrefix + " foo",
     }),
     makeSearchResult(context, {
       query,
-      engineName: ENGINE_NAME,
+      engineName: SUGGESTIONS_ENGINE_NAME,
       suggestion: suggestionPrefix + " bar",
     }),
   ];
@@ -130,6 +128,8 @@ add_task(async function setup() {
   let engine = await addTestSuggestionsEngine(searchStr => {
     return suggestionsFn(searchStr);
   });
+  port = engine.getSubmission("").uri.port;
+
   setSuggestionsFn(searchStr => {
     let suffixes = ["foo", "bar"];
     return [searchStr].concat(suffixes.map(s => searchStr + " " + s));
@@ -148,7 +148,7 @@ add_task(async function setup() {
   let context = createContext(SEARCH_STRING, { isPrivate: false });
   let entries = makeFormHistoryResults(context, MAX_RESULTS).map(r => ({
     value: r.payload.suggestion,
-    source: ENGINE_NAME,
+    source: SUGGESTIONS_ENGINE_NAME,
   }));
   await UrlbarTestUtils.formHistory.add(entries);
 });
@@ -160,7 +160,10 @@ add_task(async function disabled_urlbarSuggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
   await cleanUpSuggestions();
@@ -173,7 +176,10 @@ add_task(async function disabled_allSuggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
   await cleanUpSuggestions();
@@ -187,7 +193,10 @@ add_task(async function disabled_privateWindow() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
   await cleanUpSuggestions();
@@ -206,7 +215,7 @@ add_task(async function disabled_urlbarSuggestions_withRestrictionToken() {
       makeSearchResult(context, {
         query: SEARCH_STRING,
         alias: UrlbarTokenizer.RESTRICT.SEARCH,
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         heuristic: true,
       }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
@@ -233,7 +242,7 @@ add_task(
         makeSearchResult(context, {
           query: SEARCH_STRING,
           alias: UrlbarTokenizer.RESTRICT.SEARCH,
-          engineName: ENGINE_NAME,
+          engineName: SUGGESTIONS_ENGINE_NAME,
           heuristic: true,
         }),
       ],
@@ -257,7 +266,7 @@ add_task(
         makeSearchResult(context, {
           query: SEARCH_STRING,
           alias: UrlbarTokenizer.RESTRICT.SEARCH,
-          engineName: ENGINE_NAME,
+          engineName: SUGGESTIONS_ENGINE_NAME,
           heuristic: true,
         }),
         ...makeFormHistoryResults(context, MAX_RESULTS - 3),
@@ -278,7 +287,10 @@ add_task(async function enabled_by_pref_privateWindow() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context),
     ],
@@ -296,7 +308,10 @@ add_task(async function singleWordQuery() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context),
     ],
@@ -313,7 +328,10 @@ add_task(async function multiWordQuery() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: query,
@@ -338,20 +356,57 @@ add_task(async function suffixMatch() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "baz " + SEARCH_STRING,
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "quux " + SEARCH_STRING,
       }),
     ],
   });
 
   await cleanUpSuggestions();
+});
+
+add_task(async function remoteSuggestionsDupeSearchString() {
+  Services.prefs.setIntPref(MAX_FORM_HISTORY_PREF, 0);
+
+  // Return remote suggestions with the trimmed search string, the uppercased
+  // search string, and the search string with a trailing space, plus the usual
+  // "foo" and "bar" suggestions.
+  setSuggestionsFn(searchStr => {
+    let suffixes = ["foo", "bar"];
+    return [searchStr.trim(), searchStr.toUpperCase(), searchStr + " "].concat(
+      suffixes.map(s => searchStr + " " + s)
+    );
+  });
+
+  // Do a search with a trailing space.  All the variations of the search string
+  // with regard to spaces and case should be discarded from the remote
+  // suggestions, leaving only the usual "foo" and "bar" suggestions.
+  let query = SEARCH_STRING + " ";
+  let context = createContext(query, { isPrivate: false });
+  await check_results({
+    context,
+    matches: [
+      makeSearchResult(context, {
+        query,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      ...makeRemoteSuggestionResults(context),
+    ],
+  });
+
+  await cleanUpSuggestions();
+  Services.prefs.clearUserPref(MAX_FORM_HISTORY_PREF);
 });
 
 add_task(async function queryIsNotASubstring() {
@@ -366,14 +421,17 @@ add_task(async function queryIsNotASubstring() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "aaa",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "bbb",
       }),
     ],
@@ -412,7 +470,10 @@ add_task(async function restrictToken() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 5),
       ...makeRemoteSuggestionResults(context),
       makeBookmarkResult(context, {
@@ -437,7 +498,7 @@ add_task(async function restrictToken() {
     context,
     matches: [
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         alias: UrlbarTokenizer.RESTRICT.SEARCH,
         query: SEARCH_STRING,
         heuristic: true,
@@ -459,7 +520,7 @@ add_task(async function restrictToken() {
     context,
     matches: [
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         query: "",
         heuristic: true,
       }),
@@ -475,7 +536,7 @@ add_task(async function restrictToken() {
     context,
     matches: [
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         alias: UrlbarTokenizer.RESTRICT.SEARCH,
         query: "",
         heuristic: true,
@@ -493,7 +554,7 @@ add_task(async function restrictToken() {
     context,
     matches: [
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         query: "h",
         heuristic: true,
       }),
@@ -513,7 +574,7 @@ add_task(async function restrictToken() {
     context,
     matches: [
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         alias: UrlbarTokenizer.RESTRICT.SEARCH,
         query: "h",
         heuristic: true,
@@ -566,7 +627,10 @@ add_task(async function restrictToken() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -645,7 +709,10 @@ add_task(async function mixup_frecency() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS),
       ...makeRemoteSuggestionResults(context),
       makeBookmarkResult(context, {
@@ -723,7 +790,10 @@ add_task(async function mixup_frecency() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, 1),
       makeBookmarkResult(context, {
         uri: "http://example.com/hi3",
@@ -783,7 +853,10 @@ add_task(async function prohibit_suggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context),
     ],
@@ -812,7 +885,7 @@ add_task(async function prohibit_suggestions() {
       }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 2),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         heuristic: false,
       }),
     ],
@@ -824,7 +897,10 @@ add_task(async function prohibit_suggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context, { suggestionPrefix: query }),
     ],
@@ -854,7 +930,7 @@ add_task(async function prohibit_suggestions() {
       }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 2),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         heuristic: false,
       }),
     ],
@@ -872,7 +948,7 @@ add_task(async function prohibit_suggestions() {
         heuristic: true,
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         heuristic: false,
       }),
     ],
@@ -884,7 +960,10 @@ add_task(async function prohibit_suggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context, { suggestionPrefix: query }),
     ],
@@ -952,7 +1031,10 @@ add_task(async function prohibit_suggestions() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -976,7 +1058,7 @@ add_task(async function uri_like_queries() {
         iconUri: "",
         heuristic: true,
       }),
-      makeSearchResult(context, { query, engineName: ENGINE_NAME }),
+      makeSearchResult(context, { query, engineName: SUGGESTIONS_ENGINE_NAME }),
     ],
   });
 
@@ -986,7 +1068,10 @@ add_task(async function uri_like_queries() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1005,7 +1090,10 @@ add_task(async function uri_like_queries() {
     await check_results({
       context,
       matches: [
-        makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+        makeSearchResult(context, {
+          engineName: SUGGESTIONS_ENGINE_NAME,
+          heuristic: true,
+        }),
         ...makeRemoteSuggestionResults(context, {
           suggestionPrefix: query,
         }),
@@ -1031,13 +1119,16 @@ add_task(async function avoid_remote_url_suggestions_1() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       makeFormHistoryResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: `${query}.com`,
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: `${query}. com`,
       }),
     ],
@@ -1060,13 +1151,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "htted",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "htteds",
       }),
     ],
@@ -1076,13 +1170,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "ftped",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "ftpeds",
       }),
     ],
@@ -1092,13 +1189,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httped",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httpeds",
       }),
     ],
@@ -1108,7 +1208,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1116,13 +1219,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httpsed",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httpseds",
       }),
     ],
@@ -1132,7 +1238,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1140,13 +1249,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httpded",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "httpdeds",
       }),
     ],
@@ -1162,7 +1274,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1170,7 +1285,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1178,7 +1296,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1202,7 +1323,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1210,7 +1334,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1218,7 +1345,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1240,7 +1370,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1248,7 +1381,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1256,7 +1392,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1264,7 +1403,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1356,13 +1498,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "fileed",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "fileeds",
       }),
     ],
@@ -1372,7 +1517,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1394,7 +1542,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1402,7 +1553,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1410,13 +1564,16 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "abouted",
       }),
       makeSearchResult(context, {
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
         suggestion: "abouteds",
       }),
     ],
@@ -1426,7 +1583,10 @@ add_task(async function avoid_remote_url_suggestions_2() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1447,7 +1607,10 @@ add_task(async function restrict_remote_suggestions_after_no_results() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 1),
     ],
   });
@@ -1456,7 +1619,10 @@ add_task(async function restrict_remote_suggestions_after_no_results() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 1),
       // Because the previous search returned no suggestions, we will not fetch
       // remote suggestions for this query that is just a longer version of the
@@ -1472,7 +1638,10 @@ add_task(async function restrict_remote_suggestions_after_no_results() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
     ],
   });
 
@@ -1495,7 +1664,10 @@ add_task(async function formHistory() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeRemoteSuggestionResults(context),
     ],
   });
@@ -1505,7 +1677,10 @@ add_task(async function formHistory() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context),
     ],
@@ -1516,7 +1691,10 @@ add_task(async function formHistory() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeFormHistoryResults(context, MAX_RESULTS - 3),
       ...makeRemoteSuggestionResults(context),
     ],
@@ -1535,33 +1713,86 @@ add_task(async function formHistory() {
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: firstSuggestion,
       }),
     ],
   });
 
+  // Do the same search but in uppercase with a trailing space.  We should get
+  // the same results, i.e., the form history result dupes the trimmed search
+  // string so it shouldn't be included.
+  let query = firstSuggestion.toUpperCase() + " ";
+  context = createContext(query, { isPrivate: false });
+  await check_results({
+    context,
+    matches: [
+      makeSearchResult(context, {
+        query,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      ...makeRemoteSuggestionResults(context, {
+        suggestionPrefix: firstSuggestion.toUpperCase(),
+      }),
+    ],
+  });
+
+  // Add a form history entry that dupes the first remote suggestion and do a
+  // search that triggers both.  The form history should be included but the
+  // remote suggestion should not since it dupes the form history.
+  let suggestionPrefix = "dupe";
+  let dupeSuggestion = makeRemoteSuggestionResults(context, {
+    suggestionPrefix,
+  })[0].payload.suggestion;
+  Assert.ok(dupeSuggestion, "Sanity check: dupeSuggestion is defined");
+  await UrlbarTestUtils.formHistory.add([dupeSuggestion]);
+
+  context = createContext(suggestionPrefix, { isPrivate: false });
+  await check_results({
+    context,
+    matches: [
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
+      makeFormHistoryResult(context, {
+        suggestion: dupeSuggestion,
+        engineName: SUGGESTIONS_ENGINE_NAME,
+      }),
+      ...makeRemoteSuggestionResults(context, { suggestionPrefix }).slice(1),
+    ],
+  });
+
+  await UrlbarTestUtils.formHistory.remove([dupeSuggestion]);
+
   // Add these form history strings to use below.
-  let formHistoryStrings = ["foo", "foobar", "fooquux"];
+  let formHistoryStrings = ["foo", "FOO ", "foobar", "fooquux"];
   await UrlbarTestUtils.formHistory.add(formHistoryStrings);
 
-  // Search for "foo".  "foo" shouldn't be included since it dupes the
-  // heuristic.  Both "foobar" and "fooquux" should be included even though the
-  // max form history count is only two and there are three matching form
-  // history results (including "foo").
+  // Search for "foo".  "foo" and "FOO " shouldn't be included since they dupe
+  // the heuristic.  Both "foobar" and "fooquux" should be included even though
+  // the max form history count is only two and there are four matching form
+  // history results (including the discarded "foo" and "FOO ").
   context = createContext("foo", { isPrivate: false });
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       makeFormHistoryResult(context, {
         suggestion: "foobar",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       makeFormHistoryResult(context, {
         suggestion: "fooquux",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: "foo",
@@ -1571,8 +1802,8 @@ add_task(async function formHistory() {
 
   // Add a visit that matches "foo" and will autofill so that the heuristic is
   // not a search result.  Now the "foo" and "foobar" form history should be
-  // included.  The "foo" remote suggestion should also be included since the
-  // heuristic is not a search result.
+  // included.  The "foo" remote suggestion should not be included since it
+  // dupes the "foo" form history.
   await PlacesTestUtils.addVisits("http://foo.example.com/");
   context = createContext("foo", { isPrivate: false });
   await check_results({
@@ -1586,19 +1817,15 @@ add_task(async function formHistory() {
       }),
       makeFormHistoryResult(context, {
         suggestion: "foo",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       makeFormHistoryResult(context, {
         suggestion: "foobar",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       makeFormHistoryResult(context, {
         suggestion: "fooquux",
-        engineName: ENGINE_NAME,
-      }),
-      makeSearchResult(context, {
-        suggestion: "foo",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: "foo",
@@ -1607,41 +1834,50 @@ add_task(async function formHistory() {
   });
   await PlacesUtils.history.clear();
 
-  // Add SERPs for "foobar" and "food" and search for "foo".  The "foo" form
-  // history should be excluded since it dupes the heuristic; the "foobar" and
-  // "fooquux" form history should be included; the "food" SERP should be
-  // included since it doesn't dupe either form history result; and the "foobar"
-  // SERP depends on the result buckets, see below.
+  // Add SERPs for "foobar", "fooBAR ", and "food", and search for "foo".  The
+  // "foo" form history should be excluded since it dupes the heuristic; the
+  // "foobar" and "fooquux" form history should be included; the "food" SERP
+  // should be included since it doesn't dupe either form history result; and
+  // the "foobar" and "fooBAR " SERPs depend on the result buckets, see below.
   let engine = await Services.search.getDefault();
-  let [serpURL1] = UrlbarUtils.getSearchQueryUrl(engine, "foobar");
-  let [serpURL2] = UrlbarUtils.getSearchQueryUrl(engine, "food");
-  await PlacesTestUtils.addVisits([serpURL1, serpURL2]);
+  let serpURLs = ["foobar", "fooBAR ", "food"].map(
+    term => UrlbarUtils.getSearchQueryUrl(engine, term)[0]
+  );
+  await PlacesTestUtils.addVisits(serpURLs);
 
   // First set showSearchSuggestionsFirst = false so that general results appear
-  // before suggestions, which means that the muxer visits the "foobar" SERP
-  // before visiting the "foobar" form history, and so it doesn't see that the
-  // SERP dupes the form history.  The "foobar" SERP is therefore included.
+  // before suggestions, which means that the muxer visits the "foobar" and
+  // "fooBAR " SERPs before visiting the "foobar" form history, and so it
+  // doesn't see that these two SERPs dupe the form history.  They are therefore
+  // included.
   Services.prefs.setBoolPref(SHOW_SEARCH_SUGGESTIONS_FIRST_PREF, false);
   context = createContext("foo", { isPrivate: false });
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
-      makeVisitResult(context, {
-        uri: "http://localhost:9000/search?terms=food",
-        title: "test visit for http://localhost:9000/search?terms=food",
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
       }),
       makeVisitResult(context, {
-        uri: "http://localhost:9000/search?terms=foobar",
-        title: "test visit for http://localhost:9000/search?terms=foobar",
+        uri: `http://localhost:${port}/search?q=food`,
+        title: `test visit for http://localhost:${port}/search?q=food`,
+      }),
+      makeVisitResult(context, {
+        uri: `http://localhost:${port}/search?q=fooBAR+`,
+        title: `test visit for http://localhost:${port}/search?q=fooBAR+`,
+      }),
+      makeVisitResult(context, {
+        uri: `http://localhost:${port}/search?q=foobar`,
+        title: `test visit for http://localhost:${port}/search?q=foobar`,
       }),
       makeFormHistoryResult(context, {
         suggestion: "foobar",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       makeFormHistoryResult(context, {
         suggestion: "fooquux",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: "foo",
@@ -1650,28 +1886,31 @@ add_task(async function formHistory() {
   });
 
   // Now clear showSearchSuggestionsFirst so that suggestions appear before
-  // general results.  Now the muxer will see that the "foobar" SERP dupes the
-  // "foobar" form history, so it will exclude the SERP.
+  // general results.  Now the muxer will see that the "foobar" and "fooBAR "
+  // SERPs dupe the "foobar" form history, so it will exclude them.
   Services.prefs.clearUserPref(SHOW_SEARCH_SUGGESTIONS_FIRST_PREF);
   context = createContext("foo", { isPrivate: false });
   await check_results({
     context,
     matches: [
-      makeSearchResult(context, { engineName: ENGINE_NAME, heuristic: true }),
+      makeSearchResult(context, {
+        engineName: SUGGESTIONS_ENGINE_NAME,
+        heuristic: true,
+      }),
       makeFormHistoryResult(context, {
         suggestion: "foobar",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       makeFormHistoryResult(context, {
         suggestion: "fooquux",
-        engineName: ENGINE_NAME,
+        engineName: SUGGESTIONS_ENGINE_NAME,
       }),
       ...makeRemoteSuggestionResults(context, {
         suggestionPrefix: "foo",
       }),
       makeVisitResult(context, {
-        uri: "http://localhost:9000/search?terms=food",
-        title: "test visit for http://localhost:9000/search?terms=food",
+        uri: `http://localhost:${port}/search?q=food`,
+        title: `test visit for http://localhost:${port}/search?q=food`,
       }),
     ],
   });

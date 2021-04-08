@@ -335,6 +335,7 @@ struct VectorType {
 #  define xzyw swizzle(0, 2, 1, 3)
 #  define yzwx swizzle(1, 2, 3, 0)
 #  define wxyz swizzle(3, 0, 1, 2)
+#  define wzyx swizzle(3, 2, 1, 0)
 #  define xxxxyyyy XXXXYYYY()
   VectorType<T, 8> XXXXYYYY() const {
     return swizzle(0, 0, 0, 0).combine(swizzle(1, 1, 1, 1));
@@ -424,6 +425,16 @@ SI VectorType<T, N> combineLow(VectorType<T, N> a, VectorType<T, N> b) {
 template <typename T, int N>
 SI VectorType<T, N> combineHigh(VectorType<T, N> a, VectorType<T, N> b) {
   return combine(highHalf(a), highHalf(b));
+}
+
+template <typename T, int N>
+SI VectorType<T, N * 2> repeat2(VectorType<T, N> a) {
+  return combine(a, a);
+}
+
+template <typename T, int N>
+SI VectorType<T, N * 4> repeat4(VectorType<T, N> a) {
+  return combine(a, a, a, a);
 }
 
 template <typename T>

@@ -13,6 +13,7 @@ const { XPCOMUtils } = ChromeUtils.import(
 );
 
 XPCOMUtils.defineLazyModuleGetters(this, {
+  AppInfo: "chrome://marionette/content/appinfo.js",
   element: "chrome://marionette/content/element.js",
   error: "chrome://marionette/content/error.js",
   Log: "chrome://marionette/content/log.js",
@@ -128,7 +129,7 @@ browser.getBrowserForTab = function(tab) {
  */
 browser.getTabBrowser = function(window) {
   // GeckoView
-  if (Services.androidBridge) {
+  if (AppInfo.isAndroid) {
     return new MobileTabBrowser(window);
     // Firefox
   } else if ("gBrowser" in window) {
@@ -308,8 +309,8 @@ browser.Context = class {
    *     A promise resolving to the newly created chrome window.
    */
   async openBrowserWindow(focus = false, isPrivate = false) {
-    switch (this.driver.appName) {
-      case "firefox":
+    switch (AppInfo.name) {
+      case "Firefox":
         // Open new browser window, and wait until it is fully loaded.
         // Also wait for the window to be focused and activated to prevent a
         // race condition when promptly focusing to the original window again.
@@ -337,7 +338,7 @@ browser.Context = class {
 
       default:
         throw new error.UnsupportedOperationError(
-          `openWindow() not supported in ${this.driver.appName}`
+          `openWindow() not supported in ${AppInfo.name}`
         );
     }
   }
@@ -366,15 +367,15 @@ browser.Context = class {
     let destroyed = new MessageManagerDestroyedPromise(this.messageManager);
     let tabClosed;
 
-    switch (this.driver.appName) {
-      case "firefox":
+    switch (AppInfo.name) {
+      case "Firefox":
         tabClosed = waitForEvent(this.tab, "TabClose");
         this.tabBrowser.removeTab(this.tab);
         break;
 
       default:
         throw new error.UnsupportedOperationError(
-          `closeTab() not supported in ${this.driver.appName}`
+          `closeTab() not supported in ${AppInfo.name}`
         );
     }
 
@@ -387,8 +388,8 @@ browser.Context = class {
   async openTab(focus = false) {
     let tab = null;
 
-    switch (this.driver.appName) {
-      case "firefox":
+    switch (AppInfo.name) {
+      case "Firefox":
         const opened = waitForEvent(this.window, "TabOpen");
         this.window.BrowserOpenTab();
         await opened;
@@ -405,7 +406,7 @@ browser.Context = class {
 
       default:
         throw new error.UnsupportedOperationError(
-          `openTab() not supported in ${this.driver.appName}`
+          `openTab() not supported in ${AppInfo.name}`
         );
     }
 
@@ -456,10 +457,6 @@ browser.Context = class {
         await tabSelected;
       }
     }
-
-    // TODO(ato): Currently tied to curBrowser, but should be moved to
-    // WebElement when introduced by https://bugzil.la/1400256.
-    this.eventObserver = new WebElementEventTarget(this.messageManager);
 
     return this.tab;
   }

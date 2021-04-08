@@ -12,7 +12,7 @@ let gCUITestUtils = new CustomizableUITestUtils(window);
  * away as we improve the performance of the front-end. Instead of adding more
  * reflows to the list, you should be modifying your code to avoid the reflow.
  *
- * See https://developer.mozilla.org/en-US/Firefox/Performance_best_practices_for_Firefox_fe_engineers
+ * See https://firefox-source-docs.mozilla.org/performance/bestpractices.html
  * for tips on how to do that.
  */
 const EXPECTED_APPMENU_OPEN_REFLOWS = [
@@ -31,6 +31,13 @@ const EXPECTED_APPMENU_OPEN_REFLOWS = [
     maxCount: 7, // This number should only ever go down - never up.
   },
 ];
+
+if (gProton) {
+  EXPECTED_APPMENU_OPEN_REFLOWS.push({
+    stack: ["collectItems@resource:///modules/PanelMultiView.jsm"],
+    maxCount: 1, // bug 1703494
+  });
+}
 
 add_task(async function() {
   await ensureNoPreloadedBrowser();

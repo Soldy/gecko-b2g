@@ -7,11 +7,10 @@ const TEST_URI = URL_ROOT + "browser_toolbox_options_disable_js.html";
 
 add_task(async function() {
   const tab = await addTab(TEST_URI);
-  const target = await TargetFactory.forTab(tab);
 
   // Start on the options panel from where we will toggle the disabling javascript
   // option.
-  const toolbox = await gDevTools.showToolbox(target, "options");
+  const toolbox = await gDevTools.showToolboxForTab(tab, { toolId: "options" });
 
   await testJSEnabled();
   await testJSEnabledIframe();
@@ -78,11 +77,11 @@ async function toggleJS(toolbox) {
     info("Checking checkbox to disable JS");
   }
 
-  let javascriptEnabled = await toolbox.targetList.isJavascriptEnabled();
+  let javascriptEnabled = await toolbox.commands.targetConfigurationCommand.isJavascriptEnabled();
   is(
     javascriptEnabled,
     !cbx.checked,
-    "targetList.isJavascriptEnabled is correct before the toggle"
+    "targetConfigurationCommand.isJavascriptEnabled is correct before the toggle"
   );
 
   const browserLoaded = BrowserTestUtils.browserLoaded(
@@ -91,11 +90,11 @@ async function toggleJS(toolbox) {
   cbx.click();
   await browserLoaded;
 
-  javascriptEnabled = await toolbox.targetList.isJavascriptEnabled();
+  javascriptEnabled = await toolbox.commands.targetConfigurationCommand.isJavascriptEnabled();
   is(
     javascriptEnabled,
     !cbx.checked,
-    "targetList.isJavascriptEnabled is correctly updated"
+    "targetConfigurationCommand.isJavascriptEnabled is correctly updated"
   );
 }
 

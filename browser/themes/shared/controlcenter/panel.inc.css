@@ -78,7 +78,7 @@
 #identity-popup[httpsonlystatus=failed-sub] [when-httpsonlystatus~=failed-sub],
 /* Show 'disable MCB' button always when there is mixed active content blocked. */
 #identity-popup-securityView-body[mixedcontent~=active-blocked] > button[when-mixedcontent=active-blocked] {
-  display: inherit;
+  display: revert;
 }
 
 /* Hide 'not secure' message in subview when weak cipher or mixed content messages are shown. */
@@ -234,6 +234,8 @@
 
 /* CONTENT */
 
+.protections-popup-footer-button,
+.protections-popup-category,
 .protections-popup-empty-label,
 .tracking-protection-button,
 .protections-popup-cookiesView-list-header,
@@ -246,6 +248,7 @@
 .protections-popup-category-state-label,
 #protections-popup-content > description,
 .protections-popup-footer-button-label,
+#protections-popup-footer-protection-type-label,
 #protections-popup-trackers-blocked-counter-description,
 #protections-popup-sendReportView-heading > description {
   margin: 0;
@@ -276,17 +279,6 @@
 
 #protections-popup-mainView-panel-header-section {
   overflow: hidden;
-  color: white;
-  background: radial-gradient(circle farthest-side at top right, #9059FF, #0250BB);
-  /* Set custom hover/focus/active states on the info button,
-     to make them more visible on the header background */
-  --arrowpanel-dimmed: rgba(12, 12, 13, 0.2);
-  --arrowpanel-dimmed-further: rgba(12, 12, 13, 0.3);
-  --arrowpanel-dimmed-even-further: rgba(12, 12, 13, 0.4);
-}
-
-#protections-popup-mainView-panel-header-section:-moz-locale-dir(rtl) {
-  background: radial-gradient(circle farthest-side at top left, #9059FF, #0250BB);
 }
 
 #permission-popup-mainView-panel-header-span,
@@ -306,9 +298,9 @@
 #protections-popup-mainView-panel-header-span,
 #protections-popup-toast-panel-tp-on-desc,
 #protections-popup-toast-panel-tp-off-desc,
-#protections-popup .panel-header > label > span,
-#permission-popup .panel-header > label > span,
-#identity-popup .panel-header > label > span {
+#protections-popup .panel-header > h1 > span,
+#permission-popup .panel-header > h1 > span,
+#identity-popup .panel-header > h1 > span {
   display: inline-block;
   text-align: center;
   overflow-wrap: break-word;
@@ -370,7 +362,7 @@
 }
 
 .identity-popup-security-connection {
-  background-image: url(chrome://global/skin/icons/connection-mixed-active-loaded.svg);
+  background-image: url(chrome://global/skin/icons/security-broken.svg);
 }
 
 #identity-popup[connection=chrome] .identity-popup-security-connection {
@@ -382,7 +374,7 @@
 }
 
 #identity-popup[connection^=secure] .identity-popup-security-connection {
-  background-image: url(chrome://browser/skin/connection-secure.svg);
+  background-image: url(chrome://global/skin/icons/security.svg);
   -moz-context-properties: fill;
 }
 
@@ -398,13 +390,13 @@
 /* Use [isbroken] to make sure we don't show a warning lock on an http page. See Bug 1192162. */
 #identity-popup[ciphers=weak] .identity-popup-security-connection,
 #identity-popup[mixedcontent~=passive-loaded][isbroken] .identity-popup-security-connection {
-  background-image: url(chrome://global/skin/icons/connection-mixed-passive-loaded.svg);
+  background-image: url(chrome://global/skin/icons/security-warning.svg);
   -moz-context-properties: fill, fill-opacity;
 }
 
 #identity-popup[connection=secure-cert-user-overridden] .identity-popup-security-connection,
 #identity-popup[connection=cert-error-page] .identity-popup-security-connection {
-  background-image: url(chrome://global/skin/icons/connection-mixed-passive-loaded.svg);
+  background-image: url(chrome://global/skin/icons/security-warning.svg);
   fill: unset;
   -moz-context-properties: fill;
 }
@@ -485,26 +477,24 @@ description#identity-popup-content-verifier,
   color: #d74345;
 }
 
+.protections-popup-footer-button,
 .protections-popup-category {
   /* Overwrite toolbarbutton styles */
   appearance: none;
-  margin: 0;
-  padding-inline-start: 0;
+  border-radius: 2px;
+  padding: 0 var(--horizontal-padding);
 }
 
 .protections-popup-category:-moz-focusring,
 .protections-popup-category:hover,
 .protections-popup-footer-button:-moz-focusring,
-.protections-popup-footer-button:hover,
-#protections-popup-show-report-stack:hover > .protections-popup-footer-button {
-  border-radius: 2px;
+.protections-popup-footer-button:hover {
   background-color: var(--arrowpanel-dimmed);
   outline: none;
 }
 
 .protections-popup-category:hover:active,
-.protections-popup-footer-button:hover:active,
-#protections-popup-show-report-stack:hover:active > .protections-popup-footer-button {
+.protections-popup-footer-button:hover:active {
   background-color: var(--arrowpanel-dimmed-further);
 }
 
@@ -512,12 +502,12 @@ description#identity-popup-content-verifier,
   content: url(chrome://browser/skin/back-12.svg);
   -moz-context-properties: fill, fill-opacity;
   fill-opacity: .6;
-  transform: scaleX(-1) translateY(1px);
+  transform: translateY(1px);
   float: inline-end;
 }
 
-.protections-popup-category:-moz-locale-dir(rtl)::after {
-  transform: scaleX(1) translateY(1px);
+.protections-popup-category:-moz-locale-dir(ltr)::after {
+  scale: -1 1;
 }
 
 /* This subview could get filled with a lot of trackers, set a maximum size
@@ -736,13 +726,10 @@ description#identity-popup-content-verifier,
   }
 }
 
+.protections-popup-footer-button,
 .protections-popup-category,
 .permission-popup-permission-item {
   min-height: 24px;
-}
-
-.protections-popup-category {
-  padding: 0 var(--horizontal-padding);
 }
 
 .protections-popup-category[uidisabled] {
@@ -787,8 +774,7 @@ description#identity-popup-content-verifier,
   fill: rgb(224, 41, 29);
 }
 
-.protections-popup-category-label,
-.protections-popup-footer-button-label {
+.protections-popup-category-label {
   margin-inline-start: 1em;
 }
 
@@ -839,7 +825,7 @@ description#identity-popup-content-verifier,
   margin: 0;
   width: 16px;
   height: 16px;
-  list-style-image: url(chrome://browser/skin/panel-icon-cancel.svg);
+  list-style-image: url(chrome://global/skin/icons/close.svg);
   -moz-context-properties: fill;
   fill: currentColor;
 }
@@ -873,7 +859,7 @@ description#identity-popup-content-verifier,
 
 #protections-popup:not([hasException])[toast] #protections-popup-toast-panel-tp-on-desc,
 #protections-popup[hasException][toast] #protections-popup-toast-panel-tp-off-desc {
-  display: unset;
+  display: revert;
 }
 
 #protections-popup-siteNotWorkingView-header,
@@ -884,11 +870,6 @@ description#identity-popup-content-verifier,
 #protections-popup-siteNotWorkingView-body > label,
 .protections-popup-tp-switch-label-box > label {
   margin: 0;
-}
-
-#protections-popup-tp-switch-breakage-link,
-#protections-popup-tp-switch-breakage-fixed-link {
-  margin-top: calc(0.5 * var(--vertical-section-padding)) !important;
 }
 
 #protections-popup[hasException] #protections-popup-tp-switch-section {
@@ -995,28 +976,6 @@ description#identity-popup-content-verifier,
 
 /* Protection popup footer categories */
 
-.protections-popup-footer-button {
-  /* Overwrite toolbarbutton styles */
-  appearance: none;
-  min-height: 24px;
-  padding-inline-start: var(--horizontal-padding);
-  margin: 0;
-}
-
-.protections-popup-footer-icon {
-  -moz-context-properties: fill;
-  width: 16px;
-  height: 16px;
-}
-
-.protections-popup-settings-icon {
-  list-style-image: url(chrome://global/skin/icons/settings.svg);
-}
-
-.protections-popup-show-report-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/dashboard.svg);
-}
-
 #protections-popup-footer {
   padding: var(--vertical-section-padding) 0;
 }
@@ -1039,8 +998,7 @@ description#identity-popup-content-verifier,
 }
 
 #protections-popup-footer-protection-type-label {
-    margin-inline-end: var(--horizontal-padding);
-    color: var(--panel-description-color);
+  color: var(--panel-description-color);
 }
 
 .protections-popup-description {
@@ -1123,3 +1081,98 @@ description#identity-popup-content-verifier,
   fill: #ffd567;
   stroke: #ffbd4f;
 }
+
+@supports not -moz-bool-pref("browser.proton.doorhangers.enabled") {
+#protections-popup-mainView-panel-header-section {
+  color: white;
+  background: radial-gradient(circle farthest-side at top right, #9059FF, #0250BB);
+
+  /* Set custom hover/focus/active states on the info button,
+     to make them more visible on the header background */
+  --arrowpanel-dimmed: rgba(12, 12, 13, 0.2);
+  --arrowpanel-dimmed-further: rgba(12, 12, 13, 0.3);
+  --arrowpanel-dimmed-even-further: rgba(12, 12, 13, 0.4);
+}
+
+#protections-popup-mainView-panel-header-section:-moz-locale-dir(rtl) {
+  background: radial-gradient(circle farthest-side at top left, #9059FF, #0250BB);
+}
+
+#protections-popup-tp-switch-breakage-link,
+#protections-popup-tp-switch-breakage-fixed-link {
+  margin-top: calc(0.5 * var(--vertical-section-padding)) !important;
+}
+
+.protections-popup-footer-icon {
+  -moz-context-properties: fill;
+  width: 16px;
+  height: 16px;
+}
+
+.protections-popup-settings-icon {
+  list-style-image: url(chrome://global/skin/icons/settings.svg);
+}
+
+.protections-popup-show-report-icon {
+  list-style-image: url(chrome://browser/skin/controlcenter/dashboard.svg);
+}
+
+.protections-popup-footer-button-label {
+  margin-inline-start: 1em;
+}
+}/** END not PROTON **/
+
+@supports -moz-bool-pref("browser.proton.doorhangers.enabled") {
+#protections-popup-mainView-panel-header {
+  min-height: 43.5px;
+}
+
+#protections-popup-info-button {
+  margin-inline-end: 16px;
+}
+
+.protections-popup-footer-button,
+.protections-popup-category {
+  min-height: 32px;
+  border-radius: var(--arrowpanel-menuitem-border-radius);
+}
+
+#protections-popup-footer {
+  padding: var(--panel-subview-body-padding);
+}
+
+#protections-popup-blocking-section-header,
+#protections-popup-not-blocking-section-header,
+#protections-popup-not-found-section-header,
+#protections-popup-tp-switch-section,
+.protections-popup-category,
+.protections-popup-footer-button {
+  padding: var(--arrowpanel-menuitem-padding);
+  margin: var(--arrowpanel-menuitem-margin);
+}
+
+#protections-popup-footer-protection-type-label {
+  margin-inline-end: 0;
+}
+
+#protections-popup-trackers-blocked-counter-box {
+  margin-inline-end: 8px;
+  padding-inline-end: var(--arrowpanel-menuitem-padding-block);
+}
+
+.protections-popup-category:hover,
+.protections-popup-footer-button:hover {
+  background-color: var(--button-hover-bgcolor);
+}
+
+.protections-popup-category:hover:active,
+.protections-popup-footer-button:hover:active {
+  background-color: var(--button-active-bgcolor);
+}
+
+.protections-popup-category:focus-visible,
+.protections-popup-footer-button:focus-visible {
+  box-shadow: var(--panelview-toolbarbutton-focus-box-shadow);
+  background: none;
+}
+}/** END Proton **/

@@ -201,6 +201,9 @@ class nsHttpChannel final : public HttpBaseChannel,
 
   bool DataSentToChildProcess() { return LoadDataSentToChildProcess(); }
 
+  enum class SnifferType { Media, Image };
+  void DisableIsOpaqueResponseAllowedAfterSniffCheck(SnifferType aType);
+
  public: /* internal necko use only */
   uint32_t GetRequestTime() const { return mRequestTime; }
 
@@ -212,6 +215,10 @@ class nsHttpChannel final : public HttpBaseChannel,
   [[nodiscard]] nsresult ContinueConnect();
 
   [[nodiscard]] nsresult StartRedirectChannelToURI(nsIURI*, uint32_t);
+
+  SnifferCategoryType GetSnifferCategoryType() const {
+    return mSnifferCategoryType;
+  }
 
   // This allows cache entry to be marked as foreign even after channel itself
   // is gone.  Needed for e10s (see
@@ -267,7 +274,8 @@ class nsHttpChannel final : public HttpBaseChannel,
   base::ProcessId ProcessId();
 
   using ChildEndpointPromise =
-      MozPromise<ipc::Endpoint<extensions::PStreamFilterChild>, bool, true>;
+      MozPromise<mozilla::ipc::Endpoint<extensions::PStreamFilterChild>, bool,
+                 true>;
   [[nodiscard]] RefPtr<ChildEndpointPromise> AttachStreamFilter(
       base::ProcessId aChildProcessId);
 

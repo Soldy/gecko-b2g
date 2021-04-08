@@ -22,12 +22,8 @@ class MediaRawData;
 // Callback to communicate with GonkDecoderManager.
 class GonkDecoderManagerCallback {
  public:
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GonkDecoderManagerCallback);
-
   // Called by GonkDecoderManager when samples have been decoded.
-  virtual void Output(MediaDataDecoder::DecodedData& aDataArray) = 0;
-
-  virtual void FlushOutput() = 0;
+  virtual void Output(MediaDataDecoder::DecodedData&& aDecodedData) = 0;
 
   // Denotes that the last input sample has been inserted into the decoder,
   // and no more output can be produced unless more input is sent.
@@ -35,9 +31,7 @@ class GonkDecoderManagerCallback {
 
   virtual void DrainComplete() = 0;
 
-  virtual void ReleaseMediaResources(){};
-
-  virtual void NotifyError(const char* aLine, const MediaResult& aError) = 0;
+  virtual void NotifyError(const char* aCallSite, nsresult aResult) = 0;
 
  protected:
   virtual ~GonkDecoderManagerCallback() {}
@@ -64,7 +58,7 @@ class GonkDecoderManager : public android::AHandler {
   nsresult Flush();
 
   // Shutdown decoder and rejects the init promise.
-  virtual nsresult Shutdown();
+  nsresult Shutdown();
 
   // How many samples are waiting for processing.
   size_t NumQueuedSamples();
@@ -72,18 +66,13 @@ class GonkDecoderManager : public android::AHandler {
   // Set callback for decoder events, such as requesting more input,
   // returning output, or reporting error.
   void SetDecodeCallback(GonkDecoderManagerCallback* aCallback) {
-    mToGonkMediaDataDecoderCallback = aCallback;
+    mCallback = aCallback;
   }
 
  protected:
-  GonkDecoderManager()
-      : mMutex("GonkDecoderManager"),
-        mLastTime(INT64_MIN),
-        mFlushMonitor("GonkDecoderManager::Flush"),
-        mIsFlushing(false),
-        mToGonkMediaDataDecoderCallback(nullptr) {}
+  GonkDecoderManager() : mLastTime(INT64_MIN), mCallback(nullptr) {}
 
-  bool InitLoopers(MediaData::Type aType);
+  bool InitThreads(MediaData::Type aType);
 
   void onMessageReceived(
       const android::sp<android::AMessage>& aMessage) override;
@@ -95,13 +84,20 @@ class GonkDecoderManager : public android::AHandler {
   virtual nsresult GetOutput(int64_t aStreamOffset,
                              MediaDataDecoder::DecodedData& aOutput) = 0;
 
+  // Flush derived class.
+  virtual void FlushInternal() = 0;
+
+  // Shutdown derived class.
+  virtual void ShutdownInternal() {}
+
   // Send queued samples to OMX. It returns how many samples are still in
   // queue after processing, or negative error code if failed.
   int32_t ProcessQueuedSamples();
 
-  void ProcessInput(bool aEndOfStream);
-  virtual void ProcessFlush();
-  void ProcessToDo(bool aEndOfStream);
+  void ProcessInput();
+  void ProcessToDo();
+
+  void AssertOnTaskQueue() { MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn()); }
 
   RefPtr<MediaByteBuffer> mCodecSpecificData;
 
@@ -119,28 +115,24 @@ class GonkDecoderManager : public android::AHandler {
     // Decoder will send this to indicate internal state change such as input or
     // output buffers availability. Used to run pending input & output tasks.
     kNotifyDecoderActivity = 'nda ',
-    // Signal the decoder to flush.
-    kNotifyProcessFlush = 'npf ',
-    // Used to process queued samples when there is new input.
-    kNotifyProcessInput = 'npi ',
-#  ifdef DEBUG
-    kNotifyFindLooperId = 'nfli',
-#  endif
   };
+
+  RefPtr<TaskQueue> mTaskQueue;
 
   MozPromiseHolder<InitPromise> mInitPromise;
 
-  Mutex mMutex;  // Protects mQueuedSamples.
+  bool mIsShutdown = false;
+
   // A queue that stores the samples waiting to be sent to mDecoder.
   // Empty element means EOS and there shouldn't be any sample be queued after
   // it. Samples are queued in caller's thread and dequeued in mTaskLooper.
   nsTArray<RefPtr<MediaRawData>> mQueuedSamples;
 
+  bool mInputEOS = false;
+  bool mOutputEOS = false;
+
   // The last decoded frame presentation time. Only accessed on mTaskLooper.
   int64_t mLastTime;
-
-  Monitor mFlushMonitor;  // Waits for flushing to complete.
-  bool mIsFlushing;       // Protected by mFlushMonitor.
 
   // Remembers the notification that is currently waiting for the decoder event
   // to avoid requesting more than one notification at the time, which is
@@ -158,30 +150,10 @@ class GonkDecoderManager : public android::AHandler {
 
   nsTArray<WaitOutputInfo> mWaitOutput;
 
-  GonkDecoderManagerCallback*
-      mToGonkMediaDataDecoderCallback;  // Reports decoder output or error.
+  GonkDecoderManagerCallback* mCallback;  // Reports decoder output or error.
 
  private:
   void UpdateWaitingList(int64_t aForgetUpTo);
-
-#  ifdef DEBUG
-  typedef void* LooperId;
-
-  bool OnTaskLooper();
-  LooperId mTaskLooperId;
-#  endif
-};
-
-class AutoReleaseMediaBuffer {
- public:
-  AutoReleaseMediaBuffer(android::MediaBuffer* aBuffer,
-                         android::MediaCodecProxy* aCodec);
-  ~AutoReleaseMediaBuffer();
-  android::MediaBuffer* forget();
-
- private:
-  android::MediaBuffer* mBuffer;
-  android::sp<android::MediaCodecProxy> mCodec;
 };
 
 class DecoderManagerCallback;
@@ -191,7 +163,8 @@ class DecoderManagerCallback;
 // the higher-level logic that drives mapping the Gonk to the async
 // MediaDataDecoder interface. The specifics of decoding the exact stream
 // type are handled by GonkDecoderManager and the GonkDecoder it creates.
-class GonkMediaDataDecoder : public MediaDataDecoder {
+class GonkMediaDataDecoder : public MediaDataDecoder,
+                             public GonkDecoderManagerCallback {
  public:
   GonkMediaDataDecoder(GonkDecoderManager* aDecoderManager);
 
@@ -209,61 +182,25 @@ class GonkMediaDataDecoder : public MediaDataDecoder {
     return ConversionRequired::kNeedAnnexB;
   }
 
-  void NotifyError(const char* aLine, const MediaResult& aError = MediaResult(
-                                          NS_ERROR_DOM_MEDIA_FATAL_ERR));
-
   // For GonkDecoderManagerCallback interfaces:
-  //  Called by GonkDecoderManager when a sample has been decoded.
-  virtual void Output(DecodedData& aDataArray);
-  //  Flush decoded data queued in our buffer. It should be called after
-  //  GonkDecoderManager's internal decoder has been flushed and before the
-  //  whole flush process finishes.
-  virtual void FlushOutput();
-  //  Denotes that the last input sample has been inserted into the decoder,
-  //  and no more output can be produced unless more input is sent.
-  virtual void InputExhausted();
-  virtual void DrainComplete();
-  virtual void ReleaseMediaResources();
+  void Output(DecodedData&& aDecodedData) override;
+  void InputExhausted() override;
+  void DrainComplete() override;
+  void NotifyError(const char* aCallSite, nsresult aResult) override;
 
  private:
   void ResolveDecodePromise();
   void ResolveDrainPromise();
+  void AssertOnTaskQueue() { MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn()); }
 
   android::sp<GonkDecoderManager> mManager;
 
   RefPtr<TaskQueue> mTaskQueue;
 
-  MozPromiseHolder<InitPromise> mInitPromise;
   MozPromiseHolder<DecodePromise> mDecodePromise;
   MozPromiseHolder<DecodePromise> mDrainPromise;
-  MozPromiseHolder<FlushPromise> mFlushPromise;
-  MozPromiseHolder<ShutdownPromise> mShutdownPromise;
   // Where decoded samples will be stored until the decode promise is resolved.
   DecodedData mDecodedData;
-
-  // Callback that receives output and error notifications from the decoder.
-  RefPtr<DecoderManagerCallback> mCallback;
-};
-
-class DecoderManagerCallback : public GonkDecoderManagerCallback {
- public:
-  DecoderManagerCallback(GonkMediaDataDecoder* aReader)
-      : mMediaDataDecoder(aReader) {}
-  void Output(MediaDataDecoder::DecodedData& aDataArray) override {
-    mMediaDataDecoder->Output(aDataArray);
-  }
-  void FlushOutput() override { mMediaDataDecoder->FlushOutput(); }
-  void InputExhausted() override { mMediaDataDecoder->InputExhausted(); }
-  void DrainComplete() override { mMediaDataDecoder->DrainComplete(); }
-  void ReleaseMediaResources() override {
-    mMediaDataDecoder->ReleaseMediaResources();
-  }
-  void NotifyError(const char* aLine, const MediaResult& aError) override {
-    mMediaDataDecoder->NotifyError(aLine, aError);
-  }
-
- private:
-  GonkMediaDataDecoder* mMediaDataDecoder;
 };
 
 }  // namespace mozilla

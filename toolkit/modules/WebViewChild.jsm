@@ -642,7 +642,7 @@ WebViewChild.prototype = {
     var copyableElements = {
       image: false,
       link: false,
-      hasElements: () => {
+      hasElements() {
         return this.image || this.link;
       },
     };

@@ -2,11 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
-// @flow
-
 import * as firefox from "./client/firefox";
 
-import { asyncStore, verifyPrefSchema } from "./utils/prefs";
+import { asyncStore, verifyPrefSchema, prefs } from "./utils/prefs";
 import { setupHelper } from "./utils/dbg";
 
 import {
@@ -20,9 +18,9 @@ import {
 import { initialBreakpointsState } from "./reducers/breakpoints";
 import { initialSourcesState } from "./reducers/sources";
 
-async function syncBreakpoints(): Promise<*> {
+async function syncBreakpoints() {
   const breakpoints = await asyncStore.pendingBreakpoints;
-  const breakpointValues = (Object.values(breakpoints): any);
+  const breakpointValues = Object.values(breakpoints);
   breakpointValues.forEach(({ disabled, options, generatedLocation }) => {
     if (!disabled) {
       firefox.clientCommands.setBreakpoint(generatedLocation, options);
@@ -30,7 +28,7 @@ async function syncBreakpoints(): Promise<*> {
   });
 }
 
-function syncXHRBreakpoints(): void {
+function syncXHRBreakpoints() {
   asyncStore.xhrBreakpoints.then(bps => {
     bps.forEach(({ path, method, disabled }) => {
       if (!disabled) {
@@ -38,6 +36,14 @@ function syncXHRBreakpoints(): void {
       }
     });
   });
+}
+
+function setPauseOnExceptions() {
+  const { pauseOnExceptions, pauseOnCaughtException } = prefs;
+  firefox.clientCommands.pauseOnExceptions(
+    pauseOnExceptions,
+    pauseOnCaughtException
+  );
 }
 
 async function loadInitialState() {
@@ -59,29 +65,25 @@ async function loadInitialState() {
 }
 
 export async function bootstrap({
-  targetList,
+  commands,
   resourceWatcher,
-  devToolsClient,
   workers: panelWorkers,
   panel,
-}: any) {
+}) {
   verifyPrefSchema();
-
-  const commands = firefox.clientCommands;
 
   const initialState = await loadInitialState();
   const workers = bootstrapWorkers(panelWorkers);
 
   const { store, actions, selectors } = bootstrapStore(
-    commands,
+    firefox.clientCommands,
     workers,
     panel,
     initialState
   );
 
   const connected = firefox.onConnect(
-    devToolsClient,
-    targetList,
+    commands,
     resourceWatcher,
     actions,
     store
@@ -89,18 +91,20 @@ export async function bootstrap({
 
   await syncBreakpoints();
   syncXHRBreakpoints();
+  await setPauseOnExceptions();
+
   setupHelper({
     store,
     actions,
     selectors,
     workers,
-    targetList,
+    targetCommand: commands.targetCommand,
     client: firefox.clientCommands,
   });
 
   bootstrapApp(store, panel);
   await connected;
-  return { store, actions, selectors, client: commands };
+  return { store, actions, selectors, client: firefox.clientCommands };
 }
 
 export async function destroy() {

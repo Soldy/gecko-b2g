@@ -401,11 +401,12 @@ static void PaintMenulistArrowButton(nsIFrame* aFrame, DrawTarget* aDrawTarget,
   int32_t arrowPolygonY[] = {-1, 1, -1};
   const int32_t arrowNumPoints = sizeof(arrowPolygonX) / sizeof(int32_t);
 
-  PaintArrow(
-      aDrawTarget, aRect, arrowPolygonX, arrowPolygonY, arrowNumPoints,
-      arrowSize,
-      isPressed ? sActiveColor : isHovered ? sBorderHoverColor : sBorderColor,
-      aDpi);
+  PaintArrow(aDrawTarget, aRect, arrowPolygonX, arrowPolygonY, arrowNumPoints,
+             arrowSize,
+             isPressed   ? sActiveColor
+             : isHovered ? sBorderHoverColor
+                         : sBorderColor,
+             aDpi);
 }
 
 static void PaintSpinnerButton(DrawTarget* aDrawTarget, const Rect& aRect,
@@ -427,11 +428,12 @@ static void PaintSpinnerButton(DrawTarget* aDrawTarget, const Rect& aRect,
     }
   }
 
-  PaintArrow(
-      aDrawTarget, aRect, arrowPolygonX, arrowPolygonY, arrowNumPoints,
-      arrowSize,
-      isPressed ? sActiveColor : isHovered ? sBorderHoverColor : sBorderColor,
-      aDpi);
+  PaintArrow(aDrawTarget, aRect, arrowPolygonX, arrowPolygonY, arrowNumPoints,
+             arrowSize,
+             isPressed   ? sActiveColor
+             : isHovered ? sBorderHoverColor
+                         : sBorderColor,
+             aDpi);
 }
 
 static void PaintRangeInputBackground(DrawTarget* aDrawTarget,
@@ -508,8 +510,7 @@ static void PaintScrollbarbutton(DrawTarget* aDrawTarget,
   bool isHovered = aState.HasState(NS_EVENT_STATE_HOVER);
 
   aDrawTarget->FillRect(
-      aRect, ColorPattern(
-                 ToDeviceColor(isActive ? sScrollbarButtonActiveColor
+      aRect, ColorPattern(ToDeviceColor(isActive ? sScrollbarButtonActiveColor
                                         : isHovered ? sScrollbarButtonHoverColor
                                                     : sScrollbarColor)));
 
@@ -547,9 +548,9 @@ static void PaintScrollbarbutton(DrawTarget* aDrawTarget,
 
   PaintArrow(aDrawTarget, aRect, arrowPolygonX, arrowPolygonY, arrowNumPoints,
              arrowSize,
-             isActive
-                 ? sScrollbarArrowColorActive
-                 : isHovered ? sScrollbarArrowColorHover : sScrollbarArrowColor,
+             isActive    ? sScrollbarArrowColorActive
+             : isHovered ? sScrollbarArrowColorHover
+                         : sScrollbarArrowColor,
              aDpi);
 
   RefPtr<PathBuilder> builder = aDrawTarget->CreatePathBuilder();
@@ -592,11 +593,9 @@ static void PaintRangeThumb(DrawTarget* aDrawTarget, const Rect& aRect,
 }
 
 NS_IMETHODIMP
-nsNativeBasicThemeGonk::DrawWidgetBackground(gfxContext* aContext,
-                                             nsIFrame* aFrame,
-                                             StyleAppearance aAppearance,
-                                             const nsRect& aRect,
-                                             const nsRect& /* aDirtyRect */) {
+nsNativeBasicThemeGonk::DrawWidgetBackground(
+    gfxContext* aContext, nsIFrame* aFrame, StyleAppearance aAppearance,
+    const nsRect& aRect, const nsRect& /* aDirtyRect */, DrawOverflow) {
   DrawTarget* dt = aContext->GetDrawTarget();
   const nscoord twipsPerPixel = aFrame->PresContext()->AppUnitsPerDevPixel();
   EventStates eventState = GetContentState(aFrame, aAppearance);

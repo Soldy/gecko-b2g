@@ -16,6 +16,7 @@
 #include "Navigator.h"
 #include "mozilla/Encoding.h"
 #include "nsContentSecurityManager.h"
+#include "nsGlobalWindowOuter.h"
 #include "nsScreen.h"
 #include "nsHistory.h"
 #include "nsDOMNavigationTiming.h"
@@ -210,6 +211,8 @@
 
 #include "nsRefreshDriver.h"
 #include "Layers.h"
+
+#include "mozilla/extensions/WebExtensionPolicy.h"
 
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Services.h"
@@ -1252,21 +1255,15 @@ already_AddRefed<nsIPrincipal> nsOuterWindowProxy::GetNoPDFJSPrincipal(
     return nullptr;
   }
 
-  Document* doc = inner->GetExtantDoc();
-  if (!doc) {
-    return nullptr;
+  if (Document* doc = inner->GetExtantDoc()) {
+    if (nsCOMPtr<nsIPropertyBag2> propBag =
+            do_QueryInterface(doc->GetChannel())) {
+      nsCOMPtr<nsIPrincipal> principal(
+          do_GetProperty(propBag, u"noPDFJSPrincipal"_ns));
+      return principal.forget();
+    }
   }
-
-  nsCOMPtr<nsIPropertyBag2> propBag(do_QueryInterface(doc->GetChannel()));
-  if (!propBag) {
-    return nullptr;
-  }
-
-  nsCOMPtr<nsIPrincipal> principal;
-  propBag->GetPropertyAsInterface(u"noPDFJSPrincipal"_ns,
-                                  NS_GET_IID(nsIPrincipal),
-                                  getter_AddRefs(principal));
-  return principal.forget();
+  return nullptr;
 }
 
 const nsOuterWindowProxy nsOuterWindowProxy::singleton;
@@ -1320,7 +1317,6 @@ nsGlobalWindowOuter::nsGlobalWindowOuter(uint64_t aWindowID)
       mIsClosed(false),
       mInClose(false),
       mHavePendingClose(false),
-      mIsPopupSpam(false),
       mBlockScriptedClosingFlag(false),
       mWasOffline(false),
       mCreatingInnerWindow(false),
@@ -1370,12 +1366,12 @@ nsGlobalWindowOuter::nsGlobalWindowOuter(uint64_t aWindowID)
   MOZ_ASSERT(sOuterWindowsById, "Outer Windows hash table must be created!");
 
   // |this| is an outer window, add to the outer windows list.
-  MOZ_ASSERT(!sOuterWindowsById->Get(mWindowID),
+  MOZ_ASSERT(!sOuterWindowsById->Contains(mWindowID),
              "This window shouldn't be in the hash table yet!");
   // We seem to see crashes in release builds because of null
   // |sOuterWindowsById|.
   if (sOuterWindowsById) {
-    sOuterWindowsById->Put(mWindowID, this);
+    sOuterWindowsById->InsertOrUpdate(mWindowID, this);
   }
 }
 
@@ -3069,31 +3065,16 @@ void nsPIDOMWindowOuter::MaybeNotifyMediaResumedFromBlock(
 
 bool nsPIDOMWindowOuter::GetAudioMuted() const {
   BrowsingContext* bc = GetBrowsingContext();
-  return bc ? bc->Top()->GetMuted() : false;
-}
-
-float nsPIDOMWindowOuter::GetAudioVolume() const { return mAudioVolume; }
-
-nsresult nsPIDOMWindowOuter::SetAudioVolume(float aVolume) {
-  if (aVolume < 0.0) {
-    return NS_ERROR_DOM_INDEX_SIZE_ERR;
-  }
-
-  if (mAudioVolume == aVolume) {
-    return NS_OK;
-  }
-
-  mAudioVolume = aVolume;
-  RefreshMediaElementsVolume();
-  return NS_OK;
+  return bc && bc->Top()->GetMuted();
 }
 
 void nsPIDOMWindowOuter::RefreshMediaElementsVolume() {
   RefPtr<AudioChannelService> service = AudioChannelService::GetOrCreate();
   if (service) {
+    // TODO: RefreshAgentsVolume can probably be simplified further.
     service->RefreshAgentsVolume(this,
                                  AudioChannelService::GetDefaultAudioChannel(),
-                                 GetAudioVolume(), GetAudioMuted());
+                                 1.0f, GetAudioMuted());
   }
 }
 
@@ -4716,6 +4697,39 @@ void nsGlobalWindowOuter::FinishFullscreenChange(bool aIsFullscreen) {
   }
 }
 
+/* virtual */
+void nsGlobalWindowOuter::MacFullscreenMenubarOverlapChanged(
+    mozilla::DesktopCoord aOverlapAmount) {
+  ErrorResult res;
+  RefPtr<Event> domEvent =
+      mDoc->CreateEvent(u"CustomEvent"_ns, CallerType::System, res);
+  if (res.Failed()) {
+    return;
+  }
+
+  AutoJSAPI jsapi;
+  jsapi.Init();
+  JSContext* cx = jsapi.cx();
+  JSAutoRealm ar(cx, GetWrapperPreserveColor());
+
+  JS::Rooted<JS::Value> detailValue(cx);
+  if (!ToJSValue(cx, aOverlapAmount, &detailValue)) {
+    return;
+  }
+
+  CustomEvent* customEvent = static_cast<CustomEvent*>(domEvent.get());
+  customEvent->InitCustomEvent(cx, u"MacFullscreenMenubarRevealUpdate"_ns,
+                               /* aCanBubble = */ true,
+                               /* aCancelable = */ true, detailValue);
+  domEvent->SetTrusted(true);
+  domEvent->WidgetEventPtr()->mFlags.mOnlyChromeDispatch = true;
+
+  nsCOMPtr<EventTarget> target = this;
+  domEvent->SetTarget(target);
+
+  target->DispatchEvent(*domEvent, CallerType::System, IgnoreErrors());
+}
+
 bool nsGlobalWindowOuter::Fullscreen() const {
   NS_ENSURE_TRUE(mDocShell, mFullscreen);
 
@@ -4770,43 +4784,60 @@ void nsGlobalWindowOuter::EnsureReflowFlushAndPaint() {
 }
 
 // static
-void nsGlobalWindowOuter::MakeScriptDialogTitle(
-    nsAString& aOutTitle, nsIPrincipal* aSubjectPrincipal) {
+void nsGlobalWindowOuter::MakeMessageWithPrincipal(
+    nsAString& aOutMessage, nsIPrincipal* aSubjectPrincipal, bool aUseHostPort,
+    const char* aNullMessage, const char* aContentMessage,
+    const char* aFallbackMessage) {
   MOZ_ASSERT(aSubjectPrincipal);
 
-  aOutTitle.Truncate();
+  aOutMessage.Truncate();
 
   // Try to get a host from the running principal -- this will do the
   // right thing for javascript: and data: documents.
 
-  nsAutoCString prepath;
+  nsAutoCString contentDesc;
 
   if (aSubjectPrincipal->GetIsNullPrincipal()) {
     nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
-        "ScriptDlgNullPrincipalHeading", aOutTitle);
+        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, aNullMessage, aOutMessage);
   } else {
-    nsresult rv = aSubjectPrincipal->GetExposablePrePath(prepath);
-    if (NS_SUCCEEDED(rv) && !prepath.IsEmpty()) {
-      NS_ConvertUTF8toUTF16 ucsPrePath(prepath);
+    auto* addonPolicy = BasePrincipal::Cast(aSubjectPrincipal)->AddonPolicy();
+    if (addonPolicy) {
       nsContentUtils::FormatLocalizedString(
-          aOutTitle, nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
-          "ScriptDlgHeading", ucsPrePath);
+          aOutMessage, nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
+          aContentMessage, addonPolicy->Name());
+    } else {
+      nsresult rv = NS_ERROR_FAILURE;
+      if (aUseHostPort) {
+        nsCOMPtr<nsIURI> uri = aSubjectPrincipal->GetURI();
+        if (uri) {
+          rv = uri->GetDisplayHostPort(contentDesc);
+        }
+      }
+      if (!aUseHostPort || NS_FAILED(rv)) {
+        rv = aSubjectPrincipal->GetExposablePrePath(contentDesc);
+      }
+      if (NS_SUCCEEDED(rv) && !contentDesc.IsEmpty()) {
+        NS_ConvertUTF8toUTF16 ucsPrePath(contentDesc);
+        nsContentUtils::FormatLocalizedString(
+            aOutMessage, nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
+            aContentMessage, ucsPrePath);
+      }
     }
   }
 
-  if (aOutTitle.IsEmpty()) {
+  if (aOutMessage.IsEmpty()) {
     // We didn't find a host so use the generic heading
     nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, "ScriptDlgGenericHeading",
-        aOutTitle);
+        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, aFallbackMessage,
+        aOutMessage);
   }
 
   // Just in case
-  if (aOutTitle.IsEmpty()) {
+  if (aOutMessage.IsEmpty()) {
     NS_WARNING(
         "could not get ScriptDlgGenericHeading string from string bundle");
-    aOutTitle.AssignLiteral("[Script]");
+    aOutMessage.AssignLiteral("[Script]");
   }
 }
 
@@ -4815,7 +4846,7 @@ bool nsGlobalWindowOuter::CanMoveResizeWindows(CallerType aCallerType) {
   if (aCallerType != CallerType::System) {
     // Don't allow scripts to move or resize windows that were not opened by a
     // script.
-    if (!HadOriginalOpener()) {
+    if (!mBrowsingContext->HadOriginalOpener()) {
       return false;
     }
 
@@ -4884,7 +4915,9 @@ bool nsGlobalWindowOuter::AlertOrConfirm(bool aAlert, const nsAString& aMessage,
   EnsureReflowFlushAndPaint();
 
   nsAutoString title;
-  MakeScriptDialogTitle(title, &aSubjectPrincipal);
+  MakeMessageWithPrincipal(title, &aSubjectPrincipal, false,
+                           "ScriptDlgNullPrincipalHeading", "ScriptDlgHeading",
+                           "ScriptDlgGenericHeading");
 
   // Remove non-terminating null characters from the
   // string. See bug #310037.
@@ -4918,8 +4951,9 @@ bool nsGlobalWindowOuter::AlertOrConfirm(bool aAlert, const nsAString& aMessage,
   if (ShouldPromptToBlockDialogs()) {
     bool disallowDialog = false;
     nsAutoString label;
-    nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, "ScriptDialogLabel", label);
+    MakeMessageWithPrincipal(
+        label, &aSubjectPrincipal, true, "ScriptDialogLabelNullPrincipal",
+        "ScriptDialogLabelContentPrincipal", "ScriptDialogLabelNullPrincipal");
 
     aError = aAlert
                  ? prompt->AlertCheck(title.get(), final.get(), label.get(),
@@ -4973,7 +5007,9 @@ void nsGlobalWindowOuter::PromptOuter(const nsAString& aMessage,
   EnsureReflowFlushAndPaint();
 
   nsAutoString title;
-  MakeScriptDialogTitle(title, &aSubjectPrincipal);
+  MakeMessageWithPrincipal(title, &aSubjectPrincipal, false,
+                           "ScriptDlgNullPrincipalHeading", "ScriptDlgHeading",
+                           "ScriptDlgGenericHeading");
 
   // Remove non-terminating null characters from the
   // string. See bug #310037.
@@ -5086,8 +5122,6 @@ void nsGlobalWindowOuter::FocusOuter(CallerType aCallerType,
     if (!parent->IsInProcess()) {
       if (isActive) {
         fm->WindowRaised(this, aActionId);
-        // XXX we still need to notify framer about the focus moves to OOP
-        // iframe to generate corresponding blur event for bug 1677474.
       } else {
         ContentChild* contentChild = ContentChild::GetSingleton();
         MOZ_ASSERT(contentChild);
@@ -5162,7 +5196,8 @@ void nsGlobalWindowOuter::PrintOuter(ErrorResult& aError) {
     return aError.ThrowNotSupportedError("Dialogs not enabled for this window");
   }
 
-  if (ShouldPromptToBlockDialogs() && !ConfirmDialogIfNeeded()) {
+  if (!StaticPrefs::print_tab_modal_enabled() && ShouldPromptToBlockDialogs() &&
+      !ConfirmDialogIfNeeded()) {
     return aError.ThrowNotAllowedError("Prompt was canceled by the user");
   }
 
@@ -5236,7 +5271,12 @@ Nullable<WindowProxyHolder> nsGlobalWindowOuter::Print(
   if (docToPrint->IsStaticDocument() &&
       (aIsPreview == IsPreview::Yes ||
        StaticPrefs::print_tab_modal_enabled())) {
-    MOZ_DIAGNOSTIC_ASSERT(aForWindowDotPrint == IsForWindowDotPrint::No);
+    if (aForWindowDotPrint == IsForWindowDotPrint::Yes) {
+      aError.ThrowNotSupportedError(
+          "Calling print() from a print preview is unsupported, did you intend "
+          "to call printPreview() instead?");
+      return nullptr;
+    }
     // We're already a print preview window, just reuse our browsing context /
     // content viewer.
     bc = sourceBC;
@@ -5351,11 +5391,21 @@ Nullable<WindowProxyHolder> nsGlobalWindowOuter::Print(
   // When using window.print() with the new UI, we usually want to block until
   // the print dialog is hidden. But we can't really do that if we have print
   // callbacks, because we are inside a sync operation, and we want to run
-  // microtasks / etc that the print callbacks may create.
+  // microtasks / etc that the print callbacks may create. It is really awkward
+  // to have this subtle behavior difference...
   //
-  // It is really awkward to have this subtle behavior difference...
-  if (aIsPreview == IsPreview::Yes &&
-      aForWindowDotPrint == IsForWindowDotPrint::Yes && !hasPrintCallbacks) {
+  // We also want to do this for fuzzing, so that they can test window.print().
+  const bool shouldBlock = [&] {
+    if (aForWindowDotPrint == IsForWindowDotPrint::No) {
+      return false;
+    }
+    if (aIsPreview == IsPreview::Yes) {
+      return !hasPrintCallbacks;
+    }
+    return StaticPrefs::dom_window_print_fuzzing_block_while_printing();
+  }();
+
+  if (shouldBlock) {
     SpinEventLoopUntil([&] { return bc->IsDiscarded(); });
   }
 
@@ -6137,8 +6187,9 @@ void nsGlobalWindowOuter::CloseOuter(bool aTrustedCaller) {
     nsresult rv = mDoc->GetURL(url);
     NS_ENSURE_SUCCESS_VOID(rv);
 
-    if (!StringBeginsWith(url, u"about:neterror"_ns) && !HadOriginalOpener() &&
-        !aTrustedCaller && !IsOnlyTopLevelDocumentInSHistory()) {
+    if (!StringBeginsWith(url, u"about:neterror"_ns) &&
+        !mBrowsingContext->HadOriginalOpener() && !aTrustedCaller &&
+        !IsOnlyTopLevelDocumentInSHistory()) {
       bool allowClose =
           mAllowScriptsToClose ||
           Preferences::GetBool("dom.allow_scripts_to_close_windows", true);
@@ -6689,10 +6740,9 @@ void nsGlobalWindowOuter::SetChromeEventHandler(
 
 void nsGlobalWindowOuter::SetFocusedElement(Element* aElement,
                                             uint32_t aFocusMethod,
-                                            bool aNeedsFocus,
-                                            bool aWillShowOutline) {
-  FORWARD_TO_INNER_VOID(SetFocusedElement, (aElement, aFocusMethod, aNeedsFocus,
-                                            aWillShowOutline));
+                                            bool aNeedsFocus) {
+  FORWARD_TO_INNER_VOID(SetFocusedElement,
+                        (aElement, aFocusMethod, aNeedsFocus));
 }
 
 uint32_t nsGlobalWindowOuter::GetFocusMethod() {
@@ -6830,8 +6880,9 @@ bool nsGlobalWindowOuter::IsFrozen() const {
   return mInnerWindow->IsFrozen();
 }
 
-nsresult nsGlobalWindowOuter::FireDelayedDOMEvents() {
-  FORWARD_TO_INNER(FireDelayedDOMEvents, (), NS_ERROR_UNEXPECTED);
+nsresult nsGlobalWindowOuter::FireDelayedDOMEvents(bool aIncludeSubWindows) {
+  FORWARD_TO_INNER(FireDelayedDOMEvents, (aIncludeSubWindows),
+                   NS_ERROR_UNEXPECTED);
 }
 
 //*****************************************************************************
@@ -7418,10 +7469,6 @@ int16_t nsGlobalWindowOuter::Orientation(CallerType aCallerType) const {
 }
 #endif
 
-bool nsPIDOMWindowOuter::HadOriginalOpener() const {
-  return nsGlobalWindowOuter::Cast(this)->HadOriginalOpener();
-}
-
 #if defined(_WINDOWS_) && !defined(MOZ_WRAPPED_WINDOWS_H)
 #  pragma message( \
       "wrapper failure reason: " MOZ_WINDOWS_WRAPPER_DISABLED_REASON)
@@ -7613,7 +7660,6 @@ nsPIDOMWindowOuter::nsPIDOMWindowOuter(uint64_t aWindowID)
       mMediaSuspend(StaticPrefs::media_block_autoplay_until_in_foreground()
                         ? nsISuspendedTypes::SUSPENDED_BLOCK
                         : nsISuspendedTypes::NONE_SUSPENDED),
-      mAudioVolume(1.0),
       mDesktopModeViewport(false),
       mIsRootOuterWindow(false),
       mInnerWindow(nullptr),

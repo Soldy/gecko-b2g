@@ -26,3 +26,6 @@ mk_add_options AUTOCLOBBER=1
 SIMULATOR=1
 HAS_KOOST_MODULES=1
 GAIADIR="${B2G_DIR}/gaia"
+ac_add_options --with-api-daemon-port=8081
+# Mandatory to set SIMULATOR flag, it will ensure having a working xpi file
+MOZTTDIR="${B2G_DIR}/external/moztt"

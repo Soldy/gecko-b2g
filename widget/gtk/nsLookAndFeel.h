@@ -18,25 +18,25 @@ struct _GtkStyle;
 
 class nsLookAndFeel final : public nsXPLookAndFeel {
  public:
-  explicit nsLookAndFeel(const LookAndFeelCache* aCache);
+  nsLookAndFeel();
   virtual ~nsLookAndFeel();
 
   void NativeInit() final;
   void RefreshImpl() override;
   nsresult NativeGetInt(IntID aID, int32_t& aResult) override;
   nsresult NativeGetFloat(FloatID aID, float& aResult) override;
-  nsresult NativeGetColor(ColorID aID, nscolor& aResult) override;
+  nsresult NativeGetColor(ColorID, ColorScheme, nscolor& aResult) override;
   bool NativeGetFont(FontID aID, nsString& aFontName,
                      gfxFontStyle& aFontStyle) override;
 
   char16_t GetPasswordCharacterImpl() override;
   bool GetEchoPasswordImpl() override;
 
-  LookAndFeelCache GetCacheImpl() override;
-  void SetCacheImpl(const LookAndFeelCache& aCache) override;
-
   void WithThemeConfiguredForContent(
-      const std::function<void(const LookAndFeelTheme& aTheme)>& aFn) override;
+      const std::function<void(const LookAndFeelTheme&, bool)>& aFn) override;
+  bool FromParentTheme(IntID) override;
+  bool FromParentTheme(ColorID) override;
+
   static void ConfigureTheme(const LookAndFeelTheme& aTheme);
 
   bool IsCSDAvailable() const { return mCSDAvailable; }
@@ -45,7 +45,6 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
   static const nscolor kWhite = NS_RGB(255, 255, 255);
 
  protected:
-  void DoSetCache(const LookAndFeelCache& aCache);
   bool WidgetUsesImage(WidgetNodeType aNodeType);
   void RecordLookAndFeelSpecificTelemetry() override;
   bool ShouldHonorThemeScrollbarColors();

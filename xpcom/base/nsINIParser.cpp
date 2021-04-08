@@ -168,8 +168,8 @@ nsresult nsINIParser::GetString(const char* aSection, const char* aKey,
 }
 
 nsresult nsINIParser::GetSections(INISectionCallback aCB, void* aClosure) {
-  for (auto iter = mSections.Iter(); !iter.Done(); iter.Next()) {
-    if (!aCB(iter.Key(), aClosure)) {
+  for (const auto& key : mSections.Keys()) {
+    if (!aCB(key, aClosure)) {
       break;
     }
   }
@@ -205,7 +205,7 @@ nsresult nsINIParser::SetString(const char* aSection, const char* aKey,
       return;
     }
 
-    INIValue* v = entry.Data().get();
+    INIValue* v = entry->get();
 
     // Check whether this key has already been specified; overwrite
     // if so, or append if not.
@@ -241,7 +241,7 @@ nsresult nsINIParser::DeleteString(const char* aSection, const char* aKey) {
     if (!val->next) {
       mSections.Remove(aSection);
     } else {
-      mSections.Put(aSection, std::move(val->next));
+      mSections.InsertOrUpdate(aSection, std::move(val->next));
       delete val;
     }
     return NS_OK;
@@ -277,13 +277,13 @@ nsresult nsINIParser::RenameSection(const char* aSection,
     return NS_ERROR_INVALID_ARG;
   }
 
-  if (mSections.Get(aNewName, nullptr)) {
+  if (mSections.Contains(aNewName)) {
     return NS_ERROR_ILLEGAL_VALUE;
   }
 
   mozilla::UniquePtr<INIValue> val;
   if (mSections.Remove(aSection, &val)) {
-    mSections.Put(aNewName, std::move(val));
+    mSections.InsertOrUpdate(aNewName, std::move(val));
   } else {
     return NS_ERROR_FAILURE;
   }
@@ -294,9 +294,9 @@ nsresult nsINIParser::RenameSection(const char* aSection,
 nsresult nsINIParser::WriteToFile(nsIFile* aFile) {
   nsCString buffer;
 
-  for (auto iter = mSections.Iter(); !iter.Done(); iter.Next()) {
-    buffer.AppendPrintf("[%s]\n", iter.Key());
-    INIValue* val = iter.UserData();
+  for (const auto& entry : mSections) {
+    buffer.AppendPrintf("[%s]\n", entry.GetKey());
+    INIValue* val = entry.GetWeak();
     while (val) {
       buffer.AppendPrintf("%s=%s\n", val->key, val->value);
       val = val->next.get();

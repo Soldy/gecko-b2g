@@ -92,11 +92,6 @@ ApplicationBuildID:
     Product application's build ID.
   type: string
 
-AsyncShutdownModule:
-  description: >
-    Holds the contents of the AsyncShutdown.js script
-  type: string
-
 AsyncShutdownTimeout:
   description: >
     This annotation is present if a shutdown blocker was not released in time
@@ -389,6 +384,12 @@ GraphicsCriticalError:
     Information of a critical error that occurred within the graphics code.
   type: string
 
+GraphicsDrawShader:
+  description: >
+    Name of the shader that is currently bound for a draw call, if applicable.
+    See file names in gfx/wr/webrender/res/* for the possible values.
+  type: string
+
 GraphicsSanityTest:
   description: >
     Annotation used in tests.
@@ -553,11 +554,6 @@ IsWayland:
     If true then the Wayland windowing system was in use.
   type: boolean
 
-IsWaylandDRM:
-  description: >
-    If true then the Wayland DRM backend was in use.
-  type: boolean
-
 IsWebRenderResourcePathOverridden:
   description: >
     If true then the WebRender resources (i.e. shaders) are loaded from a user specified path.
@@ -610,10 +606,10 @@ LauncherProcessState:
     mozilla::LauncherRegistryInfo::EnableState enum
   type: integer
 
-LowCommitSpaceEvents:
+LowPhysicalMemoryEvents:
   description: >
-    Number of times the available memory tracker has detected a that
-    commit-space was running low. This is a Windows-specific annotation.
+    Number of times the available memory tracker has detected that free
+    physical memory is running low. This is a Windows-specific annotation.
   type: integer
   ping: true
 
@@ -982,3 +978,10 @@ Winsock_LSP:
   description: >
     Information on winsock LSPs injected in our networking stack.
   type: string
+
+XPCOMSpinEventLoopStack:
+  description: >
+    If we crash while some code is spinning manually the event
+    loop, we will see the stack of nested annotations here.
+  type: string
+

@@ -284,6 +284,16 @@ class MinidumpThread : public MinidumpObject {
   // GetMemory may return NULL even if the MinidumpThread is valid,
   // if the thread memory cannot be read.
   virtual MinidumpMemoryRegion* GetMemory();
+  // Corresponds to win32's GetLastError function, which records the last
+  // error value set by the OS for this thread. A more useful error message
+  // can be produced by passing this value to FormatMessage:
+  //
+  // https://docs.microsoft.com/windows/win32/debug/retrieving-the-last-error-code
+  //
+  // The value may also be looked up in Microsoft's System Error Codes listing:
+  //
+  // https://docs.microsoft.com/windows/win32/debug/system-error-codes
+  virtual uint32_t GetLastError();
   // GetContext may return NULL even if the MinidumpThread is valid.
   virtual MinidumpContext* GetContext();
 
@@ -787,6 +797,9 @@ class MinidumpUnloadedModule : public MinidumpObject,
   uint64_t shrink_down_delta() const override;
   void SetShrinkDownDelta(uint64_t shrink_down_delta) override;
 
+  // Print a human-readable representation of the object to stdout.
+  void Print();
+
  protected:
   explicit MinidumpUnloadedModule(Minidump* minidump);
 
@@ -844,6 +857,9 @@ class MinidumpUnloadedModuleList : public MinidumpStream,
       GetModuleAtIndex(unsigned int index) const override;
   const CodeModules* Copy() const override;
   vector<linked_ptr<const CodeModule>> GetShrunkRangeModules() const override;
+
+  // Print a human-readable representation of the object to stdout.
+  void Print();
 
  protected:
   explicit MinidumpUnloadedModuleList(Minidump* minidump_);

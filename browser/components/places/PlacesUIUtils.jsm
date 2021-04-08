@@ -281,7 +281,7 @@ var PlacesUIUtils = {
    * @see documentation at the top of bookmarkProperties.js
    * @return The guid of the item that was created or edited, undefined otherwise.
    */
-  showBookmarkDialog(aInfo, aParentWindow = null) {
+  async showBookmarkDialog(aInfo, aParentWindow = null) {
     // Preserve size attributes differently based on the fact the dialog has
     // a folder picker or not, since it needs more horizontal space than the
     // other controls.
@@ -308,7 +308,11 @@ var PlacesUIUtils = {
       aParentWindow = Services.wm.getMostRecentWindow(null);
     }
 
-    aParentWindow.openDialog(dialogURL, "", features, aInfo);
+    if (Services.prefs.getBoolPref("browser.proton.modals.enabled", false)) {
+      await aParentWindow.gDialogBox.open(dialogURL, aInfo);
+    } else {
+      aParentWindow.openDialog(dialogURL, "", features, aInfo);
+    }
 
     let bookmarkGuid =
       ("bookmarkGuid" in aInfo && aInfo.bookmarkGuid) || undefined;
@@ -333,7 +337,7 @@ var PlacesUIUtils = {
    * @param {DOMWindow} [window]
    *   The window to use as the parent to display the bookmark dialog.
    */
-  showBookmarkPagesDialog(URIList, hiddenRows = [], win = null) {
+  async showBookmarkPagesDialog(URIList, hiddenRows = [], win = null) {
     if (!URIList.length) {
       return;
     }
@@ -348,7 +352,7 @@ var PlacesUIUtils = {
       bookmarkDialogInfo.uri = URIList[0].uri;
     }
 
-    PlacesUIUtils.showBookmarkDialog(bookmarkDialogInfo, win);
+    await PlacesUIUtils.showBookmarkDialog(bookmarkDialogInfo, win);
   },
 
   /**
@@ -988,8 +992,6 @@ var PlacesUIUtils = {
       return;
     }
 
-    resultNode = resultNode.QueryInterface(Ci.nsINavBookmarkObserver);
-
     if (itemsBeingChanged > ITEM_CHANGED_BATCH_NOTIFICATION_THRESHOLD) {
       resultNode.onBeginUpdateBatch();
     }
@@ -1183,8 +1185,6 @@ var PlacesUIUtils = {
 
     // This listener is for tracking bookmark moves
     let placesUtilsBookmarksObserver = {
-      onBeginUpdateBatch() {},
-      onEndUpdateBatch() {},
       onItemChanged() {},
       onItemMoved(
         aItemId,

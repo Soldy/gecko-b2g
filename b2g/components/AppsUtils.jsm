@@ -4,6 +4,9 @@
 
 "use strict";
 
+const { AlarmService } = ChromeUtils.import(
+  "resource://gre/modules/AlarmService.jsm"
+);
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 this.EXPORTED_SYMBOLS = ["AppsUtils"];
@@ -40,5 +43,6 @@ this.AppsUtils = {
       {}
     );
     Services.qms.clearStoragesForPrincipal(principal);
+    AlarmService.removeByHost(principal.origin);
   },
 };

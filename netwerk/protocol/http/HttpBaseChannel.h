@@ -65,6 +65,7 @@ class LogCollector;
 namespace net {
 extern mozilla::LazyLogModule gHttpLog;
 
+class OpaqueResponseBlockingInfo;
 class PreferredAlternativeDataTypeParams;
 
 enum CacheDisposition : uint8_t {
@@ -223,6 +224,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetDecodedBodySize(uint64_t* aDecodedBodySize) override;
   NS_IMETHOD GetEncodedBodySize(uint64_t* aEncodedBodySize) override;
   NS_IMETHOD GetSupportsHTTP3(bool* aSupportsHTTP3) override;
+  NS_IMETHOD GetHasHTTPSRR(bool* aHasHTTPSRR) override;
   NS_IMETHOD SetRequestContextID(uint64_t aRCID) override;
   NS_IMETHOD GetIsMainDocumentChannel(bool* aValue) override;
   NS_IMETHOD SetIsMainDocumentChannel(bool aValue) override;
@@ -231,8 +233,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD SetChannelId(uint64_t aChannelId) override;
   NS_IMETHOD GetTopLevelContentWindowId(uint64_t* aContentWindowId) override;
   NS_IMETHOD SetTopLevelContentWindowId(uint64_t aContentWindowId) override;
-  NS_IMETHOD GetTopLevelOuterContentWindowId(uint64_t* aWindowId) override;
-  NS_IMETHOD SetTopLevelOuterContentWindowId(uint64_t aWindowId) override;
+  NS_IMETHOD GetTopBrowsingContextId(uint64_t* aId) override;
+  NS_IMETHOD SetTopBrowsingContextId(uint64_t aId) override;
 
   NS_IMETHOD GetFlashPluginState(
       nsIHttpChannel::FlashPluginState* aState) override;
@@ -273,6 +275,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetIsTRRServiceChannel(bool* aTRR) override;
   NS_IMETHOD SetIsTRRServiceChannel(bool aTRR) override;
   NS_IMETHOD GetIsResolvedByTRR(bool* aResolvedByTRR) override;
+  NS_IMETHOD GetIsOCSP(bool* value) override;
+  NS_IMETHOD SetIsOCSP(bool value) override;
   NS_IMETHOD GetTlsFlags(uint32_t* aTlsFlags) override;
   NS_IMETHOD SetTlsFlags(uint32_t aTlsFlags) override;
   NS_IMETHOD GetApiRedirectToURI(nsIURI** aApiRedirectToURI) override;
@@ -613,6 +617,10 @@ class HttpBaseChannel : public nsHashPropertyBag,
 
   nsresult ValidateMIMEType();
 
+  bool EnsureOpaqueResponseIsAllowed();
+
+  Result<bool, nsresult> EnsureOpaqueResponseIsAllowedAfterSniff();
+
   friend class PrivateBrowsingChannel<HttpBaseChannel>;
   friend class InterceptFailedOnStop;
 
@@ -695,6 +703,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   UniquePtr<nsTArray<nsCString>> mRedirectedCachekeys;
   nsCOMPtr<nsIRequestContext> mRequestContext;
 
+  RefPtr<OpaqueResponseBlockingInfo> mOpaqueResponseBlockingInfo;
+
   NetAddr mSelfAddr;
   NetAddr mPeerAddr;
 
@@ -738,7 +748,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   // ID of the top-level document's inner window this channel is being
   // originated from.
   uint64_t mContentWindowId;
-  uint64_t mTopLevelOuterContentWindowId;
+  uint64_t mTopBrowsingContextId;
   int64_t mAltDataLength;
   uint64_t mChannelId;
   uint64_t mReqContentLength;
@@ -839,7 +849,10 @@ class HttpBaseChannel : public nsHashPropertyBag,
 
     // Tainted origin flag of a request, specified by
     // WHATWG Fetch Standard 2.2.5.
-    (uint32_t, TaintedOriginFlag, 1)
+    (uint32_t, TaintedOriginFlag, 1),
+
+    // If the channel is being used to check OCSP
+    (uint32_t, IsOCSP, 1)
   ))
   // clang-format on
 
@@ -874,6 +887,16 @@ class HttpBaseChannel : public nsHashPropertyBag,
   int8_t mRedirectCount;
   // Number of internal redirects that has occurred.
   int8_t mInternalRedirectCount;
+
+  enum class SnifferCategoryType {
+    NetContent = 0,
+    OpaqueResponseBlocking,
+    All
+  };
+  SnifferCategoryType mSnifferCategoryType = SnifferCategoryType::NetContent;
+  const bool mCachedOpaqueResponseBlockingPref;
+  bool mBlockOpaqueResponseAfterSniff;
+  bool mCheckIsOpaqueResponseAllowedAfterSniff;
 
   // clang-format off
   MOZ_ATOMIC_BITFIELDS(mAtomicBitfields3, 8, (
@@ -919,7 +942,11 @@ class HttpBaseChannel : public nsHashPropertyBag,
 
     // True if this is a navigation to a page with a different cross origin
     // opener policy ( see ComputeCrossOriginOpenerPolicyMismatch )
-    (uint32_t, HasCrossOriginOpenerPolicyMismatch, 1)
+    (uint32_t, HasCrossOriginOpenerPolicyMismatch, 1),
+
+    // True if HTTPS RR is used during the connection establishment of this
+    // channel.
+    (uint32_t, HasHTTPSRR, 1)
   ))
   // clang-format on
 
@@ -932,7 +959,12 @@ class HttpBaseChannel : public nsHashPropertyBag,
   void AddAsNonTailRequest();
   void RemoveAsNonTailRequest();
 
-  void EnsureTopLevelOuterContentWindowId();
+  void EnsureTopBrowsingContextId();
+
+  void InitiateORBTelemetry();
+
+  void ReportORBTelemetry(const nsCString& aKey);
+  void ReportORBTelemetry(int64_t aContentLength);
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(HttpBaseChannel, HTTP_BASE_CHANNEL_IID)

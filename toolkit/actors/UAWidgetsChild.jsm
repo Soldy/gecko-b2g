@@ -94,6 +94,8 @@ class UAWidgetsChild extends JSWindowActorChild {
           "media.videocontrols.picture-in-picture.video-toggle.position",
           "media.videocontrols.picture-in-picture.video-toggle.has-used",
           "media.videocontrols.keyboard-tab-to-all-controls",
+          "media.videocontrols.keyboard-enter-to-toggle-pause",
+          "media.videocontrols.volume-control-override",
         ];
         break;
       case "input":

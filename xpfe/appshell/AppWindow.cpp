@@ -1286,6 +1286,7 @@ bool AppWindow::LoadPositionFromXUL(int32_t aSpecWidth, int32_t aSpecHeight) {
     gotPosition = true;
   }
 
+  bool allowSlop = false;
   if (gotPosition) {
     // our position will be relative to our parent, if any
     nsCOMPtr<nsIBaseWindow> parent(do_QueryReferent(mParentWindow));
@@ -1302,9 +1303,10 @@ bool AppWindow::LoadPositionFromXUL(int32_t aSpecWidth, int32_t aSpecHeight) {
       }
     } else {
       StaggerPosition(specX, specY, cssWidth, cssHeight);
+      allowSlop = true;
     }
   }
-  mWindow->ConstrainPosition(false, &specX, &specY);
+  mWindow->ConstrainPosition(allowSlop, &specX, &specY);
   if (specX != currX || specY != currY) {
     SetPositionDesktopPix(specX, specY);
   }
@@ -2911,6 +2913,15 @@ void AppWindow::FinishFullscreenChange(bool aInFullscreen) {
   }
 }
 
+void AppWindow::MacFullscreenMenubarOverlapChanged(
+    mozilla::DesktopCoord aOverlapAmount) {
+  if (mDocShell) {
+    if (nsCOMPtr<nsPIDOMWindowOuter> ourWindow = mDocShell->GetWindow()) {
+      ourWindow->MacFullscreenMenubarOverlapChanged(aOverlapAmount);
+    }
+  }
+}
+
 void AppWindow::OcclusionStateChanged(bool aIsFullyOccluded) {
   nsCOMPtr<nsPIDOMWindowOuter> ourWindow =
       mDocShell ? mDocShell->GetWindow() : nullptr;
@@ -3295,6 +3306,12 @@ void AppWindow::WidgetListenerDelegate::FullscreenWillChange(
 void AppWindow::WidgetListenerDelegate::FullscreenChanged(bool aInFullscreen) {
   RefPtr<AppWindow> holder = mAppWindow;
   holder->FullscreenChanged(aInFullscreen);
+}
+
+void AppWindow::WidgetListenerDelegate::MacFullscreenMenubarOverlapChanged(
+    DesktopCoord aOverlapAmount) {
+  RefPtr<AppWindow> holder = mAppWindow;
+  return holder->MacFullscreenMenubarOverlapChanged(aOverlapAmount);
 }
 
 void AppWindow::WidgetListenerDelegate::OcclusionStateChanged(

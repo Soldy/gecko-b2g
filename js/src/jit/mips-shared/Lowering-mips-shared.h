@@ -47,6 +47,10 @@ class LIRGeneratorMIPSShared : public LIRGeneratorShared {
       LInstructionHelper<INT64_PIECES, INT64_PIECES + 1, Temps>* ins,
       MDefinition* mir, MDefinition* lhs, MDefinition* rhs);
 
+  void lowerForCompareI64AndBranch(MTest* mir, MCompare* comp, JSOp op,
+                                   MDefinition* left, MDefinition* right,
+                                   MBasicBlock* ifTrue, MBasicBlock* ifFalse);
+
   void lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
                    MDefinition* src);
   template <size_t Temps>
@@ -64,9 +68,6 @@ class LIRGeneratorMIPSShared : public LIRGeneratorShared {
 
   void lowerBigIntLsh(MBigIntLsh* ins);
   void lowerBigIntRsh(MBigIntRsh* ins);
-
-  void lowerAtomicLoad64(MLoadUnboxedScalar* ins);
-  void lowerAtomicStore64(MStoreUnboxedScalar* ins);
 
   LTableSwitch* newLTableSwitch(const LAllocation& in,
                                 const LDefinition& inputCopy,

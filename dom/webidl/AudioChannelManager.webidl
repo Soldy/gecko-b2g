@@ -12,6 +12,12 @@ interface AudioChannelManager : EventTarget {
   readonly attribute boolean headphones;
 
   /**
+   * Current status of the headphones, which can be 'off', 'headset',
+   * 'headphone', 'lineout' or 'unknown'.
+   */
+  readonly attribute DOMString headphonesStatus;
+
+  /**
    * Fired when the headphones are plugged or unplugged.
    *
    * When the headphones are unplugged, we may start playing audio through the

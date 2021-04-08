@@ -46,6 +46,7 @@ nsresult Muxer::SetMetadata(
       case TrackMetadataBase::METADATA_VORBIS:
       case TrackMetadataBase::METADATA_AAC:
       case TrackMetadataBase::METADATA_AMR:
+      case TrackMetadataBase::METADATA_AMR_WB:
       case TrackMetadataBase::METADATA_EVRC:
         MOZ_ASSERT(!mHasAudio, "Only one audio track supported");
         mHasAudio = true;

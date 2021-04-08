@@ -125,6 +125,7 @@ class DnsAndConnectSocket final : public nsIOutputStreamCallback,
     enum TransportSetupState {
       INIT,
       RESOLVING,
+      RESOLVED,
       RETRY_RESOLVING,
       CONNECTING,
       CONNECTING_DONE,
@@ -138,6 +139,9 @@ class DnsAndConnectSocket final : public nsIOutputStreamCallback,
       return (mState == TransportSetup::TransportSetupState::CONNECTING) ||
              (mState == TransportSetup::TransportSetupState::RETRY_RESOLVING) ||
              (mState == TransportSetup::TransportSetupState::CONNECTING_DONE);
+    }
+    bool Resolved() {
+      return mState == TransportSetup::TransportSetupState::RESOLVED;
     }
     bool DoneConnecting() {
       return (mState == TransportSetup::TransportSetupState::CONNECTING_DONE) ||
@@ -159,6 +163,10 @@ class DnsAndConnectSocket final : public nsIOutputStreamCallback,
     bool mConnectedOK = false;
     bool mIsBackup;
 
+    bool mWaitingForConnect = false;
+    void SetConnecting();
+    void MaybeSetConnectingDone();
+
     explicit TransportSetup(bool isBackup);
 
     nsresult Init(DnsAndConnectSocket* dnsAndSock);
@@ -166,7 +174,8 @@ class DnsAndConnectSocket final : public nsIOutputStreamCallback,
     void Abandon();
     void CloseAll();
     nsresult SetupConn(nsAHttpTransaction* transaction, ConnectionEntry* ent,
-                       nsresult status, HttpConnectionBase** connection);
+                       nsresult status, uint32_t cap,
+                       HttpConnectionBase** connection);
     [[nodiscard]] nsresult SetupStreams(DnsAndConnectSocket* dnsAndSock);
     nsresult ResolveHost(DnsAndConnectSocket* dnsAndSock);
     nsresult OnLookupComplete(DnsAndConnectSocket* dnsAndSock,

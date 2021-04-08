@@ -174,6 +174,10 @@ PlacesViewBase.prototype = {
     return selectedNode ? [selectedNode] : [];
   },
 
+  get singleClickOpens() {
+    return true;
+  },
+
   get removableSelectionRanges() {
     // On static content the current selectedNode would be the selection's
     // parent node. We don't want to allow removing a node when the
@@ -260,6 +264,9 @@ PlacesViewBase.prototype = {
     );
     existingOtherBookmarksItem?.remove();
 
+    let manageBookmarksMenu = aPopup.querySelector(
+      "#placesContext_showAllBookmarks"
+    );
     // Add the View menu for the Bookmarks Toolbar and "Show Other Bookmarks" menu item
     // if the click originated from the Bookmarks Toolbar.
     if (gBookmarksToolbar2h2020) {
@@ -267,13 +274,16 @@ PlacesViewBase.prototype = {
       existingSubmenu?.remove();
       let bookmarksToolbar = document.getElementById("PersonalToolbar");
       if (bookmarksToolbar?.contains(aPopup.triggerNode)) {
+        manageBookmarksMenu.removeAttribute("hidden");
+
         let menu = BookmarkingUI.buildBookmarksToolbarSubmenu(bookmarksToolbar);
-        aPopup.appendChild(menu);
+        aPopup.insertBefore(menu, manageBookmarksMenu);
 
         if (
           aPopup.triggerNode.id === "OtherBookmarks" ||
           aPopup.triggerNode.id === "PlacesChevron" ||
-          aPopup.triggerNode.id === "PlacesToolbarItems"
+          aPopup.triggerNode.id === "PlacesToolbarItems" ||
+          aPopup.triggerNode.parentNode.id === "PlacesToolbarItems"
         ) {
           let otherBookmarksMenuItem = BookmarkingUI.buildShowOtherBookmarksMenuItem();
 
@@ -284,7 +294,11 @@ PlacesViewBase.prototype = {
             );
           }
         }
+      } else {
+        manageBookmarksMenu.setAttribute("hidden", "true");
       }
+    } else {
+      manageBookmarksMenu.setAttribute("hidden", "true");
     }
 
     return this.controller.buildContextMenu(aPopup);

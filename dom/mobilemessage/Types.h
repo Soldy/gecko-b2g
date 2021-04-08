@@ -68,6 +68,14 @@ enum MessageType {
   eMessageType_EndGuard
 };
 
+enum AttachmentStatus {
+  eAttachmentStatus_None = 0,
+  eAttachmentStatus_NotDownloaded,
+  eAttachmentStatus_Downloaded,
+  // This state should stay at the end.
+  eAttachmentStatus_EndGuard
+};
+
 }  // namespace mobilemessage
 }  // namespace dom
 }  // namespace mozilla
@@ -124,6 +132,15 @@ struct ParamTraits<mozilla::dom::mobilemessage::MessageType>
           mozilla::dom::mobilemessage::eMessageType_SMS,
           mozilla::dom::mobilemessage::eMessageType_EndGuard> {};
 
+/**
+ * AttachmentType class serializer.
+ */
+template <>
+struct ParamTraits<mozilla::dom::mobilemessage::AttachmentStatus>
+    : public ContiguousEnumSerializer<
+          mozilla::dom::mobilemessage::AttachmentStatus,
+          mozilla::dom::mobilemessage::eAttachmentStatus_None,
+          mozilla::dom::mobilemessage::eAttachmentStatus_EndGuard> {};
 }  // namespace IPC
 
 #endif  // mozilla_dom_mobilemessage_Types_h

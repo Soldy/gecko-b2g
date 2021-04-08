@@ -33,7 +33,6 @@
 #include "nsFontMetrics.h"
 #include "nsHTMLStyleSheet.h"
 #include "nsMappedAttributes.h"
-#include "nsMediaFeatures.h"
 #include "nsNameSpaceManager.h"
 #include "nsNetUtil.h"
 #include "nsProxyRelease.h"
@@ -693,47 +692,16 @@ bool Gecko_IsDocumentBody(const Element* aElement) {
   return doc && doc->GetBodyElement() == aElement;
 }
 
-static bool ShouldUseStandinsForNativeColorForNonNativeTheme(
-    const Document& aDoc, LookAndFeel::ColorID aColor) {
-  using ColorID = LookAndFeel::ColorID;
-  if (!aDoc.ShouldAvoidNativeTheme()) {
-    return false;
-  }
-
-  // The native theme doesn't use system colors backgrounds etc, so spoof some
-  // of the colors with stand-ins to prevent lack of contrast.
-  switch (aColor) {
-    case ColorID::Buttonface:
-    case ColorID::Buttontext:
-    case ColorID::MozButtonhoverface:
-    case ColorID::MozButtonhovertext:
-    case ColorID::MozGtkButtonactivetext:
-
-    case ColorID::MozCombobox:
-    case ColorID::MozComboboxtext:
-
-    case ColorID::Field:
-    case ColorID::Fieldtext:
-      return true;
-
-    default:
-      break;
-  }
-
-  return false;
-}
-
 nscolor Gecko_GetLookAndFeelSystemColor(int32_t aId, const Document* aDoc) {
   auto colorId = static_cast<LookAndFeel::ColorID>(aId);
-  const bool useStandinsForNativeColors =
-      ShouldUseStandinsForNativeColorForNonNativeTheme(*aDoc, colorId) ||
-      (nsContentUtils::UseStandinsForNativeColors() &&
-       !nsContentUtils::IsChromeDoc(aDoc));
-
   AutoWriteLock guard(*sServoFFILock);
-  nscolor result = 0;
-  LookAndFeel::GetColor(colorId, useStandinsForNativeColors, &result);
-  return result;
+  return LookAndFeel::Color(colorId, *aDoc);
+}
+
+int32_t Gecko_GetLookAndFeelInt(int32_t aId) {
+  auto intId = static_cast<LookAndFeel::IntID>(aId);
+  AutoWriteLock guard(*sServoFFILock);
+  return LookAndFeel::GetInt(intId);
 }
 
 bool Gecko_MatchLang(const Element* aElement, nsAtom* aOverrideLang,
@@ -1026,7 +994,7 @@ void Gecko_CopyFontFamilyFrom(nsFont* dst, const nsFont* src) {
   dst->fontlist = src->fontlist;
 }
 
-void Gecko_nsFont_InitSystem(nsFont* aDest, int32_t aFontId,
+void Gecko_nsFont_InitSystem(nsFont* aDest, StyleSystemFont aFontId,
                              const nsStyleFont* aFont,
                              const Document* aDocument) {
   const nsFont* defaultVariableFont = ThreadSafeGetDefaultFontHelper(
@@ -1038,10 +1006,8 @@ void Gecko_nsFont_InitSystem(nsFont* aDest, int32_t aFontId,
   // itself, so this will do.
   new (aDest) nsFont(*defaultVariableFont);
 
-  LookAndFeel::FontID fontID = static_cast<LookAndFeel::FontID>(aFontId);
-
   AutoWriteLock guard(*sServoFFILock);
-  nsLayoutUtils::ComputeSystemFont(aDest, fontID, defaultVariableFont,
+  nsLayoutUtils::ComputeSystemFont(aDest, aFontId, defaultVariableFont,
                                    aDocument);
 }
 

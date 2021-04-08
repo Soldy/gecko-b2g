@@ -6,32 +6,35 @@
 
 var EXPORTED_SYMBOLS = ["Target"];
 
-const { Connection } = ChromeUtils.import(
-  "chrome://remote/content/cdp/Connection.jsm"
-);
-const { WebSocketTransport } = ChromeUtils.import(
-  "chrome://remote/content/server/WebSocketTransport.jsm"
-);
-const { WebSocketHandshake } = ChromeUtils.import(
-  "chrome://remote/content/server/WebSocketHandshake.jsm"
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
 );
 
-const UUIDGen = Cc["@mozilla.org/uuid-generator;1"].getService(
-  Ci.nsIUUIDGenerator
+XPCOMUtils.defineLazyModuleGetters(this, {
+  Connection: "chrome://remote/content/cdp/Connection.jsm",
+  WebSocketHandshake: "chrome://remote/content/server/WebSocketHandshake.jsm",
+  WebSocketTransport: "chrome://remote/content/server/WebSocketTransport.jsm",
+});
+
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "UUIDGen",
+  "@mozilla.org/uuid-generator;1",
+  "nsIUUIDGenerator"
 );
 
 /**
- * Base class for all the Targets.
+ * Base class for all the targets.
  */
 class Target {
   /**
-   * @param Targets targets
+   * @param TargetList targetList
    * @param Class sessionClass
    */
-  constructor(targets, sessionClass) {
-    // Save a reference to Targets instance in order to expose it to:
+  constructor(targetList, sessionClass) {
+    // Save a reference to TargetList instance in order to expose it to:
     // domains/parent/Target.jsm
-    this.targets = targets;
+    this.targetList = targetList;
 
     // When a new connection is made to this target,
     // we will instantiate a new session based on this given class.

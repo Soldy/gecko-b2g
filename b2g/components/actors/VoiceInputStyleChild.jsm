@@ -160,14 +160,15 @@ class VoiceInputStyleChild extends JSWindowActorChild {
     let win = element.ownerGlobal;
     let dir =
       element.ownerDocument.documentElement.dir === "rtl" ? "left" : "right";
-    let inputHeight = parseInt(
-      win.getComputedStyle(element).getPropertyValue("height")
+    let fontSize = parseInt(
+      win.getComputedStyle(element).getPropertyValue("font-size")
     );
     let inputPaddingRight = parseInt(
       win.getComputedStyle(element).getPropertyValue(`padding-${dir}`)
     );
-    let iconHeight = inputHeight * 0.6;
-    let iconPadding = inputHeight * 0.4 * 0.5;
+
+    let iconHeight = fontSize;
+    let iconPadding = fontSize * 0.4;
 
     element.style.backgroundImage = `url(${this.iconUrl})`;
     element.style.backgroundRepeat = "no-repeat";

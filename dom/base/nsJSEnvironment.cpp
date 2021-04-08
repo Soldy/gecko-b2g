@@ -1607,7 +1607,7 @@ void GCTimerFired(nsITimer* aTimer, void* aClosure) {
       [aClosure](TimeStamp aDeadline) {
         return InterSliceGCRunnerFired(aDeadline, aClosure);
       },
-      "GCTimerFired::InterSliceGCRunnerFired",
+      "GCTimerFired::InterSliceGCRunnerFired", 0,
       StaticPrefs::javascript_options_gc_delay_interslice(),
       sScheduler.mActiveIntersliceGCBudget.ToMilliseconds(), true,
       [] { return sShuttingDown; });
@@ -1680,10 +1680,11 @@ void nsJSContext::EnsureCCRunner(TimeDuration aDelay, TimeDuration aBudget) {
 
   if (!sCCRunner) {
     sCCRunner = IdleTaskRunner::Create(
-        CCRunnerFired, "EnsureCCRunner::CCRunnerFired", aDelay.ToMilliseconds(),
-        aBudget.ToMilliseconds(), true, [] { return sShuttingDown; });
+        CCRunnerFired, "EnsureCCRunner::CCRunnerFired", 0,
+        aDelay.ToMilliseconds(), aBudget.ToMilliseconds(), true,
+        [] { return sShuttingDown; });
   } else {
-    sCCRunner->SetBudget(aBudget.ToMilliseconds());
+    sCCRunner->SetMinimumUsefulBudget(aBudget.ToMilliseconds());
     nsIEventTarget* target = mozilla::GetCurrentEventTarget();
     if (target) {
       sCCRunner->SetTimer(aDelay.ToMilliseconds(), target);
@@ -1717,10 +1718,10 @@ void nsJSContext::RunNextCollectorTimer(JS::GCReason aReason,
     return;
   }
 
-  nsCOMPtr<nsIRunnable> runnable;
+  RefPtr<IdleTaskRunner> runner;
   if (sInterSliceGCRunner) {
-    sInterSliceGCRunner->SetDeadline(aDeadline);
-    runnable = sInterSliceGCRunner;
+    sInterSliceGCRunner->SetIdleDeadline(aDeadline);
+    runner = sInterSliceGCRunner;
   } else {
     // Check the CC timers after the GC timers, because the CC timers won't do
     // anything if a GC is in progress.
@@ -1729,13 +1730,13 @@ void nsJSContext::RunNextCollectorTimer(JS::GCReason aReason,
         "Don't check the CC timers if the CC is locked out during an iGC.");
 
     if (sCCRunner) {
-      sCCRunner->SetDeadline(aDeadline);
-      runnable = sCCRunner;
+      sCCRunner->SetIdleDeadline(aDeadline);
+      runner = sCCRunner;
     }
   }
 
-  if (runnable) {
-    runnable->Run();
+  if (runner) {
+    runner->Run();
   }
 }
 
@@ -1983,7 +1984,7 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
             [](TimeStamp aDeadline) {
               return InterSliceGCRunnerFired(aDeadline, nullptr);
             },
-            "DOMGCSliceCallback::InterSliceGCRunnerFired",
+            "DOMGCSliceCallback::InterSliceGCRunnerFired", 0,
             StaticPrefs::javascript_options_gc_delay_interslice(),
             sScheduler.mActiveIntersliceGCBudget.ToMilliseconds(), true,
             [] { return sShuttingDown; });

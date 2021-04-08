@@ -77,8 +77,7 @@ class GMPDiskStorage : public GMPStorage {
 
   ~GMPDiskStorage() {
     // Close all open file handles.
-    for (auto iter = mRecords.ConstIter(); !iter.Done(); iter.Next()) {
-      Record* record = iter.UserData();
+    for (const auto& record : mRecords.Values()) {
       if (record->mFileDesc) {
         PR_Close(record->mFileDesc);
         record->mFileDesc = nullptr;
@@ -119,7 +118,8 @@ class GMPDiskStorage : public GMPStorage {
         continue;
       }
 
-      mRecords.Put(recordName, MakeUnique<Record>(filename, recordName));
+      mRecords.InsertOrUpdate(recordName,
+                              MakeUnique<Record>(filename, recordName));
     }
 
     return NS_OK;
@@ -141,7 +141,7 @@ class GMPDiskStorage : public GMPStorage {
                 .get();
           }
 
-          return entry.Data().get();
+          return entry->get();
         });
     if (!record) {
       return GMPGenericErr;

@@ -20,10 +20,10 @@ namespace wr {
 /* static */
 UniquePtr<RenderCompositor> RenderCompositorOGL::Create(
     RefPtr<widget::CompositorWidget>&& aWidget, nsACString& aError) {
-  RefPtr<gl::GLContext> gl = RenderThread::Get()->SharedGL();
+  RefPtr<gl::GLContext> gl = RenderThread::Get()->SingletonGL();
   if (!gl) {
     gl = gl::GLContextProvider::CreateForCompositorWidget(
-        aWidget, /* aWebRender */ true, /* aForceAccelerated */ true);
+        aWidget, /* aHardwareWebRender */ true, /* aForceAccelerated */ true);
     RenderThread::MaybeEnableGLDebugMessage(gl);
   }
   if (!gl || !gl->MakeCurrent()) {
@@ -95,14 +95,6 @@ bool RenderCompositorOGL::Resume() { return true; }
 
 LayoutDeviceIntSize RenderCompositorOGL::GetBufferSize() {
   return mWidget->GetClientSize();
-}
-
-CompositorCapabilities RenderCompositorOGL::GetCompositorCapabilities() {
-  CompositorCapabilities caps;
-
-  caps.virtual_surface_size = 0;
-
-  return caps;
 }
 
 uint32_t RenderCompositorOGL::GetMaxPartialPresentRects() {

@@ -183,8 +183,6 @@ page-action-send-tabs-urlbar =
       [1] Send Tab to Device
      *[other] Send { $tabCount } Tabs to Device
   }
-page-action-pocket-panel =
-  .label = Save Page to { -pocket-brand-name }
 page-action-copy-url-panel =
   .label = Copy Link
 page-action-copy-url-urlbar =
@@ -269,12 +267,25 @@ search-one-offs-history =
 
 ## Bookmark Panel
 
+bookmarks-add-bookmark = Add bookmark
+bookmarks-edit-bookmark = Edit bookmark
+bookmark-panel-cancel =
+    .label = Cancel
+    .accesskey = C
+# Variables:
+#  $count (number): number of bookmarks that will be removed
+bookmark-panel-remove =
+    .label =
+        { $count ->
+            [1] Remove bookmark
+           *[other] Remove { $count } bookmarks
+        }
+    .accesskey = R
 bookmark-panel-show-editor-checkbox =
     .label = Show editor when saving
     .accesskey = S
-
-bookmark-panel-done-button =
-    .label = Done
+bookmark-panel-save-button =
+    .label = Save
 
 # Width of the bookmark panel.
 # Should be large enough to fully display the Done and
@@ -364,6 +375,28 @@ browser-tab-audio-blocked = AUTOPLAY BLOCKED
 # This label should be written in all capital letters if your locale supports them.
 browser-tab-audio-pip = PICTURE-IN-PICTURE
 
+## These labels should be written in all capital letters if your locale supports them.
+## Variables:
+##  $count (number): number of affected tabs
+
+browser-tab-mute =
+    { $count ->
+        [1] MUTE TAB
+       *[other] MUTE { $count } TABS
+    }
+
+browser-tab-unmute =
+    { $count ->
+        [1] UNMUTE TAB
+       *[other] UNMUTE { $count } TABS
+    }
+
+browser-tab-unblock =
+    { $count ->
+        [1] PLAY TAB
+       *[other] PLAY { $count } TABS
+    }
+
 ## Bookmarks toolbar items
 
 browser-import-button2 =
@@ -374,24 +407,27 @@ bookmarks-toolbar-empty-message = For quick access, place your bookmarks here on
 
 ## WebRTC Pop-up notifications
 
-popup-select-camera =
-    .value = Camera to share:
+popup-select-camera-device =
+    .value = Camera:
     .accesskey = C
-popup-select-microphone =
-    .value = Microphone to share:
+popup-select-camera-icon =
+    .tooltiptext = Camera
+popup-select-microphone-device =
+    .value = Microphone:
     .accesskey = M
+popup-select-microphone-icon =
+    .tooltiptext = Microphone
 popup-all-windows-shared = All visible windows on your screen will be shared.
 
-popup-screen-sharing-not-now =
-  .label = Not Now
+popup-screen-sharing-block =
+  .label = Block
+  .accesskey = B
+
+popup-screen-sharing-always-block =
+  .label = Always block
   .accesskey = w
 
-popup-screen-sharing-never =
-  .label = Never Allow
-  .accesskey = N
-
-popup-silence-notifications-checkbox = Disable notifications from { -brand-short-name } while sharing
-popup-silence-notifications-checkbox-warning = { -brand-short-name } will not display notifications while you are sharing.
+popup-mute-notifications-checkbox = Mute website notifications while sharing
 
 ## WebRTC window or screen share tab switch warning
 
@@ -465,8 +501,6 @@ urlbar-go-button =
   .tooltiptext = Go to the address in the Location Bar
 urlbar-page-action-button =
   .tooltiptext = Page actions
-urlbar-pocket-button =
-  .tooltiptext = Save to { -pocket-brand-name }
 
 ## Action text shown in urlbar results, usually appended after the search
 ## string or the url, like "result value - action text".
@@ -507,6 +541,13 @@ urlbar-result-action-tabtosearch-web = Search with { $engine } directly from the
 #  $engine (String): the name of a search engine that searches a specific site
 #  (e.g. Amazon).
 urlbar-result-action-tabtosearch-other-engine = Search { $engine } directly from the address bar
+# Action text for copying to clipboard.
+urlbar-result-action-copy-to-clipboard = Copy
+# Shows the result of a formula expression being calculated, the last = sign will be shown
+# as part of the result (e.g. "= 2").
+# Variables
+#  $result (String): the string representation for a formula result
+urlbar-result-action-calculator-result = = { $result }
 
 ## Action text shown in urlbar results, usually appended after the search
 ## string or the url, like "result value - action text".
@@ -538,21 +579,17 @@ pointerlock-warning-no-domain = This document has control of your pointer. Press
 ## Subframe crash notification
 
 crashed-subframe-message = <strong>Part of this page crashed.</strong> To let { -brand-product-name } know about this issue and get it fixed faster, please submit a report.
-crashed-subframe-learnmore =
-  .label = Learn More
-  .accesskey = L
+crashed-subframe-learnmore-link =
+  .value = Learn more
 crashed-subframe-submit =
-  .label = Submit Report
+  .label = Submit report
   .accesskey = S
 
 ## Bookmarks panels, menus and toolbar
 
-bookmarks-show-all-bookmarks =
-  .label = Show All Bookmarks
 bookmarks-manage-bookmarks =
   .label = Manage Bookmarks
-bookmarks-recent-bookmarks-panel =
-  .value = Recent Bookmarks
+bookmarks-recent-bookmarks-panel-subheader = Recent Bookmarks
 bookmarks-toolbar-chevron =
   .tooltiptext = Show more bookmarks
 bookmarks-sidebar-content =
@@ -615,8 +652,57 @@ library-bookmarks-menu =
 library-recent-activity-title =
   .value = Recent Activity
 
+## Pocket toolbar button
+
+save-to-pocket-button =
+  .label = Save to { -pocket-brand-name }
+  .tooltiptext = Save to { -pocket-brand-name }
+
+## Customize Toolbar Buttons
+
+# Variables:
+#  $shortcut (String): keyboard shortcut to open the add-ons manager
+toolbar-addons-themes-button =
+  .label = Add-ons and themes
+  .tooltiptext = Manage your add-ons and themes ({ $shortcut })
+
+# Variables:
+#  $shortcut (String): keyboard shortcut to open settings (only on macOS)
+toolbar-settings-button =
+  .label = Settings
+  .tooltiptext = { PLATFORM() ->
+      [macos] Open settings ({ $shortcut })
+     *[other] Open settings
+  }
+
 ## More items
 
 more-menu-go-offline =
   .label = Work Offline
   .accesskey = k
+
+## EME notification panel
+
+eme-notifications-drm-content-playing = Some audio or video on this site uses DRM software, which may limit what { -brand-short-name } can let you do with it.
+eme-notifications-drm-content-playing-manage = Manage settings
+eme-notifications-drm-content-playing-manage-accesskey = M
+eme-notifications-drm-content-playing-dismiss = Dismiss
+eme-notifications-drm-content-playing-dismiss-accesskey = D
+
+## Password save/update panel
+
+panel-save-update-username = Username
+panel-save-update-password = Password
+
+## Add-on removal warning
+
+# Variables:
+#  $name (String): The name of the addon that will be removed.
+addon-removal-title = Remove { $name }?
+addon-removal-abuse-report-checkbox = Report this extension to { -vendor-short-name }
+
+## Remote / Synced tabs
+
+remote-tabs-manage-account =
+  .label = Manage Account
+remote-tabs-sync-now = Sync Now

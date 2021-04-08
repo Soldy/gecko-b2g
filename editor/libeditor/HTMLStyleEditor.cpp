@@ -6,12 +6,12 @@
 #include "HTMLEditor.h"
 
 #include "HTMLEditUtils.h"
-#include "TypeInState.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ContentIterator.h"
 #include "mozilla/EditAction.h"
 #include "mozilla/EditorUtils.h"
 #include "mozilla/SelectionState.h"
+#include "mozilla/TypeInState.h"
 #include "mozilla/mozalloc.h"
 #include "mozilla/dom/AncestorIterator.h"
 #include "mozilla/dom/Element.h"
@@ -47,7 +47,8 @@ namespace mozilla {
 
 using namespace dom;
 
-using ChildBlockBoundary = HTMLEditUtils::ChildBlockBoundary;
+using LeafNodeType = HTMLEditUtils::LeafNodeType;
+using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
 
 nsresult HTMLEditor::SetInlinePropertyAsAction(nsAtom& aProperty,
                                                nsAtom* aAttribute,
@@ -205,7 +206,7 @@ nsresult HTMLEditor::SetInlinePropertyInternal(
   NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
                        "EditorBase::CommitComposition() failed, but ignored");
 
-  if (SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().IsCollapsed()) {
     // Manipulating text attributes on a collapsed selection only sets state
     // for the next text insertion
     mTypeInState->SetProp(&aProperty, aAttribute, aAttributeValue);
@@ -244,7 +245,7 @@ nsresult HTMLEditor::SetInlinePropertyInternal(
     // XXX This is different from `SetCSSBackgroundColorWithTransaction()`.
     //     It refers `Selection::GetRangeAt()` in each time.  The result may
     //     be different if mutation event listener changes the `Selection`.
-    AutoSelectionRangeArray arrayOfRanges(SelectionRefPtr());
+    AutoSelectionRangeArray arrayOfRanges(SelectionRef());
     for (auto& range : arrayOfRanges.mRanges) {
       // Adjust range to include any ancestors whose children are entirely
       // selected
@@ -735,8 +736,9 @@ nsresult HTMLEditor::SetInlinePropertyOnNode(nsIContent& aNode,
 
   OwningNonNull<nsINode> parent = *aNode.GetParentNode();
   if (aNode.IsElement()) {
-    nsresult rv = RemoveStyleInside(MOZ_KnownLive(*aNode.AsElement()),
-                                    &aProperty, aAttribute);
+    nsresult rv =
+        RemoveStyleInside(MOZ_KnownLive(*aNode.AsElement()), &aProperty,
+                          aAttribute, SpecifiedStyle::Preserve);
     if (NS_FAILED(rv)) {
       NS_WARNING("HTMLEditor::RemoveStyleInside() failed");
       return rv;
@@ -933,7 +935,8 @@ SplitNodeResult HTMLEditor::SplitAncestorStyledInlineElementsAt(
 }
 
 EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
-                                    nsAtom* aProperty, nsAtom* aAttribute) {
+                                    nsAtom* aProperty, nsAtom* aAttribute,
+                                    SpecifiedStyle aSpecifiedStyle) {
   MOZ_ASSERT(IsEditActionDataAvailable());
 
   if (NS_WARN_IF(!aPoint.IsSet())) {
@@ -991,7 +994,7 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
   // `<p><b><i>a</i></b><b><i></i></b><b><i>bc</i></b></p>`.
   //                    ^^^^^^^^^^^^^^
   nsIContent* firstLeafChildOfNextNode = HTMLEditUtils::GetFirstLeafChild(
-      *splitResult.GetNextNode(), ChildBlockBoundary::Ignore);
+      *splitResult.GetNextNode(), {LeafNodeType::OnlyLeafNode});
   EditorDOMPoint atStartOfNextNode(firstLeafChildOfNextNode
                                        ? firstLeafChildOfNextNode
                                        : splitResult.GetNextNode(),
@@ -1050,7 +1053,7 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
   // E.g., `<p><b><i>a</i></b><b><i><br></i></b><b><i>bc</i></b></p>`
   nsIContent* firstLeafChildOfPreviousNode = HTMLEditUtils::GetFirstLeafChild(
       *splitResultAtStartOfNextNode.GetPreviousNode(),
-      ChildBlockBoundary::Ignore);
+      {LeafNodeType::OnlyLeafNode});
   EditorDOMPoint pointToPutCaret(
       firstLeafChildOfPreviousNode
           ? firstLeafChildOfPreviousNode
@@ -1086,7 +1089,7 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
     nsresult rv = RemoveStyleInside(
         MOZ_KnownLive(
             *splitResultAtStartOfNextNode.GetPreviousNode()->AsElement()),
-        aProperty, aAttribute);
+        aProperty, aAttribute, aSpecifiedStyle);
     if (NS_FAILED(rv)) {
       NS_WARNING("HTMLEditor::RemoveStyleInside() failed");
       return EditResult(rv);
@@ -1096,7 +1099,8 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
 }
 
 nsresult HTMLEditor::RemoveStyleInside(Element& aElement, nsAtom* aProperty,
-                                       nsAtom* aAttribute) {
+                                       nsAtom* aAttribute,
+                                       SpecifiedStyle aSpecifiedStyle) {
   // First, handle all descendants.
   RefPtr<nsIContent> child = aElement.GetFirstChild();
   while (child) {
@@ -1106,7 +1110,7 @@ nsresult HTMLEditor::RemoveStyleInside(Element& aElement, nsAtom* aProperty,
     nsCOMPtr<nsIContent> nextSibling = child->GetNextSibling();
     if (child->IsElement()) {
       nsresult rv = RemoveStyleInside(MOZ_KnownLive(*child->AsElement()),
-                                      aProperty, aAttribute);
+                                      aProperty, aAttribute, aSpecifiedStyle);
       if (NS_FAILED(rv)) {
         NS_WARNING("HTMLEditor::RemoveStyleInside() failed");
         return rv;
@@ -1141,7 +1145,7 @@ nsresult HTMLEditor::RemoveStyleInside(Element& aElement, nsAtom* aProperty,
       // If some style rules are specified to aElement, we need to keep them
       // as far as possible.
       // XXX Why don't we clone `id` attribute?
-      if (aProperty &&
+      if (aProperty && aSpecifiedStyle != SpecifiedStyle::Discard &&
           (aElement.HasAttr(kNameSpaceID_None, nsGkAtoms::style) ||
            aElement.HasAttr(kNameSpaceID_None, nsGkAtoms::_class))) {
         // Move `style` attribute and `class` element to span element before
@@ -1452,8 +1456,8 @@ nsresult HTMLEditor::GetInlinePropertyBase(nsAtom& aHTMLProperty,
   *aFirst = false;
   bool first = true;
 
-  bool isCollapsed = SelectionRefPtr()->IsCollapsed();
-  RefPtr<nsRange> range = SelectionRefPtr()->GetRangeAt(0);
+  bool isCollapsed = SelectionRef().IsCollapsed();
+  RefPtr<nsRange> range = SelectionRef().GetRangeAt(0);
   // XXX: Should be a while loop, to get each separate range
   // XXX: ERROR_HANDLING can currentItem be null?
   if (range) {
@@ -1853,7 +1857,7 @@ nsresult HTMLEditor::RemoveInlinePropertyInternal(
   }
   removeStyles.AppendElement(HTMLStyle(aProperty, aAttribute));
 
-  if (SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().IsCollapsed()) {
     // Manipulating text attributes on a collapsed selection only sets state
     // for the next text insertion
     if (removeStyles[0].mProperty) {
@@ -1907,7 +1911,7 @@ nsresult HTMLEditor::RemoveInlinePropertyInternal(
       //     AutoSelectionRangeArray just grabs the ranges in `Selection`.
       //     Therefore, modifying each range may notify selection listener.  So
       //     perhaps, we should clone each range here instead.
-      AutoSelectionRangeArray arrayOfRanges(SelectionRefPtr());
+      AutoSelectionRangeArray arrayOfRanges(SelectionRef());
       for (auto& range : arrayOfRanges.mRanges) {
         if (style.mProperty == nsGkAtoms::name) {
           // Promote range if it starts or end in a named anchor and we want to
@@ -2023,10 +2027,10 @@ nsresult HTMLEditor::RemoveInlinePropertyInternal(
 
         for (OwningNonNull<nsIContent>& content : arrayOfContents) {
           if (content->IsElement()) {
-            nsresult rv =
-                RemoveStyleInside(MOZ_KnownLive(*content->AsElement()),
-                                  MOZ_KnownLive(style.mProperty),
-                                  MOZ_KnownLive(style.mAttribute));
+            nsresult rv = RemoveStyleInside(
+                MOZ_KnownLive(*content->AsElement()),
+                MOZ_KnownLive(style.mProperty), MOZ_KnownLive(style.mAttribute),
+                SpecifiedStyle::Preserve);
             if (NS_FAILED(rv)) {
               NS_WARNING("HTMLEditor::RemoveStyleInside() failed");
               return rv;
@@ -2216,14 +2220,14 @@ nsresult HTMLEditor::RelativeFontChange(FontSize aDir) {
                        "EditorBase::CommitComposition() failed, but ignored");
 
   // If selection is collapsed, set typing state
-  if (SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().IsCollapsed()) {
     nsAtom& atom = aDir == FontSize::incr ? *nsGkAtoms::big : *nsGkAtoms::small;
 
     // Let's see in what kind of element the selection is
-    if (NS_WARN_IF(!SelectionRefPtr()->RangeCount())) {
+    if (NS_WARN_IF(!SelectionRef().RangeCount())) {
       return NS_OK;
     }
-    RefPtr<const nsRange> firstRange = SelectionRefPtr()->GetRangeAt(0);
+    RefPtr<const nsRange> firstRange = SelectionRef().GetRangeAt(0);
     if (NS_WARN_IF(!firstRange) ||
         NS_WARN_IF(!firstRange->GetStartContainer())) {
       return NS_OK;
@@ -2262,7 +2266,7 @@ nsresult HTMLEditor::RelativeFontChange(FontSize aDir) {
   AutoTransactionsConserveSelection dontChangeMySelection(*this);
 
   // Loop through the ranges in the selection
-  AutoSelectionRangeArray arrayOfRanges(SelectionRefPtr());
+  AutoSelectionRangeArray arrayOfRanges(SelectionRef());
   for (auto& range : arrayOfRanges.mRanges) {
     // Adjust range to include any ancestors with entirely selected children
     nsresult rv = PromoteInlineRange(*range);

@@ -54,9 +54,9 @@
 #include "vm/JSAtom.h"                   // for Atomize
 #include "vm/JSContext.h"                // for JSContext, ReportValueError
 #include "vm/JSFunction.h"               // for JSFunction
+#include "vm/JSObject.h"                 // for GenericObject, NewObjectKind
 #include "vm/JSScript.h"                 // for JSScript
 #include "vm/NativeObject.h"             // for NativeObject, JSObject::is
-#include "vm/ObjectGroup.h"              // for GenericObject, NewObjectKind
 #include "vm/ObjectOperations.h"         // for DefineProperty
 #include "vm/PlainObject.h"              // for js::PlainObject
 #include "vm/PromiseObject.h"            // for js::PromiseObject
@@ -806,7 +806,7 @@ bool DebuggerObject::CallData::getOwnPropertyDescriptorMethod() {
     return false;
   }
 
-  Rooted<PropertyDescriptor> desc(cx);
+  Rooted<Maybe<PropertyDescriptor>> desc(cx);
   if (!DebuggerObject::getOwnPropertyDescriptor(cx, object, id, &desc)) {
     return false;
   }
@@ -2072,7 +2072,7 @@ bool DebuggerObject::getOwnPropertySymbols(JSContext* cx,
 /* static */
 bool DebuggerObject::getOwnPropertyDescriptor(
     JSContext* cx, HandleDebuggerObject object, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) {
+    MutableHandle<Maybe<PropertyDescriptor>> desc_) {
   RootedObject referent(cx, object->referent());
   Debugger* dbg = object->owner();
 
@@ -2084,12 +2084,14 @@ bool DebuggerObject::getOwnPropertyDescriptor(
     cx->markId(id);
 
     ErrorCopier ec(ar);
-    if (!GetOwnPropertyDescriptor(cx, referent, id, desc)) {
+    if (!GetOwnPropertyDescriptor(cx, referent, id, desc_)) {
       return false;
     }
   }
 
-  if (desc.object()) {
+  if (desc_.isSome()) {
+    Rooted<PropertyDescriptor> desc(cx, *desc_);
+
     // Rewrap the debuggee values in desc for the debugger.
     if (!dbg->wrapDebuggeeValue(cx, desc.value())) {
       return false;
@@ -2112,7 +2114,10 @@ bool DebuggerObject::getOwnPropertyDescriptor(
 
     // Avoid tripping same-compartment assertions in
     // JS::FromPropertyDescriptor().
+    // TODO: Remove this when PropertyDescriptor doesn't have an
+    // object anymore.
     desc.object().set(object);
+    desc_.set(mozilla::Some(desc.get()));
   }
 
   return true;
@@ -2399,7 +2404,7 @@ bool DebuggerObject::forceLexicalInitializationByName(
   }
 
   result = false;
-  if (prop) {
+  if (prop.isFound()) {
     MOZ_ASSERT(prop.isNativeProperty());
     Shape* shape = prop.shape();
     Value v = globalLexical->as<NativeObject>().getSlot(shape->slot());
@@ -2469,7 +2474,7 @@ static JSFunction* EnsureNativeFunction(const Value& value,
   }
 
   JSFunction* fun = &value.toObject().as<JSFunction>();
-  if (!fun->isNative() || (fun->isExtended() && !allowExtended)) {
+  if (!fun->isNativeFun() || (fun->isExtended() && !allowExtended)) {
     return nullptr;
   }
 

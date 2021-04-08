@@ -127,7 +127,7 @@ gfxSVGGlyphsDocument* gfxSVGGlyphs::FindOrCreateGlyphsDocument(
           return nullptr;
         }
 
-        return glyphDocsEntry.Data().get();
+        return glyphDocsEntry->get();
       });
 }
 
@@ -224,17 +224,13 @@ bool gfxSVGGlyphs::GetGlyphExtents(uint32_t aGlyphId,
 }
 
 Element* gfxSVGGlyphs::GetGlyphElement(uint32_t aGlyphId) {
-  Element* elem;
-
-  if (!mGlyphIdMap.Get(aGlyphId, &elem)) {
-    elem = nullptr;
+  return mGlyphIdMap.LookupOrInsertWith(aGlyphId, [&] {
+    Element* elem = nullptr;
     if (gfxSVGGlyphsDocument* set = FindOrCreateGlyphsDocument(aGlyphId)) {
       elem = set->GetGlyphElement(aGlyphId);
     }
-    mGlyphIdMap.Put(aGlyphId, elem);
-  }
-
-  return elem;
+    return elem;
+  });
 }
 
 bool gfxSVGGlyphs::HasSVGGlyph(uint32_t aGlyphId) {
@@ -249,8 +245,8 @@ size_t gfxSVGGlyphs::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
   size_t result = aMallocSizeOf(this) +
                   mGlyphDocs.ShallowSizeOfExcludingThis(aMallocSizeOf) +
                   mGlyphIdMap.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  for (auto iter = mGlyphDocs.ConstIter(); !iter.Done(); iter.Next()) {
-    result += iter.Data()->SizeOfIncludingThis(aMallocSizeOf);
+  for (const auto& entry : mGlyphDocs.Values()) {
+    result += entry->SizeOfIncludingThis(aMallocSizeOf);
   }
   return result;
 }
@@ -453,7 +449,7 @@ void gfxSVGGlyphsDocument::InsertGlyphId(Element* aGlyphElement) {
     id = id * 10 + (ch - '0');
   }
 
-  mGlyphIdMap.Put(id, aGlyphElement);
+  mGlyphIdMap.InsertOrUpdate(id, aGlyphElement);
 }
 
 size_t gfxSVGGlyphsDocument::SizeOfIncludingThis(

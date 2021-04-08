@@ -48,7 +48,6 @@
 #include "gfxUtils.h"
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/CSSOrderAwareFrameIterator.h"
-#include "mozilla/EventStateManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/Touch.h"
@@ -128,6 +127,31 @@ nsBoxFrame::nsBoxFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
 
 nsBoxFrame::~nsBoxFrame() = default;
 
+nsIFrame* nsBoxFrame::SlowOrdinalGroupAwareSibling(nsIFrame* aBox, bool aNext) {
+  nsIFrame* parent = aBox->GetParent();
+  if (!parent) {
+    return nullptr;
+  }
+  CSSOrderAwareFrameIterator iter(
+      parent, layout::kPrincipalList,
+      CSSOrderAwareFrameIterator::ChildFilter::IncludeAll,
+      CSSOrderAwareFrameIterator::OrderState::Unknown,
+      CSSOrderAwareFrameIterator::OrderingProperty::BoxOrdinalGroup);
+
+  nsIFrame* prevSibling = nullptr;
+  for (; !iter.AtEnd(); iter.Next()) {
+    nsIFrame* current = iter.get();
+    if (!aNext && current == aBox) {
+      return prevSibling;
+    }
+    if (aNext && prevSibling == aBox) {
+      return current;
+    }
+    prevSibling = current;
+  }
+  return nullptr;
+}
+
 void nsBoxFrame::SetInitialChildList(ChildListID aListID,
                                      nsFrameList& aChildList) {
   nsContainerFrame::SetInitialChildList(aListID, aChildList);
@@ -162,9 +186,6 @@ void nsBoxFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
   MarkIntrinsicISizesDirty();
 
   CacheAttributes();
-
-  // register access key
-  RegUnregAccessKey(true);
 }
 
 void nsBoxFrame::CacheAttributes() {
@@ -719,9 +740,6 @@ nsBoxFrame::DoXULLayout(nsBoxLayoutState& aState) {
 
 void nsBoxFrame::DestroyFrom(nsIFrame* aDestructRoot,
                              PostDestroyData& aPostDestroyData) {
-  // unregister access key
-  RegUnregAccessKey(false);
-
   // clean up the container box's layout manager and child boxes
   SetXULLayoutManager(nullptr);
 
@@ -874,11 +892,6 @@ nsresult nsBoxFrame::AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
 
     PresShell()->FrameNeedsReflow(this, IntrinsicDirty::StyleChange,
                                   NS_FRAME_IS_DIRTY);
-  }
-  // If the accesskey changed, register for the new value
-  // The old value has been unregistered in nsXULElement::SetAttr
-  else if (aAttribute == nsGkAtoms::accesskey) {
-    RegUnregAccessKey(true);
   } else if (aAttribute == nsGkAtoms::rows &&
              mContent->IsXULElement(nsGkAtoms::tree)) {
     // Reflow ourselves and all our children if "rows" changes, since
@@ -969,35 +982,6 @@ nsresult nsBoxFrame::GetFrameName(nsAString& aResult) const {
   return MakeFrameName(u"Box"_ns, aResult);
 }
 #endif
-
-// If you make changes to this function, check its counterparts
-// in nsTextBoxFrame and nsXULLabelFrame
-void nsBoxFrame::RegUnregAccessKey(bool aDoReg) {
-  MOZ_ASSERT(mContent);
-
-  // only support accesskeys for the following elements
-  if (!mContent->IsAnyOfXULElements(nsGkAtoms::button, nsGkAtoms::toolbarbutton,
-                                    nsGkAtoms::checkbox, nsGkAtoms::tab,
-                                    nsGkAtoms::radio)) {
-    return;
-  }
-
-  nsAutoString accessKey;
-  mContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::accesskey,
-                                 accessKey);
-
-  if (accessKey.IsEmpty()) return;
-
-  // With a valid PresContext we can get the ESM
-  // and register the access key
-  EventStateManager* esm = PresContext()->EventStateManager();
-
-  uint32_t key = accessKey.First();
-  if (aDoReg)
-    esm->RegisterAccessKey(mContent->AsElement(), key);
-  else
-    esm->UnregisterAccessKey(mContent->AsElement(), key);
-}
 
 void nsBoxFrame::AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) {
   if (HasAnyStateBits(NS_STATE_BOX_WRAPS_KIDS_IN_BLOCK)) {

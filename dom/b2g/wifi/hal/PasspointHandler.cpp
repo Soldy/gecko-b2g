@@ -74,7 +74,7 @@ Result_t PasspointHandler::RequestAnqp(const nsAString& aAnqpKey,
   UpdateTimeStamp(aBssid);
 
   nsAutoString anqpKey(aAnqpKey);
-  mAnqpPendingRequest.Put(aBssid, anqpKey);
+  mAnqpPendingRequest.InsertOrUpdate(aBssid, anqpKey);
   return nsIWifiResult::SUCCESS;
 }
 
@@ -110,7 +110,7 @@ bool PasspointHandler::ReadyToRequest(const nsAString& aBssid) {
   AnqpRequestTime* requestTime;
   mozilla::TimeStamp currentTime = TimeStamp::Now();
   if (!mAnqpRequestTime.Get(aBssid, &requestTime)) {
-    mAnqpRequestTime.Put(aBssid, MakeUnique<AnqpRequestTime>(currentTime));
+    mAnqpRequestTime.InsertOrUpdate(aBssid, MakeUnique<AnqpRequestTime>(currentTime));
     return true;
   }
 

@@ -10,8 +10,21 @@ const Resources = require("devtools/server/actors/resources/index");
 const {
   WatchedDataHelpers,
 } = require("devtools/server/actors/watcher/WatchedDataHelpers.jsm");
-const { RESOURCES, BREAKPOINTS } = WatchedDataHelpers.SUPPORTED_DATA;
 const { STATES: THREAD_STATES } = require("devtools/server/actors/thread");
+const {
+  RESOURCES,
+  BREAKPOINTS,
+  TARGET_CONFIGURATION,
+  THREAD_CONFIGURATION,
+  XHR_BREAKPOINTS,
+} = WatchedDataHelpers.SUPPORTED_DATA;
+
+loader.lazyRequireGetter(
+  this,
+  "StyleSheetsManager",
+  "devtools/server/actors/utils/stylesheets-manager",
+  true
+);
 
 module.exports = function(targetType, targetActorSpec, implementation) {
   const proto = {
@@ -58,7 +71,7 @@ module.exports = function(targetType, targetActorSpec, implementation) {
             )
           );
         }
-      } else if (type == "target-configuration") {
+      } else if (type == TARGET_CONFIGURATION) {
         // Only BrowsingContextTargetActor implements updateTargetConfiguration,
         // skip this data entry update for other targets.
         if (typeof this.updateTargetConfiguration == "function") {
@@ -68,6 +81,48 @@ module.exports = function(targetType, targetActorSpec, implementation) {
           }
           this.updateTargetConfiguration(options);
         }
+      } else if (type == THREAD_CONFIGURATION) {
+        if (typeof this.attach == "function") {
+          this.attach();
+        }
+
+        const threadOptions = {};
+
+        for (const { key, value } of entries) {
+          threadOptions[key] = value;
+        }
+
+        if (
+          !this.targetType.endsWith("worker") &&
+          this.threadActor.state == THREAD_STATES.DETACHED
+        ) {
+          await this.threadActor.attach(threadOptions);
+        } else {
+          await this.threadActor.reconfigure(threadOptions);
+        }
+      } else if (type == XHR_BREAKPOINTS) {
+        // Breakpoints require the target to be attached,
+        // mostly to have the thread actor instantiated
+        // (content process targets don't have attach method,
+        //  instead they instantiate their ThreadActor immediately)
+        if (typeof this.attach == "function") {
+          this.attach();
+        }
+
+        // The thread actor has to be initialized in order to correctly
+        // retrieve the stack trace when hitting an XHR
+        if (
+          this.threadActor.state == THREAD_STATES.DETACHED &&
+          !this.targetType.endsWith("worker")
+        ) {
+          await this.threadActor.attach();
+        }
+
+        await Promise.all(
+          entries.map(({ path, method }) =>
+            this.threadActor.setXHRBreakpoint(path, method)
+          )
+        );
       }
     },
 
@@ -78,8 +133,12 @@ module.exports = function(targetType, targetActorSpec, implementation) {
         for (const { location } of entries) {
           this.threadActor.removeBreakpoint(location);
         }
-      } else if (type == "target-configuration") {
+      } else if (type == TARGET_CONFIGURATION || type == THREAD_CONFIGURATION) {
         // configuration data entries are always added/updated, never removed.
+      } else if (type == XHR_BREAKPOINTS) {
+        for (const { path, method } of entries) {
+          this.threadActor.removeXHRBreakpoint(path, method);
+        }
       }
 
       return Promise.resolve();
@@ -130,6 +189,22 @@ module.exports = function(targetType, targetActorSpec, implementation) {
         return;
       }
       this.emit(name, resources);
+    },
+
+    getStyleSheetManager() {
+      if (!this._styleSheetManager) {
+        this._styleSheetManager = new StyleSheetsManager(this);
+      }
+      return this._styleSheetManager;
+    },
+
+    destroy() {
+      if (this._styleSheetManager) {
+        this._styleSheetManager.destroy();
+        this._styleSheetManager = null;
+      }
+
+      implementation.destroy.call(this);
     },
   };
   // Use getOwnPropertyDescriptors in order to prevent calling getter from implementation

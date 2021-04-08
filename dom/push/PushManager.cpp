@@ -381,11 +381,51 @@ JSObject* PushManager::WrapObject(JSContext* aCx,
   return PushManager_Binding::Wrap(aCx, this, aGivenProto);
 }
 
+class GetPushPermissionRunnable final : public WorkerMainThreadRunnable {
+  uint32_t mPermission;
+
+ public:
+  explicit GetPushPermissionRunnable(WorkerPrivate* aWorker)
+      : WorkerMainThreadRunnable(aWorker,
+                                 "nsContentUtils :: Get Push Permission"_ns),
+        mPermission(nsIPermissionManager::DENY_ACTION) {}
+
+  bool MainThreadRun() override {
+    nsresult rv;
+    nsCOMPtr<nsIPermissionManager> permMgr =
+        do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, false);
+
+    rv = permMgr->TestExactPermissionFromPrincipal(mWorkerPrivate->GetPrincipal(),
+                                              "push"_ns, &mPermission);
+    NS_ENSURE_SUCCESS(rv, false);
+
+    return true;
+  }
+
+  uint32_t GetPermission() { return mPermission; }
+};
+
 // static
 already_AddRefed<PushManager> PushManager::Constructor(GlobalObject& aGlobal,
                                                        const nsAString& aScope,
                                                        ErrorResult& aRv) {
   if (!NS_IsMainThread()) {
+    uint32_t perm = nsIPermissionManager::DENY_ACTION;
+    WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+    MOZ_ASSERT(worker);
+    RefPtr<GetPushPermissionRunnable> r = new GetPushPermissionRunnable(worker);
+    r->Dispatch(Canceling, aRv);
+    if (aRv.Failed()) {
+      return nullptr;
+    }
+    perm = r->GetPermission();
+
+    if (perm != nsIPermissionManager::ALLOW_ACTION) {
+      aRv.Throw(NS_ERROR_DOM_PUSH_DENIED_ERR);
+      return nullptr;
+    }
+
     RefPtr<PushManager> ret = new PushManager(aScope);
     return ret.forget();
   }

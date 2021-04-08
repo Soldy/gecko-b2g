@@ -467,21 +467,20 @@ function setupEnvironment() {
   SpecialPowers.exactGC();
 }
 
-function runTestWhenReady(testFunc) {
+async function runTestWhenReady(testFunc) {
   setupEnvironment();
-  return testConfigured
-    .then(options => testFunc(options))
-    .catch(e => {
-      ok(
-        false,
-        "Error executing test: " +
-          e +
-          (typeof e.stack === "string"
-            ? " " + e.stack.split("\n").join(" ... ")
-            : "")
-      );
-      SimpleTest.finish();
-    });
+  const options = await testConfigured;
+  try {
+    await testFunc(options);
+  } catch (e) {
+    ok(
+      false,
+      `Error executing test: ${e}
+${e.stack ? e.stack : ""}`
+    );
+  } finally {
+    SimpleTest.finish();
+  }
 }
 
 /**
@@ -891,6 +890,36 @@ function haveEventsButNoMore(target, name, count, cancel) {
     haveNoEvent(target, name).then(() => e)
   );
 }
+
+/*
+ * Resolves the returned promise with an object with usage and reportCount
+ * properties.  `usage` is in the same units as reported by the reporter for
+ * `path`.
+ */
+const collectMemoryUsage = async path => {
+  const MemoryReporterManager = Cc[
+    "@mozilla.org/memory-reporter-manager;1"
+  ].getService(Ci.nsIMemoryReporterManager);
+
+  let usage = 0;
+  let reportCount = 0;
+  await new Promise(resolve =>
+    MemoryReporterManager.getReports(
+      (aProcess, aPath, aKind, aUnits, aAmount, aDesc) => {
+        if (aPath != path) {
+          return;
+        }
+        ++reportCount;
+        usage += aAmount;
+      },
+      null,
+      resolve,
+      null,
+      /* anonymized = */ false
+    )
+  );
+  return { usage, reportCount };
+};
 
 /**
  * This class executes a series of functions in a continuous sequence.

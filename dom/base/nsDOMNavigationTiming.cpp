@@ -8,6 +8,7 @@
 
 #include "GeckoProfiler.h"
 #include "ipc/IPCMessageUtilsSpecializations.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/Document.h"
@@ -22,9 +23,6 @@
 #include "nsIURI.h"
 #include "nsPrintfCString.h"
 #include "prtime.h"
-#ifdef MOZ_GECKO_PROFILER
-#  include "mozilla/ProfilerMarkerTypes.h"
-#endif
 
 using namespace mozilla;
 
@@ -87,7 +85,8 @@ void nsDOMNavigationTiming::NotifyNavigationStart(
   mNavigationStart = TimeStamp::Now();
   mDocShellHasBeenActiveSinceNavigationStart =
       (aDocShellState == DocShellState::eActive);
-  PROFILER_MARKER_UNTYPED("Navigation::Start", DOM);
+  PROFILER_MARKER_UNTYPED("Navigation::Start", DOM,
+                          MarkerInnerWindowIdFromDocShell(mDocShell));
 }
 
 void nsDOMNavigationTiming::NotifyFetchStart(nsIURI* aURI,
@@ -171,7 +170,6 @@ void nsDOMNavigationTiming::NotifyLoadEventEnd() {
                   Tracing, "Navigation");
 
   if (IsTopLevelContentDocumentInContentProcess()) {
-#ifdef MOZ_GECKO_PROFILER
     if (profiler_can_accept_markers() || PAGELOAD_LOG_ENABLED()) {
       TimeDuration elapsed = mLoadEventEnd - mNavigationStart;
       TimeDuration duration = mLoadEventEnd - mLoadEventStart;
@@ -185,13 +183,10 @@ void nsDOMNavigationTiming::NotifyLoadEventEnd() {
       PAGELOAD_LOG(("%s", marker.get()));
       PROFILER_MARKER_TEXT(
           "DocumentLoad", DOM,
-          MarkerOptions(
-              MarkerTiming::Interval(mNavigationStart, mLoadEventEnd),
-              MarkerInnerWindowId(
-                  profiler_get_inner_window_id_from_docshell(mDocShell))),
+          MarkerOptions(MarkerTiming::Interval(mNavigationStart, mLoadEventEnd),
+                        MarkerInnerWindowIdFromDocShell(mDocShell)),
           marker);
     }
-#endif
     Telemetry::AccumulateTimeDelta(Telemetry::TIME_TO_LOAD_EVENT_END_MS,
                                    mNavigationStart);
   }
@@ -213,7 +208,8 @@ void nsDOMNavigationTiming::NotifyDOMLoading(nsIURI* aURI) {
   mLoadedURI = aURI;
   mDOMLoading = TimeStamp::Now();
 
-  PROFILER_MARKER_UNTYPED("Navigation::DOMLoading", DOM);
+  PROFILER_MARKER_UNTYPED("Navigation::DOMLoading", DOM,
+                          MarkerInnerWindowIdFromDocShell(mDocShell));
 }
 
 void nsDOMNavigationTiming::NotifyDOMInteractive(nsIURI* aURI) {
@@ -223,7 +219,8 @@ void nsDOMNavigationTiming::NotifyDOMInteractive(nsIURI* aURI) {
   mLoadedURI = aURI;
   mDOMInteractive = TimeStamp::Now();
 
-  PROFILER_MARKER_UNTYPED("Navigation::DOMInteractive", DOM);
+  PROFILER_MARKER_UNTYPED("Navigation::DOMInteractive", DOM,
+                          MarkerInnerWindowIdFromDocShell(mDocShell));
 }
 
 void nsDOMNavigationTiming::NotifyDOMComplete(nsIURI* aURI) {
@@ -233,7 +230,8 @@ void nsDOMNavigationTiming::NotifyDOMComplete(nsIURI* aURI) {
   mLoadedURI = aURI;
   mDOMComplete = TimeStamp::Now();
 
-  PROFILER_MARKER_UNTYPED("Navigation::DOMComplete", DOM);
+  PROFILER_MARKER_UNTYPED("Navigation::DOMComplete", DOM,
+                          MarkerInnerWindowIdFromDocShell(mDocShell));
 }
 
 void nsDOMNavigationTiming::NotifyDOMContentLoadedStart(nsIURI* aURI) {
@@ -370,7 +368,6 @@ void nsDOMNavigationTiming::TTITimeout(nsITimer* aTimer) {
 
   mTTITimer = nullptr;
 
-#ifdef MOZ_GECKO_PROFILER
   if (profiler_can_accept_markers() || PAGELOAD_LOG_ENABLED()) {
     TimeDuration elapsed = mTTFI - mNavigationStart;
     MOZ_ASSERT(elapsed.ToMilliseconds() > 0);
@@ -386,13 +383,10 @@ void nsDOMNavigationTiming::TTITimeout(nsITimer* aTimer) {
 
     PROFILER_MARKER_TEXT(
         "TimeToFirstInteractive (TTFI)", DOM,
-        MarkerOptions(
-            MarkerTiming::Interval(mNavigationStart, mTTFI),
-            MarkerInnerWindowId(
-                profiler_get_inner_window_id_from_docshell(mDocShell))),
+        MarkerOptions(MarkerTiming::Interval(mNavigationStart, mTTFI),
+                      MarkerInnerWindowIdFromDocShell(mDocShell)),
         marker);
   }
-#endif
 }
 
 void nsDOMNavigationTiming::NotifyNonBlankPaintForRootContentDocument() {
@@ -405,7 +399,6 @@ void nsDOMNavigationTiming::NotifyNonBlankPaintForRootContentDocument() {
 
   mNonBlankPaint = TimeStamp::Now();
 
-#ifdef MOZ_GECKO_PROFILER
   if (profiler_thread_is_being_profiled() || PAGELOAD_LOG_ENABLED()) {
     TimeDuration elapsed = mNonBlankPaint - mNavigationStart;
     nsAutoCString spec;
@@ -422,13 +415,10 @@ void nsDOMNavigationTiming::NotifyNonBlankPaintForRootContentDocument() {
     PAGELOAD_LOG(("%s", marker.get()));
     PROFILER_MARKER_TEXT(
         "FirstNonBlankPaint", DOM,
-        MarkerOptions(
-            MarkerTiming::Interval(mNavigationStart, mNonBlankPaint),
-            MarkerInnerWindowId(
-                profiler_get_inner_window_id_from_docshell(mDocShell))),
+        MarkerOptions(MarkerTiming::Interval(mNavigationStart, mNonBlankPaint),
+                      MarkerInnerWindowIdFromDocShell(mDocShell)),
         marker);
   }
-#endif
 
   if (mDocShellHasBeenActiveSinceNavigationStart) {
     if (net::nsHttp::IsBeforeLastActiveTabLoadOptimization(mNavigationStart)) {
@@ -457,7 +447,6 @@ void nsDOMNavigationTiming::NotifyContentfulPaintForRootContentDocument(
 
   mContentfulPaint = aCompositeEndTime;
 
-#ifdef MOZ_GECKO_PROFILER
   if (profiler_can_accept_markers() || PAGELOAD_LOG_ENABLED()) {
     TimeDuration elapsed = mContentfulPaint - mNavigationStart;
     nsAutoCString spec;
@@ -476,11 +465,9 @@ void nsDOMNavigationTiming::NotifyContentfulPaintForRootContentDocument(
         "FirstContentfulPaint", DOM,
         MarkerOptions(
             MarkerTiming::Interval(mNavigationStart, mContentfulPaint),
-            MarkerInnerWindowId(
-                profiler_get_inner_window_id_from_docshell(mDocShell))),
+            MarkerInnerWindowIdFromDocShell(mDocShell)),
         marker);
   }
-#endif
 
   if (!mTTITimer) {
     mTTITimer = NS_NewTimer();
@@ -509,7 +496,6 @@ void nsDOMNavigationTiming::NotifyDOMContentFlushedForRootContentDocument() {
 
   mDOMContentFlushed = TimeStamp::Now();
 
-#ifdef MOZ_GECKO_PROFILER
   if (profiler_thread_is_being_profiled() || PAGELOAD_LOG_ENABLED()) {
     TimeDuration elapsed = mDOMContentFlushed - mNavigationStart;
     nsAutoCString spec;
@@ -528,11 +514,9 @@ void nsDOMNavigationTiming::NotifyDOMContentFlushedForRootContentDocument() {
         "DOMContentFlushed", DOM,
         MarkerOptions(
             MarkerTiming::Interval(mNavigationStart, mDOMContentFlushed),
-            MarkerInnerWindowId(
-                profiler_get_inner_window_id_from_docshell(mDocShell))),
+            MarkerInnerWindowIdFromDocShell(mDocShell)),
         marker);
   }
-#endif
 }
 
 void nsDOMNavigationTiming::NotifyDocShellStateChanged(

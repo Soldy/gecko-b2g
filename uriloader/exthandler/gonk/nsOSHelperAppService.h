@@ -33,7 +33,7 @@ class nsOSHelperAppService : public nsExternalHelperAppService {
                                           nsIHandlerInfo** _retval) override;
 
   // override nsIExternalProtocolService methods
-  MOZ_MUST_USE nsresult OSProtocolHandlerExists(const char* aProtocolScheme,
+  [[nodiscard]] nsresult OSProtocolHandlerExists(const char* aProtocolScheme,
                                                 bool* aHandlerExists) override;
   NS_IMETHOD GetApplicationDescription(const nsACString& aScheme,
                                        nsAString& _retval) override;

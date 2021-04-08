@@ -29,6 +29,7 @@ XPIDL_SOURCES += [
     "nsINetworkService.idl",
     "nsINetworkWorker.idl",
     "nsITetheringService.idl",
+    "nsITrafficStats.idl",
 ]
 UNIFIED_SOURCES += [
     "NetdEventListener.cpp",
@@ -36,6 +37,7 @@ UNIFIED_SOURCES += [
     "NetIdManager.cpp",
     "NetworkUtils.cpp",
     "NetworkWorker.cpp",
+    "TrafficStats.cpp",
 ]
 EXTRA_JS_MODULES += [
     "NetworkInterfaceListService.jsm",

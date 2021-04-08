@@ -15,6 +15,7 @@
 #include "nsHashKeys.h"
 #include "nsClassHashtable.h"
 #include "nsRefPtrHashtable.h"
+#include "nsIMemoryReporter.h"
 #include "nsIObserver.h"
 
 #include "nsIDOMNavigatorUserMedia.h"
@@ -61,7 +62,7 @@ class PrincipalInfo;
 class GetUserMediaTask;
 class GetUserMediaWindowListener;
 class MediaManager;
-class SourceListener;
+class DeviceListener;
 
 class MediaDevice : public nsIMediaDevice {
  public:
@@ -138,8 +139,10 @@ typedef nsRefPtrHashtable<nsUint64HashKey, GetUserMediaWindowListener>
     WindowTable;
 typedef MozPromise<RefPtr<AudioDeviceInfo>, nsresult, true> SinkInfoPromise;
 
-class MediaManager final : public nsIMediaManagerService, public nsIObserver {
-  friend SourceListener;
+class MediaManager final : public nsIMediaManagerService,
+                           public nsIMemoryReporter,
+                           public nsIObserver {
+  friend DeviceListener;
 
  public:
   static already_AddRefed<MediaManager> GetInstance();
@@ -173,6 +176,7 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
 
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIOBSERVER
+  NS_DECL_NSIMEMORYREPORTER
   NS_DECL_NSIMEDIAMANAGERSERVICE
 
   media::Parent<media::NonE10s>* GetNonE10sParent();
@@ -204,8 +208,8 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
   static bool IsOn(const dom::OwningBooleanOrMediaTrackConstraints& aUnion) {
     return !aUnion.IsBoolean() || aUnion.GetAsBoolean();
   }
-  typedef dom::NavigatorUserMediaSuccessCallback GetUserMediaSuccessCallback;
-  typedef dom::NavigatorUserMediaErrorCallback GetUserMediaErrorCallback;
+  using GetUserMediaSuccessCallback = dom::NavigatorUserMediaSuccessCallback;
+  using GetUserMediaErrorCallback = dom::NavigatorUserMediaErrorCallback;
 
   MOZ_CAN_RUN_SCRIPT
   static void CallOnError(GetUserMediaErrorCallback& aCallback,
@@ -214,16 +218,16 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
   static void CallOnSuccess(GetUserMediaSuccessCallback& aCallback,
                             DOMMediaStream& aTrack);
 
-  typedef nsTArray<RefPtr<MediaDevice>> MediaDeviceSet;
-  typedef media::Refcountable<MediaDeviceSet> MediaDeviceSetRefCnt;
+  using MediaDeviceSet = nsTArray<RefPtr<MediaDevice>>;
+  using MediaDeviceSetRefCnt = media::Refcountable<MediaDeviceSet>;
 
-  typedef MozPromise<RefPtr<DOMMediaStream>, RefPtr<MediaMgrError>, true>
-      StreamPromise;
-  typedef MozPromise<RefPtr<MediaDeviceSetRefCnt>, RefPtr<MediaMgrError>, true>
-      DevicesPromise;
-  typedef MozPromise<bool, RefPtr<MediaMgrError>, true> MgrPromise;
-  typedef MozPromise<const char*, RefPtr<MediaMgrError>, true>
-      BadConstraintsPromise;
+  using StreamPromise =
+      MozPromise<RefPtr<DOMMediaStream>, RefPtr<MediaMgrError>, true>;
+  using DevicesPromise =
+      MozPromise<RefPtr<MediaDeviceSetRefCnt>, RefPtr<MediaMgrError>, true>;
+  using MgrPromise = MozPromise<bool, RefPtr<MediaMgrError>, true>;
+  using BadConstraintsPromise =
+      MozPromise<const char*, RefPtr<MediaMgrError>, true>;
 
   RefPtr<StreamPromise> GetUserMedia(
       nsPIDOMWindowInner* aWindow,
@@ -233,7 +237,6 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
   MOZ_CAN_RUN_SCRIPT
   nsresult GetUserMediaDevices(
       nsPIDOMWindowInner* aWindow,
-      const dom::MediaStreamConstraints& aConstraints,
       dom::MozGetUserMediaDevicesSuccessCallback& aOnSuccess,
       uint64_t aInnerWindowID = 0, const nsAString& aCallID = nsString());
 
@@ -361,25 +364,14 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
   // combined status to chrome.
   nsresult CollectRecordingStatus(nsPIDOMWindowInner* aWindow);
 #endif
+  // Returns the number of incomplete tasks associated with this window,
+  // including the newly added task.
+  size_t AddTaskAndGetCount(uint64_t aWindowID, const nsAString& aCallID,
+                            RefPtr<GetUserMediaTask> aTask);
+  // Finds the task corresponding to aCallID and removes it from tracking.
+  RefPtr<GetUserMediaTask> TakeGetUserMediaTask(const nsAString& aCallID);
 
-  // ONLY access from MainThread so we don't need to lock
-  WindowTable mActiveWindows;
-  nsRefPtrHashtable<nsStringHashKey, GetUserMediaTask> mActiveCallbacks;
-  nsClassHashtable<nsUint64HashKey, nsTArray<nsString>> mCallIds;
-  nsTArray<RefPtr<dom::GetUserMediaRequest>> mPendingGUMRequest;
-  RefPtr<MediaTimer> mDeviceChangeTimer;
-  bool mCamerasMuted = false;
-  bool mMicrophonesMuted = false;
-
-  // Always exists
-  const RefPtr<TaskQueue> mMediaThread;
-  nsCOMPtr<nsIAsyncShutdownBlocker> mShutdownBlocker;
-
-  // ONLY accessed from MediaManagerThread
-  RefPtr<MediaEngine> mBackend;
-
-  static StaticRefPtr<MediaManager> sSingleton;
-  static StaticMutex sSingletonMutex;
+  MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf);
 
   struct nsStringHasher {
     using Key = nsString;
@@ -394,8 +386,26 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
     }
   };
 
+  // ONLY access from MainThread so we don't need to lock
+  WindowTable mActiveWindows;
+  nsRefPtrHashtable<nsStringHashKey, GetUserMediaTask> mActiveCallbacks;
+  nsClassHashtable<nsUint64HashKey, nsTArray<nsString>> mCallIds;
+  nsTArray<RefPtr<dom::GetUserMediaRequest>> mPendingGUMRequest;
   using DeviceIdSet = HashSet<nsString, nsStringHasher, InfallibleAllocPolicy>;
   DeviceIdSet mDeviceIDs;
+  RefPtr<MediaTimer> mDeviceChangeTimer;
+  bool mCamerasMuted = false;
+  bool mMicrophonesMuted = false;
+
+  // Always exists
+  const RefPtr<TaskQueue> mMediaThread;
+  nsCOMPtr<nsIAsyncShutdownBlocker> mShutdownBlocker;
+
+  // ONLY accessed from MediaManagerThread
+  RefPtr<MediaEngine> mBackend;
+
+  static StaticRefPtr<MediaManager> sSingleton;
+  static StaticMutex sSingletonMutex;
 
   // Connect/Disconnect on media thread only
   MediaEventListener mDeviceListChangeListener;
@@ -408,7 +418,7 @@ class MediaManager final : public nsIMediaManagerService, public nsIObserver {
     bool mAudio = false;
     bool mVideo = false;
   };
-  nsDataHashtable<nsPtrHashKey<void>, ExternalRecorderData> mExternalRecorders;
+  nsTHashMap<nsPtrHashKey<void>, ExternalRecorderData> mExternalRecorders;
 #endif
 
 #if defined(MOZ_B2G_CAMERA) && defined(MOZ_WIDGET_GONK)

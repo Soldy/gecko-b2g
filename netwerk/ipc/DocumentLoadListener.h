@@ -36,10 +36,12 @@
 namespace mozilla {
 namespace dom {
 class CanonicalBrowsingContext;
-}
+struct RemotenessChangeOptions;
+}  // namespace dom
 namespace net {
 using ChildEndpointPromise =
-    MozPromise<ipc::Endpoint<extensions::PStreamFilterChild>, bool, true>;
+    MozPromise<mozilla::ipc::Endpoint<extensions::PStreamFilterChild>, bool,
+               true>;
 
 // If we've been asked to attach a stream filter to our channel,
 // then we return this promise and defer until we know the final
@@ -58,7 +60,7 @@ struct StreamFilterRequest {
   }
   RefPtr<ChildEndpointPromise::Private> mPromise;
   base::ProcessId mChildProcessId;
-  ipc::Endpoint<extensions::PStreamFilterChild> mChildEndpoint;
+  mozilla::ipc::Endpoint<extensions::PStreamFilterChild> mChildEndpoint;
 };
 }  // namespace net
 }  // namespace mozilla
@@ -102,7 +104,7 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
                        bool aIsDocumentLoad);
 
   struct OpenPromiseSucceededType {
-    nsTArray<ipc::Endpoint<extensions::PStreamFilterParent>>
+    nsTArray<mozilla::ipc::Endpoint<extensions::PStreamFilterParent>>
         mStreamFilterEndpoints;
     uint32_t mRedirectFlags;
     uint32_t mLoadFlags;
@@ -194,7 +196,8 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
 
   // Looks up aLoadIdent to find the associated, cleans up the registration
   static RefPtr<OpenPromise> ClaimParentLoad(DocumentLoadListener** aListener,
-                                             uint64_t aLoadIdent);
+                                             uint64_t aLoadIdent,
+                                             Maybe<uint64_t> aChannelId);
 
   // Called by the DocumentChannelParent if actor got destroyed or the parent
   // channel got deleted.
@@ -320,14 +323,13 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   // and that the new remote type will be something other than NOT_REMOTE
   bool MaybeTriggerProcessSwitch(bool* aWillSwitchToRemote);
   void TriggerProcessSwitch(dom::CanonicalBrowsingContext* aContext,
-                            const nsCString& aRemoteType,
-                            bool aReplaceBrowsingContext,
-                            uint64_t aSpecificGroupId);
+                            const dom::RemotenessChangeOptions& aOptions);
 
   // A helper for TriggerRedirectToRealChannel that abstracts over
   // the same-process and cross-process switch cases and returns
   // a single promise to wait on.
-  using ParentEndpoint = ipc::Endpoint<extensions::PStreamFilterParent>;
+  using ParentEndpoint =
+      mozilla::ipc::Endpoint<extensions::PStreamFilterParent>;
   RefPtr<PDocumentChannelParent::RedirectToRealChannelPromise>
   RedirectToRealChannel(uint32_t aRedirectFlags, uint32_t aLoadFlags,
                         const Maybe<uint64_t>& aDestinationProcess,
@@ -464,6 +466,8 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   nsTArray<StreamListenerFunction> mStreamListenerFunctions;
 
   nsCOMPtr<nsIChannel> mChannel;
+
+  Maybe<uint64_t> mDocumentChannelId;
 
   // An instance of ParentChannelListener that we use as a listener
   // between mChannel (and any future redirected mChannels) and us.

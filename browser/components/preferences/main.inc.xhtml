@@ -68,7 +68,7 @@
     <label><html:h2 data-l10n-id="tabs-group-header"/></label>
 
     <checkbox id="ctrlTabRecentlyUsedOrder" data-l10n-id="ctrl-tab-recently-used-order"
-              preference="browser.ctrlTab.recentlyUsedOrder"/>
+              preference="browser.ctrlTab.sortByRecentlyUsed"/>
 
     <checkbox id="linkTargeting" data-l10n-id="open-new-link-as-tabs"
               preference="browser.link.open_newwindow"/>
@@ -110,7 +110,7 @@
                   class="accessory-button"
                   data-l10n-id="browser-containers-settings"
                   search-l10n-ids="containers-add-button.label,
-                    containers-preferences-button.label,
+                    containers-settings-button.label,
                     containers-remove-button.label"
                   />
         </hbox>
@@ -544,6 +544,12 @@
       <radio id="autoDesktop"
              value="true"
              data-l10n-id="update-application-auto"/>
+#ifdef MOZ_UPDATE_AGENT
+      <checkbox id="backgroundUpdate"
+                class="indent"
+                hidden="true"
+                data-l10n-id="update-application-background-enabled"/>
+#endif
       <radio id="manualDesktop"
              value="false"
              data-l10n-id="update-application-check-choose"/>

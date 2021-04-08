@@ -375,7 +375,9 @@ void BluetoothDaemonInterface::Init(
   // If we could not cleanup properly before and an old
   // instance of the daemon is still running, we kill it
   // here.
-  mozilla::hal::StopSystemService("bluetoothd");
+  if (mozilla::hal::SystemServiceIsRunning(mListenSocketName.get())) {
+    mozilla::hal::StopSystemService(mListenSocketName.get());
+  }
 
   mResultHandlerQ.AppendElement(aRes);
 
@@ -657,7 +659,9 @@ void BluetoothDaemonInterface::OnConnectError(int aIndex) {
       [[fallthrough]];
     case CMD_CHANNEL:
       // Stop daemon and close listen socket
-      mozilla::hal::StopSystemService("bluetoothd");
+      if (mozilla::hal::SystemServiceIsRunning(mListenSocketName.get())) {
+        mozilla::hal::StopSystemService(mListenSocketName.get());
+      }
       mListenSocket->Close();
       [[fallthrough]];
     case LISTEN_SOCKET:

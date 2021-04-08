@@ -9,6 +9,8 @@
 
 ## Application Menu (macOS only)
 
+menu-application-preferences =
+    .label = Preferences
 menu-application-services =
     .label = Services
 menu-application-hide-this =
@@ -110,8 +112,8 @@ menu-file-go-offline =
 menu-edit =
     .label = Edit
     .accesskey = E
-menu-edit-find-on =
-    .label = Find in This Page…
+menu-edit-find-in-page =
+    .label = Find in Page…
     .accesskey = F
 menu-edit-find-again =
     .label = Find Again
@@ -128,8 +130,8 @@ menu-view =
 menu-view-toolbars-menu =
     .label = Toolbars
     .accesskey = T
-menu-view-customize-toolbar =
-    .label = Customize…
+menu-view-customize-toolbar2 =
+    .label = Customize Toolbar…
     .accesskey = C
 menu-view-sidebar =
     .label = Sidebar
@@ -219,8 +221,8 @@ menu-bookmarks-menu =
     .accesskey = B
 menu-bookmarks-show-all =
     .label = Show All Bookmarks
-menu-bookmark-this-page =
-    .label = Bookmark This Page
+menu-bookmark-current-tab =
+    .label = Bookmark Current Tab
 menu-bookmark-edit =
     .label = Edit This Bookmark
 menu-bookmarks-all-tabs =
@@ -240,39 +242,38 @@ menu-tools =
 menu-tools-downloads =
     .label = Downloads
     .accesskey = D
-menu-tools-addons =
-    .label = Add-ons
+menu-tools-addons-and-themes =
+    .label = Add-ons and Themes
     .accesskey = A
-menu-tools-fxa-sign-in =
-    .label = Sign In To { -brand-product-name }…
+menu-tools-fxa-sign-in2 =
+    .label = Sign In
     .accesskey = g
-menu-tools-turn-on-sync =
-    .label = Turn on { -sync-brand-short-name }…
+menu-tools-turn-on-sync2 =
+    .label = Turn on Sync…
     .accesskey = n
 menu-tools-sync-now =
     .label = Sync Now
-    .accesskey = S
+    .accesskey = o
 menu-tools-fxa-re-auth =
     .label = Reconnect to { -brand-product-name }…
     .accesskey = R
-menu-tools-web-developer =
-    .label = Web Developer
-    .accesskey = W
+menu-tools-browser-tools =
+    .label = Browser Tools
+    .accesskey = B
+menu-tools-task-manager =
+    .label = Task Manager
+    .accesskey = M
 menu-tools-page-source =
     .label = Page Source
     .accesskey = o
 menu-tools-page-info =
     .label = Page Info
     .accesskey = I
-menu-preferences =
-    .label =
-        { PLATFORM() ->
-            [windows] Options
-           *[other] Preferences
-        }
+menu-settings =
+    .label = Settings
     .accesskey =
         { PLATFORM() ->
-            [windows] O
+            [windows] S
            *[other] n
         }
 menu-tools-layout-debugger =
@@ -302,20 +303,20 @@ menu-help =
 menu-get-help =
     .label = Get Help
     .accesskey = H
-menu-help-troubleshooting-info =
-    .label = Troubleshooting Information
+menu-help-more-troubleshooting-info =
+    .label = More Troubleshooting Information
     .accesskey = T
-menu-help-taskmanager =
-    .label = Task Manager
+menu-help-report-site-issue =
+    .label = Report Site Issue…
 menu-help-feedback-page =
     .label = Submit Feedback…
     .accesskey = S
-menu-help-safe-mode-without-addons =
-    .label = Restart With Add-ons Disabled…
-    .accesskey = R
-menu-help-safe-mode-with-addons =
-    .label = Restart With Add-ons Enabled
-    .accesskey = R
+menu-help-enter-troubleshoot-mode2 =
+    .label = Troubleshoot Mode…
+    .accesskey = M
+menu-help-exit-troubleshoot-mode =
+    .label = Turn Troubleshoot Mode Off
+    .accesskey = M
 # Label of the Help menu item. Either this or
 # menu-help-notdeceptive is shown.
 menu-help-report-deceptive-site =

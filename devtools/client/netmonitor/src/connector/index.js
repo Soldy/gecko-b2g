@@ -51,7 +51,7 @@ class Connector {
   }
 
   get currentTarget() {
-    return this.toolbox.targetList.targetFront;
+    return this.commands.targetCommand.targetFront;
   }
 
   get hasResourceWatcherSupport() {
@@ -75,12 +75,13 @@ class Connector {
     this.actions = actions;
     this.getState = getState;
     this.toolbox = connection.toolbox;
+    this.commands = this.toolbox.commands;
 
     // The owner object (NetMonitorAPI) received all events.
     this.owner = connection.owner;
 
-    await this.toolbox.targetList.watchTargets(
-      [this.toolbox.targetList.TYPES.FRAME],
+    await this.commands.targetCommand.watchTargets(
+      [this.commands.targetCommand.TYPES.FRAME],
       this.onTargetAvailable
     );
 
@@ -98,8 +99,8 @@ class Connector {
 
     this._destroyed = true;
 
-    this.toolbox.targetList.unwatchTargets(
-      [this.toolbox.targetList.TYPES.FRAME],
+    this.commands.targetCommand.unwatchTargets(
+      [this.commands.targetCommand.TYPES.FRAME],
       this.onTargetAvailable
     );
 
@@ -467,7 +468,9 @@ class Connector {
 
     // Reconfigures the tab, optionally triggering a reload.
     const reconfigureTab = options => {
-      return this.toolbox.targetList.updateConfiguration(options);
+      return this.commands.targetConfigurationCommand.updateConfiguration(
+        options
+      );
     };
 
     // Reconfigures the tab and waits for the target to finish navigating.
@@ -533,6 +536,14 @@ class Connector {
    */
   getTabTarget() {
     return this.currentTarget;
+  }
+
+  /**
+   * Getter that returns the current toolbox instance.
+   * @return {Toolbox} toolbox instance
+   */
+  getToolbox() {
+    return this.toolbox;
   }
 
   /**

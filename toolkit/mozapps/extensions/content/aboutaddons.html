@@ -24,14 +24,12 @@
     <link rel="localization" href="toolkit/about/abuseReports.ftl">
 
     <!-- Defer scripts so all the templates are loaded by the time they run. -->
-    <script defer src="chrome://mozapps/content/extensions/named-deck.js"></script>
     <script defer src="chrome://mozapps/content/extensions/aboutaddonsCommon.js"></script>
-    <script defer src="chrome://mozapps/content/extensions/message-bar.js"></script>
     <script defer src="chrome://mozapps/content/extensions/abuse-reports.js"></script>
     <script defer src="chrome://mozapps/content/extensions/shortcuts.js"></script>
     <script defer src="chrome://mozapps/content/extensions/drag-drop-addon-installer.js"></script>
-    <script defer src="chrome://mozapps/content/extensions/aboutaddons.js"></script>
     <script defer src="chrome://mozapps/content/extensions/view-controller.js"></script>
+    <script defer src="chrome://mozapps/content/extensions/aboutaddons.js"></script>
   </head>
   <body>
     <drag-drop-addon-installer></drag-drop-addon-installer>
@@ -113,7 +111,6 @@
 
     <template name="plugin-options">
       <panel-list>
-        <panel-item data-l10n-id="ask-to-activate-button" action="ask-to-activate"></panel-item>
         <panel-item data-l10n-id="always-activate-button" action="always-activate"></panel-item>
         <panel-item data-l10n-id="never-activate-button" action="never-activate"></panel-item>
         <panel-item-separator></panel-item-separator>
@@ -202,7 +199,7 @@
         <h3 class="disco-addon-name"></h3>
         <span class="disco-addon-author"><a data-l10n-name="author" target="_blank"></a></span>
       </div>
-      <button class="disco-cta-button primary" action="install-addon"></button>
+      <button class="disco-cta-button" action="install-addon"></button>
       <button class="disco-cta-button" data-l10n-id="manage-addon-button" action="manage-addon"></button>
     </template>
 
@@ -332,7 +329,10 @@
       <message-bar class="discopane-notice" dismissable>
         <div class="discopane-notice-content">
           <span data-l10n-id="discopane-notice-recommendations"></span>
-          <button data-l10n-id="discopane-notice-learn-more" action="notice-learn-more"></button>
+          <a is="support-link"
+             support-page="personalized-addons"
+             data-l10n-id="discopane-notice-learn-more"
+             action="notice-learn-more"></a>
         </div>
       </message-bar>
     </template>

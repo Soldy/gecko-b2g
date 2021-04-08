@@ -172,8 +172,7 @@ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
     MOZ_ASSERT(NS_SUCCEEDED(rv));
     // There is code that may be executed during the final cycle collection
     // shutdown and still referencing gHttpHandler.
-    ClearOnShutdown(&gHttpHandler,
-                    ShutdownPhase::ShutdownPostLastCycleCollection);
+    ClearOnShutdown(&gHttpHandler, ShutdownPhase::CCPostLastCycleCollection);
   }
   RefPtr<nsHttpHandler> httpHandler = gHttpHandler;
   return httpHandler.forget();
@@ -507,8 +506,8 @@ nsresult nsHttpHandler::Init() {
     obsService->AddObserver(this, "network:reset-http3-excluded-list", true);
 
     if (!IsNeckoChild()) {
-      obsService->AddObserver(
-          this, "net:current-toplevel-outer-content-windowid", true);
+      obsService->AddObserver(this, "net:current-top-browsing-context-id",
+                              true);
     }
 
     // disabled as its a nop right now
@@ -758,7 +757,7 @@ nsresult nsHttpHandler::AsyncOnChannelRedirect(
   newChan->GetURI(getter_AddRefs(newURI));
   MOZ_ASSERT(newURI);
 
-  AntiTrackingRedirectHeuristic(oldChan, oldURI, newChan, newURI);
+  PrepareForAntiTrackingRedirectHeuristic(oldChan, oldURI, newChan, newURI);
 
   DynamicFpiRedirectHeuristic(oldChan, oldURI, newChan, newURI);
 
@@ -950,6 +949,18 @@ void nsHttpHandler::InitUserAgentComponents() {
 #    pragma warning(disable : 4996)
   if (GetVersionEx(&info)) {
 #    pragma warning(pop)
+
+    if (info.dwMajorVersion >= 10) {
+      // Cap the reported Windows version to 10.0. This way, Microsoft doesn't
+      // get to change Web compat-sensitive values without our veto. The
+      // compat-sensitivity keeps going up as 10.0 stays as the current value
+      // for longer and longer. If the system-reported version ever changes,
+      // we'll be able to take our time to evaluate the Web compat impact
+      // instead of having to scamble to react like happened with macOS
+      // changing from 10.x to 11.x.
+      info.dwMajorVersion = 10;
+      info.dwMinorVersion = 0;
+    }
 
     const char* format;
 #    if defined _M_X64 || defined _M_AMD64
@@ -1867,7 +1878,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
         nsAutoCString token{tokenSubstring};
         int32_t index = token.Find(";");
         if (index != kNotFound) {
-          mAltSvcMappingTemptativeMap.Put(
+          mAltSvcMappingTemptativeMap.InsertOrUpdate(
               Substring(token, 0, index),
               MakeUnique<nsCString>(Substring(token, index + 1)));
         }
@@ -2266,22 +2277,22 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
              static_cast<uint32_t>(rv)));
       }
     }
-  } else if (!strcmp(topic, "net:current-toplevel-outer-content-windowid")) {
+  } else if (!strcmp(topic, "net:current-top-browsing-context-id")) {
     // The window id will be updated by HttpConnectionMgrParent.
     if (XRE_IsParentProcess()) {
       nsCOMPtr<nsISupportsPRUint64> wrapper = do_QueryInterface(subject);
       MOZ_RELEASE_ASSERT(wrapper);
 
-      uint64_t windowId = 0;
-      wrapper->GetData(&windowId);
-      MOZ_ASSERT(windowId);
+      uint64_t id = 0;
+      wrapper->GetData(&id);
+      MOZ_ASSERT(id);
 
-      static uint64_t sCurrentTopLevelOuterContentWindowId = 0;
-      if (sCurrentTopLevelOuterContentWindowId != windowId) {
-        sCurrentTopLevelOuterContentWindowId = windowId;
+      static uint64_t sCurrentBrowsingContextId = 0;
+      if (sCurrentBrowsingContextId != id) {
+        sCurrentBrowsingContextId = id;
         if (mConnMgr) {
-          mConnMgr->UpdateCurrentTopLevelOuterContentWindowId(
-              sCurrentTopLevelOuterContentWindowId);
+          mConnMgr->UpdateCurrentTopBrowsingContextId(
+              sCurrentBrowsingContextId);
         }
       }
     }
@@ -2664,7 +2675,7 @@ void nsHttpHandler::ExcludeHttp2(const nsHttpConnectionInfo* ci) {
   mConnMgr->ExcludeHttp2(ci);
   if (!mExcludedHttp2Origins.Contains(ci->GetOrigin())) {
     MutexAutoLock lock(mHttpExclusionLock);
-    mExcludedHttp2Origins.PutEntry(ci->GetOrigin());
+    mExcludedHttp2Origins.Insert(ci->GetOrigin());
   }
 }
 
@@ -2679,7 +2690,7 @@ void nsHttpHandler::ExcludeHttp3(const nsHttpConnectionInfo* ci) {
   mConnMgr->ExcludeHttp3(ci);
   if (!mExcludedHttp3Origins.Contains(ci->GetRoutedHost())) {
     MutexAutoLock lock(mHttpExclusionLock);
-    mExcludedHttp3Origins.PutEntry(ci->GetRoutedHost());
+    mExcludedHttp3Origins.Insert(ci->GetRoutedHost());
   }
 }
 
@@ -2738,7 +2749,7 @@ void nsHttpHandler::AddHttpChannel(uint64_t aId, nsISupports* aChannel) {
   MOZ_ASSERT(NS_IsMainThread());
 
   nsWeakPtr channel(do_GetWeakReference(aChannel));
-  mIDToHttpChannelMap.Put(aId, std::move(channel));
+  mIDToHttpChannelMap.InsertOrUpdate(aId, std::move(channel));
 }
 
 void nsHttpHandler::RemoveHttpChannel(uint64_t aId) {
@@ -2853,6 +2864,18 @@ bool nsHttpHandler::FallbackToOriginIfConfigsAreECHAndAllFailed() const {
 
 bool nsHttpHandler::UseHTTPSRRForSpeculativeConnection() const {
   return StaticPrefs::network_dns_use_https_rr_for_speculative_connection();
+}
+
+void nsHttpHandler::ExcludeHTTPSRRHost(const nsACString& aHost) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  mExcludedHostsForHTTPSRRUpgrade.Insert(aHost);
+}
+
+bool nsHttpHandler::IsHostExcludedForHTTPSRR(const nsACString& aHost) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  return mExcludedHostsForHTTPSRRUpgrade.Contains(aHost);
 }
 
 }  // namespace mozilla::net

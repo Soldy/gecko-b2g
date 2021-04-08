@@ -18,6 +18,7 @@
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/WindowsProcessMitigations.h"
 #include "mozilla/WindowsVersion.h"
 #include "nsDirectoryServiceUtils.h"
 #include "nsDirectoryServiceDefs.h"
@@ -968,6 +969,12 @@ gfxFontEntry* gfxDWriteFontList::MakePlatformFont(
   return entry.release();
 }
 
+bool gfxDWriteFontList::UseGDIFontTableAccess() const {
+  // Using GDI font table access for DWrite is controlled by a pref, but also we
+  // must be able to make win32k calls.
+  return mGDIFontTableAccess && !IsWin32kLockedDown();
+}
+
 static void GetPostScriptNameFromNameTable(IDWriteFontFace* aFace,
                                            nsCString& aName) {
   const auto kNAME =
@@ -1427,7 +1434,7 @@ void gfxDWriteFontList::ReadFaceNamesForFamily(
       for (const auto& alias : otherFamilyNames) {
         nsAutoCString key(alias);
         ToLowerCase(key);
-        auto aliasData = mAliasTable.LookupOrAdd(key);
+        auto aliasData = mAliasTable.GetOrInsertNew(key);
         aliasData->InitFromFamily(aFamily, familyName);
         aliasData->mFaces.AppendElement(facePtrs[i]);
       }
@@ -1436,14 +1443,15 @@ void gfxDWriteFontList::ReadFaceNamesForFamily(
       if (NS_SUCCEEDED(gfxFontUtils::ReadCanonicalName(
               data, size, gfxFontUtils::NAME_ID_POSTSCRIPT, psname))) {
         ToLowerCase(psname);
-        mLocalNameTable.Put(psname, fontlist::LocalFaceRec::InitData(key, i));
+        mLocalNameTable.InsertOrUpdate(
+            psname, fontlist::LocalFaceRec::InitData(key, i));
       }
       if (NS_SUCCEEDED(gfxFontUtils::ReadCanonicalName(
               data, size, gfxFontUtils::NAME_ID_FULL, fullname))) {
         ToLowerCase(fullname);
         if (fullname != psname) {
-          mLocalNameTable.Put(fullname,
-                              fontlist::LocalFaceRec::InitData(key, i));
+          mLocalNameTable.InsertOrUpdate(
+              fullname, fontlist::LocalFaceRec::InitData(key, i));
         }
       }
     }
@@ -1490,13 +1498,13 @@ void gfxDWriteFontList::InitSharedFontListForPlatform() {
     return;
   }
 #ifdef MOZ_BUNDLED_FONTS
-  // If the bundled-fonts pref is < 0 (auto), we skip the bundled fonts on
-  // Windows 8.1 or later, where Segoe UI Emoji is available.
-  if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() > 0 ||
-      (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() < 0 &&
-       !IsWin8Point1OrLater())) {
+  // We activate bundled fonts if the pref is > 0 (on) or < 0 (auto), only an
+  // explicit value of 0 (off) will disable them.
+  TimeStamp start1 = TimeStamp::Now();
+  if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() != 0) {
     mBundledFonts = CreateBundledFontsCollection(factory);
   }
+  TimeStamp end1 = TimeStamp::Now();
 #endif
 
   if (XRE_IsParentProcess()) {
@@ -1517,7 +1525,12 @@ void gfxDWriteFontList::InitSharedFontListForPlatform() {
     AppendFamiliesFromCollection(mSystemFonts, families, &forceClassicFams);
 #ifdef MOZ_BUNDLED_FONTS
     if (mBundledFonts) {
+      TimeStamp start2 = TimeStamp::Now();
       AppendFamiliesFromCollection(mBundledFonts, families);
+      TimeStamp end2 = TimeStamp::Now();
+      Telemetry::Accumulate(
+          Telemetry::FONTLIST_BUNDLEDFONTS_ACTIVATE,
+          (end1 - start1).ToMilliseconds() + (end2 - start2).ToMilliseconds());
     }
 #endif
     SharedFontList()->SetFamilyNames(families);
@@ -1578,15 +1591,17 @@ nsresult gfxDWriteFontList::InitFontListForPlatform() {
   // Get bundled fonts before the system collection, so that in the case of
   // duplicate names, we have recorded the family as bundled (and therefore
   // available regardless of visibility settings).
-  // If the bundled-fonts pref is < 0 (auto), we skip the bundled fonts on
-  // Windows 8.1 or later, where Segoe UI Emoji is available.
-  if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() > 0 ||
-      (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() < 0 &&
-       !IsWin8Point1OrLater())) {
+  // We activate bundled fonts if the pref is > 0 (on) or < 0 (auto), only an
+  // explicit value of 0 (off) will disable them.
+  if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() != 0) {
+    TimeStamp start = TimeStamp::Now();
     mBundledFonts = CreateBundledFontsCollection(factory);
-  }
-  if (mBundledFonts) {
-    GetFontsFromCollection(mBundledFonts);
+    if (mBundledFonts) {
+      GetFontsFromCollection(mBundledFonts);
+    }
+    TimeStamp end = TimeStamp::Now();
+    Telemetry::Accumulate(Telemetry::FONTLIST_BUNDLEDFONTS_ACTIVATE,
+                          (end - start).ToMilliseconds());
   }
 #endif
   const uint32_t kBundledCount = mFontFamilies.Count();
@@ -1776,7 +1791,7 @@ void gfxDWriteFontList::GetFontsFromCollection(
     if (mBadUnderlineFamilyNames.ContainsSorted(name)) {
       fam->SetBadUnderlineFamily();
     }
-    mFontFamilies.Put(name, RefPtr{fam});
+    mFontFamilies.InsertOrUpdate(name, RefPtr{fam});
 
     // now add other family name localizations, if present
     uint32_t nameCount = names->GetCount();
@@ -1877,10 +1892,10 @@ nsresult gfxDWriteFontList::GetFontSubstitutes() {
       }
       if (SharedFontList()->FindFamily(actualFontName,
                                        /*aPrimaryNameOnly*/ true)) {
-        mSubstitutions.Put(substituteName,
-                           MakeUnique<nsCString>(actualFontName));
+        mSubstitutions.InsertOrUpdate(substituteName,
+                                      MakeUnique<nsCString>(actualFontName));
       } else if (mSubstitutions.Get(actualFontName)) {
-        mSubstitutions.Put(
+        mSubstitutions.InsertOrUpdate(
             substituteName,
             MakeUnique<nsCString>(*mSubstitutions.Get(actualFontName)));
       } else {
@@ -1890,7 +1905,7 @@ nsresult gfxDWriteFontList::GetFontSubstitutes() {
       gfxFontFamily* ff;
       if (!actualFontName.IsEmpty() &&
           (ff = mFontFamilies.GetWeak(actualFontName))) {
-        mFontSubstitutes.Put(substituteName, RefPtr{ff});
+        mFontSubstitutes.InsertOrUpdate(substituteName, RefPtr{ff});
       } else {
         mNonExistingFonts.AppendElement(substituteName);
       }
@@ -1928,8 +1943,8 @@ void gfxDWriteFontList::GetDirectWriteSubstitutes() {
       BuildKeyNameFromFontName(actualFontName);
       if (SharedFontList()->FindFamily(actualFontName,
                                        /*aPrimaryNameOnly*/ true)) {
-        mSubstitutions.Put(substituteName,
-                           MakeUnique<nsCString>(actualFontName));
+        mSubstitutions.InsertOrUpdate(substituteName,
+                                      MakeUnique<nsCString>(actualFontName));
       } else {
         mNonExistingFonts.AppendElement(substituteName);
       }
@@ -1943,7 +1958,7 @@ void gfxDWriteFontList::GetDirectWriteSubstitutes() {
       BuildKeyNameFromFontName(actualFontName);
       gfxFontFamily* ff;
       if (nullptr != (ff = mFontFamilies.GetWeak(actualFontName))) {
-        mFontSubstitutes.Put(substituteName, RefPtr{ff});
+        mFontSubstitutes.InsertOrUpdate(substituteName, RefPtr{ff});
       } else {
         mNonExistingFonts.AppendElement(substituteName);
       }
@@ -2343,7 +2358,7 @@ void DirectWriteFontInfo::LoadFontFamilyData(const nsACString& aFamilyName) {
 
     // if have data, load
     if (haveData) {
-      mFontFaceData.Put(fullID, fontData);
+      mFontFaceData.InsertOrUpdate(fullID, fontData);
     }
   }
 }

@@ -235,8 +235,13 @@ fn generate_checkerboard_image(
         }
     }
 
+    let flags = match kind {
+        CheckerboardKind::BlackGrey => ImageDescriptorFlags::IS_OPAQUE,
+        CheckerboardKind::BlackTransparent => ImageDescriptorFlags::empty(),
+    };
+
     (
-        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, flags),
         ImageData::new(pixels),
     )
 }
@@ -757,7 +762,6 @@ impl YamlFrameReader {
             let external_target = match item["external-target"].as_str() {
                 Some(ref s) => match &s[..] {
                     "2d" => ImageBufferKind::Texture2D,
-                    "array" => ImageBufferKind::Texture2DArray,
                     "rect" => ImageBufferKind::TextureRect,
                     _ => panic!("Unsupported external texture target."),
                 }
@@ -2034,7 +2038,10 @@ impl YamlFrameReader {
         let reference_frame_kind = if !yaml["perspective"].is_badvalue() {
             ReferenceFrameKind::Perspective { scrolling_relative_to: None }
         } else {
-            ReferenceFrameKind::Transform
+            ReferenceFrameKind::Transform {
+                is_2d_scale_translation: false,
+                should_snap: false,
+            }
         };
 
         let transform = yaml["transform"]

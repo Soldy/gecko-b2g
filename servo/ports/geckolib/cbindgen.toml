@@ -85,14 +85,13 @@ include = [
   "ComputedFontWeightRange",
   "ComputedTimingFunction",
   "ComputedValueFlags",
-  "ContrastPref",
   "CursorKind",
   "DisplayOutside",
   "DisplayInside",
   "DisplayMode",
   "PrefersColorScheme",
+  "PrefersContrast",
   "PrefersTextSize",
-  "ExtremumLength",
   "FillRule",
   "FontDisplay",
   "FontFaceSourceListComponent",
@@ -152,6 +151,7 @@ include = [
   "TextUnderlinePosition",
   "TextTransform",
   "TextOverflow",
+  "RubyPosition",
   "MozListReversed",
   "Owned",
   "OwnedOrNull",
@@ -160,6 +160,7 @@ include = [
   "Color",
   "ColorOrAuto",
   "SystemColor",
+  "SystemFont",
   "GradientItem",
   "VerticalAlign",
   "BasicShape",
@@ -223,6 +224,7 @@ include = [
   "AspectRatio",
   "DefaultFontSizes",
   "RuleChangeKind",
+  "PageSize",
 ]
 item_types = ["enums", "structs", "unions", "typedefs", "functions", "constants"]
 renaming_overrides_prefixing = true
@@ -491,6 +493,7 @@ renaming_overrides_prefixing = true
 """
 
 "GenericColor" = """
+  static inline StyleGenericColor CurrentColor();
   static inline StyleGenericColor FromColor(nscolor);
   static inline StyleGenericColor Black();
   static inline StyleGenericColor White();

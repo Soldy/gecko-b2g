@@ -236,6 +236,7 @@ class SupplicantStaNetwork
       const android::sp<WifiEventCallback>& aCallback,
       const android::sp<ISupplicantStaNetwork>& aNetwork);
 
+  Result_t SetRoamingBssid(const std::string& aBssid);
   Result_t SetConfiguration(const NetworkConfiguration& aConfig);
   Result_t LoadConfiguration(NetworkConfiguration& aConfig);
   Result_t EnableNetwork();

@@ -518,7 +518,7 @@ void nsSSLIOLayerHelpers::rememberTolerantAtVersion(const nsACString& hostName,
 
   entry.AssertInvariant();
 
-  mTLSIntoleranceInfo.Put(key, entry);
+  mTLSIntoleranceInfo.InsertOrUpdate(key, entry);
 }
 
 void nsSSLIOLayerHelpers::forgetIntolerance(const nsACString& hostName,
@@ -536,7 +536,7 @@ void nsSSLIOLayerHelpers::forgetIntolerance(const nsACString& hostName,
     entry.intoleranceReason = 0;
 
     entry.AssertInvariant();
-    mTLSIntoleranceInfo.Put(key, entry);
+    mTLSIntoleranceInfo.InsertOrUpdate(key, entry);
   }
 }
 
@@ -581,7 +581,7 @@ bool nsSSLIOLayerHelpers::rememberIntolerantAtVersion(
   entry.intolerant = intolerant;
   entry.intoleranceReason = intoleranceReason;
   entry.AssertInvariant();
-  mTLSIntoleranceInfo.Put(key, entry);
+  mTLSIntoleranceInfo.InsertOrUpdate(key, entry);
 
   return true;
 }
@@ -1876,9 +1876,6 @@ SECStatus nsNSS_SSLGetClientAuthData(void* arg, PRFileDesc* socket,
   *pRetCert = nullptr;
   *pRetKey = nullptr;
 
-  Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_CLIENT_CERT,
-                       u"requested"_ns, 1);
-
   RefPtr<nsNSSSocketInfo> info(
       BitwiseCast<nsNSSSocketInfo*, PRFilePrivate*>(socket->higher->secret));
 
@@ -1937,8 +1934,6 @@ SECStatus nsNSS_SSLGetClientAuthData(void* arg, PRFileDesc* socket,
     *pRetKey = selectedKey.release();
     // Make joinConnection prohibit joining after we've sent a client cert
     info->SetSentClientCert();
-    Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_CLIENT_CERT, u"sent"_ns,
-                         1);
     if (info->GetSSLVersionUsed() == nsISSLSocketControl::TLS_VERSION_1_3) {
       Telemetry::Accumulate(Telemetry::TLS_1_3_CLIENT_AUTH_USES_PHA,
                             info->IsHandshakeCompleted());

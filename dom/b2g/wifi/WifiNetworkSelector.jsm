@@ -49,6 +49,7 @@ this.WifiNetworkSelector = (function() {
   var lastNetworkSelectionTimeStamp = WifiConstants.INVALID_TIME_STAMP;
   var enableAutoJoinWhenAssociated = true;
   var bssidDenylist = new Map();
+  var roamingCandidate = null;
 
   var savedNetworkSelector = new SavedNetworkSelector();
   var passpointNetworkSelector = new PasspointNetworkSelector();
@@ -85,6 +86,7 @@ this.WifiNetworkSelector = (function() {
   }
 
   function selectNetwork(scanResults, wifiState, wifiInfo, callback) {
+    roamingCandidate = null;
     debug("==========start Network Selection==========");
 
     if (scanResults.length == 0) {
@@ -94,8 +96,21 @@ this.WifiNetworkSelector = (function() {
     }
 
     // Shall we start network selection at all?
-    if (!isNetworkSelectionNeeded(wifiState, wifiInfo)) {
+    // In this function, we will select a suitalbe network for roaming if any.
+    if (!isNetworkSelectionNeeded(scanResults, wifiState, wifiInfo)) {
       callback(null);
+      return;
+    }
+
+    if (roamingCandidate != null) {
+      debug("Found suitable roaming candidate");
+
+      lastNetworkSelectionTimeStamp = Date.now();
+      roamingCandidate.netId = wifiInfo.networkId;
+      let config = savedNetworkSelector.convertScanResultToConfiguration(
+        roamingCandidate
+      );
+      callback(config);
       return;
     }
 
@@ -135,7 +150,7 @@ this.WifiNetworkSelector = (function() {
     callback(candidate);
   }
 
-  function isNetworkSelectionNeeded(wifiState, wifiInfo) {
+  function isNetworkSelectionNeeded(scanResults, wifiState, wifiInfo) {
     if (wifiNetworkSelector.skipNetworkSelection) {
       debug("skipNetworkSelection flag is TRUE.");
       return false;
@@ -169,7 +184,7 @@ this.WifiNetworkSelector = (function() {
         }
       }
 
-      if (isCurrentNetworkSufficient(wifiInfo)) {
+      if (isCurrentNetworkSufficient(scanResults, wifiInfo)) {
         debug("Current network already sufficient. Skip network selection.");
         return false;
       }
@@ -182,7 +197,63 @@ this.WifiNetworkSelector = (function() {
     return false;
   }
 
-  function isCurrentNetworkSufficient(wifiInfo) {
+  // find any suitable network for roaming
+  function findRoamingCadidate(scanResults, wifiInfo) {
+    let currentRssi = wifiInfo.rssi;
+    let minDiff = 0;
+    roamingCandidate = null;
+
+    if (currentRssi < -85) {
+      // ..-86 dBm
+      minDiff = 1;
+    } else if (currentRssi < -80) {
+      // -85..-81 dBm
+      minDiff = 2;
+    } else if (currentRssi < -75) {
+      // -80..-76 dBm
+      minDiff = 3;
+    } else if (currentRssi < -70) {
+      // -75..-71 dBm
+      minDiff = 4;
+    } else if (currentRssi < 0) {
+      // -70..-1 dBm
+      minDiff = 5;
+    } else {
+      // unspecified units (not in dBm)
+      minDiff = 2;
+    }
+    debug(
+      "wifiInfo: bssid=" +
+        wifiInfo.bssid +
+        "; rssi=" +
+        wifiInfo.rssi +
+        "; minDiff=" +
+        minDiff
+    );
+
+    let filterdResult = scanResults.filter(
+      result =>
+        result.security === wifiInfo.security &&
+        result.ssid === wifiInfo.wifiSsid &&
+        result.bssid !== wifiInfo.bssid &&
+        result.signalStrength - wifiInfo.rssi > minDiff
+    );
+
+    if (filterdResult.length > 0) {
+      roamingCandidate = filterdResult[0];
+      debug(
+        "roamingCandidate: bssid=" +
+          roamingCandidate.bssid +
+          "; signalStrength=" +
+          roamingCandidate.signalStrength
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  function isCurrentNetworkSufficient(scanResults, wifiInfo) {
     if (wifiInfo.networkId == WifiConstants.INVALID_NETWORK_ID) {
       debug("WifiWorker in connected state but WifiInfo is not");
       return false;
@@ -215,6 +286,10 @@ this.WifiNetworkSelector = (function() {
     // if (network.osu) {
     //   return true;
     // }
+
+    if (findRoamingCadidate(scanResults, wifiInfo)) {
+      return false;
+    }
 
     // TODO: 1. 2.4GHz networks is not qualified whenever 5GHz is available.
     //       2. Tx/Rx Success rate shall be considered.

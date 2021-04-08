@@ -58,8 +58,7 @@ AlarmDB.prototype = {
     objStore.createIndex("ignoreTimezone", "ignoreTimezone", { unique: false });
     objStore.createIndex("timezoneOffset", "timezoneOffset", { unique: false });
     objStore.createIndex("data", "data", { unique: false });
-    objStore.createIndex("pageURL", "pageURL", { unique: false });
-    objStore.createIndex("manifestURL", "manifestURL", { unique: false });
+    objStore.createIndex("url", "url", { unique: false });
 
     debug("Created object stores and indexes");
   },
@@ -93,8 +92,8 @@ AlarmDB.prototype = {
   /**
    * @param aId
    *        The ID of record to be removed.
-   * @param aManifestURL
-   *        The manifest URL of the app that alarm belongs to.
+   * @param aUrl
+   *        The url of the app that alarm belongs to.
    *        If null, directly remove the ID record; otherwise,
    *        need to check if the alarm belongs to this app.
    * @param aSuccessCb
@@ -102,7 +101,7 @@ AlarmDB.prototype = {
    * @param aErrorCb [optional]
    *        Callback function to invoke when there was an error.
    */
-  remove: function remove(aId, aManifestURL, aSuccessCb, aErrorCb) {
+  remove: function remove(aId, aUrl, aSuccessCb, aErrorCb) {
     debug("remove()");
 
     this.newTxn(
@@ -111,7 +110,7 @@ AlarmDB.prototype = {
       function txnCb(aTxn, aStore) {
         debug("Going to remove " + aId);
 
-        // Look up the existing record and compare the manifestURL
+        // Look up the existing record and compare the url
         // to see if the alarm to be removed belongs to this app.
         aStore.get(aId).onsuccess = function doRemove(aEvent) {
           let alarm = aEvent.target.result;
@@ -121,7 +120,7 @@ AlarmDB.prototype = {
             return;
           }
 
-          if (aManifestURL && aManifestURL != alarm.manifestURL) {
+          if (aUrl && aUrl != alarm.url) {
             debug("Cannot remove the alarm added by other apps.");
             return;
           }
@@ -135,8 +134,8 @@ AlarmDB.prototype = {
   },
 
   /**
-   * @param aManifestURL
-   *        The manifest URL of the app that alarms belong to.
+   * @param aUrl
+   *        The url of the app that alarms belong to.
    *        If null, directly return all alarms; otherwise,
    *        only return the alarms that belong to this app.
    * @param aSuccessCb
@@ -144,7 +143,7 @@ AlarmDB.prototype = {
    * @param aErrorCb [optional]
    *        Callback function to invoke when there was an error.
    */
-  getAll: function getAll(aManifestURL, aSuccessCb, aErrorCb) {
+  getAll: function getAll(aUrl, aSuccessCb, aErrorCb) {
     debug("getAll()");
 
     this.newTxn(
@@ -155,10 +154,8 @@ AlarmDB.prototype = {
           aTxn.result = [];
         }
 
-        let index = aStore.index("manifestURL");
-        index.mozGetAll(aManifestURL).onsuccess = function setTxnResult(
-          aEvent
-        ) {
+        let index = aStore.index("url");
+        index.mozGetAll(aUrl).onsuccess = function setTxnResult(aEvent) {
           aTxn.result = aEvent.target.result;
           debug("Request successful. Record count: " + aTxn.result.length);
         };

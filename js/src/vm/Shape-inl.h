@@ -29,9 +29,9 @@ inline AutoKeepShapeCaches::~AutoKeepShapeCaches() {
   cx_->zone()->setKeepShapeCaches(prev_);
 }
 
-inline StackBaseShape::StackBaseShape(const JSClass* clasp,
-                                      uint32_t objectFlags)
-    : flags(objectFlags), clasp(clasp) {}
+inline StackBaseShape::StackBaseShape(const JSClass* clasp, JS::Realm* realm,
+                                      TaggedProto proto)
+    : clasp(clasp), realm(realm), proto(proto) {}
 
 MOZ_ALWAYS_INLINE Shape* Shape::search(JSContext* cx, jsid id) {
   return search(cx, this, id);
@@ -108,20 +108,13 @@ template <MaybeAdding Adding>
 
 inline Shape* Shape::new_(JSContext* cx, Handle<StackShape> other,
                           uint32_t nfixed) {
-  Shape* shape = other.isAccessorShape() ? js::Allocate<AccessorShape>(cx)
-                                         : js::Allocate<Shape>(cx);
+  Shape* shape = js::Allocate<Shape>(cx);
   if (!shape) {
     ReportOutOfMemory(cx);
     return nullptr;
   }
 
-  if (other.isAccessorShape()) {
-    new (shape) AccessorShape(other, nfixed);
-  } else {
-    new (shape) Shape(other, nfixed);
-  }
-
-  return shape;
+  return new (shape) Shape(other, nfixed);
 }
 
 inline void Shape::updateBaseShapeAfterMovingGC() {
@@ -131,57 +124,9 @@ inline void Shape::updateBaseShapeAfterMovingGC() {
   }
 }
 
-static inline void GetterSetterPostWriteBarrier(AccessorShape* shape) {
-  // If the shape contains any nursery pointers then add it to a vector on the
-  // zone that we fixup on minor GC. Prevent this vector growing too large
-  // since we don't tolerate OOM here.
-
-  static const size_t MaxShapeVectorLength = 5000;
-
-  MOZ_ASSERT(shape);
-
-  gc::StoreBuffer* sb = nullptr;
-  if (shape->hasGetterObject()) {
-    sb = shape->getterObject()->storeBuffer();
-  }
-  if (!sb && shape->hasSetterObject()) {
-    sb = shape->setterObject()->storeBuffer();
-  }
-  if (!sb) {
-    return;
-  }
-
-  auto& nurseryShapes = shape->zone()->nurseryShapes();
-
-  {
-    AutoEnterOOMUnsafeRegion oomUnsafe;
-    if (!nurseryShapes.append(shape)) {
-      oomUnsafe.crash("GetterSetterPostWriteBarrier");
-    }
-  }
-
-  if (nurseryShapes.length() == 1) {
-    sb->putGeneric(NurseryShapesRef(shape->zone()));
-  } else if (nurseryShapes.length() == MaxShapeVectorLength) {
-    sb->setAboutToOverflow(JS::GCReason::FULL_SHAPE_BUFFER);
-  }
-}
-
-inline AccessorShape::AccessorShape(const StackShape& other, uint32_t nfixed)
-    : Shape(other, nfixed),
-      rawGetter(other.rawGetter),
-      rawSetter(other.rawSetter) {
-  MOZ_ASSERT(getAllocKind() == gc::AllocKind::ACCESSOR_SHAPE);
-  GetterSetterPostWriteBarrier(this);
-}
-
 inline void Shape::initDictionaryShape(const StackShape& child, uint32_t nfixed,
                                        DictionaryShapeLink next) {
-  if (child.isAccessorShape()) {
-    new (this) AccessorShape(child, nfixed);
-  } else {
-    new (this) Shape(child, nfixed);
-  }
+  new (this) Shape(child, nfixed);
   this->immutableFlags |= IN_DICTIONARY;
 
   MOZ_ASSERT(dictNext.isNone());
@@ -215,14 +160,24 @@ inline void Shape::dictNextPreWriteBarrier() {
   }
 }
 
-inline GCPtrShape* DictionaryShapeLink::prevPtr() {
+inline Shape* DictionaryShapeLink::prev() {
   MOZ_ASSERT(!isNone());
 
   if (isShape()) {
-    return &toShape()->parent;
+    return toShape()->parent;
   }
 
-  return toObject()->as<NativeObject>().shapePtr();
+  return toObject()->as<NativeObject>().shape();
+}
+
+inline void DictionaryShapeLink::setPrev(Shape* shape) {
+  MOZ_ASSERT(!isNone());
+
+  if (isShape()) {
+    toShape()->parent = shape;
+  } else {
+    toObject()->as<NativeObject>().setShape(shape);
+  }
 }
 
 template <class ObjectSubclass>
@@ -244,38 +199,15 @@ template <class ObjectSubclass>
   }
   MOZ_ASSERT(!obj->empty());
 
-  // If the object is a standard prototype -- |RegExp.prototype|,
-  // |String.prototype|, |RangeError.prototype|, &c. -- GlobalObject.cpp's
-  // |CreateBlankProto| marked it as a delegate.  These are the only objects
-  // of this class that won't use the standard prototype, and there's no
-  // reason to pollute the initial shape cache with entries for them.
-  if (obj->isDelegate()) {
-    return true;
-  }
-
-  // Cache the initial shape for non-prototype objects, however, so that
-  // future instances will begin life with that shape.
-  RootedObject proto(cx, obj->staticPrototype());
-  EmptyShape::insertInitialShape(cx, shape, proto);
+  // Cache the initial shape, so that future instances will begin life with that
+  // shape.
+  EmptyShape::insertInitialShape(cx, shape);
   return true;
-}
-
-inline AutoRooterGetterSetter::Inner::Inner(uint8_t attrs, GetterOp* pgetter_,
-                                            SetterOp* psetter_)
-    : attrs(attrs), pgetter(pgetter_), psetter(psetter_) {}
-
-inline AutoRooterGetterSetter::AutoRooterGetterSetter(JSContext* cx,
-                                                      uint8_t attrs,
-                                                      GetterOp* pgetter,
-                                                      SetterOp* psetter) {
-  if (attrs & (JSPROP_GETTER | JSPROP_SETTER)) {
-    inner.emplace(cx, Inner(attrs, pgetter, psetter));
-  }
 }
 
 static inline uint8_t GetPropertyAttributes(JSObject* obj,
                                             PropertyResult prop) {
-  MOZ_ASSERT(obj->isNative());
+  MOZ_ASSERT(obj->is<NativeObject>());
 
   if (prop.isDenseElement()) {
     return obj->as<NativeObject>().getElementsHeader()->elementAttributes();
@@ -415,7 +347,7 @@ MOZ_ALWAYS_INLINE Shape* Shape::searchNoHashify(Shape* start, jsid id) {
   return foundShape;
 }
 
-/* static */ MOZ_ALWAYS_INLINE Shape* NativeObject::addDataProperty(
+/* static */ MOZ_ALWAYS_INLINE Shape* NativeObject::addProperty(
     JSContext* cx, HandleNativeObject obj, HandleId id, uint32_t slot,
     unsigned attrs) {
   MOZ_ASSERT(!JSID_IS_VOID(id));
@@ -433,29 +365,29 @@ MOZ_ALWAYS_INLINE Shape* Shape::searchNoHashify(Shape* start, jsid id) {
     entry = &table->search<MaybeAdding::Adding>(id, keep);
   }
 
-  return addDataPropertyInternal(cx, obj, id, slot, attrs, table, entry, keep);
+  return addPropertyInternal(cx, obj, id, slot, attrs, table, entry, keep);
 }
 
-/* static */ MOZ_ALWAYS_INLINE Shape* NativeObject::addAccessorProperty(
-    JSContext* cx, HandleNativeObject obj, HandleId id, GetterOp getter,
-    SetterOp setter, unsigned attrs) {
-  MOZ_ASSERT(!JSID_IS_VOID(id));
-  MOZ_ASSERT_IF(!id.isPrivateName(), obj->uninlinedNonProxyIsExtensible());
-  MOZ_ASSERT(!obj->containsPure(id));
+MOZ_ALWAYS_INLINE ObjectFlags GetObjectFlagsForNewProperty(Shape* last, jsid id,
+                                                           unsigned attrs,
+                                                           JSContext* cx) {
+  ObjectFlags flags = last->objectFlags();
 
-  AutoKeepShapeCaches keep(cx);
-  ShapeTable* table = nullptr;
-  ShapeTable::Entry* entry = nullptr;
-  if (obj->inDictionaryMode()) {
-    table = obj->lastProperty()->ensureTableForDictionary(cx, keep);
-    if (!table) {
-      return nullptr;
-    }
-    entry = &table->search<MaybeAdding::Adding>(id, keep);
+  uint32_t index;
+  if (IdIsIndex(id, &index)) {
+    flags.setFlag(ObjectFlag::Indexed);
+  } else if (JSID_IS_SYMBOL(id) && JSID_TO_SYMBOL(id)->isInterestingSymbol()) {
+    flags.setFlag(ObjectFlag::HasInterestingSymbol);
   }
 
-  return addAccessorPropertyInternal(cx, obj, id, getter, setter, attrs, table,
-                                     entry, keep);
+  if ((attrs & (JSPROP_READONLY | JSPROP_GETTER | JSPROP_SETTER |
+                JSPROP_CUSTOM_DATA_PROP)) &&
+      last->getObjectClass() == &PlainObject::class_ &&
+      !JSID_IS_ATOM(id, cx->names().proto)) {
+    flags.setFlag(ObjectFlag::HasNonWritableOrAccessorPropExclProto);
+  }
+
+  return flags;
 }
 
 } /* namespace js */

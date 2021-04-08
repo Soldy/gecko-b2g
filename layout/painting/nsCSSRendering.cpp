@@ -940,65 +940,35 @@ nsCSSRendering::CreateNullBorderRendererWithStyleBorder(
   return Some(br);
 }
 
-static nsRect GetOutlineInnerRect(nsIFrame* aFrame) {
-  nsRect* savedOutlineInnerRect =
-      aFrame->GetProperty(nsIFrame::OutlineInnerRectProperty());
-  if (savedOutlineInnerRect) {
-    return *savedOutlineInnerRect;
-  }
-
-  // FIXME bug 1221888
-  NS_ERROR("we should have saved a frame property");
-  return nsRect(nsPoint(0, 0), aFrame->GetSize());
-}
-
-Maybe<nsCSSBorderRenderer> nsCSSRendering::CreateBorderRendererForOutline(
-    nsPresContext* aPresContext, gfxContext* aRenderingContext,
-    nsIFrame* aForFrame, const nsRect& aDirtyRect, const nsRect& aBorderArea,
-    ComputedStyle* aStyle) {
+Maybe<nsCSSBorderRenderer>
+nsCSSRendering::CreateBorderRendererForNonThemedOutline(
+    nsPresContext* aPresContext, DrawTarget* aDrawTarget, nsIFrame* aForFrame,
+    const nsRect& aDirtyRect, const nsRect& aInnerRect, ComputedStyle* aStyle) {
   // Get our ComputedStyle's color struct.
   const nsStyleOutline* ourOutline = aStyle->StyleOutline();
-
   if (!ourOutline->ShouldPaintOutline()) {
     // Empty outline
     return Nothing();
   }
 
-  nsRect innerRect;
-  if (
-#ifdef MOZ_XUL
-      aStyle->GetPseudoType() == PseudoStyleType::XULTree
-#else
-      false
-#endif
-  ) {
-    innerRect = aBorderArea;
-  } else {
-    innerRect = GetOutlineInnerRect(aForFrame) + aBorderArea.TopLeft();
-  }
-  nscoord offset = ourOutline->mOutlineOffset.ToAppUnits();
+  const nscoord offset = ourOutline->mOutlineOffset.ToAppUnits();
+  nsRect innerRect = aInnerRect;
   innerRect.Inflate(offset);
+
   // If the dirty rect is completely inside the border area (e.g., only the
   // content is being painted), then we can skip out now
   // XXX this isn't exactly true for rounded borders, where the inside curves
   // may encroach into the content area.  A safer calculation would be to
   // shorten insideRect by the radius one each side before performing this test.
-  if (innerRect.Contains(aDirtyRect)) return Nothing();
+  if (innerRect.Contains(aDirtyRect)) {
+    return Nothing();
+  }
 
   nscoord width = ourOutline->GetOutlineWidth();
 
   StyleBorderStyle outlineStyle;
+  // Themed outlines are handled by our callers, if supported.
   if (ourOutline->mOutlineStyle.IsAuto()) {
-    if (StaticPrefs::layout_css_outline_style_auto_enabled()) {
-      nsITheme* theme = aPresContext->Theme();
-      if (theme->ThemeSupportsWidget(aPresContext, aForFrame,
-                                     StyleAppearance::FocusOutline)) {
-        theme->DrawWidgetBackground(aRenderingContext, aForFrame,
-                                    StyleAppearance::FocusOutline, innerRect,
-                                    aDirtyRect);
-        return Nothing();
-      }
-    }
     if (width == 0) {
       return Nothing();  // empty outline
     }
@@ -1036,8 +1006,9 @@ Maybe<nsCSSBorderRenderer> nsCSSRendering::CreateBorderRendererForOutline(
       nsCSSBorderRenderer::ComputeOuterRadii(innerRadii, widths, &outlineRadii);
     }
   } else {
-    nsIFrame::ComputeBorderRadii(ourOutline->mOutlineRadius, aBorderArea.Size(),
-                                 outerRect.Size(), Sides(), twipsRadii);
+    nsIFrame::ComputeBorderRadii(ourOutline->mOutlineRadius,
+                                 aForFrame->GetSize(), outerRect.Size(),
+                                 Sides(), twipsRadii);
     ComputePixelRadii(twipsRadii, oneDevPixel, &outlineRadii);
   }
 
@@ -1053,21 +1024,20 @@ Maybe<nsCSSBorderRenderer> nsCSSRendering::CreateBorderRendererForOutline(
 
   Rect dirtyRect = NSRectToRect(aDirtyRect, oneDevPixel);
 
-  DrawTarget* dt =
-      aRenderingContext ? aRenderingContext->GetDrawTarget() : nullptr;
   return Some(nsCSSBorderRenderer(
-      aPresContext, dt, dirtyRect, oRect, outlineStyles, outlineWidths,
+      aPresContext, aDrawTarget, dirtyRect, oRect, outlineStyles, outlineWidths,
       outlineRadii, outlineColors, !aForFrame->BackfaceIsHidden(), Nothing()));
 }
 
-void nsCSSRendering::PaintOutline(nsPresContext* aPresContext,
-                                  gfxContext& aRenderingContext,
-                                  nsIFrame* aForFrame, const nsRect& aDirtyRect,
-                                  const nsRect& aBorderArea,
-                                  ComputedStyle* aStyle) {
-  Maybe<nsCSSBorderRenderer> br = CreateBorderRendererForOutline(
-      aPresContext, &aRenderingContext, aForFrame, aDirtyRect, aBorderArea,
-      aStyle);
+void nsCSSRendering::PaintNonThemedOutline(nsPresContext* aPresContext,
+                                           gfxContext& aRenderingContext,
+                                           nsIFrame* aForFrame,
+                                           const nsRect& aDirtyRect,
+                                           const nsRect& aInnerRect,
+                                           ComputedStyle* aStyle) {
+  Maybe<nsCSSBorderRenderer> br = CreateBorderRendererForNonThemedOutline(
+      aPresContext, aRenderingContext.GetDrawTarget(), aForFrame, aDirtyRect,
+      aInnerRect, aStyle);
   if (!br) {
     return;
   }
@@ -1520,7 +1490,7 @@ void nsCSSRendering::PaintBoxShadowOuter(nsPresContext* aPresContext,
       nativeRect.IntersectRect(frameRect, nativeRect);
       aPresContext->Theme()->DrawWidgetBackground(
           shadowContext, aForFrame, styleDisplay->EffectiveAppearance(),
-          aFrameArea, nativeRect);
+          aFrameArea, nativeRect, nsITheme::DrawOverflow::No);
 
       blurringArea.DoPaint();
       aRenderingContext.Restore();
@@ -2559,14 +2529,13 @@ ImgDrawResult nsCSSRendering::PaintStyleImageLayerWithSC(
     gfxContextAutoSaveRestore autoSR;
     const nsStyleImageLayers::Layer& layer = layers.mLayers[i];
 
+    ImageLayerClipState currentLayerClipState = clipState;
     if (!aParams.bgClipRect) {
       bool isBottomLayer = (i == layers.mImageCount - 1);
       if (currentBackgroundClip != layer.mClip || isBottomLayer) {
         currentBackgroundClip = layer.mClip;
-        ImageLayerClipState currentLayerClipState;
-        if (isBottomLayer) {
-          currentLayerClipState = clipState;
-        } else {
+        if (!isBottomLayer) {
+          currentLayerClipState = {};
           // For the bottom layer, we already called GetImageLayerClip above
           // and it stored its results in clipState.
           GetImageLayerClip(layer, aParams.frame, aBorder, aParams.borderArea,
@@ -2595,11 +2564,11 @@ ImgDrawResult nsCSSRendering::PaintStyleImageLayerWithSC(
     }
     nsBackgroundLayerState state = PrepareImageLayer(
         &aParams.presCtx, aParams.frame, aParams.paintFlags, paintBorderArea,
-        clipState.mBGClipArea, layer, nullptr);
+        currentLayerClipState.mBGClipArea, layer, nullptr);
     result &= state.mImageRenderer.PrepareResult();
 
     // Skip the layer painting code if we found the dirty region is empty.
-    if (clipState.mDirtyRectInDevPx.IsEmpty()) {
+    if (currentLayerClipState.mDirtyRectInDevPx.IsEmpty()) {
       continue;
     }
 
@@ -2615,7 +2584,8 @@ ImgDrawResult nsCSSRendering::PaintStyleImageLayerWithSC(
       result &= state.mImageRenderer.DrawLayer(
           &aParams.presCtx, aRenderingCtx, state.mDestArea, state.mFillArea,
           state.mAnchor + paintBorderArea.TopLeft(),
-          clipState.mDirtyRectInAppUnits, state.mRepeatSize, aParams.opacity);
+          currentLayerClipState.mDirtyRectInAppUnits, state.mRepeatSize,
+          aParams.opacity);
 
       if (co != CompositionOp::OP_OVER) {
         aRenderingCtx.SetOp(CompositionOp::OP_OVER);

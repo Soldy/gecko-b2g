@@ -21,11 +21,6 @@ InputMethod::InputMethod(nsIGlobalObject* aGlobal) : mGlobal(aGlobal) {
   MOZ_ASSERT(aGlobal);
 }
 
-nsresult InputMethod::PermissionCheck() {
-  // TODO file bug 103458 to track
-  return NS_OK;
-}
-
 already_AddRefed<Promise> InputMethod::SetComposition(const nsAString& aText) {
   RefPtr<Promise> promise;
   ErrorResult rv;

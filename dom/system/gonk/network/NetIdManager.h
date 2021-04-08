@@ -6,7 +6,7 @@
 #define NetIdManager_h
 
 #include "nsString.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 
 // NetId is a logical network identifier defined by netd.
 // A network is typically a physical one (i.e. PhysicalNetwork.cpp)
@@ -51,8 +51,8 @@ class NetIdManager {
   void addType(NetType& aTypes, int aType);
   void removeType(NetType& aTypes, int aType);
   int mNextNetId;
-  nsDataHashtable<nsStringHashKey, NetIdInfo> mInterfaceToNetIdHash;
-  nsDataHashtable<nsUint32HashKey, NetIdInfo> mNetIdToNetIdInfoHash;
+  nsTHashMap<nsStringHashKey, NetIdInfo> mInterfaceToNetIdHash;
+  nsTHashMap<nsUint32HashKey, NetIdInfo> mNetIdToNetIdInfoHash;
 };
 
 #endif

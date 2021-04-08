@@ -89,6 +89,15 @@ public:
   void SetMediaBuffer(android::MediaBuffer* aMediaBuffer) { mMediaBuffer = aMediaBuffer; }
   android::MediaBuffer* GetMediaBuffer() { return mMediaBuffer; }
 
+  // Hold a strong reference to any private object from media framework. This
+  // API replaces SetMediaBuffer(), because MediaBuffer doesn't support
+  // android::sp and it can only be kept as a raw pointer, which may cause
+  // memory leak.
+  void SetMediaPrivate(const android::sp<android::RefBase> aObject) {
+    mMediaPrivate = aObject;
+  }
+  android::sp<android::RefBase> GetMediaPrivate() { return mMediaPrivate; }
+
   android::sp<android::GraphicBuffer> GetGraphicBuffer() { return mGraphicBuffer; }
 
   void WaitForBufferOwnership();
@@ -143,6 +152,7 @@ protected:
   uint8_t* mMappedBuffer;
 
   android::MediaBuffer* mMediaBuffer;
+  android::sp<android::RefBase> mMediaPrivate;
 };
 
 gfx::SurfaceFormat SurfaceFormatForPixelFormat(android::PixelFormat aFormat);

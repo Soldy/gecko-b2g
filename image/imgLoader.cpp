@@ -37,6 +37,7 @@
 #include "nsComponentManagerUtils.h"
 #include "nsContentPolicyUtils.h"
 #include "nsContentUtils.h"
+#include "nsHttpChannel.h"
 #include "nsIApplicationCache.h"
 #include "nsIApplicationCacheContainer.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
@@ -118,23 +119,16 @@ class imgMemoryReporter final : public nsIMemoryReporter {
     nsTArray<ImageMemoryCounter> uncached;
 
     for (uint32_t i = 0; i < mKnownLoaders.Length(); i++) {
-      for (auto iter = mKnownLoaders[i]->mChromeCache.Iter(); !iter.Done();
-           iter.Next()) {
-        imgCacheEntry* entry = iter.UserData();
+      for (imgCacheEntry* entry : mKnownLoaders[i]->mChromeCache.Values()) {
         RefPtr<imgRequest> req = entry->GetRequest();
         RecordCounterForRequest(req, &chrome, !entry->HasNoProxies());
       }
-      for (auto iter = mKnownLoaders[i]->mCache.Iter(); !iter.Done();
-           iter.Next()) {
-        imgCacheEntry* entry = iter.UserData();
+      for (imgCacheEntry* entry : mKnownLoaders[i]->mCache.Values()) {
         RefPtr<imgRequest> req = entry->GetRequest();
         RecordCounterForRequest(req, &content, !entry->HasNoProxies());
       }
       MutexAutoLock lock(mKnownLoaders[i]->mUncachedImagesMutex);
-      for (auto iter = mKnownLoaders[i]->mUncachedImages.Iter(); !iter.Done();
-           iter.Next()) {
-        nsPtrHashKey<imgRequest>* entry = iter.Get();
-        RefPtr<imgRequest> req = entry->GetKey();
+      for (RefPtr<imgRequest> req : mKnownLoaders[i]->mUncachedImages) {
         RecordCounterForRequest(req, &uncached, req->HasConsumers());
       }
     }
@@ -166,9 +160,8 @@ class imgMemoryReporter final : public nsIMemoryReporter {
     size_t n = 0;
     for (uint32_t i = 0; i < imgLoader::sMemReporter->mKnownLoaders.Length();
          i++) {
-      for (auto iter = imgLoader::sMemReporter->mKnownLoaders[i]->mCache.Iter();
-           !iter.Done(); iter.Next()) {
-        imgCacheEntry* entry = iter.UserData();
+      for (imgCacheEntry* entry :
+           imgLoader::sMemReporter->mKnownLoaders[i]->mCache.Values()) {
         if (entry->HasNoProxies()) {
           continue;
         }
@@ -1238,9 +1231,7 @@ imgLoader::~imgLoader() {
     // If there are any of our imgRequest's left they are in the uncached
     // images set, so clear their pointer to us.
     MutexAutoLock lock(mUncachedImagesMutex);
-    for (auto iter = mUncachedImages.Iter(); !iter.Done(); iter.Next()) {
-      nsPtrHashKey<imgRequest>* entry = iter.Get();
-      RefPtr<imgRequest> req = entry->GetKey();
+    for (RefPtr<imgRequest> req : mUncachedImages) {
       req->ClearLoader();
     }
   }
@@ -1381,8 +1372,8 @@ imgLoader::RemoveEntriesFromPrincipal(nsIPrincipal* aPrincipal) {
   AutoTArray<RefPtr<imgCacheEntry>, 128> entriesToBeRemoved;
 
   imgCacheTable& cache = GetCache(aPrincipal->IsSystemPrincipal());
-  for (auto iter = cache.Iter(); !iter.Done(); iter.Next()) {
-    auto& key = iter.Key();
+  for (const auto& entry : cache) {
+    const auto& key = entry.GetKey();
 
     if (key.OriginAttributesRef() !=
         BasePrincipal::Cast(aPrincipal)->OriginAttributesRef()) {
@@ -1396,7 +1387,7 @@ imgLoader::RemoveEntriesFromPrincipal(nsIPrincipal* aPrincipal) {
     }
 
     if (imageOrigin == origin) {
-      entriesToBeRemoved.AppendElement(iter.Data());
+      entriesToBeRemoved.AppendElement(entry.GetData());
     }
   }
 
@@ -1467,10 +1458,10 @@ imgLoader::ClearCacheForControlledDocument(Document* aDoc) {
   MOZ_ASSERT(aDoc);
   AutoTArray<RefPtr<imgCacheEntry>, 128> entriesToBeRemoved;
   imgCacheTable& cache = GetCache(false);
-  for (auto iter = cache.Iter(); !iter.Done(); iter.Next()) {
-    auto& key = iter.Key();
+  for (const auto& entry : cache) {
+    const auto& key = entry.GetKey();
     if (key.ControlledDocument() == aDoc) {
-      entriesToBeRemoved.AppendElement(iter.Data());
+      entriesToBeRemoved.AppendElement(entry.GetData());
     }
   }
   for (auto& entry : entriesToBeRemoved) {
@@ -1530,7 +1521,7 @@ bool imgLoader::PutIntoCache(const ImageCacheKey& aKey, imgCacheEntry* entry) {
              nullptr));
   }
 
-  cache.Put(aKey, RefPtr{entry});
+  cache.InsertOrUpdate(aKey, RefPtr{entry});
 
   // We can be called to resurrect an evicted entry.
   if (entry->Evicted()) {
@@ -2035,14 +2026,10 @@ nsresult imgLoader::EvictEntries(imgCacheTable& aCacheToClear) {
 
   // We have to make a temporary, since RemoveFromCache removes the element
   // from the queue, invalidating iterators.
-  nsTArray<RefPtr<imgCacheEntry> > entries;
-  for (auto iter = aCacheToClear.Iter(); !iter.Done(); iter.Next()) {
-    RefPtr<imgCacheEntry>& data = iter.Data();
-    entries.AppendElement(data);
-  }
-
-  for (uint32_t i = 0; i < entries.Length(); ++i) {
-    if (!RemoveFromCache(entries[i])) {
+  const auto entries =
+      ToTArray<nsTArray<RefPtr<imgCacheEntry>>>(aCacheToClear.Values());
+  for (const auto& entry : entries) {
+    if (!RemoveFromCache(entry)) {
       return NS_ERROR_FAILURE;
     }
   }
@@ -2057,7 +2044,7 @@ nsresult imgLoader::EvictEntries(imgCacheQueue& aQueueToClear) {
 
   // We have to make a temporary, since RemoveFromCache removes the element
   // from the queue, invalidating iterators.
-  nsTArray<RefPtr<imgCacheEntry> > entries(aQueueToClear.GetNumElements());
+  nsTArray<RefPtr<imgCacheEntry>> entries(aQueueToClear.GetNumElements());
   for (auto i = aQueueToClear.begin(); i != aQueueToClear.end(); ++i) {
     entries.AppendElement(*i);
   }
@@ -2076,12 +2063,12 @@ nsresult imgLoader::EvictEntries(imgCacheQueue& aQueueToClear) {
 
 void imgLoader::AddToUncachedImages(imgRequest* aRequest) {
   MutexAutoLock lock(mUncachedImagesMutex);
-  mUncachedImages.PutEntry(aRequest);
+  mUncachedImages.Insert(aRequest);
 }
 
 void imgLoader::RemoveFromUncachedImages(imgRequest* aRequest) {
   MutexAutoLock lock(mUncachedImagesMutex);
-  mUncachedImages.RemoveEntry(aRequest);
+  mUncachedImages.Remove(aRequest);
 }
 
 bool imgLoader::PreferLoadFromCache(nsIURI* aURI) const {
@@ -2723,7 +2710,21 @@ imgLoader::GetMIMETypeFromContent(nsIRequest* aRequest,
       return NS_ERROR_NOT_AVAILABLE;
     }
   }
-  return GetMimeTypeFromContent((const char*)aContents, aLength, aContentType);
+
+  nsresult rv =
+      GetMimeTypeFromContent((const char*)aContents, aLength, aContentType);
+  if (NS_SUCCEEDED(rv) && channel && XRE_IsParentProcess()) {
+    if (RefPtr<mozilla::net::nsHttpChannel> httpChannel =
+            do_QueryObject(channel)) {
+      // If the image type pattern matching algorithm given bytes does not
+      // return undefined, then disable the further check and allow the
+      // response.
+      httpChannel->DisableIsOpaqueResponseAllowedAfterSniffCheck(
+          mozilla::net::nsHttpChannel::SnifferType::Image);
+    }
+  }
+
+  return rv;
 }
 
 /* static */

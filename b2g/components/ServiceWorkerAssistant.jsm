@@ -79,7 +79,7 @@ this.ServiceWorkerAssistant = {
    * }
    *
    */
-  register(aManifestURL, aFeatures) {
+  register(aManifestURL, aFeatures, aServiceWorkerOnly) {
     let serviceworker = aFeatures.serviceworker;
     if (!serviceworker) {
       if (aFeatures.messages) {
@@ -132,8 +132,10 @@ this.ServiceWorkerAssistant = {
 
     let ssm = Services.scriptSecurityManager;
     let principal = ssm.createContentPrincipal(appURI, {});
-    this._subscribeSystemMessages(aFeatures, principal, scope);
-    this._registerActivities(aManifestURL, aFeatures, principal, scope);
+    if (!aServiceWorkerOnly) {
+      this._subscribeSystemMessages(aFeatures, principal, scope);
+      this._registerActivities(aManifestURL, aFeatures, principal, scope);
+    }
 
     if (this._hasContentReady) {
       this._doRegisterServiceWorker(principal, scope, script, updateViaCache);
@@ -153,19 +155,23 @@ this.ServiceWorkerAssistant = {
     }
   },
 
-  unregister(aManifestURL) {
+  unregister(aManifestURL, aServiceWorkerOnly) {
     debug(`unregister ${aManifestURL}`);
     let appURI = Services.io.newURI(aManifestURL);
     let ssm = Services.scriptSecurityManager;
     let principal = ssm.createContentPrincipal(appURI, {});
 
-    systemMessageService.unsubscribe(principal);
-    Services.cpmm.sendAsyncMessage("Activities:UnregisterAll", aManifestURL);
+    if (!aServiceWorkerOnly) {
+      systemMessageService.unsubscribe(principal);
+      Services.cpmm.sendAsyncMessage("Activities:UnregisterAll", aManifestURL);
+    }
 
     const unregisterCallback = {
-      unregisterSucceeded() {},
+      unregisterSucceeded() {
+        debug(`unregister ${aManifestURL} success!`);
+      },
       unregisterFailed() {
-        debug(`Failed to unregister service worker for ${aManifestURL}`);
+        debug(`unregister ${aManifestURL} failed.`);
       },
       QueryInterface: ChromeUtils.generateQI([
         "nsIServiceWorkerUnregisterCallback",
@@ -180,10 +186,10 @@ this.ServiceWorkerAssistant = {
     );
   },
 
-  update(aManifestURL, aFeatures) {
-    debug(`update ${aManifestURL}`);
-    this.unregister(aManifestURL);
-    this.register(aManifestURL, aFeatures);
+  update(aManifestURL, aFeatures, aServiceWorkerOnly) {
+    debug(`update ${aManifestURL}, service worker only: ${aServiceWorkerOnly}`);
+    this.unregister(aManifestURL, aServiceWorkerOnly);
+    this.register(aManifestURL, aFeatures, aServiceWorkerOnly);
   },
 
   waitForRegistrations() {

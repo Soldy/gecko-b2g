@@ -11,7 +11,7 @@
 #include "BluetoothHashKeys.h"
 #include "BluetoothInterface.h"
 #include "BluetoothService.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 
 BEGIN_BLUETOOTH_NAMESPACE
 
@@ -395,10 +395,10 @@ class BluetoothServiceBluedroid : public BluetoothService,
   nsTArray<GetDeviceRequest> mGetDeviceRequests;
 
   // <address, name> mapping table for remote devices
-  nsDataHashtable<BluetoothAddressHashKey, BluetoothRemoteName> mDeviceNameMap;
+  nsTHashMap<BluetoothAddressHashKey, BluetoothRemoteName> mDeviceNameMap;
 
   // <address, cod> mapping table for remote devices
-  nsDataHashtable<BluetoothAddressHashKey, uint32_t> mDeviceCodMap;
+  nsTHashMap<BluetoothAddressHashKey, uint32_t> mDeviceCodMap;
 
   // Arrays for SDP operations
   nsTArray<GetRemoteServiceRecordRequest> mGetRemoteServiceRecordArray;

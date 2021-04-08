@@ -32,6 +32,12 @@
 
   ChromeUtils.defineModuleGetter(
     LazyModules,
+    "NetUtil",
+    "resource://gre/modules/NetUtil.jsm"
+  );
+
+  ChromeUtils.defineModuleGetter(
+    LazyModules,
     "RemoteWebNavigation",
     "resource://gre/modules/RemoteWebNavigation.jsm"
   );
@@ -1296,6 +1302,11 @@
       let mm = this.messageManager;
       if (mm) {
         mm.sendAsyncMessage("WebView::SetCursorEnable", { enable });
+      } else if (!enable) {
+        // The browser child is destroyed. We need to remove the cursor from
+        // the screen when disabling virtual cursor.
+        const domWindowUtils = window.windowUtils;
+        domWindowUtils.sendMouseEvent("mouseout", -1, -1, 0, 0, 0);
       }
     }
 
@@ -1319,6 +1330,76 @@
         });
         mm.sendAsyncMessage("WebView::GetCursorEnabled", { id });
       });
+    }
+
+    webViewDownload(url) {
+      console.log(`webViewDownload ${url}`);
+      let channel = LazyModules.NetUtil.newChannel({
+        uri: Services.io.newURI(url),
+        loadingPrincipal: this._contentPrincipal,
+        securityFlags:
+          Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_INHERITS_SEC_CONTEXT,
+        contentPolicyType: Ci.nsIContentPolicy.TYPE_OTHER,
+      });
+
+      channel.loadInfo.cookieJarSettings = this.cookieJarSettings;
+
+      if (channel instanceof Ci.nsIHttpChannel) {
+        if (channel instanceof Ci.nsIHttpChannelInternal) {
+          channel.forceAllowThirdPartyCookie = true;
+        }
+        try {
+          let referrerInfo = Cc["@mozilla.org/referrer-info;1"].createInstance(
+            Ci.nsIReferrerInfo
+          );
+          referrerInfo.init(
+            Ci.nsIReferrerInfo.NO_REFERRER,
+            false,
+            this.currentURI
+          );
+          channel.referrerInfo = referrerInfo;
+        } catch (e) {
+          console.error(`webViewDownload set referrerInfo ${e}`);
+        }
+      }
+
+      function DownloadListener() {}
+      DownloadListener.prototype = {
+        extListener: null,
+        onStartRequest(request, context) {
+          let extHelperAppSvc = Cc[
+            "@mozilla.org/uriloader/external-helper-app-service;1"
+          ].getService(Ci.nsIExternalHelperAppService);
+          let channel = request.QueryInterface(Ci.nsIChannel);
+
+          this.extListener = extHelperAppSvc.doContent(
+            channel.contentType,
+            request,
+            null,
+            true
+          );
+
+          this.extListener?.onStartRequest(request, context);
+        },
+        onStopRequest(request, context, statusCode) {
+          this.extListener?.onStopRequest(request, context, statusCode);
+        },
+        onDataAvailable(request, context, inputStream, offset, count) {
+          this.extListener?.onDataAvailable(
+            request,
+            context,
+            inputStream,
+            offset,
+            count
+          );
+        },
+        QueryInterface: ChromeUtils.generateQI([
+          Ci.nsIStreamListener,
+          Ci.nsIRequestObserver,
+        ]),
+      };
+
+      channel.asyncOpen(new DownloadListener());
     }
 
     webViewcreateEvent(evtName, detail, cancelable) {
@@ -1706,6 +1787,10 @@
           }
           case "mouseup":
           case "mousedown":
+            // The following mouse click/auxclick event on the autoscroller
+            // shouldn't be fired in web content for compatibility with Chrome.
+            aEvent.preventClickEvent();
+          // fallthrough
           case "contextmenu": {
             if (!this._ignoreMouseEvents) {
               // Use a timeout to prevent the mousedown from opening the popup again.
@@ -1722,6 +1807,9 @@
             break;
           }
           case "popuphidden": {
+            // TODO: When the autoscroller is closed by clicking outside of it,
+            //       we need to prevent following click event for compatibility
+            //       with Chrome.  However, there is no way to do that for now.
             this._autoScrollPopup.removeEventListener(
               "popuphidden",
               this,
@@ -1966,7 +2054,8 @@
         // The permitUnload() promise will, alas, not call its resolution
         // callbacks after the browser window the promise lives in has closed,
         // so we have to check for that case explicitly.
-        Services.tm.spinEventLoopUntilOrShutdown(
+        Services.tm.spinEventLoopUntilOrQuit(
+          "browser-custom-element.js:permitUnload",
           () => window.closed || success !== undefined
         );
         if (success) {

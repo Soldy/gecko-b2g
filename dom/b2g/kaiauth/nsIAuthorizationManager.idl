@@ -14,6 +14,5 @@ interface nsIAuthorizationCallback : nsISupports
 [scriptable, uuid(a7ce79b2-a1e0-4d1f-a95a-c62443dacdf3)]
 interface nsIAuthorizationManager : nsISupports
 {
-  void init();
   void getRestrictedToken(in ACString type, in nsIAuthorizationCallback callback);
 };

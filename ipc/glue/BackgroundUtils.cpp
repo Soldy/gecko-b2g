@@ -535,15 +535,16 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
       aLoadInfo->GetServiceWorkerTaintingSynthesized(),
       aLoadInfo->GetDocumentHasUserInteracted(),
       aLoadInfo->GetAllowListFutureDocumentsCreatedFromThisRedirectChain(),
-      cspNonce, aLoadInfo->GetSkipContentSniffing(),
-      aLoadInfo->GetHttpsOnlyStatus(),
+      aLoadInfo->GetNeedForCheckingAntiTrackingHeuristic(), cspNonce,
+      aLoadInfo->GetSkipContentSniffing(), aLoadInfo->GetHttpsOnlyStatus(),
       aLoadInfo->GetHasValidUserGestureActivation(),
       aLoadInfo->GetAllowDeprecatedSystemRequests(),
       aLoadInfo->GetIsInDevToolsContext(), aLoadInfo->GetParserCreatedScript(),
-      aLoadInfo->GetIsFromProcessingFrameAttributes(), cookieJarSettingsArgs,
-      aLoadInfo->GetRequestBlockingReason(), maybeCspToInheritInfo,
-      aLoadInfo->GetHasStoragePermission(),
-      aLoadInfo->GetLoadingEmbedderPolicy()));
+      aLoadInfo->GetIsFromProcessingFrameAttributes(),
+      aLoadInfo->GetIsMediaRequest(), aLoadInfo->GetIsMediaInitialRequest(),
+      cookieJarSettingsArgs, aLoadInfo->GetRequestBlockingReason(),
+      maybeCspToInheritInfo, aLoadInfo->GetHasStoragePermission(),
+      aLoadInfo->GetIsMetaRefresh(), aLoadInfo->GetLoadingEmbedderPolicy()));
 
   return NS_OK;
 }
@@ -793,16 +794,26 @@ nsresult LoadInfoArgsToLoadInfo(
       loadInfoArgs.serviceWorkerTaintingSynthesized(),
       loadInfoArgs.documentHasUserInteracted(),
       loadInfoArgs.allowListFutureDocumentsCreatedFromThisRedirectChain(),
+      loadInfoArgs.needForCheckingAntiTrackingHeuristic(),
       loadInfoArgs.cspNonce(), loadInfoArgs.skipContentSniffing(),
       loadInfoArgs.httpsOnlyStatus(),
       loadInfoArgs.hasValidUserGestureActivation(),
       loadInfoArgs.allowDeprecatedSystemRequests(),
       loadInfoArgs.isInDevToolsContext(), loadInfoArgs.parserCreatedScript(),
-      loadInfoArgs.hasStoragePermission(), loadInfoArgs.requestBlockingReason(),
-      loadingContext, loadInfoArgs.loadingEmbedderPolicy());
+      loadInfoArgs.hasStoragePermission(), loadInfoArgs.isMetaRefresh(),
+      loadInfoArgs.requestBlockingReason(), loadingContext,
+      loadInfoArgs.loadingEmbedderPolicy());
 
   if (loadInfoArgs.isFromProcessingFrameAttributes()) {
     loadInfo->SetIsFromProcessingFrameAttributes();
+  }
+
+  if (loadInfoArgs.isMediaRequest()) {
+    loadInfo->SetIsMediaRequest(true);
+
+    if (loadInfoArgs.isMediaInitialRequest()) {
+      loadInfo->SetIsMediaInitialRequest(true);
+    }
   }
 
   loadInfo.forget(outLoadInfo);
@@ -845,7 +856,7 @@ void LoadInfoToParentLoadInfoForwarder(
       aLoadInfo->GetDocumentHasUserInteracted(),
       aLoadInfo->GetAllowListFutureDocumentsCreatedFromThisRedirectChain(),
       cookieJarSettingsArgs, aLoadInfo->GetRequestBlockingReason(),
-      aLoadInfo->GetHasStoragePermission(),
+      aLoadInfo->GetHasStoragePermission(), aLoadInfo->GetIsMetaRefresh(),
       aLoadInfo->GetIsThirdPartyContextToTopWindow(),
       aLoadInfo->GetIsInThirdPartyContext());
 }
@@ -921,6 +932,9 @@ nsresult MergeParentLoadInfoForwarder(
 
   rv =
       aLoadInfo->SetHasStoragePermission(aForwarderArgs.hasStoragePermission());
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = aLoadInfo->SetIsMetaRefresh(aForwarderArgs.isMetaRefresh());
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = aLoadInfo->SetIsThirdPartyContextToTopWindow(

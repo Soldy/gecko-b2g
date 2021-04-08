@@ -44,7 +44,7 @@ impl AppsServiceDelegate {
             AppsServiceCommand::OnBootDone() => {
                 GeckoBridgeFromClient::AppsServiceDelegateOnBootDoneSuccess
             }
-            AppsServiceCommand::OnClear(_, _) => {
+            AppsServiceCommand::OnClear(_, _, _) => {
                 GeckoBridgeFromClient::AppsServiceDelegateOnClearSuccess
             }
             AppsServiceCommand::OnInstall(_, _) => {
@@ -92,12 +92,14 @@ impl SessionObject for AppsServiceDelegate {
             Ok(GeckoBridgeToClient::AppsServiceDelegateOnBootDone) => {
                 Some(self.post_task(AppsServiceCommand::OnBootDone(), request_id))
             }
-            Ok(GeckoBridgeToClient::AppsServiceDelegateOnClear(manifest_url, value)) => {
-                Some(self.post_task(
-                    AppsServiceCommand::OnClear(manifest_url, value.into()),
-                    request_id,
-                ))
-            }
+            Ok(GeckoBridgeToClient::AppsServiceDelegateOnClear(
+                manifest_url,
+                clear_type,
+                value,
+            )) => Some(self.post_task(
+                AppsServiceCommand::OnClear(manifest_url, clear_type, value.into()),
+                request_id,
+            )),
             Ok(GeckoBridgeToClient::AppsServiceDelegateOnInstall(manifest_url, value)) => {
                 Some(self.post_task(
                     AppsServiceCommand::OnInstall(manifest_url, value.into()),
@@ -153,6 +155,7 @@ enum AppsServiceCommand {
     OnClear(
         String, // manifest_url
         String, // clear_type
+        String, // b2g_features
     ),
     OnInstall(
         String, // manifest_url
@@ -198,11 +201,16 @@ impl Task for AppsServiceDelegateTask {
                         object.OnBootDone();
                     }
                 }
-                AppsServiceCommand::OnClear(manifest_url, value) => {
+                AppsServiceCommand::OnClear(manifest_url, clear_type, value) => {
                     let manifest_url = nsString::from(manifest_url);
+                    let clear_type = nsString::from(clear_type);
                     let value = nsString::from(value);
                     unsafe {
-                        object.OnClear(&*manifest_url as &nsAString, &*value as &nsAString);
+                        object.OnClear(
+                            &*manifest_url as &nsAString,
+                            &*clear_type as &nsAString,
+                            &*value as &nsAString,
+                        );
                     }
                 }
                 AppsServiceCommand::OnInstall(manifest_url, value) => {

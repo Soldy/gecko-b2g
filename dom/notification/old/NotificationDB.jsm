@@ -106,7 +106,19 @@ var NotificationDB = {
         if (data.length > 0) {
           // Preprocessing phase intends to cleanly separate any migration-related
           // tasks.
-          this.notifications = this.filterNonAppNotifications(JSON.parse(data));
+          try {
+            this.notifications = this.filterNonAppNotifications(
+              JSON.parse(data)
+            );
+          } catch (e) {
+            debug(
+              "Recreate a store due to fail to preprocessing notification data. Error: " +
+                e
+            );
+            this.loaded = true;
+            this.notifications = {};
+            return this.createStore();
+          }
         }
 
         // populate the list of notifications by tag
@@ -123,6 +135,7 @@ var NotificationDB = {
         }
 
         this.loaded = true;
+        return true;
       },
 
       // If read failed, we assume we have no notifications to load.

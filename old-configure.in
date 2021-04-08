@@ -301,7 +301,6 @@ if test "$GNU_CC"; then
     SSE2_FLAGS="-msse2"
     SSSE3_FLAGS="-mssse3"
     CFLAGS="$CFLAGS -fno-strict-aliasing"
-    DSO_CFLAGS=''
 
     if test "$OS_ARCH" != "WINNT" -o -z "$CLANG_CC"; then
         DSO_PIC_CFLAGS='-fPIC'
@@ -588,7 +587,6 @@ case "$target" in
     esac
     ;;
 *-mingw*)
-    DSO_CFLAGS=
     DSO_PIC_CFLAGS=
     # certain versions of cygwin's makedepend barf on the
     # #include <string> vs -I./dist/include/string issue so don't use it
@@ -804,7 +802,6 @@ case "$target" in
     ;;
 
 *-netbsd*)
-    DSO_CFLAGS=''
     CFLAGS="$CFLAGS -Dunix"
     CXXFLAGS="$CXXFLAGS -Dunix"
     if $CC -E - -dM </dev/null | grep __ELF__ >/dev/null; then
@@ -826,7 +823,6 @@ case "$target" in
         X11BASE=/usr/X11R6
     fi
     MOZ_FIX_LINK_PATHS="$MOZ_FIX_LINK_PATHS -Wl,-rpath-link,${X11BASE}/lib"
-    DSO_CFLAGS=''
     DSO_PIC_CFLAGS='-fPIC'
     DSO_LDOPTS='-shared -fPIC'
     if test "$LIBRUNPATH"; then
@@ -839,6 +835,9 @@ case "$target" in
     ;;
 
 esac
+
+CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
+CXXFLAGS="$CXXFLAGS $DSO_PIC_CFLAGS"
 
 if test -z "$MOZ_OPTIMIZE_FLAGS"; then
     MOZ_OPTIMIZE_FLAGS="-O"
@@ -1141,9 +1140,7 @@ AC_CACHE_CHECK(for clock_gettime(CLOCK_MONOTONIC),
                ac_cv_clock_monotonic,
                [for libs in "" -lrt; do
                     _SAVE_LIBS="$LIBS"
-                    _SAVE_CFLAGS="$CFLAGS"
                     LIBS="$LIBS $libs"
-                    CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
 dnl clock_gettime is available on OSX since 10.12, so depending on MACOSX_DEPLOYMENT_TARGET,
 dnl we should or not be able to use it. To detect if we can, we need to make the
 dnl availability attribute strict, so that compilation fails when the target is < 10.12.
@@ -1153,11 +1150,9 @@ dnl availability attribute strict, so that compilation fails when the target is 
                                    clock_gettime(CLOCK_MONOTONIC, &ts); ],
                                  ac_cv_clock_monotonic=$libs
                                  LIBS="$_SAVE_LIBS"
-                                 CFLAGS="$_SAVE_CFLAGS"
                                  break,
                                  ac_cv_clock_monotonic=no)
                     LIBS="$_SAVE_LIBS"
-                    CFLAGS="$_SAVE_CFLAGS"
                 done])
 if test "$ac_cv_clock_monotonic" != "no"; then
     HAVE_CLOCK_MONOTONIC=1
@@ -1297,7 +1292,7 @@ fi
 # enabled, the linker in xcode 4.1 will crash. Without this it would crash when
 # linking XUL.
 _SAVE_LDFLAGS=$LDFLAGS
-LDFLAGS="$LDFLAGS $DSO_PIC_CFLAGS $DSO_LDOPTS $MOZ_OPTIMIZE_LDFLAGS"
+LDFLAGS="$LDFLAGS $DSO_LDOPTS $MOZ_OPTIMIZE_LDFLAGS"
 AC_CACHE_CHECK(for __thread keyword for TLS variables,
                ac_cv_thread_keyword,
                [AC_TRY_LINK([__thread bool tlsIsMainThread = false;],
@@ -2148,6 +2143,19 @@ fi
 AC_SUBST(MOZ_B2G_CAMERA)
 
 dnl ========================================================
+dnl = Add Moz Fonts for desktop platform
+dnl ========================================================
+if test -n "$MOZTTDIR" -a ! -d "$MOZTTDIR" ; then
+    AC_MSG_ERROR([MOZTTDIR '$MOZTTDIR' isn't a valid directory])
+fi
+
+AC_SUBST(MOZTTDIR)
+if test -n "$MOZTTDIR" ; then
+    AC_DEFINE(PACKAGE_MOZTT)
+fi
+
+
+dnl ========================================================
 dnl = Enable Radio Interface for B2G (Gonk usually)
 dnl ========================================================
 
@@ -2798,8 +2806,6 @@ AC_SUBST(HAVE_TOOLCHAIN_SUPPORT_MSSE4_1)
 AC_SUBST(HAVE_X86_AVX2)
 AC_SUBST(HAVE_ALTIVEC)
 
-AC_SUBST_LIST(DSO_CFLAGS)
-AC_SUBST_LIST(DSO_PIC_CFLAGS)
 AC_SUBST(DSO_LDOPTS)
 AC_SUBST(BIN_SUFFIX)
 AC_SUBST(USE_N32)

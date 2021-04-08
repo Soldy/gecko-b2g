@@ -19,9 +19,6 @@ const { ObjectUtils } = ChromeUtils.import(
 const { AppConstants } = ChromeUtils.import(
   "resource://gre/modules/AppConstants.jsm"
 );
-if (AppConstants.MOZ_GLEAN) {
-  Cu.importGlobalProperties(["Glean"]);
-}
 
 const Utils = TelemetryUtils;
 
@@ -258,6 +255,8 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
   ["browser.search.widget.inNavBar", { what: RECORD_DEFAULTPREF_VALUE }],
   ["browser.startup.homepage", { what: RECORD_PREF_STATE }],
   ["browser.startup.page", { what: RECORD_PREF_VALUE }],
+  ["browser.touchmode.auto", { what: RECORD_PREF_VALUE }],
+  ["browser.uidensity", { what: RECORD_PREF_VALUE }],
   ["browser.urlbar.suggest.searches", { what: RECORD_PREF_VALUE }],
   ["devtools.chrome.enabled", { what: RECORD_PREF_VALUE }],
   ["devtools.debugger.enabled", { what: RECORD_PREF_VALUE }],
@@ -307,7 +306,6 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
   ["layers.prefer-d3d9", { what: RECORD_PREF_VALUE }],
   ["layers.prefer-opengl", { what: RECORD_PREF_VALUE }],
   ["layout.css.devPixelsPerPx", { what: RECORD_PREF_VALUE }],
-  ["marionette.enabled", { what: RECORD_PREF_VALUE }],
   ["network.proxy.autoconfig_url", { what: RECORD_PREF_STATE }],
   ["network.proxy.http", { what: RECORD_PREF_STATE }],
   ["network.proxy.ssl", { what: RECORD_PREF_STATE }],
@@ -316,6 +314,8 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
   ["places.history.enabled", { what: RECORD_PREF_VALUE }],
   ["plugins.show_infobar", { what: RECORD_PREF_VALUE }],
   ["privacy.fuzzyfox.enabled", { what: RECORD_PREF_VALUE }],
+  ["privacy.firstparty.isolate", { what: RECORD_PREF_VALUE }],
+  ["privacy.resistFingerprinting", { what: RECORD_PREF_VALUE }],
   ["privacy.trackingprotection.enabled", { what: RECORD_PREF_VALUE }],
   ["privacy.donottrackheader.enabled", { what: RECORD_PREF_VALUE }],
   ["security.enterprise_roots.auto-enabled", { what: RECORD_PREF_VALUE }],
@@ -634,12 +634,10 @@ EnvironmentAddonBuilder.prototype = {
     if (aTopic == BLOCKLIST_LOADED_TOPIC) {
       Services.obs.removeObserver(this, BLOCKLIST_LOADED_TOPIC);
       this._blocklistObserverAdded = false;
-      let plugins = this._getActivePlugins();
       let gmpPluginsPromise = this._getActiveGMPlugins();
       gmpPluginsPromise.then(
         gmpPlugins => {
           let { addons } = this._environment._currentEnvironment;
-          addons.activePlugins = plugins;
           addons.activeGMPlugins = gmpPlugins;
         },
         err => {
@@ -720,7 +718,6 @@ EnvironmentAddonBuilder.prototype = {
     let addons = {
       activeAddons: await this._getActiveAddons(),
       theme: await this._getActiveTheme(),
-      activePlugins: this._getActivePlugins(atStartup),
       activeGMPlugins: await this._getActiveGMPlugins(atStartup),
     };
 
@@ -848,76 +845,6 @@ EnvironmentAddonBuilder.prototype = {
     }
 
     return activeTheme;
-  },
-
-  /**
-   * Get the plugins data in object form.
-   *
-   * @param {boolean} [atStartup]
-   *        True if this is the first check we're performing at startup. In that
-   *        situation, we defer some more expensive initialization.
-   *
-   * @return Object containing the plugins data.
-   */
-  _getActivePlugins(atStartup) {
-    // If we haven't yet loaded the blocklist, pass back dummy data for now,
-    // and add an observer to update this data as soon as we get it.
-    if (atStartup || !Services.blocklist.isLoaded) {
-      if (!this._blocklistObserverAdded) {
-        Services.obs.addObserver(this, BLOCKLIST_LOADED_TOPIC);
-        this._blocklistObserverAdded = true;
-      }
-      return [
-        {
-          name: "dummy",
-          version: "0.1",
-          description: "Blocklist unavailable",
-          blocklisted: false,
-          disabled: true,
-          clicktoplay: false,
-          mimeTypes: ["text/there.is.only.blocklist"],
-          updateDay: Utils.millisecondsToDays(Date.now()),
-        },
-      ];
-    }
-    let pluginTags = Cc["@mozilla.org/plugin/host;1"]
-      .getService(Ci.nsIPluginHost)
-      .getPluginTags();
-
-    let activePlugins = [];
-    for (let tag of pluginTags) {
-      // Skip plugins which are not active.
-      if (tag.disabled) {
-        continue;
-      }
-
-      try {
-        // Make sure to have a valid date.
-        let updateDate = new Date(Math.max(0, tag.lastModifiedTime));
-
-        activePlugins.push({
-          name: limitStringToLength(tag.name, MAX_ADDON_STRING_LENGTH),
-          version: limitStringToLength(tag.version, MAX_ADDON_STRING_LENGTH),
-          description: limitStringToLength(
-            tag.description,
-            MAX_ADDON_STRING_LENGTH
-          ),
-          blocklisted: tag.blocklisted,
-          disabled: tag.disabled,
-          clicktoplay: tag.clicktoplay,
-          mimeTypes: tag.getMimeTypes(),
-          updateDay: Utils.millisecondsToDays(updateDate.getTime()),
-        });
-      } catch (ex) {
-        this._environment._log.error(
-          "_getActivePlugins - A plugin was discarded due to an error",
-          ex
-        );
-        continue;
-      }
-    }
-
-    return activePlugins;
   },
 
   /**
@@ -1096,11 +1023,6 @@ EnvironmentCache.prototype = {
 
     if (AppConstants.platform == "win") {
       this._hddData = await Services.sysinfo.diskInfo;
-      if (AppConstants.MOZ_GLEAN) {
-        Glean.fogValidation.profileDiskIsSsd.set(
-          this._hddData.profile.type == "SSD"
-        );
-      }
       let osData = await Services.sysinfo.osInfo;
 
       if (!this._initTask) {
@@ -2108,7 +2030,8 @@ EnvironmentCache.prototype = {
     }
 
     if (ObjectUtils.deepEqual(this._currentEnvironment, oldEnvironment)) {
-      Services.telemetry.scalarAdd("telemetry.environment_didnt_change", 1);
+      this._log.trace("_onEnvironmentChange - Environment didn't change");
+      return;
     }
 
     for (let [name, listener] of this._changeListeners) {

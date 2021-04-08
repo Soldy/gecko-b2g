@@ -145,7 +145,8 @@ InternalRequest::InternalRequest(const IPCInternalRequest& aIPCRequest)
     : mMethod(aIPCRequest.method()),
       mURLList(aIPCRequest.urlList().Clone()),
       mHeaders(new InternalHeaders(aIPCRequest.headers(),
-                                   aIPCRequest.headersGuard())),
+                                   aIPCRequest.headersGuard(),
+                                   aIPCRequest.hasSystemXHRPerm())),
       mBodyLength(aIPCRequest.bodySize()),
       mPreferredAlternativeDataType(aIPCRequest.preferredAlternativeDataType()),
       mContentPolicyType(

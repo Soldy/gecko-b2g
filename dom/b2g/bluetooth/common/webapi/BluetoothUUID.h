@@ -10,7 +10,7 @@
 #include "mozilla/dom/BluetoothUUIDBinding.h"
 #include "mozilla/StaticPtr.h"
 #include "nsCOMPtr.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsHashKeys.h"
 #include "nsIObserver.h"
 #include "nsPIDOMWindow.h"
@@ -98,19 +98,19 @@ class BluetoothUUID final : public nsISupports, public nsWrapperCache {
   /**
    * Hash Table of services for mapping service names to its UUID's prefix.
    */
-  static nsDataHashtable<nsStringHashKey, uint32_t>* sUUIDServiceTable;
+  static nsTHashMap<nsStringHashKey, uint32_t>* sUUIDServiceTable;
 
   /**
    * Hash Table of characteristics for mapping characteristic names to its
    * UUID's prefix.
    */
-  static nsDataHashtable<nsStringHashKey, uint32_t>* sUUIDCharacteristicTable;
+  static nsTHashMap<nsStringHashKey, uint32_t>* sUUIDCharacteristicTable;
 
   /**
    * Hash Table of descriptors for mapping descriptor names to its UUID's
    * prefix.
    */
-  static nsDataHashtable<nsStringHashKey, uint32_t>* sUUIDDescriptorTable;
+  static nsTHashMap<nsStringHashKey, uint32_t>* sUUIDDescriptorTable;
 };
 
 }  // namespace dom

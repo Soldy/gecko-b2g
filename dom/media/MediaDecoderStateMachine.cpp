@@ -666,6 +666,12 @@ class MediaDecoderStateMachine::DecodingState
  protected:
   virtual void EnsureAudioDecodeTaskQueued();
 
+  virtual bool ShouldStopPrerolling() const {
+    return mIsPrerolling &&
+           (DonePrerollingAudio() || mMaster->IsWaitingAudioData()) &&
+           (DonePrerollingVideo() || mMaster->IsWaitingVideoData());
+  }
+
  private:
   void DispatchDecodeTasksIfNeeded();
   void EnsureVideoDecodeTaskQueued();
@@ -688,21 +694,19 @@ class MediaDecoderStateMachine::DecodingState
         sVideoQueueDefaultSize);
   }
 
-  bool DonePrerollingAudio() {
+  bool DonePrerollingAudio() const {
     return !mMaster->IsAudioDecoding() ||
            mMaster->GetDecodedAudioDuration() >= AudioPrerollThreshold();
   }
 
-  bool DonePrerollingVideo() {
+  bool DonePrerollingVideo() const {
     return !mMaster->IsVideoDecoding() ||
            static_cast<uint32_t>(mMaster->VideoQueue().GetSize()) >=
                VideoPrerollFrames();
   }
 
   void MaybeStopPrerolling() {
-    if (mIsPrerolling &&
-        (DonePrerollingAudio() || mMaster->IsWaitingAudioData()) &&
-        (DonePrerollingVideo() || mMaster->IsWaitingVideoData())) {
+    if (ShouldStopPrerolling()) {
       mIsPrerolling = false;
       // Check if we can start playback.
       mMaster->ScheduleStateMachine();
@@ -765,16 +769,17 @@ class MediaDecoderStateMachine::DecodingState
 };
 
 /**
- * Purpose: decode audio/video data for playback when media is in seamless
+ * Purpose: decode audio data for playback when media is in seamless
  * looping, we will adjust media time to make samples time monotonically
- * increasing.
+ * increasing. Note, it's currently used for audio-only, but we should make it
+ * work on video as well in bug 1262276.
  *
  * Transition to:
  *   DORMANT if playback is paused for a while.
  *   SEEKING if any seek request.
  *   SHUTDOWN if any decode error.
  *   BUFFERING if playback can't continue due to lack of decoded data.
- *   COMPLETED when having decoded all audio/video data.
+ *   COMPLETED when having decoded all audio data.
  *   DECODING when media stop seamless looping
  */
 class MediaDecoderStateMachine::LoopingDecodingState
@@ -974,6 +979,13 @@ class MediaDecoderStateMachine::LoopingDecodingState
     // should mark audio queue as ended because we have got all data we need.
     return mAudioDataRequest.Exists() || mAudioSeekRequest.Exists() ||
            ShouldDiscardLoopedAudioData();
+  }
+
+  bool ShouldStopPrerolling() const override {
+    // When the data has reached EOS, that means the queue has been finished. If
+    // MDSM isn't playing now, then we would preroll some data in order to let
+    // new data to reopen the queue before starting playback again.
+    return !mIsReachingAudioEOS && DecodingState::ShouldStopPrerolling();
   }
 
   bool mIsReachingAudioEOS;
@@ -3236,7 +3248,8 @@ void MediaDecoderStateMachine::RequestAudioData() {
             AUTO_PROFILER_LABEL(
                 "MediaDecoderStateMachine::RequestAudioData:Rejected",
                 MEDIA_PLAYBACK);
-            LOGV("OnAudioNotDecoded aError=%s", aError.ErrorName().get());
+            LOGV("OnAudioNotDecoded ErrorName=%s Message=%s",
+                 aError.ErrorName().get(), aError.Message().get());
             mAudioDataRequest.Complete();
             switch (aError.Code()) {
               case NS_ERROR_DOM_MEDIA_WAITING_FOR_DATA:
@@ -3292,7 +3305,8 @@ void MediaDecoderStateMachine::RequestVideoData(
             AUTO_PROFILER_LABEL(
                 "MediaDecoderStateMachine::RequestVideoData:Rejected",
                 MEDIA_PLAYBACK);
-            LOGV("OnVideoNotDecoded aError=%s", aError.ErrorName().get());
+            LOGV("OnVideoNotDecoded ErrorName=%s Message=%s",
+                 aError.ErrorName().get(), aError.Message().get());
             mVideoDataRequest.Complete();
             switch (aError.Code()) {
               case NS_ERROR_DOM_MEDIA_WAITING_FOR_DATA:
@@ -3459,6 +3473,14 @@ bool MediaDecoderStateMachine::HasLowBufferedData(const TimeUnit& aThreshold) {
 
   if (endOfDecodedData.IsInfinite()) {
     // Have decoded all samples. No point buffering.
+    return false;
+  }
+
+  if ((Duration() - endOfDecodedData) <= aThreshold) {
+    LOGV("HasLowBufferedData, Rest media time: %" PRId64 " <= Threshold: %" PRId64 "",
+         (Duration() - endOfDecodedData).ToMicroseconds(), aThreshold.ToMicroseconds());
+    // Our rest time is less than aThreshold. So we need to let it go or it never
+    // gets enough data to start playing. No point buffering.
     return false;
   }
 

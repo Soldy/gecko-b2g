@@ -159,7 +159,6 @@ this.WapPushManager = {
         contentType,
         content: data.array,
       };
-      msg.content.length = data.array.length;
     }
 
     let sender = gPhoneNumberUtils.normalize(options.sourceAddress, false);

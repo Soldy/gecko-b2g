@@ -1058,11 +1058,11 @@ nsresult nsUrlClassifierDBServiceWorker::CacheResultToTableUpdate(
 
     if (LOG_ENABLED()) {
       const FullHashExpiryCache& fullHashes = result->response.fullHashes;
-      for (auto iter = fullHashes.ConstIter(); !iter.Done(); iter.Next()) {
+      for (const auto& entry : fullHashes) {
         Completion completion;
-        completion.Assign(iter.Key());
+        completion.Assign(entry.GetKey());
         LOG(("CacheCompletion(v4) hash %X, CacheExpireTime %" PRId64,
-             completion.ToUint32(), iter.Data()));
+             completion.ToUint32(), entry.GetData()));
       }
     }
 
@@ -1345,7 +1345,7 @@ nsUrlClassifierLookupCallback::CompletionV4(const nsACString& aPartialHash,
     uint32_t duration;
     match->GetCacheDuration(&duration);
 
-    result->response.fullHashes.Put(fullHash, nowSec + duration);
+    result->response.fullHashes.InsertOrUpdate(fullHash, nowSec + duration);
   }
 
   return ProcessComplete(result);
@@ -2096,7 +2096,7 @@ NS_IMETHODIMP
 nsUrlClassifierDBService::SetHashCompleter(
     const nsACString& tableName, nsIUrlClassifierHashCompleter* completer) {
   if (completer) {
-    mCompleters.Put(tableName, completer);
+    mCompleters.InsertOrUpdate(tableName, completer);
   } else {
     mCompleters.Remove(tableName);
   }

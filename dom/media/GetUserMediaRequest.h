@@ -19,14 +19,23 @@ class nsPIDOMWindowInner;
 namespace mozilla {
 namespace dom {
 
+struct AudioOutputOptions;
 struct MediaStreamConstraints;
+enum class GetUserMediaRequestType : uint8_t;
 
 class GetUserMediaRequest : public nsISupports, public nsWrapperCache {
  public:
+  // For getUserMedia "getUserMedia:request"
   GetUserMediaRequest(nsPIDOMWindowInner* aInnerWindow,
                       const nsAString& aCallID,
                       const MediaStreamConstraints& aConstraints,
                       bool aIsSecure, bool aIsHandlingUserInput);
+  // For selectAudioOutput "getUserMedia:request"
+  GetUserMediaRequest(nsPIDOMWindowInner* aInnerWindow,
+                      const nsAString& aCallID,
+                      const AudioOutputOptions& aAudioOutputOptions,
+                      bool aIsSecure, bool aIsHandlingUserInput);
+  // For "recording-device-stopped"
   GetUserMediaRequest(nsPIDOMWindowInner* aInnerWindow, const nsAString& aRawId,
                       const nsAString& aMediaSource, bool aIsHandlingUserInput);
 
@@ -37,6 +46,7 @@ class GetUserMediaRequest : public nsISupports, public nsWrapperCache {
                        JS::Handle<JSObject*> aGivenProto) override;
   nsISupports* GetParentObject();
 
+  GetUserMediaRequestType Type();
   uint64_t WindowID();
   uint64_t InnerWindowID();
   bool IsSecure();
@@ -45,6 +55,7 @@ class GetUserMediaRequest : public nsISupports, public nsWrapperCache {
   void GetRawID(nsString& retval);
   void GetMediaSource(nsString& retval);
   void GetConstraints(MediaStreamConstraints& result);
+  void GetAudioOutputOptions(AudioOutputOptions& result);
 
  private:
   virtual ~GetUserMediaRequest() = default;
@@ -54,6 +65,8 @@ class GetUserMediaRequest : public nsISupports, public nsWrapperCache {
   const nsString mRawID;
   const nsString mMediaSource;
   UniquePtr<MediaStreamConstraints> mConstraints;
+  UniquePtr<AudioOutputOptions> mAudioOutputOptions;
+  GetUserMediaRequestType mType;
   bool mIsSecure;
   bool mIsHandlingUserInput;
 };

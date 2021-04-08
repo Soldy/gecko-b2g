@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Firefox Screenshots",
-  "version": "39.0.0",
+  "version": "39.0.1",
   "description": "Take clips and screenshots from the Web and save them temporarily or permanently.",
   "author": "Mozilla <screenshots-feedback@mozilla.com>",
   "homepage_url": "https://github.com/mozilla-services/screenshots",
@@ -39,18 +39,6 @@
       ]
     }
   ],
-  "page_action": {
-    "browser_style": true,
-    "default_icon" : {
-      "32": "icons/icon-v2.svg"
-    },
-    "default_title": "__MSG_screenshots-context-menu__",
-    "show_matches": ["<all_urls>", "about:reader*"],
-    "pinned": false
-  },
-  "icons": {
-    "32": "icons/icon-v2.svg"
-  },
   "web_accessible_resources": [
     "blank.html",
     "icons/cancel.svg",

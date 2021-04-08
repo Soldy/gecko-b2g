@@ -7,9 +7,21 @@
 interface MozWakeLockListener;
 
 [Exposed=(Window,Worker)]
-interface B2G {
+interface B2G : EventTarget {
   // objects implementing this interface also implement the interfaces given
   // below
+};
+
+[Exposed=Window]
+partial interface B2G {
+  attribute EventHandler onstoragefree;
+  attribute EventHandler onstoragefull;
+};
+
+[Exposed=Window]
+partial interface B2G {
+  [Throws, Func="B2G::HasWebAppsManagePermission"]
+  readonly attribute ActivityUtils activityUtils;
 };
 
 partial interface B2G {
@@ -37,7 +49,7 @@ partial interface B2G {
 
 [Exposed=Window]
 partial interface B2G {
-  [Throws, Pref="dom.inputmethod.enabled"]
+  [Throws, Func="B2G::HasInputPermission", Pref="dom.inputmethod.enabled"]
   readonly attribute InputMethod inputMethod;
 };
 

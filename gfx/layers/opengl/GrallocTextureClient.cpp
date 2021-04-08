@@ -396,10 +396,11 @@ GrallocTextureData::CreateForDrawing(gfx::IntSize aSize, gfx::SurfaceFormat aFor
 TextureFlags
 GrallocTextureData::GetTextureFlags() const
 {
+  TextureFlags flags = TextureFlags::WAIT_HOST_USAGE_END;
   if (IsGrallocRBSwapped(mFormat)) {
-    return TextureFlags::RB_SWAPPED;
+    return flags | TextureFlags::RB_SWAPPED;
   }
-  return TextureFlags::NO_FLAGS;
+  return flags;
 }
 
 

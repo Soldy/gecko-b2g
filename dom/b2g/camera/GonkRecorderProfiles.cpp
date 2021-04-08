@@ -273,7 +273,7 @@ already_AddRefed<GonkRecorderProfile> GonkRecorderProfile::CreateProfile(
 ProfileHashtable* GonkRecorderProfile::GetProfileHashtable(uint32_t aCameraId) {
   ProfileHashtable* profiles = sProfiles.Get(aCameraId);
   if (!profiles) {
-    profiles = sProfiles.Put(aCameraId, MakeUnique<ProfileHashtable>()).get();
+    profiles = sProfiles.InsertOrUpdate(aCameraId, MakeUnique<ProfileHashtable>()).get();
 
     /* First handle the profiles with a known enum. We can process those
        efficently because MediaProfiles indexes their profiles that way. */
@@ -293,7 +293,7 @@ ProfileHashtable* GonkRecorderProfile::GetProfileHashtable(uint32_t aCameraId) {
                       p.name);
       profile->mName.AssignASCII(p.name);
       profile->mPriority = p.priority;
-      profiles->Put(profile->GetName(), RefPtr{profile});
+      profiles->InsertOrUpdate(profile->GetName(), RefPtr{profile});
     }
 
     /* However not all of the potentially supported profiles have a known
@@ -324,7 +324,7 @@ ProfileHashtable* GonkRecorderProfile::GetProfileHashtable(uint32_t aCameraId) {
           DOM_CAMERA_LOGI("Profile %d '%s' supported by platform\n", q, p.name);
           profile->mName.AssignASCII(p.name);
           profile->mPriority = p.priority;
-          profiles->Put(profile->GetName(), RefPtr{profile});
+          profiles->InsertOrUpdate(profile->GetName(), RefPtr{profile});
           break;
         }
       }

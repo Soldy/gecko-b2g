@@ -10,15 +10,14 @@ const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 
-const { truncate } = ChromeUtils.import(
-  "chrome://remote/content/shared/Format.jsm"
-);
-const { Log } = ChromeUtils.import("chrome://remote/content/shared/Log.jsm");
-const { UnknownMethodError } = ChromeUtils.import(
-  "chrome://remote/content/cdp/Error.jsm"
-);
+XPCOMUtils.defineLazyModuleGetters(this, {
+  Log: "chrome://remote/content/shared/Log.jsm",
+  truncate: "chrome://remote/content/shared/Format.jsm",
+  UnknownMethodError: "chrome://remote/content/cdp/Error.jsm",
+});
 
-XPCOMUtils.defineLazyGetter(this, "log", Log.get);
+XPCOMUtils.defineLazyGetter(this, "logger", () => Log.get());
+
 XPCOMUtils.defineLazyServiceGetter(
   this,
   "UUIDGen",
@@ -66,7 +65,7 @@ class Connection {
 
   send(body) {
     const payload = JSON.stringify(body, null, Log.verbose ? "\t" : null);
-    log.trace(truncate`<-(connection ${this.id}) ${payload}`);
+    logger.trace(truncate`<-(connection ${this.id}) ${payload}`);
     this.transport.send(JSON.parse(payload));
   }
 
@@ -187,7 +186,7 @@ class Connection {
    *        JSON-serializable object sent by the client
    */
   async onPacket(packet) {
-    log.trace(`(connection ${this.id})-> ${JSON.stringify(packet)}`);
+    logger.trace(`(connection ${this.id})-> ${JSON.stringify(packet)}`);
 
     try {
       const { id, method, params, sessionId } = packet;

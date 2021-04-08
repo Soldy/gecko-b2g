@@ -686,7 +686,11 @@ void SurfaceTextureHost::PushResourceUpdates(
                     ? &wr::TransactionBuilder::AddExternalImage
                     : &wr::TransactionBuilder::UpdateExternalImage;
 
-  auto imageType = gfx::gfxVars::UseSoftwareWebRender()
+  // Prefer TextureExternal unless the backend requires TextureRect.
+  TextureHost::NativeTexturePolicy policy =
+      TextureHost::BackendNativeTexturePolicy(aResources.GetBackendType(),
+                                              GetSize());
+  auto imageType = policy == TextureHost::NativeTexturePolicy::REQUIRE
                        ? wr::ExternalImageType::TextureHandle(
                              wr::ImageBufferKind::TextureRect)
                        : wr::ExternalImageType::TextureHandle(
@@ -720,10 +724,8 @@ void SurfaceTextureHost::PushDisplayItems(wr::DisplayListBuilder& aBuilder,
                                           PushDisplayItemFlagSet aFlags) {
   bool preferCompositorSurface =
       aFlags.contains(PushDisplayItemFlag::PREFER_COMPOSITOR_SURFACE);
-  bool supportsExternalCompositing = false;
-  if (gfx::gfxVars::UseSoftwareWebRender()) {
-    supportsExternalCompositing = true;
-  }
+  bool supportsExternalCompositing =
+      SupportsExternalCompositing(aBuilder.GetBackendType());
 
   switch (GetFormat()) {
     case gfx::SurfaceFormat::R8G8B8X8:

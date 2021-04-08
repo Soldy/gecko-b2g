@@ -239,10 +239,10 @@ struct MovingTracer final : public GenericTracer {
   JSString* onStringEdge(JSString* string) override;
   js::BaseScript* onScriptEdge(js::BaseScript* script) override;
   BaseShape* onBaseShapeEdge(BaseShape* base) override;
+  GetterSetter* onGetterSetterEdge(GetterSetter* gs) override;
   Scope* onScopeEdge(Scope* scope) override;
   RegExpShared* onRegExpSharedEdge(RegExpShared* shared) override;
   BigInt* onBigIntEdge(BigInt* bi) override;
-  ObjectGroup* onObjectGroupEdge(ObjectGroup* group) override;
   JS::Symbol* onSymbolEdge(JS::Symbol* sym) override;
   jit::JitCode* onJitCodeEdge(jit::JitCode* jit) override;
 
@@ -261,11 +261,11 @@ struct SweepingTracer final : public GenericTracer {
   JSString* onStringEdge(JSString* string) override;
   js::BaseScript* onScriptEdge(js::BaseScript* script) override;
   BaseShape* onBaseShapeEdge(BaseShape* base) override;
+  GetterSetter* onGetterSetterEdge(js::GetterSetter* gs) override;
   jit::JitCode* onJitCodeEdge(jit::JitCode* jit) override;
   Scope* onScopeEdge(Scope* scope) override;
   RegExpShared* onRegExpSharedEdge(RegExpShared* shared) override;
   BigInt* onBigIntEdge(BigInt* bi) override;
-  js::ObjectGroup* onObjectGroupEdge(js::ObjectGroup* group) override;
   JS::Symbol* onSymbolEdge(JS::Symbol* sym) override;
 
  private:

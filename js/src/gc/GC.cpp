@@ -244,6 +244,7 @@
 #include "util/Windows.h"
 #include "vm/BigIntType.h"
 #include "vm/GeckoProfiler.h"
+#include "vm/GetterSetter.h"
 #include "vm/HelperThreadState.h"
 #include "vm/JSAtom.h"
 #include "vm/JSContext.h"
@@ -258,6 +259,7 @@
 #include "vm/Time.h"
 #include "vm/TraceLogging.h"
 #include "vm/WrapperObject.h"
+#include "wasm/TypedObject.h"
 
 #include "gc/Heap-inl.h"
 #include "gc/Marking-inl.h"
@@ -401,8 +403,7 @@ static constexpr FinalizePhase BackgroundFinalizePhases[] = {
       AllocKind::EXTERNAL_STRING, AllocKind::FAT_INLINE_ATOM, AllocKind::ATOM,
       AllocKind::SYMBOL, AllocKind::BIGINT}},
     {gcstats::PhaseKind::SWEEP_SHAPE,
-     {AllocKind::SHAPE, AllocKind::ACCESSOR_SHAPE, AllocKind::BASE_SHAPE,
-      AllocKind::OBJECT_GROUP}}};
+     {AllocKind::SHAPE, AllocKind::BASE_SHAPE, AllocKind::GETTER_SETTER}}};
 
 void Arena::unmarkAll() {
   MarkBitmapWord* arenaBits = chunk()->markBits.arenaBits(this);
@@ -763,7 +764,7 @@ void TenuredChunk::verify() const {
   size_t freeCount = 0;
   size_t freeCommittedCount = 0;
   for (size_t i = 0; i < ArenasPerChunk; ++i) {
-    if (decommittedArenas[i]) {
+    if (decommittedPages[pageIndex(i)]) {
       // Free but not committed.
       freeCount++;
       continue;
@@ -847,6 +848,40 @@ inline void GCRuntime::prepareToFreeChunk(TenuredChunkInfo& info) {
 
 inline void GCRuntime::updateOnArenaFree() { ++numArenasFreeCommitted; }
 
+bool TenuredChunk::isPageFree(size_t pageIndex) const {
+  if (decommittedPages[pageIndex]) {
+    return true;
+  }
+
+  size_t arenaIndex = pageIndex * ArenasPerPage;
+  for (size_t i = 0; i < ArenasPerPage; i++) {
+    if (arenas[arenaIndex + i].allocated()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool TenuredChunk::isPageFree(const Arena* arena) const {
+  MOZ_ASSERT(arena);
+  // arena must come from the freeArenasHead list.
+  MOZ_ASSERT(!arena->allocated());
+  size_t count = 1;
+  size_t expectedPage = pageIndex(arena);
+
+  Arena* nextArena = arena->next;
+  while (nextArena && (pageIndex(nextArena) == expectedPage)) {
+    count++;
+    if (count == ArenasPerPage) {
+      break;
+    }
+    nextArena = nextArena->next;
+  }
+
+  return count == ArenasPerPage;
+}
+
 void TenuredChunk::addArenaToFreeList(GCRuntime* gc, Arena* arena) {
   MOZ_ASSERT(!arena->allocated());
   arena->next = info.freeArenasHead;
@@ -856,9 +891,117 @@ void TenuredChunk::addArenaToFreeList(GCRuntime* gc, Arena* arena) {
   gc->updateOnArenaFree();
 }
 
-void TenuredChunk::addArenaToDecommittedList(const Arena* arena) {
-  ++info.numArenasFree;
-  decommittedArenas[TenuredChunk::arenaIndex(arena->address())] = true;
+void TenuredChunk::addArenasInPageToFreeList(GCRuntime* gc, size_t pageIndex) {
+  MOZ_ASSERT(isPageFree(pageIndex));
+
+  size_t arenaIndex = pageIndex * ArenasPerPage;
+  for (size_t i = 0; i < ArenasPerPage; i++) {
+    Arena* a = &arenas[arenaIndex + i];
+    MOZ_ASSERT(!a->allocated());
+    a->next = info.freeArenasHead;
+    info.freeArenasHead = a;
+    // These arenas are already free, don't need to update numArenasFree.
+    ++info.numArenasFreeCommitted;
+    gc->updateOnArenaFree();
+  }
+}
+
+void TenuredChunk::rebuildFreeArenasList() {
+  if (info.numArenasFreeCommitted == 0) {
+    MOZ_ASSERT(!info.freeArenasHead);
+    return;
+  }
+
+  mozilla::BitSet<ArenasPerChunk, uint32_t> freeArenas;
+  freeArenas.ResetAll();
+
+  Arena* arena = info.freeArenasHead;
+  while (arena) {
+    freeArenas[arenaIndex(arena->address())] = true;
+    arena = arena->next;
+  }
+
+  info.freeArenasHead = nullptr;
+  Arena** freeCursor = &info.freeArenasHead;
+
+  for (size_t i = 0; i < PagesPerChunk; i++) {
+    for (size_t j = 0; j < ArenasPerPage; j++) {
+      size_t arenaIndex = i * ArenasPerPage + j;
+      if (freeArenas[arenaIndex]) {
+        *freeCursor = &arenas[arenaIndex];
+        freeCursor = &arenas[arenaIndex].next;
+      }
+    }
+  }
+
+  *freeCursor = nullptr;
+}
+
+void TenuredChunk::decommitFreeArenas(GCRuntime* gc, const bool& cancel,
+                                      AutoLockGC& lock) {
+  MOZ_ASSERT(DecommitEnabled());
+
+  // We didn't traverse all arenas in the chunk to prevent accessing the arena
+  // mprotect'ed during compaction in debug build. Instead, we traverse through
+  // freeArenasHead list.
+  Arena** freeCursor = &info.freeArenasHead;
+  while (*freeCursor && !cancel) {
+    if ((ArenasPerPage > 1) && !isPageFree(*freeCursor)) {
+      freeCursor = &(*freeCursor)->next;
+      continue;
+    }
+
+    // Find the next free arena after this page.
+    Arena* nextArena = *freeCursor;
+    for (size_t i = 0; i < ArenasPerPage; i++) {
+      nextArena = nextArena->next;
+      MOZ_ASSERT_IF(i != ArenasPerPage - 1, isPageFree(pageIndex(nextArena)));
+    }
+
+    size_t pIndex = pageIndex(*freeCursor);
+
+    // Remove the free arenas from the list.
+    *freeCursor = nextArena;
+
+    info.numArenasFreeCommitted -= ArenasPerPage;
+    // When we unlock below, other thread might acquire the lock and do
+    // allocations. But it may find out the numArenasFree > 0 but there isn't
+    // any free arena (Because we mark the decommit bit after the
+    // MarkPagesUnusedSoft call). So we reduce the numArenasFree before unlock
+    // and add it back once we acquire the lock again.
+    info.numArenasFree -= ArenasPerPage;
+    updateChunkListAfterAlloc(gc, lock);
+
+    bool ok = decommitOneFreePage(gc, pIndex, lock);
+
+    info.numArenasFree += ArenasPerPage;
+    updateChunkListAfterFree(gc, ArenasPerPage, lock);
+
+    if (!ok) {
+      break;
+    }
+
+    // When we unlock in decommit, freeArenasHead might be updated by other
+    // threads doing allocations.
+    // Because the free list is sorted, we check if the freeArenasHead has
+    // bypassed the page we did in decommit, if so, we forward to the updated
+    // freeArenasHead, otherwise we just continue to check the next free arena
+    // in the list.
+    //
+    // If the freeArenasHead is nullptr, we set it to the largest index so
+    // freeArena will be set to freeArenasHead as well.
+    size_t latestIndex =
+        info.freeArenasHead ? pageIndex(info.freeArenasHead) : PagesPerChunk;
+    if (latestIndex > pIndex) {
+      freeCursor = &info.freeArenasHead;
+    }
+  }
+}
+
+void TenuredChunk::markArenasInPageDecommitted(size_t pageIndex) {
+  // The arenas within this page are already free, and numArenasFreeCommitted is
+  // subtracted in decommitFreeArenas.
+  decommittedPages[pageIndex] = true;
 }
 
 void TenuredChunk::recycleArena(Arena* arena, SortedArenaList& dest,
@@ -870,49 +1013,62 @@ void TenuredChunk::recycleArena(Arena* arena, SortedArenaList& dest,
 void TenuredChunk::releaseArena(GCRuntime* gc, Arena* arena,
                                 const AutoLockGC& lock) {
   addArenaToFreeList(gc, arena);
-  updateChunkListAfterFree(gc, lock);
+  updateChunkListAfterFree(gc, 1, lock);
 }
 
-bool TenuredChunk::decommitOneFreeArena(GCRuntime* gc, AutoLockGC& lock) {
-  MOZ_ASSERT(info.numArenasFreeCommitted > 0);
-  Arena* arena = fetchNextFreeArena(gc);
-  updateChunkListAfterAlloc(gc, lock);
+bool TenuredChunk::decommitOneFreePage(GCRuntime* gc, size_t pageIndex,
+                                       AutoLockGC& lock) {
+  MOZ_ASSERT(DecommitEnabled());
+
+#ifdef DEBUG
+  size_t index = pageIndex * ArenasPerPage;
+  for (size_t i = 0; i < ArenasPerPage; i++) {
+    MOZ_ASSERT(!arenas[index + i].allocated());
+  }
+#endif
 
   bool ok;
   {
     AutoUnlockGC unlock(lock);
-    ok = MarkPagesUnusedSoft(arena, ArenaSize);
+    ok = MarkPagesUnusedSoft(pageAddress(pageIndex), PageSize);
   }
 
   if (ok) {
-    addArenaToDecommittedList(arena);
+    markArenasInPageDecommitted(pageIndex);
   } else {
-    addArenaToFreeList(gc, arena);
+    addArenasInPageToFreeList(gc, pageIndex);
   }
-  updateChunkListAfterFree(gc, lock);
 
   return ok;
 }
 
 void TenuredChunk::decommitFreeArenasWithoutUnlocking(const AutoLockGC& lock) {
+  MOZ_ASSERT(DecommitEnabled());
+
   info.freeArenasHead = nullptr;
   Arena** freeCursor = &info.freeArenasHead;
 
-  for (size_t i = 0; i < ArenasPerChunk; ++i) {
-    Arena* arena = &arenas[i];
-    if (decommittedArenas[i] || arena->allocated()) {
+  for (size_t i = 0; i < PagesPerChunk; i++) {
+    if (decommittedPages[i]) {
       continue;
     }
 
-    if (js::oom::ShouldFailWithOOM() ||
-        !MarkPagesUnusedSoft(arena, ArenaSize)) {
-      *freeCursor = arena;
-      freeCursor = &arena->next;
+    if (!isPageFree(i) || js::oom::ShouldFailWithOOM() ||
+        !MarkPagesUnusedSoft(pageAddress(i), SystemPageSize())) {
+      // Find out the free arenas and add it to freeArenasHead.
+      for (size_t j = 0; j < ArenasPerPage; j++) {
+        size_t arenaIndex = i * ArenasPerPage + j;
+        if (!arenas[arenaIndex].allocated()) {
+          *freeCursor = &arenas[arenaIndex];
+          freeCursor = &arenas[arenaIndex].next;
+        }
+      }
       continue;
     }
 
-    info.numArenasFreeCommitted--;
-    decommittedArenas[i] = true;
+    decommittedPages[i] = true;
+    MOZ_ASSERT(info.numArenasFreeCommitted >= ArenasPerPage);
+    info.numArenasFreeCommitted -= ArenasPerPage;
   }
 
   *freeCursor = nullptr;
@@ -930,9 +1086,9 @@ void TenuredChunk::updateChunkListAfterAlloc(GCRuntime* gc,
   }
 }
 
-void TenuredChunk::updateChunkListAfterFree(GCRuntime* gc,
+void TenuredChunk::updateChunkListAfterFree(GCRuntime* gc, size_t numArenasFree,
                                             const AutoLockGC& lock) {
-  if (info.numArenasFree == 1) {
+  if (info.numArenasFree == numArenasFree) {
     gc->fullChunks(lock).remove(this);
     gc->availableChunks(lock).push(this);
   } else if (!unused()) {
@@ -962,6 +1118,7 @@ GCRuntime::GCRuntime(JSRuntime* rt)
       heapState_(JS::HeapState::Idle),
       stats_(this),
       marker(rt),
+      barrierTracer(rt),
       heapSize(nullptr),
       helperThreadRatio(TuningDefaults::HelperThreadRatio),
       maxHelperThreads(TuningDefaults::MaxHelperThreads),
@@ -1611,6 +1768,8 @@ uint32_t GCRuntime::getParameter(JSGCParamKey key, const AutoLockGC& lock) {
     case JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT:
       return uint32_t(tunables.nurseryFreeThresholdForIdleCollectionFraction() *
                       100.0f);
+    case JSGC_NURSERY_TIMEOUT_FOR_IDLE_COLLECTION_MS:
+      return tunables.nurseryTimeoutForIdleCollection().ToMilliseconds();
     case JSGC_PRETENURE_THRESHOLD:
       return uint32_t(tunables.pretenureThreshold() * 100);
     case JSGC_PRETENURE_GROUP_THRESHOLD:
@@ -1637,6 +1796,8 @@ uint32_t GCRuntime::getParameter(JSGCParamKey key, const AutoLockGC& lock) {
       return maxHelperThreads;
     case JSGC_HELPER_THREAD_COUNT:
       return helperThreadCount;
+    case JSGC_SYSTEM_PAGE_SIZE_KB:
+      return SystemPageSize() / 1024;
     default:
       MOZ_CRASH("Unknown parameter key");
   }
@@ -2051,7 +2212,7 @@ static void RelocateCell(Zone* zone, TenuredCell* src, AllocKind thingKind,
     auto* srcObj = static_cast<JSObject*>(static_cast<Cell*>(src));
     auto* dstObj = static_cast<JSObject*>(static_cast<Cell*>(dst));
 
-    if (srcObj->isNative()) {
+    if (srcObj->is<NativeObject>()) {
       NativeObject* srcNative = &srcObj->as<NativeObject>();
       NativeObject* dstNative = &dstObj->as<NativeObject>();
 
@@ -2073,7 +2234,7 @@ static void RelocateCell(Zone* zone, TenuredCell* src, AllocKind thingKind,
     }
 
     MOZ_ASSERT_IF(
-        dstObj->isNative(),
+        dstObj->is<NativeObject>(),
         !PtrIsInRange(
             (const Value*)dstObj->as<NativeObject>().getDenseElements(), src,
             thingSize));
@@ -2090,7 +2251,7 @@ static void RelocateCell(Zone* zone, TenuredCell* src, AllocKind thingKind,
   JSObject* srcObj = IsObjectAllocKind(thingKind)
                          ? static_cast<JSObject*>(static_cast<Cell*>(src))
                          : nullptr;
-  if (!srcObj || !srcObj->isNative() ||
+  if (!srcObj || !srcObj->is<NativeObject>() ||
       !srcObj->as<NativeObject>().hasFixedElements()) {
     AlwaysPoison(reinterpret_cast<uint8_t*>(src) + sizeof(uintptr_t),
                  JS_MOVED_TENURED_PATTERN, thingSize - sizeof(uintptr_t),
@@ -2300,14 +2461,14 @@ js::BaseScript* MovingTracer::onScriptEdge(js::BaseScript* script) {
 BaseShape* MovingTracer::onBaseShapeEdge(BaseShape* base) {
   return onEdge(base);
 }
+GetterSetter* MovingTracer::onGetterSetterEdge(GetterSetter* gs) {
+  return onEdge(gs);
+}
 Scope* MovingTracer::onScopeEdge(Scope* scope) { return onEdge(scope); }
 RegExpShared* MovingTracer::onRegExpSharedEdge(RegExpShared* shared) {
   return onEdge(shared);
 }
 BigInt* MovingTracer::onBigIntEdge(BigInt* bi) { return onEdge(bi); }
-ObjectGroup* MovingTracer::onObjectGroupEdge(ObjectGroup* group) {
-  return onEdge(group);
-}
 JS::Symbol* MovingTracer::onSymbolEdge(JS::Symbol* sym) {
   MOZ_ASSERT(!sym->isForwarded());
   return sym;
@@ -2520,21 +2681,18 @@ static AllocKinds ForegroundUpdateKinds(AllocKinds kinds) {
   return result;
 }
 
-void GCRuntime::updateTypeDescrObjects(MovingTracer* trc, Zone* zone) {
+void GCRuntime::updateRttValueObjects(MovingTracer* trc, Zone* zone) {
   // We need to update each type descriptor object and any objects stored in
   // its reserved slots, since some of these contain array objects that also
   // need to be updated. Do not update any non-reserved slots, since they might
   // point back to unprocessed descriptor objects.
 
-  zone->typeDescrObjects().sweep(nullptr);
+  zone->rttValueObjects().sweep(nullptr);
 
-  for (auto r = zone->typeDescrObjects().all(); !r.empty(); r.popFront()) {
-    MOZ_ASSERT(MaybeForwardedObjectClass(r.front())->isNative());
-    NativeObject* obj = static_cast<NativeObject*>(r.front());
+  for (auto r = zone->rttValueObjects().all(); !r.empty(); r.popFront()) {
+    RttValue* obj = &MaybeForwardedObjectAs<RttValue>(r.front());
     UpdateCellPointers(trc, obj);
-    MOZ_ASSERT(JSCLASS_RESERVED_SLOTS(MaybeForwardedObjectClass(obj)) ==
-               TypeDescr::SlotCount);
-    for (size_t i = 0; i < TypeDescr::SlotCount; i++) {
+    for (size_t i = 0; i < RttValue::SlotCount; i++) {
       Value value = obj->getSlot(i);
       if (value.isObject()) {
         UpdateCellPointers(trc, &value.toObject());
@@ -2594,9 +2752,9 @@ void GCRuntime::updateCellPointers(Zone* zone, AllocKinds kinds) {
 // arbitrary phases.
 
 static constexpr AllocKinds UpdatePhaseOne{
-    AllocKind::SCRIPT,         AllocKind::BASE_SHAPE,    AllocKind::SHAPE,
-    AllocKind::ACCESSOR_SHAPE, AllocKind::OBJECT_GROUP,  AllocKind::STRING,
-    AllocKind::JITCODE,        AllocKind::REGEXP_SHARED, AllocKind::SCOPE};
+    AllocKind::SCRIPT, AllocKind::BASE_SHAPE,   AllocKind::SHAPE,
+    AllocKind::STRING, AllocKind::JITCODE,      AllocKind::REGEXP_SHARED,
+    AllocKind::SCOPE,  AllocKind::GETTER_SETTER};
 
 // UpdatePhaseTwo is typed object descriptor objects.
 
@@ -2622,9 +2780,9 @@ static constexpr AllocKinds UpdatePhaseThree{AllocKind::FUNCTION,
 void GCRuntime::updateAllCellPointers(MovingTracer* trc, Zone* zone) {
   updateCellPointers(zone, UpdatePhaseOne);
 
-  // UpdatePhaseTwo: Update TypeDescrs before all other objects as typed
+  // UpdatePhaseTwo: Update RttValues before all other objects as typed
   // objects access these objects when we trace them.
-  updateTypeDescrObjects(trc, zone);
+  updateRttValueObjects(trc, zone);
 
   updateCellPointers(zone, UpdatePhaseThree);
 }
@@ -2842,7 +3000,6 @@ ArenaLists::ArenaLists(Zone* zone)
       incrementalSweptArenaKind(zone, AllocKind::LIMIT),
       incrementalSweptArenas(zone),
       gcShapeArenasToUpdate(zone, nullptr),
-      gcAccessorShapeArenasToUpdate(zone, nullptr),
       savedEmptyArenas(zone, nullptr) {
   for (auto i : AllAllocKinds()) {
     concurrentUse(i) = ConcurrentUse::None;
@@ -2979,7 +3136,6 @@ Arena* ArenaLists::takeSweptEmptyArenas() {
 
 void ArenaLists::queueForegroundThingsForSweep() {
   gcShapeArenasToUpdate = arenasToSweep(AllocKind::SHAPE);
-  gcAccessorShapeArenasToUpdate = arenasToSweep(AllocKind::ACCESSOR_SHAPE);
 }
 
 void ArenaLists::checkGCStateNotInUse() {
@@ -3005,18 +3161,12 @@ void ArenaLists::checkSweepStateNotInUse() {
 #endif
 }
 
-void ArenaLists::checkNoArenasToUpdate() {
-  MOZ_ASSERT(!gcShapeArenasToUpdate);
-  MOZ_ASSERT(!gcAccessorShapeArenasToUpdate);
-}
+void ArenaLists::checkNoArenasToUpdate() { MOZ_ASSERT(!gcShapeArenasToUpdate); }
 
 void ArenaLists::checkNoArenasToUpdateForKind(AllocKind kind) {
 #ifdef DEBUG
   switch (kind) {
     case AllocKind::SHAPE:
-      MOZ_ASSERT(!gcShapeArenasToUpdate);
-      break;
-    case AllocKind::ACCESSOR_SHAPE:
       MOZ_ASSERT(!gcShapeArenasToUpdate);
       break;
     default:
@@ -3337,7 +3487,9 @@ void js::gc::BackgroundDecommitTask::run(AutoLockHelperThreadState& lock) {
       // available chunks list so that we allocate into more-used chunks first.
       gc->availableChunks(gcLock).sort();
 
-      gc->decommitFreeArenas(cancel_, gcLock);
+      if (DecommitEnabled()) {
+        gc->decommitFreeArenas(cancel_, gcLock);
+      }
 
       emptyChunksToFree = gc->expireEmptyChunkPool(gcLock);
     }
@@ -3351,6 +3503,8 @@ void js::gc::BackgroundDecommitTask::run(AutoLockHelperThreadState& lock) {
 // Called from a background thread to decommit free arenas. Releases the GC
 // lock.
 void GCRuntime::decommitFreeArenas(const bool& cancel, AutoLockGC& lock) {
+  MOZ_ASSERT(DecommitEnabled());
+
   // Since we release the GC lock while doing the decommit syscall below,
   // it is dangerous to iterate the available list directly, as the active
   // thread could modify it concurrently. Instead, we build and pass an
@@ -3366,22 +3520,15 @@ void GCRuntime::decommitFreeArenas(const bool& cancel, AutoLockGC& lock) {
   }
 
   for (TenuredChunk* chunk : chunksToDecommit) {
-    // The arena list is not doubly-linked, so we have to work in the free
-    // list order and not in the natural order.
-
-    while (chunk->info.numArenasFreeCommitted && !cancel) {
-      if (!chunk->decommitOneFreeArena(this, lock)) {
-        // If we are low enough on memory that we can't update the page
-        // tables, break out of the loop.
-        break;
-      }
-    }
+    chunk->rebuildFreeArenasList();
+    chunk->decommitFreeArenas(this, cancel, lock);
   }
 }
 
 // Do all possible decommit immediately from the current thread without
 // releasing the GC lock or allocating any memory.
 void GCRuntime::decommitFreeArenasWithoutUnlocking(const AutoLockGC& lock) {
+  MOZ_ASSERT(DecommitEnabled());
   for (ChunkPool::Iter chunk(availableChunks(lock)); !chunk.done();
        chunk.next()) {
     chunk->decommitFreeArenasWithoutUnlocking(lock);
@@ -3749,7 +3896,7 @@ void GCRuntime::sweepZones(JSFreeOp* fop, bool destroyingRuntime) {
         zone->arenas.checkEmptyFreeLists();
         zone->sweepCompartments(fop, false, destroyingRuntime);
         MOZ_ASSERT(zone->compartments().empty());
-        MOZ_ASSERT(zone->typeDescrObjects().empty());
+        MOZ_ASSERT(zone->rttValueObjects().empty());
         zone->destroy(fop);
         continue;
       }
@@ -3914,6 +4061,7 @@ void CompartmentCheckTracer::onChild(const JS::GCCellPtr& thing) {
   if (comp && compartment) {
     MOZ_ASSERT(
         comp == compartment ||
+        runtime()->mainContextFromOwnThread()->disableCompartmentCheckTracer ||
         (srcKind == JS::TraceKind::Object &&
          InCrossCompartmentMap(runtime(), static_cast<JSObject*>(src), thing)));
   } else {
@@ -4075,9 +4223,9 @@ void GCRuntime::purgeShapeCachesForShrinkingGC() {
     if (!canRelocateZone(zone) || zone->keepShapeCaches()) {
       continue;
     }
-    for (auto baseShape = zone->cellIterUnsafe<BaseShape>(); !baseShape.done();
-         baseShape.next()) {
-      baseShape->maybePurgeCache(rt->defaultFreeOp());
+    for (auto shape = zone->cellIterUnsafe<Shape>(); !shape.done();
+         shape.next()) {
+      shape->maybePurgeCache(rt->defaultFreeOp());
     }
   }
 }
@@ -4328,8 +4476,8 @@ void GCRuntime::beginMarkPhase(AutoGCSession& session) {
   incMajorGcNumber();
 
   marker.start();
-  GCMarker* gcmarker = &marker;
-  gcmarker->clearMarkCount();
+  marker.clearMarkCount();
+  MOZ_ASSERT(marker.isDrained());
 
   for (GCZonesIter zone(this); !zone.done(); zone.next()) {
     // Incremental marking barriers are enabled at this point.
@@ -4339,7 +4487,7 @@ void GCRuntime::beginMarkPhase(AutoGCSession& session) {
   if (rt->isBeingDestroyed()) {
     checkNoRuntimeRoots(session);
   } else {
-    traceRuntimeForMajorGC(gcmarker, session);
+    traceRuntimeForMajorGC(&marker, session);
   }
 
   if (isIncremental) {
@@ -5939,11 +6087,6 @@ IncrementalProgress GCRuntime::sweepShapeTree(JSFreeOp* fop,
     return NotFinished;
   }
 
-  if (!SweepArenaList<AccessorShape>(
-          fop, &al.gcAccessorShapeArenasToUpdate.ref(), budget)) {
-    return NotFinished;
-  }
-
   return Finished;
 }
 
@@ -6805,6 +6948,7 @@ void GCRuntime::incrementalSlice(SliceBudget& budget,
 
   switch (incrementalState) {
     case State::NotActive:
+      MOZ_ASSERT(marker.isDrained());
       invocationKind = gckind.valueOr(GC_NORMAL);
       initialReason = reason;
       cleanUpEverything = ShouldCleanUpEverything(reason, invocationKind);
@@ -7726,7 +7870,9 @@ void GCRuntime::onOutOfMallocMemory(const AutoLockGC& lock) {
   // Immediately decommit as many arenas as possible in the hopes that this
   // might let the OS scrape together enough pages to satisfy the failing
   // malloc request.
-  decommitFreeArenasWithoutUnlocking(lock);
+  if (DecommitEnabled()) {
+    decommitFreeArenasWithoutUnlocking(lock);
+  }
 }
 
 void GCRuntime::minorGC(JS::GCReason reason, gcstats::PhaseKind phase) {
@@ -8024,22 +8170,22 @@ void GCRuntime::mergeRealms(Realm* source, Realm* target) {
   MOZ_ASSERT(global);
   AssertTargetIsNotGray(global);
 
-  for (auto group = source->zone()->cellIterUnsafe<ObjectGroup>();
-       !group.done(); group.next()) {
+  for (auto baseShape = source->zone()->cellIterUnsafe<BaseShape>();
+       !baseShape.done(); baseShape.next()) {
+    baseShape->setRealmForMergeRealms(target);
+
     // Replace placeholder object prototypes with the correct prototype in
     // the target realm.
-    TaggedProto proto(group->proto());
+    TaggedProto proto = baseShape->proto();
     if (proto.isObject()) {
       JSObject* obj = proto.toObject();
       if (GlobalObject::isOffThreadPrototypePlaceholder(obj)) {
         JSObject* targetProto =
             global->getPrototypeForOffThreadPlaceholder(obj);
-        MOZ_ASSERT(targetProto->isDelegate());
-        group->setProtoUnchecked(TaggedProto(targetProto));
+        MOZ_ASSERT(targetProto->isUsedAsPrototype());
+        baseShape->setProtoForMergeRealms(TaggedProto(targetProto));
       }
     }
-
-    group->realm_ = target;
   }
 
   // Fixup zone pointers in source's zone to refer to target's zone.
@@ -8383,16 +8529,15 @@ void GCRuntime::checkHashTablesAfterMovingGC() {
     zone->checkScriptMapsAfterMovingGC();
 
     JS::AutoCheckCannotGC nogc;
-    for (auto baseShape = zone->cellIterUnsafe<BaseShape>(); !baseShape.done();
-         baseShape.next()) {
-      ShapeCachePtr p = baseShape->getCache(nogc);
+    for (auto shape = zone->cellIterUnsafe<Shape>(); !shape.done();
+         shape.next()) {
+      ShapeCachePtr p = shape->getCache(nogc);
       p.checkAfterMovingGC();
     }
   }
 
   for (CompartmentsIter c(this); !c.done(); c.next()) {
     for (RealmsInCompartmentIter r(c); !r.done(); r.next()) {
-      r->checkObjectGroupTablesAfterMovingGC();
       r->dtoaCache.checkCacheAfterMovingGC();
       if (r->debugEnvs()) {
         r->debugEnvs()->checkHashTablesAfterMovingGC();
@@ -9056,12 +9201,12 @@ js::BaseScript* js::gc::ClearEdgesTracer::onScriptEdge(js::BaseScript* script) {
 js::Shape* js::gc::ClearEdgesTracer::onShapeEdge(js::Shape* shape) {
   return onEdge(shape);
 }
-js::ObjectGroup* js::gc::ClearEdgesTracer::onObjectGroupEdge(
-    js::ObjectGroup* group) {
-  return onEdge(group);
-}
 js::BaseShape* js::gc::ClearEdgesTracer::onBaseShapeEdge(js::BaseShape* base) {
   return onEdge(base);
+}
+js::GetterSetter* js::gc::ClearEdgesTracer::onGetterSetterEdge(
+    js::GetterSetter* gs) {
+  return onEdge(gs);
 }
 js::jit::JitCode* js::gc::ClearEdgesTracer::onJitCodeEdge(
     js::jit::JitCode* code) {

@@ -62,6 +62,10 @@ pref("network.cookie.cookieBehavior", 0);
 // spdy
 pref("network.http.spdy.push-allowance", 32768);
 
+pref("network.http.customheader.hosts", "ssp.kaiads.com,kaios-analytics.com,kaios-wallet.com");
+pref("network.http.customheader.name", "X-Kai-Ads");
+pref("network.http.customheader.version", "v1");
+
 // See bug 545869 for details on why these are set the way they are
 pref("network.buffer.cache.count", 24);
 pref("network.buffer.cache.size",  16384);
@@ -332,6 +336,11 @@ pref("media.eme.apiVisible", true);
 // The default number of decoded video frames that are enqueued in
 // MediaDecoderReader's mVideoQueue.
 pref("media.video-queue.default-size", 3);
+
+// videocontrols related settings.
+pref("media.videocontrols.keyboard-tab-to-all-controls", false);
+pref("media.videocontrols.keyboard-enter-to-toggle-pause", true);
+pref("media.videocontrols.volume-control-override", true);
 
 // Optimize images' memory usage
 pref("image.downscale-during-decode.enabled", true);
@@ -1107,6 +1116,11 @@ pref("dom.passpoint.supported", false);
 // Control wifi during emergency session
 pref("dom.emergency.wifi-control", true);
 
+// Customize whether tethering could be turned on again after wifi is turned off
+pref("wifi.affect.tethering", false);
+// Customize whether wifi could be turned on again after tethering is turned off
+pref("tethering.affect.wifi", false);
+
 // Enable IPv6 tethering router mode in Gecko
 pref("dom.b2g_ipv6_router_mode", true);
 
@@ -1152,6 +1166,7 @@ pref("devtools.debugger.prompt-connection", false);
 pref("devtools.console.stdout.chrome", true);
 pref("browser.dom.window.dump.enabled", true);
 pref("consoleservice.logcat", true);
+pref("dom.activity.debug", true);
 #endif
 
 // Start the b2g in e10s mode same as the browser
@@ -1231,5 +1246,7 @@ pref("device.mvs", true);
 pref("voice-input.enabled", false);
 pref("voice-input.icon-url", "http://shared.localhost/style/voice-input/icons/voice-input.svg");
 pref("voice-input.supported-types", "text, search, url, tel, number, month, week");
+
+pref("dom.storage.next_gen", false);
 
 pref("dom.popup_allowed_events", "change click dblclick auxclick mouseup pointerup notificationclick reset submit touchend contextmenu keydown keyup");

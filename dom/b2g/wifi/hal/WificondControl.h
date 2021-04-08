@@ -35,6 +35,7 @@ class WificondControl : virtual public android::RefBase {
   Result_t StopWificond();
   Result_t TearDownClientInterface(const std::string& aIfaceName);
   Result_t TearDownSoftapInterface(const std::string& aIfaceName);
+  Result_t TearDownInterfaces();
 
   Result_t StartSupplicant();
   Result_t StopSupplicant();
@@ -69,7 +70,6 @@ class WificondControl : virtual public android::RefBase {
     virtual void binderDied(const android::wp<android::IBinder>& who);
   };
 
-  Result_t TearDownInterfaces();
   Result_t CleanupScanEvent();
   Result_t InitiateScanEvent(const std::string& aIfaceName,
                              const android::sp<WifiEventCallback>& aCallback);

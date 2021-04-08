@@ -155,7 +155,7 @@ nsresult ServiceWorkerPrivateImpl::Initialize() {
   }
 
   nsCOMPtr<nsICookieJarSettings> cookieJarSettings =
-      net::CookieJarSettings::Create();
+      net::CookieJarSettings::Create(principal);
   MOZ_ASSERT(cookieJarSettings);
 
   net::CookieJarSettings::Cast(cookieJarSettings)->SetPartitionKey(uri);
@@ -819,7 +819,8 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
 
   nsTArray<HeadersEntry> ipcHeaders;
   HeadersGuardEnum ipcHeadersGuard;
-  internalHeaders->ToIPC(ipcHeaders, ipcHeadersGuard);
+  bool ipcHasXHRPerm;
+  internalHeaders->ToIPC(ipcHeaders, ipcHeadersGuard, ipcHasXHRPerm);
 
   nsAutoCString alternativeDataType;
   if (cacheInfoChannel &&
@@ -843,7 +844,7 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
       method, {spec}, ipcHeadersGuard, ipcHeaders, Nothing(), -1,
       alternativeDataType, contentPolicyType, referrer, referrerPolicy,
       requestMode, requestCredentials, cacheMode, requestRedirect, integrity,
-      fragment, principalInfo);
+      fragment, principalInfo, ipcHasXHRPerm);
 }
 
 nsresult MaybeStoreStreamForBackgroundThread(nsIInterceptedChannel* aChannel,

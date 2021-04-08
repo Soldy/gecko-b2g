@@ -132,6 +132,9 @@ class MOZ_RAII WarpCacheIRTranspiler : public WarpBuilderShared {
   Shape* shapeStubField(uint32_t offset) {
     return reinterpret_cast<Shape*>(readStubWord(offset));
   }
+  GetterSetter* getterSetterStubField(uint32_t offset) {
+    return reinterpret_cast<GetterSetter*>(readStubWord(offset));
+  }
   const JSClass* classStubField(uint32_t offset) {
     return reinterpret_cast<const JSClass*>(readStubWord(offset));
   }
@@ -140,9 +143,6 @@ class MOZ_RAII WarpCacheIRTranspiler : public WarpBuilderShared {
   }
   JS::Symbol* symbolStubField(uint32_t offset) {
     return reinterpret_cast<JS::Symbol*>(readStubWord(offset));
-  }
-  ObjectGroup* groupStubField(uint32_t offset) {
-    return reinterpret_cast<ObjectGroup*>(readStubWord(offset));
   }
   BaseScript* baseScriptStubField(uint32_t offset) {
     return reinterpret_cast<BaseScript*>(readStubWord(offset));
@@ -170,6 +170,11 @@ class MOZ_RAII WarpCacheIRTranspiler : public WarpBuilderShared {
   }
   uint64_t uint64StubField(uint32_t offset) {
     return static_cast<uint64_t>(stubInfo_->getStubRawInt64(stubData_, offset));
+  }
+  Value valueStubField(uint32_t offset) {
+    uint64_t raw =
+        static_cast<uint64_t>(stubInfo_->getStubRawInt64(stubData_, offset));
+    return Value::fromRawBits(raw);
   }
 
   // This must only be called when the caller knows the object is tenured and
@@ -394,19 +399,6 @@ bool WarpCacheIRTranspiler::emitGuardShape(ObjOperandId objId,
   return true;
 }
 
-bool WarpCacheIRTranspiler::emitGuardGroup(ObjOperandId objId,
-                                           uint32_t groupOffset) {
-  MDefinition* def = getOperand(objId);
-  ObjectGroup* group = groupStubField(groupOffset);
-
-  auto* ins = MGuardObjectGroup::New(alloc(), def, group,
-                                     /* bailOnEquality = */ false);
-  add(ins);
-
-  setOperand(objId, ins);
-  return true;
-}
-
 bool WarpCacheIRTranspiler::emitGuardNullProto(ObjOperandId objId) {
   MDefinition* def = getOperand(objId);
 
@@ -457,12 +449,13 @@ bool WarpCacheIRTranspiler::emitGuardIsNotDOMProxy(ObjOperandId objId) {
   return true;
 }
 
-bool WarpCacheIRTranspiler::emitGuardHasGetterSetter(ObjOperandId objId,
-                                                     uint32_t shapeOffset) {
+bool WarpCacheIRTranspiler::emitGuardHasGetterSetter(
+    ObjOperandId objId, uint32_t idOffset, uint32_t getterSetterOffset) {
   MDefinition* obj = getOperand(objId);
-  Shape* shape = shapeStubField(shapeOffset);
+  jsid id = idStubField(idOffset);
+  GetterSetter* gs = getterSetterStubField(getterSetterOffset);
 
-  auto* ins = MGuardHasGetterSetter::New(alloc(), obj, shape);
+  auto* ins = MGuardHasGetterSetter::New(alloc(), obj, id, gs);
   add(ins);
 
   setOperand(objId, ins);
@@ -750,6 +743,47 @@ bool WarpCacheIRTranspiler::emitGuardDynamicSlotIsSpecificObject(
 
   auto* guard = MGuardObjectIdentity::New(alloc(), unbox, expected,
                                           /* bailOnEquality = */ false);
+  add(guard);
+  return true;
+}
+
+bool WarpCacheIRTranspiler::emitGuardFixedSlotValue(ObjOperandId objId,
+                                                    uint32_t offsetOffset,
+                                                    uint32_t valOffset) {
+  MDefinition* obj = getOperand(objId);
+
+  size_t offset = int32StubField(offsetOffset);
+  Value val = valueStubField(valOffset);
+  MOZ_ASSERT(val.isPrivateGCThing());
+
+  uint32_t slotIndex = NativeObject::getFixedSlotIndexFromOffset(offset);
+
+  auto* load = MLoadFixedSlot::New(alloc(), obj, slotIndex);
+  add(load);
+
+  auto* guard = MGuardValue::New(alloc(), load, val);
+  add(guard);
+  return true;
+}
+
+bool WarpCacheIRTranspiler::emitGuardDynamicSlotValue(ObjOperandId objId,
+                                                      uint32_t offsetOffset,
+                                                      uint32_t valOffset) {
+  MDefinition* obj = getOperand(objId);
+
+  size_t offset = int32StubField(offsetOffset);
+  Value val = valueStubField(valOffset);
+  MOZ_ASSERT(val.isPrivateGCThing());
+
+  size_t slotIndex = NativeObject::getDynamicSlotIndexFromOffset(offset);
+
+  auto* slots = MSlots::New(alloc(), obj);
+  add(slots);
+
+  auto* load = MLoadDynamicSlot::New(alloc(), slots, slotIndex);
+  add(load);
+
+  auto* guard = MGuardValue::New(alloc(), load, val);
   add(guard);
   return true;
 }
@@ -4495,6 +4529,7 @@ MDefinition* WarpCacheIRTranspiler::convertWasmArg(MDefinition* arg,
     case wasm::ValType::F64:
       conversion = MToDouble::New(alloc(), arg);
       break;
+    case wasm::ValType::Rtt:
     case wasm::ValType::V128:
       MOZ_CRASH("Unexpected type for Wasm JitEntry");
     case wasm::ValType::Ref:
@@ -4543,9 +4578,8 @@ bool WarpCacheIRTranspiler::emitCallGetterResult(CallKind kind,
   WrappedFunction* wrappedTarget =
       maybeWrappedFunction(getter, kind, nargs, flags);
 
-  jsbytecode* pc = loc_.toRawBytecode();
-  bool ignoresRval = BytecodeIsPopped(pc);
-  CallInfo callInfo(alloc(), pc, /* constructing = */ false, ignoresRval);
+  bool ignoresRval = loc_.resultIsPopped();
+  CallInfo callInfo(alloc(), /* constructing = */ false, ignoresRval);
   callInfo.initForGetterCall(getter, receiver);
 
   MCall* call = makeCall(callInfo, /* needsThisCheck = */ false, wrappedTarget);
@@ -4616,8 +4650,7 @@ bool WarpCacheIRTranspiler::emitCallSetter(CallKind kind,
   WrappedFunction* wrappedTarget =
       maybeWrappedFunction(setter, kind, nargs, flags);
 
-  jsbytecode* pc = loc_.toRawBytecode();
-  CallInfo callInfo(alloc(), pc, /* constructing = */ false,
+  CallInfo callInfo(alloc(), /* constructing = */ false,
                     /* ignoresReturnValue = */ true);
   callInfo.initForSetterCall(setter, receiver, rhs);
 

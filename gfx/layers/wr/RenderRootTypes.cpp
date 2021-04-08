@@ -48,7 +48,7 @@ void WriteScrollUpdates(IPC::Message* aMsg, IProtocol* aActor,
   // ICK: we need to manually serialize this map because
   // nsDataHashTable doesn't support it (and other maps cause other issues)
   WriteIPDLParam(aMsg, aActor, aParam.Count());
-  for (auto it = aParam.Iter(); !it.Done(); it.Next()) {
+  for (auto it = aParam.ConstIter(); !it.Done(); it.Next()) {
     WriteIPDLParam(aMsg, aActor, it.Key());
     WriteIPDLParam(aMsg, aActor, it.Data());
   }
@@ -70,7 +70,7 @@ bool ReadScrollUpdates(const IPC::Message* aMsg, PickleIterator* aIter,
         !ReadIPDLParam(aMsg, aIter, aActor, &data)) {
       return false;
     }
-    map.Put(key, std::move(data));
+    map.InsertOrUpdate(key, std::move(data));
   }
 
   MOZ_RELEASE_ASSERT(map.Count() == count);

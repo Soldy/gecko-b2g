@@ -144,6 +144,7 @@ struct LoadInfoArgs
   bool                        serviceWorkerTaintingSynthesized;
   bool                        documentHasUserInteracted;
   bool allowListFutureDocumentsCreatedFromThisRedirectChain;
+  bool needForCheckingAntiTrackingHeuristic;
   nsString                    cspNonce;
   bool                        skipContentSniffing;
   uint32_t                    httpsOnlyStatus;
@@ -152,10 +153,13 @@ struct LoadInfoArgs
   bool                        isInDevToolsContext;
   bool                        parserCreatedScript;
   bool                        isFromProcessingFrameAttributes;
+  bool                        isMediaRequest;
+  bool                        isMediaInitialRequest;
   CookieJarSettingsArgs       cookieJarSettings;
   uint32_t                    requestBlockingReason;
   CSPInfo?                    cspToInheritInfo;
   bool                        hasStoragePermission;
+  bool                        isMetaRefresh;
   CrossOriginEmbedderPolicy   loadingEmbedderPolicy;
 };
 
@@ -225,6 +229,8 @@ struct ParentLoadInfoForwarderArgs
   uint32_t requestBlockingReason;
 
   bool hasStoragePermission;
+
+  bool isMetaRefresh;
 
   bool isThirdPartyContextToTopWindow;
 
@@ -311,7 +317,7 @@ struct HttpChannelOpenArgs
   nsString                    integrityMetadata;
   uint64_t                    contentWindowId;
   PreferredAlternativeDataTypeParams[] preferredAlternativeTypes;
-  uint64_t                    topLevelOuterContentWindowId;
+  uint64_t                    topBrowsingContextId;
   TimeStamp                   launchServiceWorkerStart;
   TimeStamp                   launchServiceWorkerEnd;
   TimeStamp                   dispatchFetchEventStart;

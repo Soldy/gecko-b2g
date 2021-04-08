@@ -88,9 +88,10 @@ class WebActivity final : public nsISupports,
   static already_AddRefed<nsIActivityProxy> GetOrCreateActivityProxy();
 
   // WebIDL methods
-  static already_AddRefed<WebActivity> Constructor(
-      const GlobalObject& aGlobal, const WebActivityOptions& aOptions,
-      ErrorResult& aRv);
+  static already_AddRefed<WebActivity> Constructor(const GlobalObject& aGlobal,
+                                                   const nsAString& aName,
+                                                   JS::Handle<JS::Value> aData,
+                                                   ErrorResult& aRv);
 
   already_AddRefed<Promise> Start(ErrorResult& aRv);
 

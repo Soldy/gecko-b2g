@@ -4,23 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef MOZ_WIDGET_GTK
-#  include <gdk/gdkx.h>
-#  include <gtk/gtk.h>
-#endif
-
 #include "BrowserChild.h"
 #include "ContentChild.h"
 #include "GeckoProfiler.h"
 #include "HandlerServiceChild.h"
 #include "nsXPLookAndFeel.h"
+#include "mozilla/AppShutdown.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BackgroundHangMonitor.h"
 #include "mozilla/BenchmarkStorageChild.h"
 #include "mozilla/ContentBlocking.h"
-#ifdef MOZ_GLEAN
-#  include "mozilla/FOGIPC.h"
-#endif
+#include "mozilla/FOGIPC.h"
 #include "GMPServiceChild.h"
 #include "Geolocation.h"
 #include "imgLoader.h"
@@ -28,6 +22,7 @@
 #include "mozilla/Components.h"
 #include "mozilla/HangDetails.h"
 #include "mozilla/LoadInfo.h"
+#include "mozilla/Logging.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/MemoryTelemetry.h"
 #include "mozilla/NullPrincipal.h"
@@ -41,6 +36,7 @@
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/SharedStyleSheetCache.h"
+#include "mozilla/SimpleEnumerator.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_fission.h"
@@ -90,6 +86,7 @@
 #  include "mozilla/dom/bluetooth/PBluetoothChild.h"
 #endif
 #include "mozilla/dom/ipc/SharedMap.h"
+#include "mozilla/extensions/ExtensionsChild.h"
 #include "mozilla/extensions/StreamFilterParent.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
@@ -113,10 +110,9 @@
 #include "mozilla/media/MediaChild.h"
 #include "mozilla/net/CaptivePortalService.h"
 #include "mozilla/net/CookieServiceChild.h"
+#include "mozilla/net/DocumentChannelChild.h"
 #include "mozilla/net/HttpChannelChild.h"
 #include "mozilla/net/NeckoChild.h"
-#include "mozilla/plugins/PluginInstanceParent.h"
-#include "mozilla/plugins/PluginModuleParent.h"
 #include "mozilla/widget/RemoteLookAndFeel.h"
 #include "mozilla/widget/ScreenManager.h"
 #include "mozilla/widget/WidgetMessageUtils.h"
@@ -125,7 +121,9 @@
 #include "nsFocusManager.h"
 #include "nsIConsoleService.h"
 #include "nsIInputStreamChannel.h"
+#include "nsILoadGroup.h"
 #include "nsIOpenWindowInfo.h"
+#include "nsISimpleEnumerator.h"
 #include "nsIStringBundle.h"
 #include "nsIURIMutator.h"
 #include "nsQueryObject.h"
@@ -153,6 +151,7 @@
 #    include "mozilla/SandboxInfo.h"
 #  elif defined(XP_MACOSX)
 #    include "mozilla/Sandbox.h"
+#    include "mozilla/gfx/QuartzSupport.h"
 #  elif defined(__OpenBSD__)
 #    include <err.h>
 #    include <sys/stat.h>
@@ -278,8 +277,6 @@
 
 #include "mozilla/dom/devicestorage/DeviceStorageRequestChild.h"
 #include "mozilla/dom/MediaControllerBinding.h"
-#include "mozilla/dom/PPresentationChild.h"
-#include "mozilla/dom/PresentationIPCService.h"
 #include "mozilla/ipc/IPCStreamAlloc.h"
 #include "mozilla/ipc/IPCStreamDestination.h"
 #include "mozilla/ipc/IPCStreamSource.h"
@@ -320,12 +317,16 @@
 #include "private/pprio.h"
 
 #ifdef MOZ_WIDGET_GTK
+#  include "mozilla/WidgetUtilsGtk.h"
 #  include "nsAppRunner.h"
+#  include <gtk/gtk.h>
 #endif
 
 #ifdef MOZ_CODE_COVERAGE
 #  include "mozilla/CodeCoverageHandler.h"
 #endif
+
+extern mozilla::LazyLogModule gSHIPBFCacheLog;
 
 using namespace mozilla;
 using namespace mozilla::docshell;
@@ -630,7 +631,7 @@ ContentChild::ContentChild()
   // happens without requiring the observer service at this time.
   if (!sShutdownCanary) {
     sShutdownCanary = new ShutdownCanary();
-    ClearOnShutdown(&sShutdownCanary, ShutdownPhase::Shutdown);
+    ClearOnShutdown(&sShutdownCanary, ShutdownPhase::XPCOMShutdown);
   }
 }
 
@@ -658,7 +659,7 @@ NS_INTERFACE_MAP_END
 
 mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
     XPCOMInitData&& aXPCOMInit, const StructuredCloneData& aInitialData,
-    LookAndFeelData&& aLookAndFeelData,
+    FullLookAndFeel&& aLookAndFeelData,
     nsTArray<SystemFontListEntry>&& aFontList,
     const Maybe<SharedMemoryHandle>& aSharedUASheetHandle,
     const uintptr_t& aSharedUASheetAddress,
@@ -709,11 +710,11 @@ bool ContentChild::Init(MessageLoop* aIOLoop, base::ProcessId aParentPid,
   if (!gfxPlatform::IsHeadless()) {
     const char* display_name = PR_GetEnv("MOZ_GDK_DISPLAY");
     if (!display_name) {
-      bool waylandDisabled = true;
+      bool waylandEnabled = false;
 #  ifdef MOZ_WAYLAND
-      waylandDisabled = IsWaylandDisabled();
+      waylandEnabled = IsWaylandEnabled();
 #  endif
-      if (waylandDisabled) {
+      if (!waylandEnabled) {
         display_name = PR_GetEnv("DISPLAY");
       }
     }
@@ -777,8 +778,7 @@ bool ContentChild::Init(MessageLoop* aIOLoop, base::ProcessId aParentPid,
 
 #ifdef MOZ_X11
 #  ifdef MOZ_WIDGET_GTK
-  if (GDK_IS_X11_DISPLAY(gdk_display_get_default()) &&
-      !gfxPlatform::IsHeadless()) {
+  if (GdkIsX11Display() && !gfxPlatform::IsHeadless()) {
     // Send the parent our X socket to act as a proxy reference for our X
     // resources.
     int xSocketFd = ConnectionNumber(DefaultXDisplay());
@@ -955,23 +955,10 @@ nsresult ContentChild::ProvideWindowCommon(
       (aLoadState &&
        (aLoadState->IsFormSubmission() || aLoadState->PostDataStream()));
   if (!cannotLoadInDifferentProcess) {
-    // Check if we should load in a different process. If we have the noopener
-    // flag set, we can do so, but we may also want to do so eagerly if the load
-    // cannot be completed within the current process.
-    bool loadInDifferentProcess =
-        aForceNoOpener && StaticPrefs::dom_noopener_newprocess_enabled();
-    if (!loadInDifferentProcess && aURI) {
-      nsCOMPtr<nsIWebBrowserChrome3> browserChrome3;
-      rv = aTabOpener->GetWebBrowserChrome(getter_AddRefs(browserChrome3));
-      if (NS_SUCCEEDED(rv) && browserChrome3) {
-        bool shouldLoad;
-        rv = browserChrome3->ShouldLoadURIInThisProcess(aURI, &shouldLoad);
-        loadInDifferentProcess = NS_SUCCEEDED(rv) && !shouldLoad;
-      }
-    }
-
     // If we're in a content process and we have noopener set, there's no reason
     // to load in our process, so let's load it elsewhere!
+    bool loadInDifferentProcess =
+        aForceNoOpener && StaticPrefs::dom_noopener_newprocess_enabled();
     if (loadInDifferentProcess) {
       float fullZoom;
       nsCOMPtr<nsIPrincipal> triggeringPrincipal;
@@ -1899,45 +1886,6 @@ bool ContentChild::DeallocPRemoteSpellcheckEngineChild(
   return true;
 }
 
-PPresentationChild* ContentChild::AllocPPresentationChild() {
-  MOZ_CRASH("We should never be manually allocating PPresentationChild actors");
-  return nullptr;
-}
-
-bool ContentChild::DeallocPPresentationChild(PPresentationChild* aActor) {
-  delete aActor;
-  return true;
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvNotifyPresentationReceiverLaunched(
-    PBrowserChild* aIframe, const nsString& aSessionId) {
-  nsCOMPtr<nsIDocShell> docShell =
-      do_GetInterface(static_cast<BrowserChild*>(aIframe)->WebNavigation());
-  NS_WARNING_ASSERTION(docShell, "WebNavigation failed");
-
-  nsCOMPtr<nsIPresentationService> service =
-      do_GetService(PRESENTATION_SERVICE_CONTRACTID);
-  NS_WARNING_ASSERTION(service, "presentation service is missing");
-
-  Unused << NS_WARN_IF(
-      NS_FAILED(static_cast<PresentationIPCService*>(service.get())
-                    ->MonitorResponderLoading(aSessionId, docShell)));
-
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvNotifyPresentationReceiverCleanUp(
-    const nsString& aSessionId) {
-  nsCOMPtr<nsIPresentationService> service =
-      do_GetService(PRESENTATION_SERVICE_CONTRACTID);
-  NS_WARNING_ASSERTION(service, "presentation service is missing");
-
-  Unused << NS_WARN_IF(NS_FAILED(service->UntrackSessionInfo(
-      aSessionId, nsIPresentationService::ROLE_RECEIVER)));
-
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult ContentChild::RecvNotifyEmptyHTTPCache() {
   MOZ_ASSERT(NS_IsMainThread());
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
@@ -2607,17 +2555,8 @@ mozilla::ipc::IPCResult ContentChild::RecvNotifyVisited(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvThemeChanged(
-    LookAndFeelData&& aLookAndFeelData, widget::ThemeChangeKind aKind) {
-  switch (aLookAndFeelData.type()) {
-    case LookAndFeelData::TLookAndFeelCache:
-      LookAndFeel::SetCache(aLookAndFeelData.get_LookAndFeelCache());
-      break;
-    case LookAndFeelData::TFullLookAndFeel:
-      LookAndFeel::SetData(std::move(aLookAndFeelData.get_FullLookAndFeel()));
-      break;
-    default:
-      MOZ_ASSERT(false, "unreachable");
-  }
+    FullLookAndFeel&& aLookAndFeelData, widget::ThemeChangeKind aKind) {
+  LookAndFeel::SetData(std::move(aLookAndFeelData));
   LookAndFeel::NotifyChangedAllWindows(aKind);
   return IPC_OK();
 }
@@ -3144,7 +3083,7 @@ void ContentChild::AddIdleObserver(nsIObserver* aObserver,
   // Make sure aObserver isn't released while we wait for the parent
   aObserver->AddRef();
   SendAddIdleObserver(reinterpret_cast<uint64_t>(aObserver), aIdleTimeInS);
-  mIdleObservers.PutEntry(aObserver);
+  mIdleObservers.Insert(aObserver);
 }
 
 void ContentChild::RemoveIdleObserver(nsIObserver* aObserver,
@@ -3152,7 +3091,7 @@ void ContentChild::RemoveIdleObserver(nsIObserver* aObserver,
   MOZ_ASSERT(aObserver, "null idle observer");
   SendRemoveIdleObserver(reinterpret_cast<uint64_t>(aObserver), aIdleTimeInS);
   aObserver->Release();
-  mIdleObservers.RemoveEntry(aObserver);
+  mIdleObservers.Remove(aObserver);
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvNotifyIdleObserver(
@@ -3286,6 +3225,11 @@ void ContentChild::ForceKillTimerCallback(nsITimer* aTimer, void* aClosure) {
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvShutdown() {
+  // Signal the ongoing shutdown to AppShutdown, this
+  // will make abort nested SpinEventLoopUntilOrQuit loops
+  AppShutdown::AdvanceShutdownPhaseWithoutNotify(
+      ShutdownPhase::AppShutdownConfirmed);
+
   nsCOMPtr<nsIObserverService> os = services::GetObserverService();
   if (os) {
     os->NotifyObservers(ToSupports(this), "content-child-will-shutdown",
@@ -3371,26 +3315,10 @@ void ContentChild::ShutdownInternal() {
 
 mozilla::ipc::IPCResult ContentChild::RecvUpdateWindow(
     const uintptr_t& aChildId) {
-#if defined(XP_WIN)
-  NS_ASSERTION(aChildId,
-               "Expected child hwnd value for remote plugin instance.");
-  mozilla::plugins::PluginInstanceParent* parentInstance =
-      mozilla::plugins::PluginInstanceParent::LookupPluginInstanceByID(
-          aChildId);
-  if (parentInstance) {
-    // sync! update call to the plugin instance that forces the
-    // plugin to paint its child window.
-    if (!parentInstance->CallUpdateWindow()) {
-      return IPC_FAIL_NO_REASON(this);
-    }
-  }
-  return IPC_OK();
-#else
   MOZ_ASSERT(
       false,
       "ContentChild::RecvUpdateWindow calls unexpected on this platform.");
   return IPC_FAIL_NO_REASON(this);
-#endif
 }
 
 PContentPermissionRequestChild*
@@ -3593,17 +3521,17 @@ void ContentChild::CreateGetFilesRequest(const nsAString& aDirectoryPath,
                                          bool aRecursiveFlag, nsID& aUUID,
                                          GetFilesHelperChild* aChild) {
   MOZ_ASSERT(aChild);
-  MOZ_ASSERT(!mGetFilesPendingRequests.GetWeak(aUUID));
+  MOZ_ASSERT(!mGetFilesPendingRequests.Contains(aUUID));
 
   Unused << SendGetFilesRequest(aUUID, nsString(aDirectoryPath),
                                 aRecursiveFlag);
-  mGetFilesPendingRequests.Put(aUUID, RefPtr{aChild});
+  mGetFilesPendingRequests.InsertOrUpdate(aUUID, RefPtr{aChild});
 }
 
 void ContentChild::DeleteGetFilesRequest(nsID& aUUID,
                                          GetFilesHelperChild* aChild) {
   MOZ_ASSERT(aChild);
-  MOZ_ASSERT(mGetFilesPendingRequests.GetWeak(aUUID));
+  MOZ_ASSERT(mGetFilesPendingRequests.Contains(aUUID));
 
   Unused << SendDeleteGetFilesRequest(aUUID);
   mGetFilesPendingRequests.Remove(aUUID);
@@ -3735,7 +3663,7 @@ nsresult ContentChild::AsyncOpenAnonymousTemporaryFile(
 
   // Remember the association with the callback.
   MOZ_ASSERT(!mPendingAnonymousTemporaryFiles.Get(newID));
-  mPendingAnonymousTemporaryFiles.LookupOrAdd(newID, aCallback);
+  mPendingAnonymousTemporaryFiles.GetOrInsertNew(newID, aCallback);
   return NS_OK;
 }
 
@@ -3753,14 +3681,6 @@ mozilla::ipc::IPCResult ContentChild::RecvRefreshScreens(
     nsTArray<ScreenDetails>&& aScreens) {
   ScreenManager& screenManager = ScreenManager::GetSingleton();
   screenManager.Refresh(std::move(aScreens));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvSetPluginList(
-    const uint32_t& aPluginEpoch, nsTArray<plugins::PluginTag>&& aPluginTags,
-    nsTArray<plugins::FakePluginTag>&& aFakePluginTags) {
-  RefPtr<nsPluginHost> host = nsPluginHost::GetInst();
-  host->SetPluginsInContent(aPluginEpoch, aPluginTags, aFakePluginTags);
   return IPC_OK();
 }
 
@@ -4187,8 +4107,8 @@ mozilla::ipc::IPCResult ContentChild::RecvRaiseWindow(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvAdjustWindowFocus(
-    const MaybeDiscarded<BrowsingContext>& aContext, bool aCheckPermission,
-    bool aIsVisible) {
+    const MaybeDiscarded<BrowsingContext>& aContext, bool aIsVisible,
+    uint64_t aActionId) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(BrowsingContext::GetLog(), LogLevel::Debug,
             ("ChildIPC: Trying to send a message to dead or detached context"));
@@ -4197,7 +4117,8 @@ mozilla::ipc::IPCResult ContentChild::RecvAdjustWindowFocus(
 
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
-    fm->AdjustWindowFocus(aContext.get(), aCheckPermission, aIsVisible);
+    fm->AdjustInProcessWindowFocus(aContext.get(), false, aIsVisible,
+                                   aActionId);
   }
   return IPC_OK();
 }
@@ -4226,7 +4147,7 @@ mozilla::ipc::IPCResult ContentChild::RecvClearFocus(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvSetFocusedBrowsingContext(
-    const MaybeDiscarded<BrowsingContext>& aContext) {
+    const MaybeDiscarded<BrowsingContext>& aContext, uint64_t aActionId) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(BrowsingContext::GetLog(), LogLevel::Debug,
             ("ChildIPC: Trying to send a message to dead or detached context"));
@@ -4235,7 +4156,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetFocusedBrowsingContext(
 
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
-    fm->SetFocusedBrowsingContextFromOtherProcess(aContext.get());
+    fm->SetFocusedBrowsingContextFromOtherProcess(aContext.get(), aActionId);
   }
   return IPC_OK();
 }
@@ -4250,7 +4171,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetActiveBrowsingContext(
 
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
-    fm->SetActiveBrowsingContextFromOtherProcess(aContext.get());
+    fm->SetActiveBrowsingContextFromOtherProcess(aContext.get(), aActionId);
   }
   return IPC_OK();
 }
@@ -4277,7 +4198,7 @@ mozilla::ipc::IPCResult ContentChild::RecvUnsetActiveBrowsingContext(
 
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
-    fm->UnsetActiveBrowsingContextFromOtherProcess(aContext.get());
+    fm->UnsetActiveBrowsingContextFromOtherProcess(aContext.get(), aActionId);
   }
   return IPC_OK();
 }
@@ -4346,27 +4267,43 @@ mozilla::ipc::IPCResult ContentChild::RecvBlurToChild(
 
 mozilla::ipc::IPCResult ContentChild::RecvSetupFocusedAndActive(
     const MaybeDiscarded<BrowsingContext>& aFocusedBrowsingContext,
-    const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext) {
+    uint64_t aActionIdForFocused,
+    const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext,
+    uint64_t aActionIdForActive) {
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
     if (!aActiveBrowsingContext.IsNullOrDiscarded()) {
-      fm->SetActiveBrowsingContextFromOtherProcess(
-          aActiveBrowsingContext.get());
+      fm->SetActiveBrowsingContextFromOtherProcess(aActiveBrowsingContext.get(),
+                                                   aActionIdForActive);
     }
     if (!aFocusedBrowsingContext.IsNullOrDiscarded()) {
       fm->SetFocusedBrowsingContextFromOtherProcess(
-          aFocusedBrowsingContext.get());
+          aFocusedBrowsingContext.get(), aActionIdForFocused);
     }
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvReviseActiveBrowsingContext(
+    uint64_t aOldActionId,
     const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext,
-    uint64_t aActionId) {
+    uint64_t aNewActionId) {
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm && !aActiveBrowsingContext.IsNullOrDiscarded()) {
-    fm->ReviseActiveBrowsingContext(aActiveBrowsingContext.get(), aActionId);
+    fm->ReviseActiveBrowsingContext(aOldActionId, aActiveBrowsingContext.get(),
+                                    aNewActionId);
+  }
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvReviseFocusedBrowsingContext(
+    uint64_t aOldActionId,
+    const MaybeDiscarded<BrowsingContext>& aFocusedBrowsingContext,
+    uint64_t aNewActionId) {
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
+  if (fm && !aFocusedBrowsingContext.IsNullOrDiscarded()) {
+    fm->ReviseFocusedBrowsingContext(
+        aOldActionId, aFocusedBrowsingContext.get(), aNewActionId);
   }
   return IPC_OK();
 }
@@ -4651,6 +4588,65 @@ mozilla::ipc::IPCResult ContentChild::RecvDispatchBeforeUnloadToSubtree(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvCanSavePresentation(
+    const MaybeDiscarded<BrowsingContext>& aTopLevelContext,
+    Maybe<uint64_t> aDocumentChannelId,
+    CanSavePresentationResolver&& aResolver) {
+  if (aTopLevelContext.IsNullOrDiscarded()) {
+    aResolver(false);
+    return IPC_OK();
+  }
+
+  bool canSave = true;
+  // XXXBFCache pass the flags to telemetry.
+  uint16_t flags = 0;
+  BrowsingContext* browsingContext = aTopLevelContext.get();
+  browsingContext->PreOrderWalk([&](BrowsingContext* aContext) {
+    Document* doc = aContext->GetDocument();
+    if (doc) {
+      nsIRequest* request = nullptr;
+      if (aDocumentChannelId.isSome() && aContext->IsTop()) {
+        nsCOMPtr<nsILoadGroup> loadGroup = doc->GetDocumentLoadGroup();
+        if (loadGroup) {
+          nsCOMPtr<nsISimpleEnumerator> requests;
+          loadGroup->GetRequests(getter_AddRefs(requests));
+          bool hasMore = false;
+          if (NS_SUCCEEDED(requests->HasMoreElements(&hasMore)) && hasMore) {
+            // If there are any requests, the only one we allow with bfcache
+            // is the DocumentChannel request.
+            nsCOMPtr<nsISupports> elem;
+            requests->GetNext(getter_AddRefs(elem));
+            nsCOMPtr<nsIIdentChannel> identChannel = do_QueryInterface(elem);
+            if (identChannel &&
+                identChannel->ChannelId() == aDocumentChannelId.value()) {
+              request = identChannel;
+            }
+          }
+        }
+      }
+      // Go through also the subdocuments so that flags are collected.
+      bool canSaveDoc = doc->CanSavePresentation(request, flags, false);
+      canSave = canSaveDoc && canSave;
+
+      if (MOZ_LOG_TEST(gSHIPBFCacheLog, LogLevel::Debug)) {
+        nsAutoCString uri;
+        if (doc->GetDocumentURI()) {
+          uri = doc->GetDocumentURI()->GetSpecOrDefault();
+        }
+
+        MOZ_LOG(gSHIPBFCacheLog, LogLevel::Debug,
+                ("ContentChild::RecvCanSavePresentation can save presentation "
+                 "[%i] for [%s]",
+                 canSaveDoc, uri.get()));
+      }
+    }
+  });
+
+  aResolver(canSave);
+
+  return IPC_OK();
+}
+
 /* static */ void ContentChild::DispatchBeforeUnloadToSubtree(
     BrowsingContext* aStartingAt,
     const DispatchBeforeUnloadToSubtreeResolver& aResolver) {
@@ -4676,6 +4672,21 @@ mozilla::ipc::IPCResult ContentChild::RecvDispatchBeforeUnloadToSubtree(
   if (!resolved) {
     aResolver(nsIContentViewer::eAllowNavigation);
   }
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvFlushTabState(
+    const MaybeDiscarded<BrowsingContext>& aContext,
+    FlushTabStateResolver&& aResolver) {
+  if (aContext.IsNullOrDiscarded()) {
+    aResolver(false);
+    return IPC_OK();
+  }
+
+  aContext->FlushSessionStore();
+
+  aResolver(true);
+
+  return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvGoBack(
@@ -4848,9 +4859,7 @@ ContentChild* ContentChild::AsContentChild() { return this; }
 JSActorManager* ContentChild::AsJSActorManager() { return this; }
 
 IPCResult ContentChild::RecvFlushFOGData(FlushFOGDataResolver&& aResolver) {
-#ifdef MOZ_GLEAN
   glean::FlushFOGData(std::move(aResolver));
-#endif
   return IPC_OK();
 }
 

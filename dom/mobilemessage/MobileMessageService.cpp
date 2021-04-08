@@ -51,10 +51,11 @@ MobileMessageService::CreateThread(
     uint64_t aId, JS::Handle<JS::Value> aParticipants, uint64_t aTimestamp,
     const nsAString& aLastMessageSubject, const nsAString& aBody,
     uint64_t aUnreadCount, const nsAString& aLastMessageType, bool aIsGroup,
-    JSContext* aCx, nsIMobileMessageThread** aThread) {
+    const nsAString& aLastMessageAttachmentStatus, JSContext* aCx,
+    nsIMobileMessageThread** aThread) {
   return MobileMessageThreadInternal::Create(
       aId, aParticipants, aTimestamp, aLastMessageSubject, aBody, aUnreadCount,
-      aLastMessageType, aIsGroup, aCx, aThread);
+      aLastMessageType, aIsGroup, aLastMessageAttachmentStatus, aCx, aThread);
 }
 
 NS_IMETHODIMP

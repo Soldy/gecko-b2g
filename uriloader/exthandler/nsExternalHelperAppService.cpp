@@ -1042,12 +1042,13 @@ static const char kExternalProtocolDefaultPref[] =
 NS_IMETHODIMP
 nsExternalHelperAppService::LoadURI(nsIURI* aURI,
                                     nsIPrincipal* aTriggeringPrincipal,
-                                    BrowsingContext* aBrowsingContext) {
+                                    BrowsingContext* aBrowsingContext,
+                                    bool aTriggeredExternally) {
   NS_ENSURE_ARG_POINTER(aURI);
 
   if (XRE_IsContentProcess()) {
     mozilla::dom::ContentChild::GetSingleton()->SendLoadURIExternal(
-        aURI, aTriggeringPrincipal, aBrowsingContext);
+        aURI, aTriggeringPrincipal, aBrowsingContext, aTriggeredExternally);
     return NS_OK;
   }
 
@@ -1149,7 +1150,7 @@ nsExternalHelperAppService::LoadURI(nsIURI* aURI,
   NS_ENSURE_SUCCESS(rv, rv);
 
   return chooser->HandleURI(handler, uri, aTriggeringPrincipal,
-                            aBrowsingContext);
+                            aBrowsingContext, aTriggeredExternally);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2396,6 +2397,12 @@ nsresult nsExternalAppHandler::CreateFailedTransfer() {
   rv = GetDownloadDirectory(getter_AddRefs(pseudoFile), true);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // We won't pass the temp file to the transfer, so if we have one it needs to
+  // get deleted now.
+  if (mTempFile) {
+    mTempFile->Remove(false);
+  }
+
   // Append the default suggested filename. If the user restarts the transfer
   // we will re-trigger a filename check anyway to ensure that it is unique.
   rv = pseudoFile->Append(mSuggestedFileName);
@@ -2893,13 +2900,6 @@ nsExternalHelperAppService::GetTypeFromExtension(const nsACString& aFileExt,
   // Check extras array.
   bool found = GetTypeFromExtras(aFileExt, aContentType);
   if (found) {
-    return NS_OK;
-  }
-
-  // Try the plugins
-  RefPtr<nsPluginHost> pluginHost = nsPluginHost::GetInst();
-  if (pluginHost &&
-      pluginHost->HavePluginForExtension(aFileExt, aContentType)) {
     return NS_OK;
   }
 

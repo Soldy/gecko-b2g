@@ -70,7 +70,10 @@
 #include "mozilla/dom/PBrowser.h"
 #include "mozilla/dom/PaymentRequestChild.h"
 #include "mozilla/dom/PointerEventHandler.h"
+#include "mozilla/dom/SessionStoreChangeListener.h"
+#include "mozilla/dom/SessionStoreDataCollector.h"
 #include "mozilla/dom/SessionStoreListener.h"
+#include "mozilla/dom/SessionStoreUtils.h"
 #include "mozilla/dom/WindowGlobalChild.h"
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "mozilla/dom/KeyboardEventForwarderChild.h"
@@ -93,7 +96,6 @@
 #include "mozilla/layers/LayerTransactionChild.h"
 #include "mozilla/layers/ShadowLayers.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
-#include "mozilla/plugins/PPluginWidgetChild.h"
 #include "nsBrowserStatusFilter.h"
 #include "nsColorPickerProxy.h"
 #include "nsCommandParams.h"
@@ -145,10 +147,6 @@
 #include "nsWindowWatcher.h"
 #include "nsIXULRuntime.h"
 
-#ifdef XP_WIN
-#  include "mozilla/plugins/PluginWidgetChild.h"
-#endif
-
 #ifdef MOZ_WAYLAND
 #  include "nsAppRunner.h"
 #endif
@@ -179,7 +177,7 @@ NS_IMPL_ISUPPORTS(ContentListener, nsIDOMEventListener)
 
 static const char BEFORE_FIRST_PAINT[] = "before-first-paint";
 
-typedef nsDataHashtable<nsUint64HashKey, BrowserChild*> BrowserChildMap;
+typedef nsTHashMap<nsUint64HashKey, BrowserChild*> BrowserChildMap;
 static BrowserChildMap* sBrowserChildren;
 StaticMutex sBrowserChildrenMutex;
 
@@ -550,9 +548,6 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
   mWebNav = do_QueryInterface(webBrowser);
   NS_ASSERTION(mWebNav, "nsWebBrowser doesn't implement nsIWebNavigation?");
 
-  // Set the tab context attributes then pass to docShell
-  NotifyTabContextUpdated();
-
   // IPC uses a WebBrowser object for which DNS prefetching is turned off
   // by default. But here we really want it, so enable it explicitly
   mWebBrowser->SetAllowDNSPrefetch(true);
@@ -627,12 +622,14 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
 
   mIPCOpen = true;
 
-#if !defined(MOZ_WIDGET_ANDROID) && !defined(MOZ_THUNDERBIRD) && \
-    !defined(MOZ_SUITE)
-  mSessionStoreListener = new TabListener(docShell, nullptr);
-  rv = mSessionStoreListener->Init();
-  NS_ENSURE_SUCCESS(rv, rv);
-#endif
+  if constexpr (SessionStoreUtils::NATIVE_LISTENER) {
+    mSessionStoreListener = new TabListener(docShell, nullptr);
+    rv = mSessionStoreListener->Init();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    mSessionStoreChangeListener =
+        SessionStoreChangeListener::Create(mBrowsingContext);
+  }
 
   // We've all set up, make sure our visibility state is consistent. This is
   // important for OOP iframes, which start off as hidden.
@@ -641,39 +638,26 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
   return NS_OK;
 }
 
-void BrowserChild::NotifyTabContextUpdated() {
-  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
-  MOZ_ASSERT(docShell);
-
-  if (!docShell) {
-    return;
-  }
-
-  // Set SANDBOXED_AUXILIARY_NAVIGATION flag if this is a receiver page.
-  if (!PresentationURL().IsEmpty()) {
-    // Return value of setting synced field should be checked. See bug 1656492.
-    Unused << mBrowsingContext->SetSandboxFlags(SANDBOXED_AUXILIARY_NAVIGATION);
-  }
-}
-
 NS_IMPL_CYCLE_COLLECTION_CLASS(BrowserChild)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(BrowserChild)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mBrowserChildMessageManager)
   tmp->nsMessageManagerScriptExecutor::Unlink();
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebBrowserChrome)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mStatusFilter)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebNav)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mBrowsingContext)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mSessionStoreListener)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mSessionStoreChangeListener)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_REFERENCE
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(BrowserChild)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowserChildMessageManager)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebBrowserChrome)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mStatusFilter)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebNav)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowsingContext)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSessionStoreListener)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSessionStoreChangeListener)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(BrowserChild)
@@ -900,10 +884,6 @@ BrowserChild::FocusPrevElement(bool aForDocumentNavigation) {
 
 NS_IMETHODIMP
 BrowserChild::GetInterface(const nsIID& aIID, void** aSink) {
-  if (aIID.Equals(NS_GET_IID(nsIWebBrowserChrome3))) {
-    return GetWebBrowserChrome(reinterpret_cast<nsIWebBrowserChrome3**>(aSink));
-  }
-
   // XXXbz should we restrict the set of interfaces we hand out here?
   // See bug 537429
   return QueryInterface(aIID, aSink);
@@ -951,6 +931,9 @@ BrowserChild::ProvideWindow(nsIOpenWindowInfo* aOpenWindowInfo,
 }
 
 void BrowserChild::DestroyWindow() {
+  if (mBrowsingContext) {
+    VirtualCursorService::RemoveCursor(mBrowsingContext->GetDOMWindow());
+  }
   mBrowsingContext = nullptr;
 
   if (mStatusFilter) {
@@ -971,6 +954,11 @@ void BrowserChild::DestroyWindow() {
   if (mSessionStoreListener) {
     mSessionStoreListener->RemoveListeners();
     mSessionStoreListener = nullptr;
+  }
+
+  if (mSessionStoreChangeListener) {
+    mSessionStoreChangeListener->Stop();
+    mSessionStoreChangeListener = nullptr;
   }
 
   // In case we don't have chance to process all entries, clean all data in
@@ -1043,12 +1031,10 @@ BrowserChild::~BrowserChild() {
   mozilla::DropJSObjects(this);
 }
 
-mozilla::ipc::IPCResult BrowserChild::RecvWillChangeProcess(
-    WillChangeProcessResolver&& aResolve) {
+mozilla::ipc::IPCResult BrowserChild::RecvWillChangeProcess() {
   if (mWebBrowser) {
     mWebBrowser->SetWillChangeProcess();
   }
-  aResolve(true);
   return IPC_OK();
 }
 
@@ -1295,7 +1281,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvUpdateDimensions(
   mChromeOffset = aDimensionInfo.chromeOffset();
   MOZ_ASSERT_IF(!IsTopLevel(), mChromeOffset == LayoutDeviceIntPoint());
 
-  mOrientation = aDimensionInfo.orientation();
+  UpdateOrientation(aDimensionInfo.orientation());
   SetUnscaledInnerSize(aDimensionInfo.size());
   if (!mHasValidInnerSize && aDimensionInfo.size().width != 0 &&
       aDimensionInfo.size().height != 0) {
@@ -1321,6 +1307,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvUpdateDimensions(
   nsCOMPtr<nsPIDOMWindowOuter> window = do_GetInterface(WebNavigation());
   RefPtr<VirtualCursorProxy> cursor = VirtualCursorService::GetCursor(window);
   if (cursor) {
+    cursor->UpdateScreenSize(screenSize.width, screenSize.height);
     cursor->UpdateChromeOffset(GetChromeOffset());
   }
   return IPC_OK();
@@ -1640,8 +1627,7 @@ void BrowserChild::FlushAllCoalescedMouseData() {
   MOZ_ASSERT(mCoalesceMouseMoveEvents);
 
   // Move all entries from mCoalescedMouseData to mToBeDispatchedMouseData.
-  for (auto iter = mCoalescedMouseData.Iter(); !iter.Done(); iter.Next()) {
-    CoalescedMouseData* data = iter.UserData();
+  for (const auto& data : mCoalescedMouseData.Values()) {
     if (!data || data->IsEmpty()) {
       continue;
     }
@@ -1659,7 +1645,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvRealMouseMoveEvent(
     const uint64_t& aInputBlockId) {
   if (mCoalesceMouseMoveEvents && mCoalescedMouseEventFlusher) {
     CoalescedMouseData* data =
-        mCoalescedMouseData.LookupOrAdd(aEvent.pointerId);
+        mCoalescedMouseData.GetOrInsertNew(aEvent.pointerId);
     MOZ_ASSERT(data);
     if (data->CanCoalesce(aEvent, aGuid, aInputBlockId)) {
       data->Coalesce(aEvent, aGuid, aInputBlockId);
@@ -1678,7 +1664,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvRealMouseMoveEvent(
     // Put new data to replace the old one in the hash table.
     CoalescedMouseData* newData =
         mCoalescedMouseData
-            .Put(aEvent.pointerId, MakeUnique<CoalescedMouseData>())
+            .InsertOrUpdate(aEvent.pointerId, MakeUnique<CoalescedMouseData>())
             .get();
     newData->Coalesce(aEvent, aGuid, aInputBlockId);
 
@@ -1798,6 +1784,19 @@ void BrowserChild::HandleRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
 }
 
 mozilla::ipc::IPCResult BrowserChild::RecvNormalPriorityRealMouseButtonEvent(
+    const WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
+    const uint64_t& aInputBlockId) {
+  return RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId);
+}
+
+mozilla::ipc::IPCResult BrowserChild::RecvRealMouseEnterExitWidgetEvent(
+    const WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
+    const uint64_t& aInputBlockId) {
+  return RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId);
+}
+
+mozilla::ipc::IPCResult
+BrowserChild::RecvNormalPriorityRealMouseEnterExitWidgetEvent(
     const WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
     const uint64_t& aInputBlockId) {
   return RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId);
@@ -2062,14 +2061,9 @@ mozilla::ipc::IPCResult BrowserChild::RecvNativeSynthesisResponse(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult BrowserChild::RecvFlushTabState(
-    const uint32_t& aFlushId, const bool& aIsFinal) {
-  UpdateSessionStore(aFlushId, aIsFinal);
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult BrowserChild::RecvUpdateEpoch(const uint32_t& aEpoch) {
   mSessionStoreListener->SetEpoch(aEpoch);
+
   return IPC_OK();
 }
 
@@ -2295,7 +2289,7 @@ RefPtr<VsyncChild> BrowserChild::GetVsyncChild() {
   // given platform. Note: this only makes sense if nsWindow returns a
   // window-specific VsyncSource.
 #if defined(MOZ_WAYLAND)
-  if (!IsWaylandDisabled() && !mVsyncChild) {
+  if (IsWaylandEnabled() && !mVsyncChild) {
     PVsyncChild* actor = SendPVsyncConstructor();
     mVsyncChild = static_cast<VsyncChild*>(actor);
   }
@@ -2834,6 +2828,8 @@ mozilla::ipc::IPCResult BrowserChild::RecvNavigateByKey(
 }
 
 bool BrowserChild::InitBrowserChildMessageManager() {
+  mShouldSendWebProgressEventsToParent = true;
+
   if (!mBrowserChildMessageManager) {
     nsCOMPtr<nsPIDOMWindowOuter> window = do_GetInterface(WebNavigation());
     NS_ENSURE_TRUE(window, false);
@@ -2886,8 +2882,8 @@ void BrowserChild::InitRenderingState(
     if (!sBrowserChildren) {
       sBrowserChildren = new BrowserChildMap;
     }
-    MOZ_ASSERT(!sBrowserChildren->Get(uint64_t(aLayersId)));
-    sBrowserChildren->Put(uint64_t(aLayersId), this);
+    MOZ_ASSERT(!sBrowserChildren->Contains(uint64_t(aLayersId)));
+    sBrowserChildren->InsertOrUpdate(uint64_t(aLayersId), this);
     mLayersId = aLayersId;
   }
 
@@ -3114,26 +3110,6 @@ BrowserChild::GetMessageManager(ContentFrameMessageManager** aResult) {
   return *aResult ? NS_OK : NS_ERROR_FAILURE;
 }
 
-NS_IMETHODIMP
-BrowserChild::GetWebBrowserChrome(nsIWebBrowserChrome3** aWebBrowserChrome) {
-  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
-  if (nsCOMPtr<nsIWebBrowserChrome3> chrome =
-          do_QueryActor("WebBrowserChrome", docShell->GetDocument())) {
-    chrome.forget(aWebBrowserChrome);
-  } else {
-    // TODO: remove fallback
-    NS_IF_ADDREF(*aWebBrowserChrome = mWebBrowserChrome);
-  }
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-BrowserChild::SetWebBrowserChrome(nsIWebBrowserChrome3* aWebBrowserChrome) {
-  mWebBrowserChrome = aWebBrowserChrome;
-  return NS_OK;
-}
-
 void BrowserChild::SendRequestFocus(bool aCanFocus, CallerType aCallerType) {
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (!fm) {
@@ -3158,13 +3134,6 @@ NS_IMETHODIMP
 BrowserChild::GetTabId(uint64_t* aId) {
   *aId = GetTabId();
   return NS_OK;
-}
-
-void BrowserChild::SetTabId(const TabId& aTabId) {
-  MOZ_ASSERT(mUniqueId == 0);
-
-  mUniqueId = aTabId;
-  NestedBrowserChildMap()[mUniqueId] = this;
 }
 
 NS_IMETHODIMP
@@ -3199,16 +3168,11 @@ nsresult BrowserChild::DoSendAsyncMessage(const nsAString& aMessage,
 nsTArray<RefPtr<BrowserChild>> BrowserChild::GetAll() {
   StaticMutexAutoLock lock(sBrowserChildrenMutex);
 
-  nsTArray<RefPtr<BrowserChild>> list;
   if (!sBrowserChildren) {
-    return list;
+    return {};
   }
 
-  for (auto iter = sBrowserChildren->Iter(); !iter.Done(); iter.Next()) {
-    list.AppendElement(iter.Data());
-  }
-
-  return list;
+  return ToTArray<nsTArray<RefPtr<BrowserChild>>>(sBrowserChildren->Values());
 }
 
 BrowserChild* BrowserChild::GetFrom(PresShell* aPresShell) {
@@ -3512,53 +3476,6 @@ mozilla::ipc::IPCResult BrowserChild::RecvSetUpdateHitRegion(
   return IPC_OK();
 }
 
-mozilla::plugins::PPluginWidgetChild* BrowserChild::AllocPPluginWidgetChild() {
-#ifdef XP_WIN
-  return new mozilla::plugins::PluginWidgetChild();
-#else
-  MOZ_ASSERT_UNREACHABLE("AllocPPluginWidgetChild only supports Windows");
-  return nullptr;
-#endif
-}
-
-bool BrowserChild::DeallocPPluginWidgetChild(
-    mozilla::plugins::PPluginWidgetChild* aActor) {
-  delete aActor;
-  return true;
-}
-
-#ifdef XP_WIN
-nsresult BrowserChild::CreatePluginWidget(nsIWidget* aParent,
-                                          nsIWidget** aOut) {
-  *aOut = nullptr;
-  mozilla::plugins::PluginWidgetChild* child =
-      static_cast<mozilla::plugins::PluginWidgetChild*>(
-          SendPPluginWidgetConstructor());
-  if (!child) {
-    NS_ERROR("couldn't create PluginWidgetChild");
-    return NS_ERROR_UNEXPECTED;
-  }
-  nsCOMPtr<nsIWidget> pluginWidget =
-      nsIWidget::CreatePluginProxyWidget(this, child);
-  if (!pluginWidget) {
-    NS_ERROR("couldn't create PluginWidgetProxy");
-    return NS_ERROR_UNEXPECTED;
-  }
-
-  nsWidgetInitData initData;
-  initData.mWindowType = eWindowType_plugin_ipc_content;
-  initData.clipChildren = true;
-  initData.clipSiblings = true;
-  nsresult rv = pluginWidget->Create(
-      aParent, nullptr, LayoutDeviceIntRect(0, 0, 0, 0), &initData);
-  if (NS_FAILED(rv)) {
-    NS_WARNING("Creating native plugin widget on the chrome side failed.");
-  }
-  pluginWidget.forget(aOut);
-  return rv;
-}
-#endif  // XP_WIN
-
 PPaymentRequestChild* BrowserChild::AllocPPaymentRequestChild() {
   MOZ_CRASH(
       "We should never be manually allocating PPaymentRequestChild actors");
@@ -3751,11 +3668,6 @@ nsresult BrowserChild::CanCancelContentJS(
   return NS_OK;
 }
 
-NS_IMETHODIMP BrowserChild::BeginSendingWebProgressEventsToParent() {
-  mShouldSendWebProgressEventsToParent = true;
-  return NS_OK;
-}
-
 nsresult BrowserChild::GetHasSiblings(bool* aHasSiblings) {
   *aHasSiblings = mHasSiblings;
   return NS_OK;
@@ -3774,11 +3686,6 @@ NS_IMETHODIMP BrowserChild::OnStateChange(nsIWebProgress* aWebProgress,
     return NS_OK;
   }
 
-  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
-  if (!docShell) {
-    return NS_OK;
-  }
-
   // We shouldn't need to notify the parent of redirect state changes, since
   // with DocumentChannel that only happens when we switch to the real channel,
   // and that's an implementation detail that we can hide.
@@ -3786,21 +3693,24 @@ NS_IMETHODIMP BrowserChild::OnStateChange(nsIWebProgress* aWebProgress,
     return NS_OK;
   }
 
-  RefPtr<Document> document;
-  if (nsCOMPtr<nsPIDOMWindowOuter> outerWindow = do_GetInterface(docShell)) {
-    document = outerWindow->GetExtantDoc();
-  } else {
-    return NS_OK;
+  // Our OnStateChange call must have provided the nsIDocShell which the source
+  // comes from. We'll use this to locate the corresponding BrowsingContext in
+  // the parent process.
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(aWebProgress);
+  if (!docShell) {
+    MOZ_ASSERT_UNREACHABLE("aWebProgress is null or not a nsIDocShell?");
+    return NS_ERROR_UNEXPECTED;
   }
 
-  Maybe<WebProgressData> webProgressData;
+  WebProgressData webProgressData;
   Maybe<WebProgressStateChangeData> stateChangeData;
   RequestData requestData;
 
   MOZ_TRY(PrepareProgressListenerData(aWebProgress, aRequest, webProgressData,
                                       requestData));
 
-  if (webProgressData->isTopLevel()) {
+  RefPtr<BrowsingContext> browsingContext = docShell->GetBrowsingContext();
+  if (browsingContext->IsTopContent()) {
     stateChangeData.emplace();
 
     stateChangeData->isNavigating() = docShell->GetIsNavigating();
@@ -3808,6 +3718,7 @@ NS_IMETHODIMP BrowserChild::OnStateChange(nsIWebProgress* aWebProgress,
         docShell->GetMayEnableCharacterEncodingMenu();
     stateChangeData->charsetAutodetected() = docShell->GetCharsetAutodetected();
 
+    RefPtr<Document> document = browsingContext->GetExtantDocument();
     if (document && aStateFlags & nsIWebProgressListener::STATE_STOP) {
       document->GetContentType(stateChangeData->contentType());
       document->GetCharacterSet(stateChangeData->charset());
@@ -3834,16 +3745,22 @@ NS_IMETHODIMP BrowserChild::OnProgressChange(nsIWebProgress* aWebProgress,
     return NS_OK;
   }
 
-  Maybe<WebProgressData> webProgressData;
-  RequestData requestData;
+  // FIXME: We currently ignore ProgressChange events from out-of-process
+  // subframes both here and in BrowserParent. We may want to change this
+  // behaviour in the future.
+  if (!GetBrowsingContext()->IsTopContent()) {
+    return NS_OK;
+  }
 
-  nsresult rv = PrepareProgressListenerData(aWebProgress, aRequest,
-                                            webProgressData, requestData);
-  NS_ENSURE_SUCCESS(rv, rv);
+  // As we're being filtered by nsBrowserStatusFilter, we will be passed either
+  // nullptr or 0 for all arguments other than aCurTotalProgress and
+  // aMaxTotalProgress. Don't bother sending them.
+  MOZ_ASSERT(!aWebProgress);
+  MOZ_ASSERT(!aRequest);
+  MOZ_ASSERT(aCurSelfProgress == 0);
+  MOZ_ASSERT(aMaxSelfProgress == 0);
 
-  Unused << SendOnProgressChange(webProgressData, requestData, aCurSelfProgress,
-                                 aMaxSelfProgress, aCurTotalProgress,
-                                 aMaxTotalProgress);
+  Unused << SendOnProgressChange(aCurTotalProgress, aMaxTotalProgress);
 
   return NS_OK;
 }
@@ -3856,24 +3773,19 @@ NS_IMETHODIMP BrowserChild::OnLocationChange(nsIWebProgress* aWebProgress,
     return NS_OK;
   }
 
-  nsCOMPtr<nsIWebNavigation> webNav = WebNavigation();
-  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(webNav);
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(aWebProgress);
   if (!docShell) {
-    return NS_OK;
+    MOZ_ASSERT_UNREACHABLE("aWebProgress is null or not a nsIDocShell?");
+    return NS_ERROR_UNEXPECTED;
   }
 
-  RefPtr<Document> document;
-  if (nsCOMPtr<nsPIDOMWindowOuter> outerWindow = do_GetInterface(docShell)) {
-    document = outerWindow->GetExtantDoc();
-  } else {
-    return NS_OK;
-  }
-
+  RefPtr<BrowsingContext> browsingContext = docShell->GetBrowsingContext();
+  RefPtr<Document> document = browsingContext->GetExtantDocument();
   if (!document) {
     return NS_OK;
   }
 
-  Maybe<WebProgressData> webProgressData;
+  WebProgressData webProgressData;
   RequestData requestData;
 
   MOZ_TRY(PrepareProgressListenerData(aWebProgress, aRequest, webProgressData,
@@ -3883,11 +3795,16 @@ NS_IMETHODIMP BrowserChild::OnLocationChange(nsIWebProgress* aWebProgress,
 
   bool canGoBack = false;
   bool canGoForward = false;
+  if (!mozilla::SessionHistoryInParent()) {
+    MOZ_TRY(WebNavigation()->GetCanGoBack(&canGoBack));
+    MOZ_TRY(WebNavigation()->GetCanGoForward(&canGoForward));
+  }
 
-  MOZ_TRY(webNav->GetCanGoBack(&canGoBack));
-  MOZ_TRY(webNav->GetCanGoForward(&canGoForward));
+  if (browsingContext->IsTopContent()) {
+    MOZ_ASSERT(
+        browsingContext == GetBrowsingContext(),
+        "Toplevel content BrowsingContext which isn't GetBrowsingContext()?");
 
-  if (aWebProgress && webProgressData->isTopLevel()) {
     locationChangeData.emplace();
 
     document->GetContentType(locationChangeData->contentType());
@@ -3947,17 +3864,21 @@ NS_IMETHODIMP BrowserChild::OnStatusChange(nsIWebProgress* aWebProgress,
     return NS_OK;
   }
 
-  Maybe<WebProgressData> webProgressData;
-  RequestData requestData;
+  // FIXME: We currently ignore StatusChange from out-of-process subframes both
+  // here and in BrowserParent. We may want to change this behaviour in the
+  // future.
+  if (!GetBrowsingContext()->IsTopContent()) {
+    return NS_OK;
+  }
 
-  nsresult rv = PrepareProgressListenerData(aWebProgress, aRequest,
-                                            webProgressData, requestData);
+  // As we're being filtered by nsBrowserStatusFilter, we will be passed either
+  // nullptr or NS_OK for all arguments other than aMessage. Don't bother
+  // sending them.
+  MOZ_ASSERT(!aWebProgress);
+  MOZ_ASSERT(!aRequest);
+  MOZ_ASSERT(aStatus == NS_OK);
 
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  const nsString message(aMessage);
-
-  Unused << SendOnStatusChange(webProgressData, requestData, aStatus, message);
+  Unused << SendOnStatusChange(nsDependentString(aMessage));
 
   return NS_OK;
 }
@@ -4008,52 +3929,49 @@ NS_IMETHODIMP BrowserChild::NotifyNavigationFinished() {
   return NS_OK;
 }
 
-nsresult BrowserChild::PrepareProgressListenerData(
-    nsIWebProgress* aWebProgress, nsIRequest* aRequest,
-    Maybe<WebProgressData>& aWebProgressData, RequestData& aRequestData) {
-  if (aWebProgress) {
-    aWebProgressData.emplace();
-
-    bool isTopLevel = false;
-    nsresult rv = aWebProgress->GetIsTopLevel(&isTopLevel);
-    NS_ENSURE_SUCCESS(rv, rv);
-    aWebProgressData->isTopLevel() = isTopLevel;
-
-    bool isLoadingDocument = false;
-    rv = aWebProgress->GetIsLoadingDocument(&isLoadingDocument);
-    NS_ENSURE_SUCCESS(rv, rv);
-    aWebProgressData->isLoadingDocument() = isLoadingDocument;
-
-    uint32_t loadType = 0;
-    rv = aWebProgress->GetLoadType(&loadType);
-    NS_ENSURE_SUCCESS(rv, rv);
-    aWebProgressData->loadType() = loadType;
+nsresult BrowserChild::PrepareRequestData(nsIRequest* aRequest,
+                                          RequestData& aRequestData) {
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
+  if (!channel) {
+    aRequestData.requestURI() = nullptr;
+    return NS_OK;
   }
 
-  nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
-  if (channel) {
-    nsCOMPtr<nsIURI> uri;
-    nsresult rv = channel->GetURI(getter_AddRefs(uri));
-    NS_ENSURE_SUCCESS(rv, rv);
-    aRequestData.requestURI() = uri;
+  nsresult rv = channel->GetURI(getter_AddRefs(aRequestData.requestURI()));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = channel->GetOriginalURI(getter_AddRefs(uri));
-    NS_ENSURE_SUCCESS(rv, rv);
-    aRequestData.originalRequestURI() = uri;
+  rv = channel->GetOriginalURI(
+      getter_AddRefs(aRequestData.originalRequestURI()));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
-        do_QueryInterface(channel);
-    if (classifiedChannel) {
-      nsAutoCString matchedList;
-      rv = classifiedChannel->GetMatchedList(matchedList);
-      NS_ENSURE_SUCCESS(rv, rv);
-      aRequestData.matchedList() = std::move(matchedList);
-    }
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel = do_QueryInterface(channel);
+  if (classifiedChannel) {
+    rv = classifiedChannel->GetMatchedList(aRequestData.matchedList());
+    NS_ENSURE_SUCCESS(rv, rv);
   }
   return NS_OK;
 }
 
-bool BrowserChild::UpdateSessionStore(uint32_t aFlushId, bool aIsFinal) {
+nsresult BrowserChild::PrepareProgressListenerData(
+    nsIWebProgress* aWebProgress, nsIRequest* aRequest,
+    WebProgressData& aWebProgressData, RequestData& aRequestData) {
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(aWebProgress);
+  if (!docShell) {
+    MOZ_ASSERT_UNREACHABLE("aWebProgress is null or not a nsIDocShell?");
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  aWebProgressData.browsingContext() = docShell->GetBrowsingContext();
+  nsresult rv =
+      aWebProgress->GetIsLoadingDocument(&aWebProgressData.isLoadingDocument());
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = aWebProgress->GetLoadType(&aWebProgressData.loadType());
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return PrepareRequestData(aRequest, aRequestData);
+}
+
+bool BrowserChild::UpdateSessionStore(bool aIsFinal) {
   if (!mSessionStoreListener) {
     return false;
   }
@@ -4069,18 +3987,6 @@ bool BrowserChild::UpdateSessionStore(uint32_t aFlushId, bool aIsFinal) {
     privatedMode.emplace(store->GetPrivateModeEnabled());
   }
 
-  nsTArray<int32_t> positionDescendants;
-  nsTArray<nsCString> positions;
-  if (store->IsScrollPositionChanged()) {
-    store->GetScrollPositions(positions, positionDescendants);
-  }
-
-  nsTArray<InputFormData> inputs;
-  nsTArray<CollectedInputDataValue> idVals, xPathVals;
-  if (store->IsFormDataChanged()) {
-    inputs = store->GetInputs(idVals, xPathVals);
-  }
-
   nsTArray<nsCString> origins;
   nsTArray<nsString> keys, values;
   bool isFullStorage = false;
@@ -4088,11 +3994,50 @@ bool BrowserChild::UpdateSessionStore(uint32_t aFlushId, bool aIsFinal) {
     isFullStorage = store->GetAndClearStorageChanges(origins, keys, values);
   }
 
-  Unused << SendSessionStoreUpdate(
-      docShellCaps, privatedMode, positions, positionDescendants, inputs,
-      idVals, xPathVals, origins, keys, values, isFullStorage,
-      store->GetAndClearSHistoryChanged(), aFlushId, aIsFinal,
-      mSessionStoreListener->GetEpoch());
+  Unused << SendSessionStoreUpdate(docShellCaps, privatedMode, origins, keys,
+                                   values, isFullStorage,
+                                   store->GetAndClearSHistoryChanged(),
+                                   aIsFinal, mSessionStoreListener->GetEpoch());
+  return true;
+}
+
+bool BrowserChild::UpdateOrientation(
+  const hal::ScreenOrientation& aOrientation) {
+  if(mOrientation == aOrientation) {
+    return true;
+  }
+
+  mOrientation = aOrientation;
+  nsresult rv;
+  nsCOMPtr<nsIScreenManager> screenMgr =
+      do_GetService("@mozilla.org/gfx/screenmanager;1", &rv);
+  if (NS_FAILED(rv)) {
+    NS_ERROR("Can't find nsIScreenManager!");
+    return false;
+  }
+  nsCOMPtr<nsIScreen> screen;
+  if (NS_FAILED(screenMgr->GetPrimaryScreen(getter_AddRefs(screen))) ||
+      !screen) {
+    return false;
+  }
+  uint32_t  aRotation = nsIScreen::ROTATION_0_DEG;
+  switch (mOrientation) {
+    case hal::eScreenOrientation_PortraitPrimary:
+      aRotation = nsIScreen::ROTATION_0_DEG;
+      break;
+    case hal::eScreenOrientation_PortraitSecondary:
+      aRotation = nsIScreen::ROTATION_180_DEG;
+      break;
+    case hal::eScreenOrientation_LandscapePrimary:
+      aRotation = nsIScreen::ROTATION_90_DEG;
+      break;
+    case hal::eScreenOrientation_LandscapeSecondary:
+      aRotation = nsIScreen::ROTATION_270_DEG;
+      break;
+    default:
+      aRotation = nsIScreen::ROTATION_0_DEG ;
+  }
+  screen->SetRotation(aRotation);
   return true;
 }
 
@@ -4143,15 +4088,12 @@ void BrowserChild::NotifyContentBlockingEvent(
     return;
   }
 
-  Maybe<WebProgressData> webProgressData;
   RequestData requestData;
-  nsresult rv = PrepareProgressListenerData(nullptr, aChannel, webProgressData,
-                                            requestData);
-  NS_ENSURE_SUCCESS_VOID(rv);
-
-  Unused << SendNotifyContentBlockingEvent(aEvent, requestData, aBlocked,
-                                           PromiseFlatCString(aTrackingOrigin),
-                                           aTrackingFullHashes, aReason);
+  if (NS_SUCCEEDED(PrepareRequestData(aChannel, requestData))) {
+    Unused << SendNotifyContentBlockingEvent(
+        aEvent, requestData, aBlocked, PromiseFlatCString(aTrackingOrigin),
+        aTrackingFullHashes, aReason);
+  }
 }
 
 BrowserChildMessageManager::BrowserChildMessageManager(

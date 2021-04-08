@@ -6,48 +6,49 @@
 @namespace html "http://www.w3.org/1999/xhtml";
 @namespace xul "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
+:host,
 :root {
-  --in-content-page-color: #0c0c0d;
-  --in-content-page-background: #f9f9fa;
-  --in-content-text-color: var(--grey-90);
+  --in-content-page-color: rgb(21, 20, 26);
+  --in-content-page-background: #fff;
+  --in-content-text-color: var(--in-content-page-color);
   --in-content-deemphasized-text: var(--grey-60);
-  --in-content-selected-text: #fff;
   --in-content-box-background: #fff;
   --in-content-box-background-odd: rgba(12, 12, 13, 0.05); /* grey 90 a05 */
-  --in-content-box-background-hover: #ededf0; /* grey 20 */
-  --in-content-box-background-active: #d7d7db; /* grey 30 */
-  --in-content-box-border-color: var(--grey-90-a30);
-  --in-content-box-info-background: var(--grey-20);
-  --in-content-item-hover: rgba(69, 161, 255, 0.2); /* blue 40 a20 */
-  --in-content-item-selected: #0a84ff;
-  --in-content-border-highlight: #0a84ff;
-  --in-content-border-focus: #0a84ff;
+  --in-content-box-border-color: rgb(143, 143, 157);
+  --in-content-box-info-background: #f0f0f4;
+  --in-content-item-hover: color-mix(in srgb, var(--in-content-primary-button-background) 20%, transparent);
+  --in-content-item-selected: var(--in-content-primary-button-background);
+  --in-content-item-selected-text: var(--in-content-primary-button-text-color);
+  --in-content-icon-color: rgb(91,91,102);
+  --in-content-accent-color: #0a84ff;
+  --in-content-accent-color-active: #0060df;
   --in-content-border-hover: var(--grey-90-a50);
-  --in-content-border-active: var(--blue-50);
-  --in-content-border-active-shadow: var(--blue-50-a30);
   --in-content-border-invalid: var(--red-50);
-  --in-content-border-invalid-shadow: var(--red-50-a30);
   --in-content-border-color: #d7d7db;
-  --in-content-category-outline-focus: 1px dotted #0a84ff;
-  --in-content-category-text-selected: #0a84ff;
-  --in-content-category-text-selected-active: #0060df;
-  --in-content-category-background-hover: rgba(12,12,13,0.1);
-  --in-content-category-background-active: rgba(12,12,13,0.15);
-  --in-content-category-background-selected-hover: rgba(12,12,13,0.15);
-  --in-content-category-background-selected-active: rgba(12,12,13,0.2);
-  --in-content-tab-color: #424f5a;
   --in-content-link-color: var(--blue-60);
   --in-content-link-color-hover: var(--blue-70);
   --in-content-link-color-active: var(--blue-80);
   --in-content-link-color-visited: var(--blue-60);
    /* button background states are also used for checkboxes and radiobuttons */
-  --in-content-button-background: var(--grey-90-a10);
-  --in-content-button-background-hover: var(--grey-90-a20);
-  --in-content-button-background-active: var(--grey-90-a30);
-  --in-content-primary-button-background: var(--blue-60);
-  --in-content-primary-button-background-hover: var(--blue-70);
-  --in-content-primary-button-background-active: var(--blue-80);
-  --in-content-table-background: #ebebeb;
+  --in-content-button-background: rgba(207, 207, 216, 0.33);
+  --in-content-button-background-hover: rgba(207, 207, 216, 0.66);
+  --in-content-button-background-active: rgba(207, 207, 216, 1);
+  --in-content-primary-button-text-color: rgb(255,255,255);
+  --in-content-primary-button-background: #0061e0;
+  --in-content-primary-button-background-hover: #0250bb;
+  --in-content-primary-button-background-active: #053e94;
+  --in-content-danger-button-background: #e22850;
+  --in-content-danger-button-background-hover: #c50042;
+  --in-content-danger-button-background-active: #810220;
+  --in-content-focus-outline-color: var(--in-content-primary-button-background);
+
+  /* Note: 1px smaller than we want because we have a 1px transparent border. */
+  /* Once proton ships, these can probably stop being variables. */
+  --in-content-button-border-radius: 4px;
+  --in-content-button-horizontal-padding: 15px;
+  --in-content-button-vertical-padding: 7px;
+
+  --in-content-table-background: #f8f8fa;
   --in-content-table-border-dark-color: #d1d1d1;
   --in-content-table-header-background: #0a84ff;
   --in-content-dialog-header-background: #f1f1f1;
@@ -55,10 +56,17 @@
 
   --dialog-warning-text-color: var(--red-60);
 
-  --panel-border-radius: 2px; /* This is overridden on Windows */
+  --checkbox-border-color: rgb(143,143,157);
+  --checkbox-unchecked-bgcolor: rgb(240,240,244);
+  --checkbox-unchecked-hover-bgcolor: rgb(224,224,230);
+  --checkbox-unchecked-active-bgcolor: rgb(207,207,216);
+  --checkbox-checked-bgcolor: rgb(0,97,224);
+  --checkbox-checked-color: rgb(251,251,254);
+  --checkbox-checked-border-color: transparent;
+  --checkbox-checked-hover-bgcolor: rgb(2,80,187);
+  --checkbox-checked-active-bgcolor: rgb(5,62,148);
 
   --blue-40: #45a1ff;
-  --blue-40-a10: rgb(69, 161, 255, 0.1);
   --blue-50: #0a84ff;
   --blue-50-a30: rgba(10, 132, 255, 0.3);
   --blue-60: #0060df;
@@ -68,7 +76,6 @@
   --grey-30: #d7d7db;
   --grey-40: #b1b1b3;
   --grey-60: #4a4a4f;
-  --grey-90: #0c0c0d;
   --grey-90-a10: rgba(12, 12, 13, 0.1);
   --grey-90-a20: rgba(12, 12, 13, 0.2);
   --grey-90-a30: rgba(12, 12, 13, 0.3);
@@ -103,53 +110,118 @@
   --card-shadow-hover: var(--card-shadow), 0 0 0 5px var(--card-outline-color);
 }
 
+@media not (-moz-proton) {
+:host,
+:root {
+  --in-content-page-background: #f9f9fa;
+  --in-content-page-color: #0c0c0d;
+  --in-content-box-border-color: var(--grey-90-a30);
+  --in-content-box-info-background: var(--grey-20);
+  --in-content-button-background: var(--grey-90-a10);
+  --in-content-button-background-hover: var(--grey-90-a20);
+  --in-content-button-background-active: var(--grey-90-a30);
+  --in-content-primary-button-background: var(--blue-60);
+  --in-content-primary-button-background-hover: var(--blue-70);
+  --in-content-primary-button-background-active: var(--blue-80);
+  --in-content-button-border-radius: 2px;
+  --in-content-focus-outline-color: var(--blue-50);
+
+  --in-content-button-horizontal-padding: 8px;
+  --in-content-button-vertical-padding: 0;
+
+  --in-content-table-background: #ebebeb;
+}
+}
+
 @media (prefers-color-scheme: dark) {
+  :host,
   :root {
     /* Keep these in sync with layout/base/PresShell.cpp, and plaintext.css */
-    --in-content-page-background: #2A2A2E;
-    --in-content-page-color: rgb(249, 249, 250);
+    --in-content-page-background: rgb(28,27,34);
+    --in-content-page-color: rgb(251,251,254);
+    --in-content-deemphasized-text: rgb(191,191,201);
 
-    --in-content-text-color: var(--in-content-page-color);
-    --in-content-deemphasized-text: var(--grey-40);
-    --in-content-box-background: #202023;
-    --in-content-box-background-hover: rgba(249,249,250,0.15);
-    --in-content-box-background-active: rgba(249,249,250,0.2);
+    --in-content-box-background: rgb(35, 34, 43);
     --in-content-box-background-odd: rgba(249,249,250,0.05);
     --in-content-box-info-background: rgba(249,249,250,0.15);
 
     --in-content-border-color: rgba(249,249,250,0.2);
     --in-content-border-hover: rgba(249,249,250,0.3);
+    --in-content-border-invalid: rgb(255,132,139);
+
+    --in-content-button-background: rgb(43,42,51);
+    --in-content-button-background-hover: rgb(82,82,94);
+    --in-content-button-background-active: rgb(91,91,102);
+    --in-content-icon-color: rgb(251,251,254);
+
+    --in-content-primary-button-text-color: rgb(21,20,26);
+    --in-content-primary-button-background: rgb(0,221,255);
+    --in-content-primary-button-background-hover: rgb(128,235,255);
+    --in-content-primary-button-background-active: rgb(170,242,255);
+
+    --in-content-danger-button-background: #ff848b;
+    --in-content-danger-button-background-hover: #ffbdc5;
+    --in-content-danger-button-background-active: #ffdfe7;
+
+    --in-content-table-background: rgb(35, 34, 43);
+    --in-content-table-border-dark-color: rgba(249,249,250,0.2);
+    --in-content-table-header-background: rgb(5, 64, 150);
+    --in-content-dialog-header-background: rgba(249,249,250,0.05);
+
+    --in-content-accent-color: var(--in-content-primary-button-background);
+    --in-content-accent-color-active: var(--in-content-primary-button-background-hover);
+    --in-content-link-color: var(--in-content-primary-button-background);
+    --in-content-link-color-hover: var(--in-content-primary-button-background-hover);
+    --in-content-link-color-active: var(--in-content-primary-button-background-active);
+    --in-content-link-color-visited: var(--in-content-link-color);
+
+    --card-outline-color: var(--grey-60);
+
+    --dialog-warning-text-color: var(--red-40);
+
+    --checkbox-unchecked-bgcolor: rgb(43, 42, 51);
+    --checkbox-unchecked-hover-bgcolor: rgb(82, 82, 94);
+    --checkbox-unchecked-active-bgcolor: rgb(91, 91, 102);
+    --checkbox-checked-bgcolor: rgb(0, 221, 255);
+    --checkbox-checked-color: rgb(43, 42, 51);
+    --checkbox-checked-hover-bgcolor: rgb(128, 235, 255);
+    --checkbox-checked-active-bgcolor: rgb(170, 242, 255);
+
+    scrollbar-color: rgba(249,249,250,.4) rgba(20,20,25,.3);
+  }
+}
+
+@media not (-moz-proton) {
+@media (prefers-color-scheme: dark) {
+  :host,
+  :root {
+    --in-content-page-background: #2A2A2E;
+    --in-content-page-color: rgb(249, 249, 250);
+    --in-content-deemphasized-text: var(--grey-40);
+
+    --in-content-box-background: #202023;
     --in-content-box-border-color: rgba(249,249,250,0.2);
 
     --in-content-button-background: rgba(249,249,250,0.1);
     --in-content-button-background-hover: rgba(249,249,250,0.15);
     --in-content-button-background-active: rgba(249,249,250,0.2);
 
-    --in-content-category-background-hover: rgba(249,249,250,0.1);
-    --in-content-category-background-active: rgba(249,249,250,0.15);
-    --in-content-category-background-selected-hover: rgba(249,249,250,0.15);
-    --in-content-category-background-selected-active: rgba(249,249,250,0.2);
+    --in-content-primary-button-text-color: rgb(255,255,255);
+    --in-content-primary-button-background: var(--blue-60);
+    --in-content-primary-button-background-hover: var(--blue-70);
+    --in-content-primary-button-background-active: var(--blue-80);
 
-    --in-content-table-background: #202023;
-    --in-content-table-border-dark-color: rgba(249,249,250,0.2);
-    --in-content-table-header-background: #002b57;
-    --in-content-dialog-header-background: rgba(249,249,250,0.05);
-
-    --in-content-category-text-selected: var(--blue-40);
-    --in-content-category-text-selected-active: var(--blue-50);
+    --in-content-accent-color: var(--blue-40);
+    --in-content-accent-color-active: var(--blue-50);
     --in-content-link-color: var(--blue-40);
     --in-content-link-color-hover: var(--blue-50);
     --in-content-link-color-active: var(--blue-60);
     --in-content-link-color-visited: var(--blue-40);
 
-    --in-content-tab-color: var(--in-content-page-color);
-
-    --card-outline-color: var(--grey-60);
-
-    --dialog-warning-text-color: var(--red-40);
-
-    scrollbar-color: rgba(249,249,250,.4) rgba(20,20,25,.3);
+    --in-content-table-background: #202023;
+    --in-content-table-header-background: #002b57;
   }
+}
 }
 
 :root {
@@ -200,36 +272,36 @@ xul|tabpanels {
 }
 
 xul|tabs {
-  margin-bottom: 15px;
-  border-block: 1px solid var(--in-content-box-border-color);
-  background-color: var(--in-content-page-background);
-  color: var(--in-content-tab-color);
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--in-content-border-color);
+  background-color: transparent;
+  color: inherit;
 }
 
 xul|tab {
   appearance: none;
   margin-top: 0;
-  padding: 4px 20px 0 !important;
+  padding: 2px 20px 0 !important;
   min-height: 44px;
   color: inherit;
-  background-color: var(--in-content-page-background);
-  border-bottom: 4px solid transparent;
+  background-color: transparent;
+  border-bottom: 2px solid transparent;
   transition: background-color 50ms ease 0s;
 }
 
 xul|tab:hover {
-  background-color: var(--in-content-box-background-hover);
+  border-bottom-color: var(--in-content-border-color);
+  background-color: var(--in-content-button-background-hover);
 }
 
 xul|tab[selected] {
-  background-color: var(--in-content-box-background-hover);
-  border-bottom-color: var(--in-content-border-highlight);
+  color: var(--in-content-accent-color) !important; /* override macOS tabbox.css */
+  border-bottom-color: currentColor;
 }
 
 /* html buttons */
 
 html|button {
-  padding: 3px;
   font: inherit;
 }
 
@@ -244,14 +316,42 @@ xul|menulist {
   /* !important overrides button.css for disabled and default XUL buttons: */
   color: inherit !important;
   border: 1px solid transparent; /* needed for high-contrast mode, where it'll show up */
-  border-radius: 2px;
+  border-radius: var(--in-content-button-border-radius);
   background-color: var(--in-content-button-background);
   font-weight: 400;
-  padding: 0 8px;
+  padding: var(--in-content-button-vertical-padding) var(--in-content-button-horizontal-padding);
   text-decoration: none;
   margin: 4px 8px;
   /* Ensure font-size isn't overridden by widget styling (e.g. in forms.css) */
   font-size: 1em;
+}
+
+@media (-moz-proton) {
+button {
+  font-weight: 600;
+}
+/* Medium and small buttons get sized to 7/14 and 6/12px padding (when adding
+ * the 1px border): */
+button.medium {
+  --in-content-button-vertical-padding: 6px;
+  --in-content-button-horizontal-padding: 13px;
+  min-height: 28px;
+  font-size: 0.95em;
+}
+
+button.small {
+  --in-content-button-vertical-padding: 5px;
+  --in-content-button-horizontal-padding: 11px;
+  min-height: 24px;
+  font-size: 0.9em;
+}
+
+/* Remove margin and padding added by button.css */
+xul|button > .button-box,
+xul|button > .button-box > .button-text {
+  padding: 0;
+  margin: 0;
+}
 }
 
 xul|button,
@@ -267,17 +367,18 @@ html|button {
 button:-moz-focusring,
 html|select:-moz-focusring,
 html|input:is([type="checkbox"], [type="color"], [type="radio"]):-moz-focusring,
-xul|menulist:-moz-focusring {
-  outline: 2px solid var(--in-content-border-active);
-  /* offset outline to align with 1px border-width set for buttons/menulists above. */
-  outline-offset: -1px;
-  /* Make outline-radius slightly bigger than the border-radius set above,
-   * to make the thicker outline corners look smooth */
-  -moz-outline-radius: 3px;
-  box-shadow: 0 0 0 4px var(--in-content-border-active-shadow);
+xul|menulist:-moz-focusring,
+xul|checkbox:not([native]):-moz-focusring > .checkbox-check, /* :not([native]) to win specificity over checkbox.css */
+xul|radio[focused="true"] > .radio-check,
+xul|tab:-moz-focusring > .tab-middle > .tab-text {
+  box-shadow: none;
+  outline: 2px solid var(--in-content-focus-outline-color);
+  outline-offset: 2px;
+  -moz-outline-radius: 6px;
 }
 
-html|input[type="radio"]:-moz-focusring {
+html|input[type="radio"]:-moz-focusring,
+xul|radio[focused="true"] > .radio-check {
   -moz-outline-radius: 100%;
 }
 
@@ -334,7 +435,7 @@ html|button[type="submit"],
 xul|button[default],
 button.primary {
   background-color: var(--in-content-primary-button-background);
-  color: var(--in-content-selected-text) !important;
+  color: var(--in-content-primary-button-text-color) !important;
 }
 
 html|button[autofocus]:enabled:hover,
@@ -353,17 +454,11 @@ xul|button.primary:not([disabled="true"]):hover:active {
   background-color: var(--in-content-primary-button-background-active);
 }
 
-html|button.danger-button {
-  background-color: var(--red-60);
-  color: white !important;
-}
-
-html|button.danger-button:enabled:hover {
-  background-color: var(--red-70);
-}
-
-html|button.danger-button:enabled:hover:active {
-  background-color: var(--red-80);
+.danger-button {
+  --in-content-primary-button-background: var(--in-content-danger-button-background);
+  --in-content-primary-button-background-hover: var(--in-content-danger-button-background-hover);
+  --in-content-primary-button-background-active: var(--in-content-danger-button-background-active);
+  --in-content-focus-outline-color: var(--in-content-danger-button-background);
 }
 
 html|button.ghost-button {
@@ -376,6 +471,16 @@ html|button.ghost-button:enabled:hover {
 
 html|button.ghost-button:enabled:hover:active {
   background-color: var(--in-content-button-background-hover);
+}
+
+@media (-moz-proton) {
+html|button.ghost-button:enabled:hover {
+  background-color: var(--in-content-button-background-hover);
+}
+
+html|button.ghost-button:enabled:hover:active {
+  background-color: var(--in-content-button-background-active);
+}
 }
 
 html|input[type="color"] {
@@ -432,7 +537,7 @@ xul|menulist > xul|menupopup > xul|menuitem:not([disabled="true"])[_moz-menuacti
 
 xul|menulist > xul|menupopup > xul|menu:not([disabled="true"])[selected="true"],
 xul|menulist > xul|menupopup > xul|menuitem:not([disabled="true"])[selected="true"] {
-  color: var(--in-content-selected-text);
+  color: var(--in-content-item-selected-text);
   background-color: var(--in-content-item-selected);
 }
 
@@ -459,7 +564,7 @@ html|textarea,
 xul|search-textbox {
   appearance: none;
   border: 1px solid var(--in-content-box-border-color);
-  border-radius: 2px;
+  border-radius: 4px;
   color: inherit;
   background-color: var(--in-content-box-background);
 }
@@ -477,31 +582,108 @@ html|textarea {
   margin: 2px 4px;
 }
 
+@media not (-moz-proton) {
 html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):enabled:not(:focus):hover,
 html|textarea:enabled:not(:focus):hover,
 xul|search-textbox:not([disabled="true"], [focused]):hover {
   border-color: var(--in-content-border-hover);
 }
+} /*** END !proton ***/
 
 html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):focus,
 html|textarea:focus,
 xul|search-textbox[focused] {
-  border-color: var(--in-content-border-active);
-  box-shadow: 0 0 0 1px var(--in-content-border-active),
-    0 0 0 4px var(--in-content-border-active-shadow);
-  outline: none;
+  border-color: var(--in-content-focus-outline-color);
+  outline: 1px solid var(--in-content-focus-outline-color);
 }
 
 html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):-moz-ui-invalid,
 html|textarea:-moz-ui-invalid {
   border-color: var(--in-content-border-invalid);
+  outline: 1px solid var(--in-content-border-invalid);
 }
 
-/* Don't show the field error outlines and focus borders at the same time. */
-html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):-moz-ui-invalid:focus,
-html|textarea:-moz-ui-invalid:focus {
-  box-shadow: 0 0 0 3px var(--in-content-border-invalid-shadow);
+@media not (-moz-proton) {
+html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]),
+html|textarea,
+xul|search-textbox {
+  border-radius: 2px;
 }
+
+html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):focus,
+html|textarea:focus,
+xul|search-textbox[focused] {
+  box-shadow: 0 0 0 4px var(--blue-50-a30);
+}
+html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):-moz-ui-invalid,
+html|textarea:-moz-ui-invalid {
+  box-shadow: 0 0 0 4px var(--red-50-a30);
+}
+
+/** Pre-Proton XUL and HTML checkboxes **/
+
+xul|checkbox {
+  appearance: none;
+  height: 30px;
+  margin: 2px 0;
+}
+
+xul|*.checkbox-check,
+html|input[type="checkbox"] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--in-content-box-border-color);
+  border-radius: 2px;
+  margin-block: 3px; /* extend the vertical clicktarget */
+  margin-inline: 0 10px;
+  background-color: var(--in-content-button-background);
+  background-position: center;
+  background-repeat: no-repeat;
+  flex-shrink: 0; /* avoid shrinking inside flex container */
+}
+
+xul|checkbox:not([disabled="true"]):hover > xul|*.checkbox-check,
+html|input[type="checkbox"]:enabled:hover {
+  background-color: var(--in-content-button-background-hover);
+}
+
+xul|checkbox:not([disabled="true"]):hover:active > xul|*.checkbox-check,
+html|input[type="checkbox"]:enabled:hover:active {
+  background-color: var(--in-content-button-background-active);
+}
+
+xul|checkbox[checked] > xul|*.checkbox-check,
+html|input[type="checkbox"]:checked {
+  -moz-context-properties: fill;
+  fill: currentColor;
+  color: var(--in-content-primary-button-text-color);
+  background-color: var(--in-content-primary-button-background);
+  border-color: transparent;
+
+  /* Style the button also when printing with "Print Backgrounds" unchecked */
+  color-adjust: exact;
+}
+
+xul|checkbox[checked] > xul|*.checkbox-check {
+  list-style-image: url("chrome://global/skin/icons/check.svg");
+}
+
+html|input[type="checkbox"]:checked {
+  background-image: url("chrome://global/skin/icons/check.svg");
+}
+
+xul|checkbox:not([disabled="true"])[checked]:hover > xul|*.checkbox-check,
+html|input[type="checkbox"]:enabled:checked:hover {
+  background-color: var(--in-content-primary-button-background-hover);
+}
+
+xul|checkbox:not([disabled="true"])[checked]:hover:active > xul|*.checkbox-check,
+html|input[type="checkbox"]:enabled:checked:hover:active {
+  background-color: var(--in-content-primary-button-background-active);
+}
+} /*** END !proton ***/
 
 html|input:is([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]):disabled,
 html|textarea:disabled,
@@ -533,69 +715,62 @@ html|a:hover:active,
   text-decoration: none;
 }
 
-/* Checkboxes and radio buttons */
-
-xul|checkbox {
-  appearance: none;
-  height: 30px;
-  margin: 2px 0;
+html|a:-moz-focusring,
+.text-link:-moz-focusring {
+  outline: 2px solid var(--in-content-focus-outline-color);
+  outline-offset: 1px;
+  -moz-outline-radius: 2px;
 }
 
+/* Checkboxes and radio buttons */
+
+@media (-moz-proton) {
+/* Add invisible vertical click-target */
 xul|*.checkbox-check,
 html|input[type="checkbox"] {
+  margin-block: 2px;
+}
+
+html|input[type="checkbox"] {
   appearance: none;
-  width: 20px;
-  height: 20px;
-  padding: 1px;
-  border: 1px solid var(--in-content-box-border-color);
+  height: 16px;
+  width: 16px;
+  border: 1px solid var(--checkbox-border-color);
+  background-color: var(--checkbox-unchecked-bgcolor);
   border-radius: 2px;
-  margin-block: 3px; /* extend the vertical clicktarget */
-  margin-inline: 0 10px;
-  background-color: var(--in-content-button-background);
-  background-position: center;
-  background-repeat: no-repeat;
+  margin-inline-end: 6px;
   flex-shrink: 0; /* avoid shrinking inside flex container */
 }
 
-xul|checkbox:not([disabled="true"]):hover > xul|*.checkbox-check,
 html|input[type="checkbox"]:enabled:hover {
-  background-color: var(--in-content-button-background-hover);
+  background-color: var(--checkbox-unchecked-hover-bgcolor);
 }
 
-xul|checkbox:not([disabled="true"]):hover:active > xul|*.checkbox-check,
 html|input[type="checkbox"]:enabled:hover:active {
-  background-color: var(--in-content-button-background-active);
+  background-color: var(--checkbox-unchecked-active-bgcolor);
 }
 
-xul|checkbox[checked] > xul|*.checkbox-check,
 html|input[type="checkbox"]:checked {
+  border-color: var(--checkbox-checked-border-color);
+  background-color: var(--checkbox-checked-bgcolor);
+  background-image: url("chrome://global/skin/icons/check.svg");
+  background-position: center;
+  background-repeat: no-repeat;
   -moz-context-properties: fill;
   fill: currentColor;
-  color: white;
-  background-color: var(--blue-60);
-  border-color: transparent;
-
+  color: var(--checkbox-checked-color);
   /* Style the button also when printing with "Print Backgrounds" unchecked */
   color-adjust: exact;
 }
 
-xul|checkbox[checked] > xul|*.checkbox-check {
-  list-style-image: url("chrome://global/skin/icons/check.svg");
-}
-
-html|input[type="checkbox"]:checked {
-  background-image: url("chrome://global/skin/icons/check.svg");
-}
-
-xul|checkbox:not([disabled="true"])[checked]:hover > xul|*.checkbox-check,
 html|input[type="checkbox"]:enabled:checked:hover {
-  background-color: var(--blue-70);
+  background-color: var(--checkbox-checked-hover-bgcolor);
 }
 
-xul|checkbox:not([disabled="true"])[checked]:hover:active > xul|*.checkbox-check,
 html|input[type="checkbox"]:enabled:checked:hover:active {
-  background-color: var(--blue-80);
+  background-color: var(--checkbox-checked-active-bgcolor);
 }
+} /** END Proton **/
 
 xul|richlistitem > xul|*.checkbox-check {
   margin: 3px 6px;
@@ -615,8 +790,9 @@ xul|radio {
 html|input[type="radio"],
 xul|*.radio-check {
   appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   border: 1px solid var(--in-content-box-border-color);
   border-radius: 100%;
   margin-block: 3px; /* extend the vertical clicktarget */
@@ -640,30 +816,23 @@ html|input[type="radio"]:checked,
 xul|*.radio-check[selected] {
   -moz-context-properties: fill;
   fill: currentColor;
-  color: white;
-  background-color: var(--blue-60);
+  color: var(--in-content-primary-button-text-color);
+  background-color: var(--in-content-primary-button-background);
+  background-image: url("chrome://global/skin/icons/radio.svg");
   border-color: transparent;
 
   /* Style the button also when printing with "Print Backgrounds" unchecked */
   color-adjust: exact;
 }
 
-html|input[type="radio"]:checked {
-  background-image: url("chrome://global/skin/in-content/radio.svg");
-}
-
-xul|*.radio-check[selected] {
-  list-style-image: url("chrome://global/skin/in-content/radio.svg");
-}
-
 html|input[type="radio"]:enabled:checked:hover,
 xul|radio:not([disabled="true"])[selected]:hover > xul|*.radio-check {
-  background-color: var(--blue-70);
+  background-color: var(--in-content-primary-button-background-hover);
 }
 
 html|input[type="radio"]:enabled:checked:hover:active,
 xul|radio:not([disabled="true"])[selected]:hover:active > xul|*.radio-check {
-  background-color: var(--blue-80);
+  background-color: var(--in-content-primary-button-background-active);
 }
 
 xul|*.radio-label-box {
@@ -695,7 +864,7 @@ xul|label[disabled="true"] {
   margin: 70px 0 0;
   border-width: 0;
   width: var(--in-content-sidebar-width);
-  box-shadow: none;
+  outline: none;
 }
 
 @media print {
@@ -710,6 +879,7 @@ html|*#categories {
 }
 
 #categories > .category {
+  border-radius: 4px;
   min-height: 48px;
   appearance: none;
   margin-inline-start: 34px;
@@ -737,38 +907,50 @@ html|*#categories > html|*.category:dir(rtl) {
 }
 
 #categories > .category:hover {
-  background-color: var(--in-content-category-background-hover);
-  border-radius: 2px;
+  background-color: var(--in-content-button-background-hover);
 }
 
 #categories > .category:hover:active {
-  background-color: var(--in-content-category-background-active);
+  background-color: var(--in-content-button-background-active);
 }
+
+@media not (-moz-proton) {
+#categories > .category {
+  border-radius: 2px;
+}
+
+#categories > .category:hover {
+  background-color: var(--in-content-button-background);
+}
+
+#categories > .category:hover:active {
+  background-color: var(--in-content-button-background-hover);
+}
+} /*** END !proton ***/
 
 #categories > .category[selected],
 #categories > .category.selected {
-  color: var(--in-content-category-text-selected) !important;
-  background-color: transparent;
+  color: var(--in-content-accent-color) !important;
 }
 
-#categories > .category[selected]:hover,
-#categories > .category.selected:hover {
-  background-color: var(--in-content-category-background-selected-hover);
+#categories > .category[selected]:not(:hover) {
+  /* override richlistitem selected style while letting hover style above apply */
+  background-color: transparent;
 }
 
 #categories > .category[selected]:hover:active,
 #categories > .category.selected:hover:active {
-  color: var(--in-content-category-text-selected-active) !important;
-  background-color: var(--in-content-category-background-selected-active);
+  color: var(--in-content-accent-color-active) !important;
 }
 
-#categories[keyboard-navigation="true"]:-moz-focusring > .category[current] {
-  outline: var(--in-content-category-outline-focus);
+#categories[keyboard-navigation="true"]:-moz-focusring > .category[current],
+#categories > .category:-moz-focusring {
+  outline: 2px solid var(--in-content-focus-outline-color);
+  outline-offset: -2px;
 }
 
 html|*#categories[last-input-type="mouse"] > html|button.category:-moz-focusring {
   outline: none;
-  box-shadow: none;
 }
 
 .category-name {
@@ -841,7 +1023,6 @@ html|*#categories[last-input-type="mouse"] > html|button.category:-moz-focusring
   font-weight: 300;
   line-height: 1.3em;
   margin: 0;
-  user-select: none;
 }
 
 /* List boxes */
@@ -853,9 +1034,17 @@ xul|richlistbox {
   margin-inline: 0;
   background-color: var(--in-content-box-background);
   border: 1px solid var(--in-content-box-border-color);
-  border-radius: 2px;
+  border-radius: 4px;
   color: var(--in-content-text-color);
 }
+
+@media not (-moz-proton) {
+html|select[size][multiple],
+xul|listheader,
+xul|richlistbox {
+  border-radius: 2px;
+}
+} /*** END !proton ***/
 
 xul|listheader {
   border-bottom: none;
@@ -863,6 +1052,7 @@ xul|listheader {
   border-bottom-right-radius: 0;
   padding-bottom: 1px;
   box-shadow: inset 0 -1px var(--in-content-border-color);
+  overflow: clip; /* Clip border-radius */
 }
 
 xul|listheader + xul|richlistbox {
@@ -890,8 +1080,26 @@ xul|treechildren::-moz-tree-row(hover) {
   background-color: var(--in-content-item-hover);
 }
 
+xul|richlistbox > xul|richlistitem[selected],
 xul|treechildren::-moz-tree-row(selected) {
   background-color: var(--in-content-item-selected);
+  color: var(--in-content-item-selected-text);
+}
+
+xul|richlistbox:not(#categories) > xul|richlistitem[selected] {
+  /* Ensure buttons inside richlistitems (containers, applications) look OK */
+  --in-content-button-background: color-mix(in srgb, currentColor 20%, transparent);
+  --in-content-button-background-hover: color-mix(in srgb, currentColor 40%, transparent);
+  --in-content-button-background-active: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+/* Use a 2px border so that selected row highlight is still visible behind
+    an existing high-contrast border that uses the background color */
+@media (prefers-contrast) {
+  xul|treechildren::-moz-tree-row(selected) {
+     border: 2px solid currentColor;
+     border-radius: 4px;
+  }
 }
 
 xul|panel[type="autocomplete-richlistbox"] {
@@ -906,38 +1114,55 @@ xul|tree {
   appearance: none;
   font-size: 1em;
   border: 1px solid var(--in-content-box-border-color);
-  border-radius: 2px;
+  border-radius: 4px;
   background-color: var(--in-content-box-background);
+  color: inherit;
   margin: 0;
 }
 
 xul|tree:-moz-focusring,
 xul|richlistbox:-moz-focusring {
-  border-color: var(--in-content-border-active);
-  box-shadow: 0 0 0 1px var(--in-content-border-active),
-    0 0 0 4px var(--in-content-border-active-shadow);
+  border-color: var(--in-content-focus-outline-color);
+  outline: 1px solid var(--in-content-focus-outline-color);
 }
 
 xul|treecols {
   appearance: none;
   border: none;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
   border-bottom: 1px solid var(--in-content-border-color);
+  overflow: clip; /* Clip border-radius */
   padding: 0;
 }
+
+@media not (-moz-proton) {
+xul|tree {
+  border-radius: 2px;
+}
+xul|treecols {
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+} /*** END !proton ***/
 
 xul|treecol:not([hideheader="true"]),
 xul|treecolpicker {
   appearance: none;
   border: none;
-  background-color: var(--in-content-box-background-hover);
-  color: #808080;
+  background-color: var(--in-content-button-background);
+  color: inherit;
   padding: 5px 10px;
 }
 
 xul|treecol:not([hideheader="true"], [sortable="false"]):hover,
 xul|treecolpicker:hover {
-  background-color: var(--in-content-box-background-active);
-  color: var(--in-content-text-color);
+  background-color: var(--in-content-button-background-hover);
+}
+
+xul|treecol:not([hideheader="true"], [sortable="false"]):hover:active,
+xul|treecolpicker:hover:active {
+  background-color: var(--in-content-button-background-active);
 }
 
 xul|treecol:not([hideheader="true"], :first-child),
@@ -948,7 +1173,7 @@ xul|treecolpicker {
 }
 
 xul|treecol[sortDirection]:not([hideheader="true"]) > xul|*.treecol-sortdirection {
-  list-style-image: url("chrome://global/skin/in-content/dropdown.svg");
+  list-style-image: url("chrome://global/skin/icons/sort-arrow.svg");
   -moz-context-properties: fill;
   fill: currentColor;
   width: 18px;
@@ -964,17 +1189,10 @@ xul|treechildren::-moz-tree-row {
   min-height: 2em;
 }
 
-/* Color needs to be set on tree cell in order to be applied */
-xul|treechildren::-moz-tree-cell-text,
-xul|treechildren::-moz-tree-twisty,
-xul|treechildren::-moz-tree-image {
-  color: var(--in-content-text-color);
-}
-
 xul|treechildren::-moz-tree-cell-text(selected),
 xul|treechildren::-moz-tree-twisty(selected),
 xul|treechildren::-moz-tree-image(selected) {
-  color: var(--in-content-selected-text);
+  color: var(--in-content-item-selected-text);
 }
 
 /* Message bars */
@@ -1011,7 +1229,7 @@ xul|treechildren::-moz-tree-image(selected) {
 }
 
 .message-bar-icon {
-  list-style-image: url("chrome://global/skin/icons/identity-icon.svg");
+  list-style-image: url("chrome://global/skin/icons/info.svg");
   width: 24px;
   height: 24px;
   padding: 4px;
@@ -1034,6 +1252,8 @@ input[type="text"][warning]:enabled:not(:focus) {
   border-color: var(--yellow-60);
   box-shadow: 0 0 0 1px var(--yellow-60), 0 0 0 4px var(--yellow-60-a30);
 }
+
+/* Cards */
 
 .card {
   background: var(--in-content-box-background);
@@ -1061,6 +1281,8 @@ input[type="text"][warning]:enabled:not(:focus) {
   transform: scaleX(-1);
 }
 
+/* Sidebar footer links */
+
 .sidebar-footer-list {
   list-style-type: none;
   margin-block: 0 36px;
@@ -1068,63 +1290,49 @@ input[type="text"][warning]:enabled:not(:focus) {
   padding: 0;
 }
 
-.sidebar-footer-link,
-.sidebar-footer-button > .text-link {
-  -moz-box-flex: 1;
-  margin-inline: 34px 0;
-  text-decoration: none;
-  color: currentColor;
-  width: 36px;
+.sidebar-footer-link {
   height: 36px;
   cursor: default;
-}
-
-.sidebar-footer-link {
+  border-radius: 4px;
   display: flex;
   align-items: center;
-  background-size: 16px;
-  background-repeat: no-repeat;
-  background-position-x: 13px;
-  background-position-y: 10px;
-  cursor: default;
-  -moz-context-properties: fill, fill-opacity;
-  fill: currentColor;
-  padding-inline-start: 43px;
 
-  /* These override the common styles. */
-  margin: 0;
-  font-size: .9em;
-  width: auto;
+  /* Override link style for :hover and :hover:active states */
+  text-decoration: none !important;
+  color: inherit !important;
 }
 
-.sidebar-footer-link:dir(rtl) {
-  background-position-x: right 13px;
+xul|*.sidebar-footer-link {
+  display: -moz-box;
+  -moz-box-align: center;
 }
 
-.sidebar-footer-link,
-.sidebar-footer-link:hover,
-.sidebar-footer-link:hover:active,
-.sidebar-footer-link:visited {
-  text-decoration: none;
-  color: currentColor;
+.sidebar-footer-link:hover {
+  background-color: var(--in-content-button-background-hover);
 }
 
-.sidebar-footer-link:hover,
-.sidebar-footer-button > .text-link:hover {
-  background-color: var(--in-content-category-background-hover);
+.sidebar-footer-link:hover:active:not([disabled]) {
+  background-color: var(--in-content-button-background-active);
+}
+
+@media not (-moz-proton) {
+.sidebar-footer-link {
   border-radius: 2px;
 }
 
-.sidebar-footer-link:hover:active:not([disabled]),
-.sidebar-footer-button > .text-link:hover:active:not([disabled]) {
-  background-color: var(--in-content-category-background-active);
-  color: currentColor;
+.sidebar-footer-link:hover {
+  background-color: var(--in-content-button-background);
 }
 
-.sidebar-footer-link:-moz-focusring,
-.sidebar-footer-button > .text-link:-moz-focusring {
-  outline: var(--in-content-category-outline-focus);
-  outline-offset: -1px;
+.sidebar-footer-link:hover:active:not([disabled]) {
+  background-color: var(--in-content-button-background-hover);
+}
+} /*** END !proton ***/
+
+.sidebar-footer-link:-moz-focusring {
+  outline: 2px solid var(--in-content-focus-outline-color);
+  outline-offset: -2px;
+  -moz-outline-radius: 6px;
 }
 
 .sidebar-footer-icon {
@@ -1134,61 +1342,18 @@ input[type="text"][warning]:enabled:not(:focus) {
   height: 16px;
   margin: 10px;
   margin-inline-start: 13px;
-  vertical-align: middle;
-}
-
-.sidebar-footer-icon:hover {
-  fill: currentColor !important;
-}
-
-.sidebar-footer-button:last-of-type {
-  margin-bottom: 36px;
-}
-
-xul|*.help-icon {
-  list-style-image: url("chrome://global/skin/icons/help.svg");
-}
-
-html|*.help-icon {
-  background-image: url("chrome://global/skin/icons/help.svg");
-}
-
-.preferences-icon {
-  background-image: url("chrome://global/skin/icons/settings.svg");
-}
-
-.addons-icon {
-  list-style-image: url("chrome://mozapps/skin/extensions/extension.svg");
-  /* The add-ons icon doesn't have much (any?) margin, so make it a bit smaller. */
-  width: 14px;
-  height: 14px;
-  margin-inline-start: 15px;
 }
 
 .sidebar-footer-label {
-  margin: 0 4px;
   font-size: .9em;
+  margin: 0 4px;
   user-select: none;
 }
 
 @media (max-width: 830px) {
-  .sidebar-footer-button > .text-link {
-    -moz-box-flex: 0;
-    width: 36px;
-    height: 36px;
-    margin-inline-start: 0;
-  }
-
-  .sidebar-footer-icon {
-    margin: 10px;
-  }
-
-  .sidebar-footer-label {
-    display: none;
-  }
-
   .sidebar-footer-list {
     margin-inline-start: 40px;
+    -moz-box-align: start;
   }
 
   .sidebar-footer-link {
@@ -1198,16 +1363,29 @@ html|*.help-icon {
     margin-inline-start: 1px;
   }
 
-  .sidebar-footer-link,
-  /* We need to override the full-width RTL rule, so explicitly specify RTL. */
-  .sidebar-footer-link:dir(rtl) {
-    background-position: center;
+  .sidebar-footer-icon {
+    margin-inline-start: 10px;
   }
 
-  .sidebar-footer-link-text {
+  .sidebar-footer-label {
     display: none;
   }
 }
+
+/* Icon helper classes */
+
+xul|*.help-icon {
+  list-style-image: url("chrome://global/skin/icons/help.svg");
+}
+
+xul|*.addons-icon {
+  list-style-image: url("chrome://mozapps/skin/extensions/extension.svg");
+  /* The add-ons icon doesn't have much (any?) margin, so make it a bit smaller. */
+  scale: 87.5%;
+  translate: 6.25%;
+}
+
+/* Back button */
 
 .back-button {
   -moz-context-properties: fill;
@@ -1224,4 +1402,13 @@ html|*.help-icon {
 .back-button:-moz-locale-dir(rtl),
 .back-button:dir(rtl) {
   transform: scaleX(-1);
+}
+
+@media (-moz-proton) {
+/* Adjust vertical margins for buttons in dialogs. We do this here because
+ * this sheet gets inserted into the Shadow DOM for the button box in the dialog,
+ * so can actually affect the button styling that way.  */
+:host(dialog[subdialog]) .dialog-button-box > button {
+  margin: 0 4px;
+}
 }

@@ -98,7 +98,7 @@ Status NetdUnsolService::onInterfaceAddressRemoved(const std::string& addr,
                                                    const std::string& ifName,
                                                    int flags, int scope) {
   char message[BUF_SIZE];
-  SprintfLiteral(message, "Address updated %s %s %d %d", addr.c_str(),
+  SprintfLiteral(message, "Address removed %s %s %d %d", addr.c_str(),
                  ifName.c_str(), flags, scope);
   NUS_DBG("%s", message);
   sendBroadcast(InterfaceAddressRemoved, message);

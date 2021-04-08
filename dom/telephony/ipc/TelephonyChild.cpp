@@ -167,8 +167,11 @@ mozilla::ipc::IPCResult TelephonyChild::RecvNotifyRttMessageReceived(
  ******************************************************************************/
 
 TelephonyRequestChild::TelephonyRequestChild(nsITelephonyListener* aListener,
-                                             nsITelephonyCallback* aCallback)
-    : mListener(aListener), mCallback(aCallback) {}
+                                             nsITelephonyCallback* aCallback) {
+  mListener = aListener;
+  nsISupports* temp = aCallback;
+  mCallback = do_QueryInterface(temp);
+}
 
 void TelephonyRequestChild::ActorDestroy(ActorDestroyReason aWhy) {
   mListener = nullptr;

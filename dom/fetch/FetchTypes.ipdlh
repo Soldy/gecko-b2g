@@ -64,6 +64,7 @@ struct IPCInternalRequest {
   nsString integrity;
   nsCString fragment;
   PrincipalInfo? principalInfo;
+  bool hasSystemXHRPerm;
 };
 
 struct IPCInternalResponse {
@@ -80,6 +81,7 @@ struct IPCInternalResponse {
   BodyStreamVariant? alternativeBody;
   IPCChannelInfo channelInfo;
   PrincipalInfo? principalInfo;
+  bool hasSystemXHRPerm;
 };
 
 } // namespace ipc

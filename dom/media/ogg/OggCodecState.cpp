@@ -156,7 +156,7 @@ bool OggCodecState::AddVorbisComment(UniquePtr<MetadataTags>& aTags,
     LOG(LogLevel::Debug, ("Skipping comment: invalid UTF-8 in value"));
     return false;
   }
-  aTags->Put(key, value);
+  aTags->InsertOrUpdate(key, value);
   return true;
 }
 
@@ -1563,7 +1563,7 @@ bool SkeletonState::DecodeIndex(ogg_packet* aPacket) {
 
   int32_t keyPointsRead = keyPoints->Length();
   if (keyPointsRead > 0) {
-    mIndex.Put(serialno, std::move(keyPoints));
+    mIndex.InsertOrUpdate(serialno, std::move(keyPoints));
   }
 
   LOG(LogLevel::Debug, ("Loaded %d keypoints for Skeleton on stream %u",
@@ -1712,14 +1712,13 @@ bool SkeletonState::DecodeFisbone(ogg_packet* aPacket) {
 
           if ((i == 0 && IsAscii(strMsg)) || (i != 0 && IsUtf8(strMsg))) {
             EMsgHeaderType eHeaderType = kFieldTypeMaps[i].mMsgHeaderType;
-            field->mValuesStore.WithEntryHandle(eHeaderType, [=](auto&& entry) {
-              entry.OrInsertWith([i, msgHead, msgProbe]() {
-                uint32_t nameLen =
-                    strlen(kFieldTypeMaps[i].mPatternToRecognize);
-                return MakeUnique<nsCString>(msgHead + nameLen,
-                                             msgProbe - msgHead - nameLen);
-              });
-            });
+            Unused << field->mValuesStore.LookupOrInsertWith(
+                eHeaderType, [i, msgHead, msgProbe]() {
+                  uint32_t nameLen =
+                      strlen(kFieldTypeMaps[i].mPatternToRecognize);
+                  return MakeUnique<nsCString>(msgHead + nameLen,
+                                               msgProbe - msgHead - nameLen);
+                });
             isContentTypeParsed = i == 0 ? true : isContentTypeParsed;
           }
           break;

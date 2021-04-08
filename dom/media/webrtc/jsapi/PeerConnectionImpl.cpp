@@ -216,10 +216,16 @@ namespace mozilla {
 
 void PeerConnectionAutoTimer::RegisterConnection() { mRefCnt++; }
 
-void PeerConnectionAutoTimer::UnregisterConnection() {
+void PeerConnectionAutoTimer::UnregisterConnection(bool aContainedAV) {
   MOZ_ASSERT(mRefCnt);
   mRefCnt--;
+  mUsedAV |= aContainedAV;
   if (mRefCnt == 0) {
+    if (mUsedAV) {
+      Telemetry::Accumulate(
+          Telemetry::WEBRTC_AV_CALL_DURATION,
+          static_cast<uint32_t>((TimeStamp::Now() - mStart).ToSeconds()));
+    }
     Telemetry::Accumulate(
         Telemetry::WEBRTC_CALL_DURATION,
         static_cast<uint32_t>((TimeStamp::Now() - mStart).ToSeconds()));
@@ -2078,7 +2084,8 @@ void PeerConnectionImpl::RecordEndOfCallTelemetry() {
   MOZ_RELEASE_ASSERT(mWindow);
   auto found = sCallDurationTimers.find(mWindow->WindowID());
   if (found != sCallDurationTimers.end()) {
-    found->second.UnregisterConnection();
+    found->second.UnregisterConnection((type & kAudioTypeMask) ||
+                                       (type & kVideoTypeMask));
     if (found->second.IsStopped()) {
       sCallDurationTimers.erase(found);
     }

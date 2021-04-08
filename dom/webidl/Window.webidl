@@ -492,8 +492,9 @@ partial interface Window {
            attribute EventHandler ondevicemotion;
            attribute EventHandler ondeviceorientation;
            attribute EventHandler onabsolutedeviceorientation;
-           attribute EventHandler ondeviceproximity;
+           [Pref="device.sensors.proximity.enabled"]
            attribute EventHandler onuserproximity;
+           [Pref="device.sensors.ambientLight.enabled"]
            attribute EventHandler ondevicelight;
 #ifdef MOZ_B2G
            attribute EventHandler onatmpressure;
@@ -707,12 +708,10 @@ partial interface Window {
   [ChromeOnly]
   readonly attribute boolean isChromeWindow;
 
-#ifdef MOZ_GLEAN
   [ChromeOnly]
   readonly attribute GleanImpl Glean;
   [ChromeOnly]
   readonly attribute GleanPingsImpl GleanPings;
-#endif
 };
 
 partial interface Window {

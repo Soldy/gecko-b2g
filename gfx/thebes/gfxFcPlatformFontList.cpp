@@ -17,6 +17,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "nsGkAtoms.h"
 #include "nsUnicodeProperties.h"
@@ -38,6 +39,7 @@
 #ifdef MOZ_WIDGET_GTK
 #  include <gdk/gdk.h>
 #  include "gfxPlatformGtk.h"
+#  include "mozilla/WidgetUtilsGtk.h"
 #endif
 
 #ifdef MOZ_X11
@@ -715,7 +717,7 @@ static void PreparePattern(FcPattern* aPattern, bool aIsPrinterFont) {
     int lcdfilter;
     if (FcPatternGet(aPattern, FC_LCD_FILTER, 0, &value) == FcResultNoMatch) {
       GdkDisplay* dpy = gdk_display_get_default();
-      if (GDK_IS_X11_DISPLAY(dpy) &&
+      if (mozilla::widget::GdkIsX11Display(dpy) &&
           GetXftInt(GDK_DISPLAY_XDISPLAY(dpy), "lcdfilter", &lcdfilter)) {
         FcPatternAddInteger(aPattern, FC_LCD_FILTER, lcdfilter);
       }
@@ -754,7 +756,7 @@ gfxFontconfigFontEntry::UnscaledFontCache::Lookup(const std::string& aFile,
 static inline gfxFloat SizeForStyle(gfxFontconfigFontEntry* aEntry,
                                     const gfxFontStyle& aStyle) {
   return aStyle.sizeAdjust >= 0.0 ? aStyle.GetAdjustedSize(aEntry->GetAspect())
-                                  : aStyle.size;
+                                  : aStyle.size * aEntry->mSizeAdjust;
 }
 
 static double ChooseFontSize(gfxFontconfigFontEntry* aEntry,
@@ -1337,14 +1339,18 @@ void gfxFcPlatformFontList::AddPatternToFontList(
     nsAutoCString keyName(aFamilyName);
     ToLowerCase(keyName);
 
-    aFontFamily =
-        static_cast<gfxFontconfigFontFamily*>(mFontFamilies.GetWeak(keyName));
-    if (!aFontFamily) {
-      FontVisibility visibility =
-          aAppFonts ? FontVisibility::Base : GetVisibilityForFamily(keyName);
-      aFontFamily = new gfxFontconfigFontFamily(aFamilyName, visibility);
-      mFontFamilies.Put(keyName, RefPtr{aFontFamily});
-    }
+    aFontFamily = static_cast<gfxFontconfigFontFamily*>(
+        mFontFamilies
+            .LookupOrInsertWith(keyName,
+                                [&] {
+                                  FontVisibility visibility =
+                                      aAppFonts
+                                          ? FontVisibility::Base
+                                          : GetVisibilityForFamily(keyName);
+                                  return MakeRefPtr<gfxFontconfigFontFamily>(
+                                      aFamilyName, visibility);
+                                })
+            .get());
     // Record if the family contains fonts from the app font set
     // (in which case we won't rely on fontconfig's charmap, due to
     // bug 1276594).
@@ -1376,11 +1382,11 @@ void gfxFcPlatformFontList::AddPatternToFontList(
   GetFaceNames(aFont, aFamilyName, psname, fullname);
   if (!psname.IsEmpty()) {
     ToLowerCase(psname);
-    mLocalNames.Put(psname, aFont);
+    mLocalNames.InsertOrUpdate(psname, RefPtr{aFont});
   }
   if (!fullname.IsEmpty()) {
     ToLowerCase(fullname);
-    mLocalNames.Put(fullname, aFont);
+    mLocalNames.InsertOrUpdate(fullname, RefPtr{aFont});
   }
 }
 
@@ -1491,8 +1497,8 @@ void gfxFcPlatformFontList::ReadSystemFontList(
   // (see https://bugs.freedesktop.org/show_bug.cgi?id=26718), so when using
   // an older version, we manually append it to the unparsed pattern.
   if (FcGetVersion() < 20900) {
-    for (auto iter = mFontFamilies.Iter(); !iter.Done(); iter.Next()) {
-      auto family = static_cast<gfxFontconfigFontFamily*>(iter.Data().get());
+    for (const auto& entry : mFontFamilies) {
+      auto* family = static_cast<gfxFontconfigFontFamily*>(entry.GetWeak());
       family->AddFacesToFontList([&](FcPattern* aPat, bool aAppFonts) {
         char* s = (char*)FcNameUnparse(aPat);
         nsDependentCString patternStr(s);
@@ -1507,8 +1513,8 @@ void gfxFcPlatformFontList::ReadSystemFontList(
       });
     }
   } else {
-    for (auto iter = mFontFamilies.Iter(); !iter.Done(); iter.Next()) {
-      auto family = static_cast<gfxFontconfigFontFamily*>(iter.Data().get());
+    for (const auto& entry : mFontFamilies) {
+      auto* family = static_cast<gfxFontconfigFontFamily*>(entry.GetWeak());
       family->AddFacesToFontList([&](FcPattern* aPat, bool aAppFonts) {
         char* s = (char*)FcNameUnparse(aPat);
         nsDependentCString patternStr(s);
@@ -1537,7 +1543,11 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
 
 #ifdef MOZ_BUNDLED_FONTS
   if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() != 0) {
+    TimeStamp start = TimeStamp::Now();
     ActivateBundledFonts();
+    TimeStamp end = TimeStamp::Now();
+    Telemetry::Accumulate(Telemetry::FONTLIST_BUNDLEDFONTS_ACTIVATE,
+                          (end - start).ToMilliseconds());
   }
 #endif
 
@@ -1591,17 +1601,22 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
       aFamilyName = ToCharPtr(canonical);
 
       // Add new family record if one doesn't already exist.
-      faceListPtr = faces.WithEntryHandle(keyName, [&](auto&& faceList) {
-        if (!faceList) {
-          faceList.Insert(MakeUnique<FaceInitArray>());
-          FontVisibility visibility =
-              aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
-          families.AppendElement(fontlist::Family::InitData(
-              keyName, aFamilyName, fontlist::Family::kNoIndex, visibility,
-              /*bundled*/ aAppFont, /*badUnderline*/ false));
-        }
-        return faceList.Data().get();
-      });
+      faceListPtr =
+          faces
+              .LookupOrInsertWith(
+                  keyName,
+                  [&] {
+                    FontVisibility visibility =
+                        aAppFont ? FontVisibility::Base
+                                 : GetVisibilityForFamily(keyName);
+                    families.AppendElement(fontlist::Family::InitData(
+                        keyName, aFamilyName, fontlist::Family::kNoIndex,
+                        visibility,
+                        /*bundled*/ aAppFont, /*badUnderline*/ false));
+
+                    return MakeUnique<FaceInitArray>();
+                  })
+              .get();
     }
 
     char* s = (char*)FcNameUnparse(aPattern);
@@ -1629,13 +1644,13 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
     GetFaceNames(aPattern, aFamilyName, psname, fullname);
     if (!psname.IsEmpty()) {
       ToLowerCase(psname);
-      mLocalNameTable.Put(
+      mLocalNameTable.InsertOrUpdate(
           psname, fontlist::LocalFaceRec::InitData(keyName, descriptor));
     }
     if (!fullname.IsEmpty()) {
       ToLowerCase(fullname);
       if (fullname != psname) {
-        mLocalNameTable.Put(
+        mLocalNameTable.InsertOrUpdate(
             fullname, fontlist::LocalFaceRec::InitData(keyName, descriptor));
       }
     }
@@ -1650,18 +1665,22 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
       keyName = otherFamilyName;
       ToLowerCase(keyName);
 
-      faces.WithEntryHandle(keyName, [&](auto&& faceList) {
-        if (!faceList) {
-          faceList.Insert(MakeUnique<FaceInitArray>());
-          FontVisibility visibility =
-              aAppFont ? FontVisibility::Base : GetVisibilityForFamily(keyName);
-          families.AppendElement(fontlist::Family::InitData(
-              keyName, otherFamilyName, fontlist::Family::kNoIndex, visibility,
-              /*bundled*/ aAppFont, /*badUnderline*/ false));
-        }
-        faceList.Data()->AppendElement(fontlist::Face::InitData{
-            descriptor, 0, false, weight, stretch, style});
-      });
+      faces
+          .LookupOrInsertWith(
+              keyName,
+              [&] {
+                FontVisibility visibility =
+                    aAppFont ? FontVisibility::Base
+                             : GetVisibilityForFamily(keyName);
+                families.AppendElement(fontlist::Family::InitData(
+                    keyName, otherFamilyName, fontlist::Family::kNoIndex,
+                    visibility,
+                    /*bundled*/ aAppFont, /*badUnderline*/ false));
+
+                return MakeUnique<FaceInitArray>();
+              })
+          ->AppendElement(fontlist::Face::InitData{descriptor, 0, false, weight,
+                                                   stretch, style});
 
       n++;
       if (n == int(cIndex)) {
@@ -1709,7 +1728,9 @@ void gfxFcPlatformFontList::InitSharedFontListForPlatform() {
 #ifdef MOZ_BUNDLED_FONTS
   if (StaticPrefs::gfx_bundled_fonts_activate_AtStartup() != 0) {
     FcFontSet* appFonts = FcConfigGetFonts(nullptr, FcSetApplication);
-    addFontSetFamilies(appFonts, policy.get(), /* aAppFonts = */ true);
+    if (appFonts) {
+      addFontSetFamilies(appFonts, policy.get(), /* aAppFonts = */ true);
+    }
   }
 #endif
 
@@ -1891,12 +1912,12 @@ gfxFontEntry* gfxFcPlatformFontList::LookupLocalFont(
   }
 
   // if name is not in the global list, done
-  FcPattern* fontPattern = mLocalNames.Get(keyName);
+  const auto fontPattern = mLocalNames.Lookup(keyName);
   if (!fontPattern) {
     return nullptr;
   }
 
-  return new gfxFontconfigFontEntry(aFontName, fontPattern, aWeightForEntry,
+  return new gfxFontconfigFontEntry(aFontName, *fontPattern, aWeightForEntry,
                                     aStretchForEntry, aStyleForEntry);
 }
 
@@ -1962,7 +1983,7 @@ bool gfxFcPlatformFontList::FindAndAddFamilies(
 
   // Because the FcConfigSubstitute call is quite expensive, we cache the
   // actual font families found via this process. So check the cache first:
-  if (auto* cachedFamilies = mFcSubstituteCache.GetValue(familyName)) {
+  if (auto cachedFamilies = mFcSubstituteCache.Lookup(familyName)) {
     if (cachedFamilies->IsEmpty()) {
       return false;
     }
@@ -2000,12 +2021,13 @@ bool gfxFcPlatformFontList::FindAndAddFamilies(
   }
 
   // Cache the resulting list, so we don't have to do this again.
-  mFcSubstituteCache.Put(familyName, cachedFamilies);
+  const auto& insertedCachedFamilies =
+      mFcSubstituteCache.InsertOrUpdate(familyName, std::move(cachedFamilies));
 
-  if (cachedFamilies.IsEmpty()) {
+  if (insertedCachedFamilies.IsEmpty()) {
     return false;
   }
-  aOutput->AppendElements(cachedFamilies);
+  aOutput->AppendElements(insertedCachedFamilies);
   return true;
 }
 
@@ -2249,7 +2271,7 @@ gfxPlatformFontList::PrefFontList* gfxFcPlatformFontList::FindGenericFamilies(
 
           entry.Insert(std::move(prefFonts));
         }
-        return entry.Data().get();
+        return entry->get();
       });
 }
 

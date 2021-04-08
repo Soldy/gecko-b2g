@@ -38,7 +38,7 @@ enum ServiceWorkerUpdateViaCache {
 
 // https://w3c.github.io/push-api/
 partial interface ServiceWorkerRegistration {
-  [Throws, Exposed=(Window,Worker), Pref="dom.push.enabled", Func="nsContentUtils::PushVisible"]
+  [Throws, Exposed=(Window,Worker), Pref="dom.push.enabled", Func="nsContentUtils::PushVisibleForMainThread"]
   readonly attribute PushManager pushManager;
 };
 

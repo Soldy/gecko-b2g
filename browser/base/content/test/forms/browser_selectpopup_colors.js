@@ -71,14 +71,14 @@ const gSelects = {
   DISABLED_OPTGROUP_AND_OPTIONS:
     "<html><head>" +
     "<body><select id='one'>" +
-    '  <optgroup label=\'{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}\'>' +
+    "  <optgroup label='{\"unstyled\": true}'>" +
     '    <option disabled="">{"color": "GrayText", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
-    '    <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+    '    <option>{"unstyled": true}</option>' +
     '    <option disabled="">{"color": "GrayText", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
-    '    <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
-    '    <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
-    '    <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
-    '    <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+    '    <option>{"unstyled": true}</option>' +
+    '    <option>{"unstyled": true}</option>' +
+    '    <option>{"unstyled": true}</option>' +
+    '    <option>{"unstyled": true}</option>' +
     "  </optgroup>" +
     '  <optgroup label=\'{"color": "GrayText", "backgroundColor": "rgba(0, 0, 0, 0)"}\' disabled=\'\'>' +
     '    <option>{"color": "GrayText", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
@@ -117,7 +117,7 @@ const gSelects = {
     "  select:focus option { background-color: #fff; }" +
     "</style></head>" +
     "<body><select id='one'>" +
-    '  <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgb(255, 255, 255)"}</option>' +
+    '  <option>{"color": "-moz-ComboboxText", "backgroundColor": "rgb(255, 255, 255)"}</option>' +
     '  <option selected="true">{"end": "true"}</option>' +
     "</select></body></html>",
 
@@ -136,7 +136,7 @@ const gSelects = {
     "  select { transition: all .1s; }" +
     "  select:focus { background-color: orange; }" +
     "</style></head><body><select id='one'>" +
-    '  <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+    '  <option>{"color": "-moz-ComboboxText", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
     '  <option selected="true">{"end": "true"}</option>' +
     "</select></body></html>",
 
@@ -144,8 +144,9 @@ const gSelects = {
     "<html><head><style>" +
     "  select { transition: all .1s; }" +
     "  select:focus { text-shadow: 0 0 0 #303030; }" +
+    "  option { color: red; /* It gets the default otherwise, which is fine but we don't have a good way to test for */ }" +
     "</style></head><body><select id='one'>" +
-    '  <option>{"color": "rgb(0, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)", "textShadow": "rgb(48, 48, 48) 0px 0px 0px"}</option>' +
+    '  <option>{"color": "rgb(255, 0, 0)", "backgroundColor": "rgba(0, 0, 0, 0)", "textShadow": "rgb(48, 48, 48) 0px 0px 0px"}</option>' +
     '  <option selected="true">{"end": "true"}</option>' +
     "</select></body></html>",
 
@@ -206,33 +207,10 @@ const gSelects = {
 `,
 };
 
-function getSystemColor(color) {
-  // Need to convert system color to RGB color.
-  let textarea = document.createElementNS(
-    "http://www.w3.org/1999/xhtml",
-    "textarea"
-  );
-  textarea.style.display = "none";
-  textarea.style.color = color;
-  document.documentElement.appendChild(textarea);
-  let computed = getComputedStyle(textarea).color;
-  textarea.remove();
-  return computed;
-}
-
-function testOptionColors(index, item, menulist) {
+function testOptionColors(test, index, item, menulist) {
   // The label contains a JSON string of the expected colors for
   // `color` and `background-color`.
   let expected = JSON.parse(item.label);
-
-  for (let color of Object.keys(expected)) {
-    if (
-      color.toLowerCase().includes("color") &&
-      !expected[color].startsWith("rgb")
-    ) {
-      expected[color] = getSystemColor(expected[color]);
-    }
-  }
 
   // Press Down to move the selected item to the next item in the
   // list and check the colors of this item when it's not selected.
@@ -245,32 +223,75 @@ function testOptionColors(index, item, menulist) {
   if (expected.unstyled) {
     ok(
       !item.hasAttribute("customoptionstyling"),
-      `Item ${index} should not have any custom option styling: ${item.outerHTML}`
+      `${test}: Item ${index} should not have any custom option styling: ${item.outerHTML}`
     );
   } else {
     is(
       getComputedStyle(item).color,
       expected.color,
-      "Item " + index + " has correct foreground color"
+      `${test}: Item ${index} has correct foreground color`
     );
     is(
       getComputedStyle(item).backgroundColor,
       expected.backgroundColor,
-      "Item " + index + " has correct background color"
+      `${test}: Item ${index} has correct background color`
     );
     if (expected.textShadow) {
       is(
         getComputedStyle(item).textShadow,
         expected.textShadow,
-        "Item " + index + " has correct text-shadow color"
+        `${test}: Item ${index} has correct text-shadow color`
       );
     }
   }
 }
 
+function computeLabels(tab) {
+  return SpecialPowers.spawn(tab.linkedBrowser, [], function() {
+    function _rgbaToString(parsedColor) {
+      let { r, g, b, a } = parsedColor;
+      if (a == 1) {
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+    function computeColors(expected) {
+      let any = false;
+      for (let color of Object.keys(expected)) {
+        if (
+          color.toLowerCase().includes("color") &&
+          !expected[color].startsWith("rgb")
+        ) {
+          any = true;
+          expected[color] = _rgbaToString(
+            InspectorUtils.colorToRGBA(expected[color], content.document)
+          );
+        }
+      }
+      return any;
+    }
+    for (let option of content.document.querySelectorAll("option,optgroup")) {
+      if (!option.label) {
+        continue;
+      }
+      let expected;
+      try {
+        expected = JSON.parse(option.label);
+      } catch (ex) {
+        continue;
+      }
+      if (computeColors(expected)) {
+        option.label = JSON.stringify(expected);
+      }
+    }
+  });
+}
+
 async function openSelectPopup(select) {
   const pageUrl = "data:text/html," + escape(select);
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  await computeLabels(tab);
 
   let menulist = document.getElementById("ContentSelectDropdown");
   let selectPopup = menulist.menupopup;
@@ -291,6 +312,12 @@ async function openSelectPopup(select) {
 async function testSelectColors(selectID, itemCount, options) {
   let select = gSelects[selectID];
   let { tab, menulist, selectPopup } = await openSelectPopup(select);
+  if (options.unstyled) {
+    ok(
+      !selectPopup.hasAttribute("customoptionstyling"),
+      `Shouldn't have custom option styling for ${selectID}`
+    );
+  }
   let arrowSB = selectPopup.shadowRoot.querySelector(
     ".menupopup-arrowscrollbox"
   );
@@ -314,21 +341,30 @@ async function testSelectColors(selectID, itemCount, options) {
   let child = selectPopup.firstElementChild;
   let idx = 1;
 
-  if (!options.skipSelectColorTest) {
+  if (typeof options.skipSelectColorTest != "object") {
+    let skip = !!options.skipSelectColorTest;
+    options.skipSelectColorTest = {
+      color: skip,
+      background: skip,
+    };
+  }
+  if (!options.skipSelectColorTest.color) {
     is(
       getComputedStyle(selectPopup).color,
       options.selectColor,
       selectID + " popup has expected foreground color"
     );
+  }
 
-    if (options.selectTextShadow) {
-      is(
-        getComputedStyle(selectPopup).textShadow,
-        options.selectTextShadow,
-        selectID + " popup has expected text-shadow color"
-      );
-    }
+  if (options.selectTextShadow) {
+    is(
+      getComputedStyle(selectPopup).textShadow,
+      options.selectTextShadow,
+      selectID + " popup has expected text-shadow color"
+    );
+  }
 
+  if (!options.skipSelectColorTest.background) {
     // Combine the select popup's backgroundColor and the
     // backgroundImage color to get the color that is seen by
     // the user.
@@ -369,7 +405,7 @@ async function testSelectColors(selectID, itemCount, options) {
 
   ok(!child.selected, "The first child should not be selected");
   while (child) {
-    testOptionColors(idx, child, menulist);
+    testOptionColors(selectID, idx, child, menulist);
     idx++;
     child = child.nextElementSibling;
   }
@@ -380,6 +416,9 @@ async function testSelectColors(selectID, itemCount, options) {
   }
 }
 
+// System colors may be different in content pages and chrome pages.
+let kDefaultSelectStyles = {};
+
 add_task(async function setup() {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -387,6 +426,19 @@ add_task(async function setup() {
       ["dom.forms.select.customstyling", true],
     ],
   });
+  kDefaultSelectStyles = await BrowserTestUtils.withNewTab(
+    `data:text/html,<select>`,
+    function(browser) {
+      return SpecialPowers.spawn(browser, [], function() {
+        let cs = content.getComputedStyle(
+          content.document.querySelector("select")
+        );
+        return {
+          backgroundColor: cs.backgroundColor,
+        };
+      });
+    }
+  );
 });
 
 // This test checks when a <select> element has styles applied to <option>s within it.
@@ -408,8 +460,8 @@ add_task(async function test_colors_applied_to_popup() {
 // This test checks when a <select> element has a transparent background applied to itself.
 add_task(async function test_transparent_applied_to_popup() {
   let options = {
-    selectColor: getSystemColor("-moz-ComboboxText"),
-    selectBgColor: getSystemColor("-moz-Combobox"),
+    unstyled: true,
+    skipSelectColorTest: true,
   };
   await testSelectColors("TRANSPARENT_SELECT", 2, options);
 });
@@ -570,7 +622,7 @@ add_task(async function test_transparent_color_with_text_shadow() {
   let options = {
     selectColor: "rgba(0, 0, 0, 0)",
     selectTextShadow: "rgb(48, 48, 48) 0px 0px 0px",
-    selectBgColor: "rgb(255, 255, 255)",
+    selectBgColor: kDefaultSelectStyles.backgroundColor,
   };
 
   await testSelectColors(
@@ -584,7 +636,7 @@ add_task(
   async function test_select_with_transition_doesnt_lose_scroll_position() {
     let options = {
       selectColor: "rgb(128, 0, 128)",
-      selectBgColor: "rgb(255, 255, 255)",
+      selectBgColor: kDefaultSelectStyles.backgroundColor,
       waitForComputedStyle: {
         property: "color",
         value: "rgb(128, 0, 128)",
@@ -612,8 +664,8 @@ add_task(
   async function test_select_inherited_colors_on_options_dont_get_unique_rules_if_rule_set_on_select() {
     let options = {
       selectColor: "rgb(0, 0, 255)",
-      selectBgColor: "rgb(255, 255, 255)",
       selectTextShadow: "rgb(0, 0, 255) 1px 1px 2px",
+      selectBgColor: kDefaultSelectStyles.backgroundColor,
       leaveOpen: true,
     };
 

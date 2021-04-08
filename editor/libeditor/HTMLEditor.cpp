@@ -69,7 +69,8 @@ namespace mozilla {
 using namespace dom;
 using namespace widget;
 
-using ChildBlockBoundary = HTMLEditUtils::ChildBlockBoundary;
+using LeafNodeType = HTMLEditUtils::LeafNodeType;
+using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
 
 const char16_t kNBSP = 160;
 
@@ -544,10 +545,9 @@ void HTMLEditor::InitializeSelectionAncestorLimit(
   // Basically, we should try to collapse selection at first editable node
   // in HTMLEditor.
   bool tryToCollapseSelectionAtFirstEditableNode = true;
-  if (SelectionRefPtr()->RangeCount() == 1 &&
-      SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().RangeCount() == 1 && SelectionRef().IsCollapsed()) {
     Element* editingHost = GetActiveEditingHost();
-    const nsRange* range = SelectionRefPtr()->GetRangeAt(0);
+    const nsRange* range = SelectionRef().GetRangeAt(0);
     if (range->GetStartContainer() == editingHost && !range->StartOffset()) {
       // JS or user operation has already collapsed selection at start of
       // the editing host.  So, we don't need to try to change selection
@@ -577,7 +577,7 @@ void HTMLEditor::InitializeSelectionAncestorLimit(
   // compatiblity of select events, etc.  (Selection should be collapsed into
   // the text control element.)
   if (aAncestorLimit.HasIndependentSelection()) {
-    SelectionRefPtr()->SetAncestorLimiter(nullptr);
+    SelectionRef().SetAncestorLimiter(nullptr);
   }
 }
 
@@ -596,8 +596,8 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
   // If selection range is already in the editing host and the range is not
   // start of the editing host, we shouldn't reset selection.  E.g., window
   // is activated when the editor had focus before inactivated.
-  if (aIgnoreIfSelectionInEditingHost && SelectionRefPtr()->RangeCount() == 1) {
-    const nsRange* range = SelectionRefPtr()->GetRangeAt(0);
+  if (aIgnoreIfSelectionInEditingHost && SelectionRef().RangeCount() == 1) {
+    const nsRange* range = SelectionRef().GetRangeAt(0);
     if (!range->Collapsed() ||
         range->GetStartContainer() != editingHost.get() ||
         range->StartOffset()) {
@@ -1236,7 +1236,7 @@ nsresult HTMLEditor::InsertBRElementAtSelectionWithTransaction() {
       !ignoredError.Failed(),
       "HTMLEditor::OnStartToHandleTopLevelEditSubAction() failed, but ignored");
 
-  if (!SelectionRefPtr()->IsCollapsed()) {
+  if (!SelectionRef().IsCollapsed()) {
     nsresult rv = DeleteSelectionAsSubAction(eNone, eStrip);
     if (NS_FAILED(rv)) {
       NS_WARNING(
@@ -1245,8 +1245,7 @@ nsresult HTMLEditor::InsertBRElementAtSelectionWithTransaction() {
     }
   }
 
-  EditorDOMPoint atStartOfSelection(
-      EditorBase::GetStartPoint(*SelectionRefPtr()));
+  EditorDOMPoint atStartOfSelection(EditorBase::GetStartPoint(SelectionRef()));
   if (NS_WARN_IF(!atStartOfSelection.IsSet())) {
     return NS_ERROR_FAILURE;
   }
@@ -1336,7 +1335,7 @@ nsresult HTMLEditor::ReplaceHeadContentsWithSourceWithTransaction(
                                              ScrollSelectionIntoView::Yes);
 
   // Get the first range in the selection, for context:
-  RefPtr<const nsRange> range = SelectionRefPtr()->GetRangeAt(0);
+  RefPtr<const nsRange> range = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!range)) {
     return NS_ERROR_FAILURE;
   }
@@ -1584,7 +1583,7 @@ NS_IMETHODIMP HTMLEditor::RebuildDocumentFromSource(
   bodyTag.AssignLiteral("<div ");
   bodyTag.Append(Substring(endbody, endclosebody));
 
-  RefPtr<const nsRange> range = SelectionRefPtr()->GetRangeAt(0);
+  RefPtr<const nsRange> range = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!range)) {
     return NS_ERROR_FAILURE;
   }
@@ -1736,7 +1735,7 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return EditorBase::ToGenericNSResult(NS_ERROR_EDITOR_DESTROYED);
@@ -1783,7 +1782,7 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
     // For all other tags, we insert AFTER the selection
     if (HTMLEditUtils::IsNamedAnchor(aElement)) {
       IgnoredErrorResult ignoredError;
-      MOZ_KnownLive(SelectionRefPtr())->CollapseToStart(ignoredError);
+      SelectionRef().CollapseToStart(ignoredError);
       if (NS_WARN_IF(Destroyed())) {
         return EditorBase::ToGenericNSResult(NS_ERROR_EDITOR_DESTROYED);
       }
@@ -1791,7 +1790,7 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
                            "Selection::CollapseToStart() failed, but ignored");
     } else {
       IgnoredErrorResult ignoredError;
-      MOZ_KnownLive(SelectionRefPtr())->CollapseToEnd(ignoredError);
+      SelectionRef().CollapseToEnd(ignoredError);
       if (NS_WARN_IF(Destroyed())) {
         return EditorBase::ToGenericNSResult(NS_ERROR_EDITOR_DESTROYED);
       }
@@ -1800,11 +1799,11 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
     }
   }
 
-  if (!SelectionRefPtr()->GetAnchorNode()) {
+  if (!SelectionRef().GetAnchorNode()) {
     return NS_OK;
   }
 
-  EditorRawDOMPoint atAnchor(SelectionRefPtr()->AnchorRef());
+  EditorRawDOMPoint atAnchor(SelectionRef().AnchorRef());
   // Adjust position based on the node we are going to insert.
   EditorDOMPoint pointToInsert =
       GetBetterInsertionPointFor(*aElement, atAnchor);
@@ -1959,8 +1958,8 @@ nsresult HTMLEditor::SelectContentInternal(nsIContent& aContentToSelect) {
   EditorRawDOMPoint newSelectionEnd(EditorRawDOMPoint::After(aContentToSelect));
   MOZ_ASSERT(newSelectionEnd.IsSet());
   ErrorResult error;
-  MOZ_KnownLive(SelectionRefPtr())
-      ->SetStartAndEndInLimiter(newSelectionStart, newSelectionEnd, error);
+  SelectionRef().SetStartAndEndInLimiter(newSelectionStart, newSelectionEnd,
+                                         error);
   NS_WARNING_ASSERTION(!error.Failed(),
                        "Selection::SetStartAndEndInLimiter() failed");
   return error.StealNSResult();
@@ -2125,7 +2124,7 @@ nsresult HTMLEditor::GetCSSBackgroundColorState(bool* aMixed,
   // the default background color is transparent
   aOutColor.AssignLiteral("transparent");
 
-  RefPtr<const nsRange> firstRange = SelectionRefPtr()->GetRangeAt(0);
+  RefPtr<const nsRange> firstRange = SelectionRef().GetRangeAt(0);
   if (NS_WARN_IF(!firstRange)) {
     return NS_ERROR_FAILURE;
   }
@@ -2137,7 +2136,7 @@ nsresult HTMLEditor::GetCSSBackgroundColorState(bool* aMixed,
 
   // is the selection collapsed?
   nsIContent* contentToExamine;
-  if (SelectionRefPtr()->IsCollapsed() || startContainer->IsText()) {
+  if (SelectionRef().IsCollapsed() || startContainer->IsText()) {
     if (NS_WARN_IF(!startContainer->IsContent())) {
       return NS_ERROR_FAILURE;
     }
@@ -2476,7 +2475,7 @@ nsresult HTMLEditor::FormatBlockContainerAsSubAction(nsAtom& aTagName) {
                        "EditorBase::EnsureNoPaddingBRElementForEmptyEditor() "
                        "failed, but ignored");
 
-  if (NS_SUCCEEDED(rv) && SelectionRefPtr()->IsCollapsed()) {
+  if (NS_SUCCEEDED(rv) && SelectionRef().IsCollapsed()) {
     nsresult rv = EnsureCaretNotAfterPaddingBRElement();
     if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
       return NS_ERROR_EDITOR_DESTROYED;
@@ -2592,7 +2591,7 @@ Element* HTMLEditor::GetInclusiveAncestorByTagNameAtSelection(
   MOZ_ASSERT(&aTagName != nsGkAtoms::_empty);
 
   // If no node supplied, get it from anchor node of current selection
-  const EditorRawDOMPoint atAnchor(SelectionRefPtr()->AnchorRef());
+  const EditorRawDOMPoint atAnchor(SelectionRef().AnchorRef());
   if (NS_WARN_IF(!atAnchor.IsSet()) ||
       NS_WARN_IF(!atAnchor.GetContainerAsContent())) {
     return nullptr;
@@ -2736,14 +2735,14 @@ already_AddRefed<Element> HTMLEditor::GetSelectedElement(const nsAtom* aTagName,
 
   // If there is no Selection or two or more selection ranges, that means that
   // not only one element is selected so that return nullptr.
-  if (SelectionRefPtr()->RangeCount() != 1) {
+  if (SelectionRef().RangeCount() != 1) {
     return nullptr;
   }
 
   bool isLinkTag = aTagName && IsLinkTag(*aTagName);
   bool isNamedAnchorTag = aTagName && IsNamedAnchorTag(*aTagName);
 
-  RefPtr<nsRange> firstRange = SelectionRefPtr()->GetRangeAt(0);
+  RefPtr<nsRange> firstRange = SelectionRef().GetRangeAt(0);
   MOZ_ASSERT(firstRange);
 
   const RangeBoundary& startRef = firstRange->StartRef();
@@ -2787,7 +2786,7 @@ already_AddRefed<Element> HTMLEditor::GetSelectedElement(const nsAtom* aTagName,
     Element* parentLinkOfStart = GetInclusiveAncestorByTagNameInternal(
         *nsGkAtoms::href, *startRef.Container()->AsContent());
     if (parentLinkOfStart) {
-      if (SelectionRefPtr()->IsCollapsed()) {
+      if (SelectionRef().IsCollapsed()) {
         // We have just a caret in the link.
         return do_AddRef(parentLinkOfStart);
       }
@@ -2800,7 +2799,7 @@ already_AddRefed<Element> HTMLEditor::GetSelectedElement(const nsAtom* aTagName,
     }
   }
 
-  if (SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().IsCollapsed()) {
     return nullptr;
   }
 
@@ -2856,7 +2855,7 @@ already_AddRefed<Element> HTMLEditor::GetSelectedElement(const nsAtom* aTagName,
         return nullptr;
       }
       nsIContent* firstEditableLeaf = HTMLEditUtils::GetFirstLeafChild(
-          *nextSibling, ChildBlockBoundary::Ignore);
+          *nextSibling, {LeafNodeType::OnlyLeafNode});
       if (firstEditableLeaf &&
           firstEditableLeaf->IsHTMLElement(nsGkAtoms::br)) {
         return nullptr;
@@ -2998,7 +2997,7 @@ nsresult HTMLEditor::InsertLinkAroundSelectionAsAction(
     return NS_ERROR_NOT_INITIALIZED;
   }
 
-  if (SelectionRefPtr()->IsCollapsed()) {
+  if (SelectionRef().IsCollapsed()) {
     NS_WARNING("Selection was collapsed");
     return NS_OK;
   }
@@ -3091,7 +3090,7 @@ nsresult HTMLEditor::SetHTMLBackgroundColorWithTransaction(
     // odd, though.
     if (isCellSelected || rootElementOfBackgroundColor->IsAnyOfHTMLElements(
                               nsGkAtoms::table, nsGkAtoms::tr)) {
-      SelectedTableCellScanner scanner(*SelectionRefPtr());
+      SelectedTableCellScanner scanner(SelectionRef());
       if (scanner.IsInTableCellSelectionMode()) {
         if (setColor) {
           for (const OwningNonNull<Element>& cellElement :
@@ -3327,8 +3326,8 @@ nsresult HTMLEditor::ReplaceTextWithTransaction(
   // Therefore, we might need to save/restore selection here.
   Maybe<AutoSelectionRestorer> restoreSelection;
   if (!AllowsTransactionsToChangeSelection() && !ArePreservingSelection()) {
-    for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); i++) {
-      const nsRange* range = SelectionRefPtr()->GetRangeAt(i);
+    for (uint32_t i = 0; i < SelectionRef().RangeCount(); i++) {
+      const nsRange* range = SelectionRef().GetRangeAt(i);
       if (!range) {
         continue;
       }
@@ -3478,7 +3477,7 @@ already_AddRefed<Element> HTMLEditor::InsertBRElementWithTransaction(
       break;
     case eNext: {
       IgnoredErrorResult ignoredError;
-      SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+      SelectionRef().SetInterlinePosition(true, ignoredError);
       NS_WARNING_ASSERTION(
           !ignoredError.Failed(),
           "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -3500,7 +3499,7 @@ already_AddRefed<Element> HTMLEditor::InsertBRElementWithTransaction(
     }
     case ePrevious: {
       IgnoredErrorResult ignoredError;
-      SelectionRefPtr()->SetInterlinePosition(true, ignoredError);
+      SelectionRef().SetInterlinePosition(true, ignoredError);
       NS_WARNING_ASSERTION(
           !ignoredError.Failed(),
           "Selection::SetInterlinePosition(true) failed, but ignored");
@@ -3884,8 +3883,7 @@ nsresult HTMLEditor::SelectEntireDocument() {
 
   // Otherwise, select all children.
   ErrorResult error;
-  MOZ_KnownLive(SelectionRefPtr())
-      ->SelectAllChildren(*bodyOrDocumentElement, error);
+  SelectionRef().SelectAllChildren(*bodyOrDocumentElement, error);
   if (NS_WARN_IF(Destroyed())) {
     error.SuppressException();
     return NS_ERROR_EDITOR_DESTROYED;
@@ -3909,7 +3907,7 @@ nsresult HTMLEditor::SelectAllInternal() {
   //     before committing composition and check if selection is still in
   //     same editing host.
 
-  nsINode* anchorNode = SelectionRefPtr()->GetAnchorNode();
+  nsINode* anchorNode = SelectionRef().GetAnchorNode();
   if (NS_WARN_IF(!anchorNode) || NS_WARN_IF(!anchorNode->IsContent())) {
     return NS_ERROR_FAILURE;
   }
@@ -3917,7 +3915,7 @@ nsresult HTMLEditor::SelectAllInternal() {
   nsCOMPtr<nsIContent> anchorContent = anchorNode->AsContent();
   nsCOMPtr<nsIContent> rootContent;
   if (anchorContent->HasIndependentSelection()) {
-    SelectionRefPtr()->SetAncestorLimiter(nullptr);
+    SelectionRef().SetAncestorLimiter(nullptr);
     rootContent = mRootElement;
     if (NS_WARN_IF(!rootContent)) {
       return NS_ERROR_UNEXPECTED;
@@ -3945,10 +3943,10 @@ nsresult HTMLEditor::SelectAllInternal() {
 
   Maybe<Selection::AutoUserInitiated> userSelection;
   if (!rootContent->IsEditable()) {
-    userSelection.emplace(SelectionRefPtr());
+    userSelection.emplace(SelectionRef());
   }
   ErrorResult error;
-  MOZ_KnownLive(SelectionRefPtr())->SelectAllChildren(*rootContent, error);
+  SelectionRef().SelectAllChildren(*rootContent, error);
   NS_WARNING_ASSERTION(!error.Failed(),
                        "Selection::SelectAllChildren() failed");
   return error.StealNSResult();
@@ -4252,22 +4250,31 @@ SplitNodeResult HTMLEditor::SplitNodeDeepWithTransaction(
 
   nsCOMPtr<nsIContent> newLeftNodeOfMostAncestor;
   EditorDOMPoint atStartOfRightNode(aStartOfDeepestRightNode);
+  SplitNodeResult lastSplitNodeResult(atStartOfRightNode);
   while (true) {
     // Need to insert rules code call here to do things like not split a list
     // if you are after the last <li> or before the first, etc.  For now we
     // just have some smarts about unneccessarily splitting text nodes, which
     // should be universal enough to put straight in this EditorBase routine.
-    if (NS_WARN_IF(!atStartOfRightNode.GetContainerAsContent())) {
+    nsIContent* currentRightNode = atStartOfRightNode.GetContainerAsContent();
+    if (NS_WARN_IF(!currentRightNode)) {
       return SplitNodeResult(NS_ERROR_FAILURE);
     }
     // If we meet an orphan node before meeting aMostAncestorToSplit, we need
     // to stop splitting.  This is a bug of the caller.
-    if (NS_WARN_IF(atStartOfRightNode.GetContainer() != &aMostAncestorToSplit &&
+    if (NS_WARN_IF(currentRightNode != &aMostAncestorToSplit &&
                    !atStartOfRightNode.GetContainerParentAsContent())) {
       return SplitNodeResult(NS_ERROR_FAILURE);
     }
-
-    nsIContent* currentRightNode = atStartOfRightNode.GetContainerAsContent();
+    // If the container is not splitable node such as comment node, atomic
+    // element, etc, we should keep it as-is, and try to split its parents.
+    if (!HTMLEditUtils::IsSplittableNode(*currentRightNode)) {
+      if (currentRightNode == &aMostAncestorToSplit) {
+        return lastSplitNodeResult;
+      }
+      atStartOfRightNode.Set(currentRightNode);
+      continue;
+    }
 
     // If the split point is middle of the node or the node is not a text node
     // and we're allowed to create empty element node, split it.
@@ -4283,9 +4290,10 @@ SplitNodeResult HTMLEditor::SplitNodeDeepWithTransaction(
         return SplitNodeResult(error.StealNSResult());
       }
 
+      lastSplitNodeResult = SplitNodeResult(newLeftNode, currentRightNode);
       if (currentRightNode == &aMostAncestorToSplit) {
         // Actually, we split aMostAncestorToSplit.
-        return SplitNodeResult(newLeftNode, &aMostAncestorToSplit);
+        return lastSplitNodeResult;
       }
 
       // Then, try to split its parent before current node.
@@ -4294,8 +4302,9 @@ SplitNodeResult HTMLEditor::SplitNodeDeepWithTransaction(
     // If the split point is end of the node and it is a text node or we're not
     // allowed to create empty container node, try to split its parent after it.
     else if (!atStartOfRightNode.IsStartOfContainer()) {
+      lastSplitNodeResult = SplitNodeResult(currentRightNode, nullptr);
       if (currentRightNode == &aMostAncestorToSplit) {
-        return SplitNodeResult(&aMostAncestorToSplit, nullptr);
+        return lastSplitNodeResult;
       }
 
       // Try to split its parent after current node.
@@ -4307,11 +4316,13 @@ SplitNodeResult HTMLEditor::SplitNodeDeepWithTransaction(
     // If the split point is start of the node and it is a text node or we're
     // not allowed to create empty container node, try to split its parent.
     else {
+      lastSplitNodeResult = SplitNodeResult(nullptr, currentRightNode);
       if (currentRightNode == &aMostAncestorToSplit) {
-        return SplitNodeResult(nullptr, &aMostAncestorToSplit);
+        return lastSplitNodeResult;
       }
 
       // Try to split its parent before current node.
+      lastSplitNodeResult = SplitNodeResult(atStartOfRightNode);
       atStartOfRightNode.Set(currentRightNode);
     }
   }
@@ -4786,10 +4797,8 @@ nsresult HTMLEditor::DoJoinNodes(nsIContent& aContentToKeep,
 
   if (allowedTransactionsToChangeSelection) {
     // Editor wants us to set selection at join point.
-    DebugOnly<nsresult> rvIgnored =
-        MOZ_KnownLive(SelectionRefPtr())
-            ->CollapseInLimiter(&aContentToKeep,
-                                AssertedCast<int32_t>(firstNodeLength));
+    DebugOnly<nsresult> rvIgnored = SelectionRef().CollapseInLimiter(
+        &aContentToKeep, AssertedCast<int32_t>(firstNodeLength));
     if (NS_WARN_IF(Destroyed())) {
       return NS_ERROR_EDITOR_DESTROYED;
     }
@@ -4860,7 +4869,7 @@ already_AddRefed<Element> HTMLEditor::DeleteSelectionAndCreateElement(
     return nullptr;
   }
 
-  EditorDOMPoint pointToInsert(SelectionRefPtr()->AnchorRef());
+  EditorDOMPoint pointToInsert(SelectionRef().AnchorRef());
   if (!pointToInsert.IsSet()) {
     return nullptr;
   }
@@ -4874,8 +4883,7 @@ already_AddRefed<Element> HTMLEditor::DeleteSelectionAndCreateElement(
   EditorRawDOMPoint afterNewElement(EditorRawDOMPoint::After(newElement));
   MOZ_ASSERT(afterNewElement.IsSetAndValid());
   IgnoredErrorResult ignoredError;
-  MOZ_KnownLive(SelectionRefPtr())
-      ->CollapseInLimiter(afterNewElement, ignoredError);
+  SelectionRef().CollapseInLimiter(afterNewElement, ignoredError);
   if (ignoredError.Failed()) {
     NS_WARNING("Selection::CollapseInLimiter() failed");
     // XXX Even if it succeeded to create new element, this returns error
@@ -4890,25 +4898,25 @@ nsresult HTMLEditor::DeleteSelectionAndPrepareToCreateNode() {
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(IsHTMLEditor());  // TODO: Move this method to `HTMLEditor`
 
-  if (NS_WARN_IF(!SelectionRefPtr()->GetAnchorFocusRange())) {
+  if (NS_WARN_IF(!SelectionRef().GetAnchorFocusRange())) {
     return NS_OK;
   }
 
-  if (!SelectionRefPtr()->GetAnchorFocusRange()->Collapsed()) {
+  if (!SelectionRef().GetAnchorFocusRange()->Collapsed()) {
     nsresult rv =
         DeleteSelectionAsSubAction(nsIEditor::eNone, nsIEditor::eStrip);
     if (NS_FAILED(rv)) {
       NS_WARNING("EditorBase::DeleteSelectionAsSubAction() failed");
       return rv;
     }
-    MOZ_ASSERT(SelectionRefPtr()->GetAnchorFocusRange() &&
-                   SelectionRefPtr()->GetAnchorFocusRange()->Collapsed(),
+    MOZ_ASSERT(SelectionRef().GetAnchorFocusRange() &&
+                   SelectionRef().GetAnchorFocusRange()->Collapsed(),
                "Selection not collapsed after delete");
   }
 
   // If the selection is a chardata node, split it if necessary and compute
   // where to put the new node
-  EditorDOMPoint atAnchor(SelectionRefPtr()->AnchorRef());
+  EditorDOMPoint atAnchor(SelectionRef().AnchorRef());
   if (NS_WARN_IF(!atAnchor.IsSet()) || !atAnchor.IsInDataNode()) {
     return NS_OK;
   }
@@ -4923,8 +4931,7 @@ nsresult HTMLEditor::DeleteSelectionAndPrepareToCreateNode() {
       return NS_ERROR_FAILURE;
     }
     ErrorResult error;
-    MOZ_KnownLive(SelectionRefPtr())
-        ->CollapseInLimiter(atAnchorContainer, error);
+    SelectionRef().CollapseInLimiter(atAnchorContainer, error);
     NS_WARNING_ASSERTION(!error.Failed(),
                          "Selection::CollapseInLimiter() failed");
     return error.StealNSResult();
@@ -4936,8 +4943,7 @@ nsresult HTMLEditor::DeleteSelectionAndPrepareToCreateNode() {
       return NS_ERROR_FAILURE;
     }
     ErrorResult error;
-    MOZ_KnownLive(SelectionRefPtr())
-        ->CollapseInLimiter(afterAnchorContainer, error);
+    SelectionRef().CollapseInLimiter(afterAnchorContainer, error);
     NS_WARNING_ASSERTION(!error.Failed(),
                          "Selection::CollapseInLimiter() failed");
     return error.StealNSResult();
@@ -4955,7 +4961,7 @@ nsresult HTMLEditor::DeleteSelectionAndPrepareToCreateNode() {
     return NS_ERROR_FAILURE;
   }
   MOZ_ASSERT(atRightNode.IsSetAndValid());
-  MOZ_KnownLive(SelectionRefPtr())->CollapseInLimiter(atRightNode, error);
+  SelectionRef().CollapseInLimiter(atRightNode, error);
   NS_WARNING_ASSERTION(!error.Failed(),
                        "Selection::CollapseInLimiter() failed");
   return error.StealNSResult();
@@ -5103,7 +5109,7 @@ nsIContent* HTMLEditor::GetLastEditableChild(nsINode& aNode) const {
 
 nsIContent* HTMLEditor::GetFirstEditableLeaf(nsINode& aNode) const {
   nsIContent* child =
-      HTMLEditUtils::GetFirstLeafChild(aNode, ChildBlockBoundary::Ignore);
+      HTMLEditUtils::GetFirstLeafChild(aNode, {LeafNodeType::OnlyLeafNode});
   while (child && (!EditorUtils::IsEditableContent(*child, EditorType::HTML) ||
                    child->HasChildren())) {
     child = GetNextEditableHTMLNode(*child);
@@ -5119,7 +5125,7 @@ nsIContent* HTMLEditor::GetFirstEditableLeaf(nsINode& aNode) const {
 
 nsIContent* HTMLEditor::GetLastEditableLeaf(nsINode& aNode) const {
   nsIContent* child =
-      HTMLEditUtils::GetLastLeafChild(aNode, ChildBlockBoundary::Ignore);
+      HTMLEditUtils::GetLastLeafChild(aNode, {LeafNodeType::OnlyLeafNode});
   while (child && (!EditorUtils::IsEditableContent(*child, EditorType::HTML) ||
                    child->HasChildren())) {
     child = GetPreviousEditableHTMLNode(*child);
@@ -5501,7 +5507,7 @@ nsresult HTMLEditor::SetCSSBackgroundColorWithTransaction(
     return result.Rv();
   }
 
-  bool selectionIsCollapsed = SelectionRefPtr()->IsCollapsed();
+  bool selectionIsCollapsed = SelectionRef().IsCollapsed();
 
   AutoPlaceholderBatch treatAsOneTransaction(*this,
                                              ScrollSelectionIntoView::Yes);
@@ -5523,8 +5529,8 @@ nsresult HTMLEditor::SetCSSBackgroundColorWithTransaction(
     // XXX This is different from `SetInlinePropertyInternal()`.  It uses
     //     AutoSelectionRangeArray to store all ranges first.  The result may be
     //     different if mutation event listener changes the `Selection`.
-    for (uint32_t i = 0; i < SelectionRefPtr()->RangeCount(); i++) {
-      RefPtr<nsRange> range = SelectionRefPtr()->GetRangeAt(i);
+    for (uint32_t i = 0; i < SelectionRef().RangeCount(); i++) {
+      RefPtr<nsRange> range = SelectionRef().GetRangeAt(i);
       if (NS_WARN_IF(!range)) {
         return NS_ERROR_FAILURE;
       }
@@ -5919,17 +5925,17 @@ Element* HTMLEditor::GetSelectionContainerElement() const {
   MOZ_ASSERT(IsEditActionDataAvailable());
 
   nsINode* focusNode = nullptr;
-  if (SelectionRefPtr()->IsCollapsed()) {
-    focusNode = SelectionRefPtr()->GetFocusNode();
+  if (SelectionRef().IsCollapsed()) {
+    focusNode = SelectionRef().GetFocusNode();
     if (NS_WARN_IF(!focusNode)) {
       return nullptr;
     }
   } else {
-    uint32_t rangeCount = SelectionRefPtr()->RangeCount();
+    uint32_t rangeCount = SelectionRef().RangeCount();
     MOZ_ASSERT(rangeCount, "If 0, Selection::IsCollapsed() should return true");
 
     if (rangeCount == 1) {
-      const nsRange* range = SelectionRefPtr()->GetRangeAt(0);
+      const nsRange* range = SelectionRef().GetRangeAt(0);
 
       const RangeBoundary& startRef = range->StartRef();
       const RangeBoundary& endRef = range->EndRef();
@@ -5956,7 +5962,7 @@ Element* HTMLEditor::GetSelectionContainerElement() const {
       }
     } else {
       for (uint32_t i = 0; i < rangeCount; i++) {
-        const nsRange* range = SelectionRefPtr()->GetRangeAt(i);
+        const nsRange* range = SelectionRef().GetRangeAt(i);
         nsINode* startContainer = range->GetStartContainer();
         if (!focusNode) {
           focusNode = startContainer;
@@ -6104,7 +6110,9 @@ bool HTMLEditor::IsActiveInDOMWindow() const {
   return true;
 }
 
-Element* HTMLEditor::GetActiveEditingHost() const {
+Element* HTMLEditor::GetActiveEditingHost(
+    LimitInBodyElement aLimitInBodyElement /* = LimitInBodyElement::Yes */)
+    const {
   Document* document = GetDocument();
   if (NS_WARN_IF(!document)) {
     return nullptr;
@@ -6119,7 +6127,7 @@ Element* HTMLEditor::GetActiveEditingHost() const {
     return nullptr;
   }
 
-  nsINode* focusNode = SelectionRefPtr()->GetFocusNode();
+  nsINode* focusNode = SelectionRef().GetFocusNode();
   if (NS_WARN_IF(!focusNode) || NS_WARN_IF(!focusNode->IsContent())) {
     return nullptr;
   }
@@ -6131,7 +6139,17 @@ Element* HTMLEditor::GetActiveEditingHost() const {
       content->HasIndependentSelection()) {
     return nullptr;
   }
-  return content->GetEditingHost();
+  Element* candidateEditingHost = content->GetEditingHost();
+  if (!candidateEditingHost) {
+    return nullptr;
+  }
+  // Currently, we don't support editing outside of `<body>` element.
+  return aLimitInBodyElement != LimitInBodyElement::Yes ||
+                 (document->GetBodyElement() &&
+                  nsContentUtils::ContentIsFlattenedTreeDescendantOf(
+                      candidateEditingHost, document->GetBodyElement()))
+             ? candidateEditingHost
+             : document->GetBodyElement();
 }
 
 void HTMLEditor::NotifyEditingHostMaybeChanged() {
@@ -6148,7 +6166,7 @@ void HTMLEditor::NotifyEditingHostMaybeChanged() {
   }
 
   // Get selection ancestor limit which may be old editing host.
-  nsIContent* ancestorLimiter = SelectionRefPtr()->GetAncestorLimiter();
+  nsIContent* ancestorLimiter = SelectionRef().GetAncestorLimiter();
   if (!ancestorLimiter) {
     // If we've not initialized selection ancestor limit, we should wait focus
     // event to set proper limiter.
@@ -6394,7 +6412,7 @@ nsresult HTMLEditor::GetPreferredIMEState(IMEState* aState) {
 }
 
 already_AddRefed<Element> HTMLEditor::GetInputEventTargetElement() const {
-  RefPtr<Element> target = GetActiveEditingHost();
+  RefPtr<Element> target = GetActiveEditingHost(LimitInBodyElement::No);
   if (target) {
     return target.forget();
   }
@@ -6403,7 +6421,7 @@ already_AddRefed<Element> HTMLEditor::GetInputEventTargetElement() const {
   // non-editable node, we should look for its editable parent to
   // dispatch `beforeinput` event.
   nsIContent* focusContent =
-      nsIContent::FromNodeOrNull(SelectionRefPtr()->GetFocusNode());
+      nsIContent::FromNodeOrNull(SelectionRef().GetFocusNode());
   if (!focusContent || focusContent->IsEditable()) {
     return nullptr;
   }

@@ -34,7 +34,6 @@ headers = [
     "nsCSSProps.h",
     "nsContentUtils.h",
     "nsNameSpaceManager.h",
-    "nsMediaFeatures.h",
     "GeckoProfiler.h",
 ]
 raw-lines = [
@@ -71,12 +70,11 @@ rusty-enums = [
     "nsStyleSVGOpacitySource",
     "mozilla::dom::Document_DocumentTheme",
     "mozilla::dom::Document_Type",
+    "mozilla::LookAndFeel_IntID",
     "nsCSSUnit",
     "nsCSSFontDesc",
     "nsCSSPropertyID",
     "nsCSSCounterDesc",
-    "nsMediaFeature_RangeType",
-    "nsMediaFeature_ValueType",
     "nsresult",
     "nsAtom_AtomKind",
     "nsStyleImageLayers_LayerType",
@@ -282,8 +280,6 @@ whitelist-types = [
     "nsAtom",
     "nsDynamicAtom",
     "nsMargin",
-    "nsMediaFeature",
-    "nsMediaFeatures",
     "nsRect",
     "nsresult",
     "nsSimpleContentList",
@@ -308,6 +304,7 @@ whitelist-types = [
     "nsStyleMargin",
     "nsStyleOutline",
     "nsStylePadding",
+    "nsStylePage",
     "nsStylePosition",
     "nsStyleSides",
     "nsStyleSVG",
@@ -392,8 +389,8 @@ opaque-types = [
     "nsTObserverArray",  # <- Inherits from nsAutoTObserverArray<T, 0>
     "nsTHashtable",  # <- Inheriting from inner typedefs that clang
                      #    doesn't expose properly.
-    "nsBaseHashtable", "nsRefPtrHashtable", "nsDataHashtable", "nsClassHashtable",  # <- Ditto
-    "nsInterfaceHashtable",  # <- Ditto
+    "nsTBaseHashSet", # <- Ditto
+    "nsBaseHashtable", "nsRefCountedHashtable", "nsClassHashtable",  # <- Ditto
     "mozilla::dom::Document_SelectorCache",  # <- Inherits from nsExpirationTracker<.., 4>
     "nsPIDOMWindow",  # <- Takes the vtable from a template parameter, and we can't
                       #    generate it conditionally.
@@ -419,13 +416,12 @@ cbindgen-types = [
     { gecko = "StyleComputedFontStyleDescriptor", servo = "crate::font_face::ComputedFontStyleDescriptor" },
     { gecko = "StyleComputedFontWeightRange", servo = "crate::font_face::ComputedFontWeightRange" },
     { gecko = "StyleComputedTimingFunction", servo = "crate::values::computed::easing::TimingFunction" },
-    { gecko = "StyleContrastPref", servo = "crate::gecko::media_features::ContrastPref" },
+    { gecko = "StylePrefersContrast", servo = "crate::gecko::media_features::PrefersContrast" },
     { gecko = "StyleCursorKind", servo = "crate::values::computed::ui::CursorKind" },
     { gecko = "StyleDisplay", servo = "crate::values::specified::Display" },
     { gecko = "StyleDisplayMode", servo = "crate::gecko::media_features::DisplayMode" },
     { gecko = "StylePrefersColorScheme", servo = "crate::gecko::media_features::PrefersColorScheme" },
     { gecko = "StylePrefersTextSize", servo = "crate::gecko::media_features::PrefersTextSize" },
-    { gecko = "StyleExtremumLength", servo = "crate::values::computed::length::ExtremumLength" },
     { gecko = "StyleFillRule", servo = "crate::values::generics::basic_shape::FillRule" },
     { gecko = "StyleFontDisplay", servo = "crate::font_face::FontDisplay" },
     { gecko = "StyleFontFaceSourceListComponent", servo = "crate::font_face::FontFaceSourceListComponent" },
@@ -458,6 +454,7 @@ cbindgen-types = [
     { gecko = "StyleOverflowAnchor", servo = "crate::values::computed::OverflowAnchor" },
     { gecko = "StyleTextDecorationSkipInk", servo = "crate::values::computed::TextDecorationSkipInk" },
     { gecko = "StyleTextDecorationLength", servo = "crate::values::computed::TextDecorationLength" },
+    { gecko = "StyleRubyPosition", servo = "crate::values::computed::RubyPosition" },
     { gecko = "StyleLength", servo = "crate::values::computed::CSSPixelLength" },
     { gecko = "StyleLengthPercentage", servo = "crate::values::computed::LengthPercentage" },
     { gecko = "StyleNonNegativeLengthPercentage", servo = "crate::values::computed::NonNegativeLengthPercentage" },
@@ -509,6 +506,7 @@ cbindgen-types = [
     { gecko = "StyleFontFamilyNameSyntax", servo = "crate::values::computed::font::FontFamilyNameSyntax" },
     { gecko = "StyleGenericColor", servo = "crate::values::generics::color::Color" },
     { gecko = "StyleSystemColor", servo = "crate::values::specified::color::SystemColor" },
+    { gecko = "StyleSystemFont", servo = "crate::values::specified::font::SystemFont" },
     { gecko = "StyleGenericColorOrAuto", servo = "crate::values::generics::color::ColorOrAuto" },
     { gecko = "StyleGenericScrollbarColor", servo = "crate::values::generics::ui::ScrollbarColor" },
     { gecko = "StyleRGBA", servo = "cssparser::RGBA" },
@@ -583,6 +581,7 @@ cbindgen-types = [
     { gecko = "StyleFontSizeKeyword", servo = "crate::values::specified::font::FontSizeKeyword" },
     { gecko = "StyleDefaultFontSizes", servo = "crate::gecko::wrapper::DefaultFontSizes" },
     { gecko = "StyleCaptionSide", servo = "crate::values::computed::table::CaptionSide" },
+    { gecko = "StylePageSize", servo = "crate::values::computed::page::PageSize" },
 ]
 
 mapped-generic-types = [

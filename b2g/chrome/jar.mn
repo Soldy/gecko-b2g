@@ -27,8 +27,12 @@ chrome.jar:
   content/devtools/marionette.js        (content/devtools/marionette.js)
 * content/content.css                   (content/content.css)
   content/touchcontrols.css             (content/touchcontrols.css)
+  content/videocontrols.dtd             (content/videocontrols.dtd)
+  content/TopLevelVideoDocument.css     (content/TopLevelVideoDocument.css)
 
+% override chrome://global/locale/videocontrols.dtd chrome://b2g/content/videocontrols.dtd
 % override chrome://global/skin/media/videocontrols.css chrome://b2g/content/touchcontrols.css
+% override chrome://global/skin/media/TopLevelVideoDocument.css chrome://b2g/content/TopLevelVideoDocument.css
 % override chrome://global/content/aboutCertError.xhtml chrome://b2g/content/aboutCertError.xhtml
 % override chrome://global/skin/netError.css chrome://b2g/content/netError.css
 
@@ -40,6 +44,7 @@ chrome.jar:
   content/images/errorpage-warning.png (content/images/errorpage-warning.png)
   content/images/arrowdown-16.png      (content/images/arrowdown-16.png)
   content/images/arrowright-16.png     (content/images/arrowright-16.png)
+  content/images/videoError.png   (content/images/videoError.png)
   content/images/playButton.svg   (content/images/playButton.svg)
   content/images/pauseButton.svg   (content/images/pauseButton.svg)
   content/images/fullscreenEnterButton.svg   (content/images/fullscreenEnterButton.svg)
@@ -74,6 +79,11 @@ chrome.jar:
   content/system/js                           (content/default-apps/system/js/*)
   content/system/style                        (content/default-apps/system/style/*)
 
+toolkit.jar:
+  content/browser/index.html                  (content/default-apps/browser/index.html)
+  content/browser/js                          (content/default-apps/browser/js/*)
+  content/browser/style                       (content/default-apps/browser/style/*)
+
   content/settings/index.html                 (content/default-apps/settings/index.html)
   content/settings/js                         (content/default-apps/settings/js/*)
   content/settings/style                      (content/default-apps/settings/style/*)
@@ -83,11 +93,8 @@ chrome.jar:
 
   content/keyboard/index.html                 (content/default-apps/keyboard/index.html)
 
-toolkit.jar:
-  content/browser/index.html                  (content/default-apps/browser/index.html)
-  content/browser/js                          (content/default-apps/browser/js/*)
-  content/browser/style                       (content/default-apps/browser/style/*)
-
 # To access without system principal for test.
-% resource default-app-browser chrome://b2g/content/browser/ contentaccessible=yes
-% resource default-homescreen chrome://b2g/content/homescreen/ contentaccessible=yes
+% resource default-app-browser %content/browser/ contentaccessible=yes
+% resource default-app-homescreen %content/homescreen/ contentaccessible=yes
+% resource default-app-settings %content/settings/ contentaccessible=yes
+% resource default-app-keyboard %content/keyboard/ contentaccessible=yes

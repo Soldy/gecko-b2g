@@ -151,9 +151,6 @@ with Files("HTML*"):
 with Files("HashChangeEvent.webidl"):
     BUG_COMPONENT = ("Core", "DOM: Navigation")
 
-with Files("HiddenPluginEvent.webidl"):
-    BUG_COMPONENT = ("Core", "Plug-ins")
-
 with Files("IDB*"):
     BUG_COMPONENT = ("Core", "Storage: IndexedDB")
 
@@ -307,6 +304,9 @@ with Files("SocketCommon.webidl"):
 with Files("SourceBuffer*"):
     BUG_COMPONENT = ("Core", "Audio/Video")
 
+with Files("Speech*"):
+    BUG_COMPONENT = ("Core", "Web Speech")
+
 with Files("StereoPannerNode.webidl"):
     BUG_COMPONENT = ("Core", "Web Audio")
 
@@ -408,6 +408,7 @@ WEBIDL_FILES = [
     "AbstractRange.webidl",
     "AbstractWorker.webidl",
     "AccessibilityRole.webidl",
+    "ActivityUtils.webidl",
     "AddonManager.webidl",
     "AnalyserNode.webidl",
     "Animatable.webidl",
@@ -798,12 +799,6 @@ WEBIDL_FILES = [
     "PluginArray.webidl",
     "PointerEvent.webidl",
     "PowerSupplyManager.webidl",
-    "Presentation.webidl",
-    "PresentationAvailability.webidl",
-    "PresentationConnection.webidl",
-    "PresentationConnectionList.webidl",
-    "PresentationReceiver.webidl",
-    "PresentationRequest.webidl",
     "ProcessingInstruction.webidl",
     "ProfileTimelineMarker.webidl",
     "Promise.webidl",
@@ -1020,6 +1015,7 @@ WEBIDL_FILES = [
     "WorkerGlobalScope.webidl",
     "WorkerLocation.webidl",
     "WorkerNavigator.webidl",
+    "WorkerTestUtils.webidl",
     "Worklet.webidl",
     "WorkletGlobalScope.webidl",
     "XMLDocument.webidl",
@@ -1131,7 +1127,6 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "CloseEvent.webidl",
     "DeviceLightEvent.webidl",
     "DeviceOrientationEvent.webidl",
-    "DeviceProximityEvent.webidl",
     "DeviceStorageAreaChangedEvent.webidl",
     "DeviceStorageChangeEvent.webidl",
     "DownloadEvent.webidl",
@@ -1144,7 +1139,6 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "GamepadEvent.webidl",
     "GPUUncapturedErrorEvent.webidl",
     "HashChangeEvent.webidl",
-    "HiddenPluginEvent.webidl",
     "ImageCaptureErrorEvent.webidl",
     "MediaQueryListEvent.webidl",
     "MediaRecorderErrorEvent.webidl",
@@ -1161,8 +1155,6 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "PopupPositionedEvent.webidl",
     "PositionStateEvent.webidl",
     "PowerSupplyEvent.webidl",
-    "PresentationConnectionAvailableEvent.webidl",
-    "PresentationConnectionCloseEvent.webidl",
     "ProgressEvent.webidl",
     "PromiseRejectionEvent.webidl",
     "ScrollViewChangeEvent.webidl",
@@ -1326,7 +1318,6 @@ if CONFIG["MOZ_B2G_RIL"]:
         "TelephonyCallCapabilities.webidl",
         "TelephonyCallGroup.webidl",
         "TelephonyCallId.webidl",
-        "USSDSession.webidl",
         "Voicemail.webidl",
         "VoicemailStatus.webidl",
     ]
@@ -1352,7 +1343,6 @@ if CONFIG["MOZ_B2G_RIL"]:
         "SuppServiceNotificationEvent.webidl",
         "TelephonyCoverageLosingEvent.webidl",
         "TtyModeReceivedEvent.webidl",
-        "USSDReceivedEvent.webidl",
         "VoicemailEvent.webidl",
     ]
 

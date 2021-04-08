@@ -382,55 +382,50 @@ PlacesController.prototype = {
    * Notes:
    *   1) This can be slow, so don't call it anywhere performance critical!
    */
-  _buildSelectionMetadata: function PC__buildSelectionMetadata() {
-    var metadata = [];
-    var nodes = this._view.selectedNodes;
+  _buildSelectionMetadata() {
+    return this._view.selectedNodes.map(n => this._selectionMetadataForNode(n));
+  },
 
-    for (var i = 0; i < nodes.length; i++) {
-      var nodeData = {};
-      var node = nodes[i];
-      var nodeType = node.type;
-
-      // We don't use the nodeIs* methods here to avoid going through the type
-      // property way too often
-      switch (nodeType) {
-        case Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY:
-          nodeData.query = true;
-          if (node.parent) {
-            switch (PlacesUtils.asQuery(node.parent).queryOptions.resultType) {
-              case Ci.nsINavHistoryQueryOptions.RESULTS_AS_SITE_QUERY:
-                nodeData.host = true;
-                break;
-              case Ci.nsINavHistoryQueryOptions.RESULTS_AS_DATE_SITE_QUERY:
-              case Ci.nsINavHistoryQueryOptions.RESULTS_AS_DATE_QUERY:
-                nodeData.day = true;
-                break;
-            }
+  _selectionMetadataForNode(node) {
+    let nodeData = {};
+    // We don't use the nodeIs* methods here to avoid going through the type
+    // property way too often
+    switch (node.type) {
+      case Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY:
+        nodeData.query = true;
+        if (node.parent) {
+          switch (PlacesUtils.asQuery(node.parent).queryOptions.resultType) {
+            case Ci.nsINavHistoryQueryOptions.RESULTS_AS_SITE_QUERY:
+              nodeData.query_host = true;
+              break;
+            case Ci.nsINavHistoryQueryOptions.RESULTS_AS_DATE_SITE_QUERY:
+            case Ci.nsINavHistoryQueryOptions.RESULTS_AS_DATE_QUERY:
+              nodeData.query_day = true;
+              break;
+            case Ci.nsINavHistoryQueryOptions.RESULTS_AS_TAGS_ROOT:
+              nodeData.query_tag = true;
           }
-          break;
-        case Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER:
-        case Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER_SHORTCUT:
-          nodeData.folder = true;
-          break;
-        case Ci.nsINavHistoryResultNode.RESULT_TYPE_SEPARATOR:
-          nodeData.separator = true;
-          break;
-        case Ci.nsINavHistoryResultNode.RESULT_TYPE_URI:
-          nodeData.link = true;
-          if (PlacesUtils.nodeIsBookmark(node)) {
-            nodeData.bookmark = true;
-            var parentNode = node.parent;
-            if (parentNode && PlacesUtils.nodeIsTagQuery(parentNode)) {
-              nodeData.tagChild = true;
-            }
+        }
+        break;
+      case Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER:
+      case Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER_SHORTCUT:
+        nodeData.folder = true;
+        break;
+      case Ci.nsINavHistoryResultNode.RESULT_TYPE_SEPARATOR:
+        nodeData.separator = true;
+        break;
+      case Ci.nsINavHistoryResultNode.RESULT_TYPE_URI:
+        nodeData.link = true;
+        if (PlacesUtils.nodeIsBookmark(node)) {
+          nodeData.link_bookmark = true;
+          var parentNode = node.parent;
+          if (parentNode && PlacesUtils.nodeIsTagQuery(parentNode)) {
+            nodeData.link_bookmark_tag = true;
           }
-          break;
-      }
-
-      metadata.push(nodeData);
+        }
+        break;
     }
-
-    return metadata;
+    return nodeData;
   },
 
   /**
@@ -442,7 +437,7 @@ PlacesController.prototype = {
    * @return true if the conditions (see buildContextMenu) are satisfied
    *         and the item can be displayed, false otherwise.
    */
-  _shouldShowMenuItem: function PC__shouldShowMenuItem(aMenuItem, aMetaData) {
+  _shouldShowMenuItem(aMenuItem, aMetaData) {
     if (
       aMenuItem.hasAttribute("hideifprivatebrowsing") &&
       !PrivateBrowsingUtils.enabled
@@ -450,10 +445,9 @@ PlacesController.prototype = {
       return false;
     }
 
-    var selectiontype = aMenuItem.getAttribute("selectiontype");
-    if (!selectiontype) {
-      selectiontype = "single|multiple";
-    }
+    let selectiontype =
+      aMenuItem.getAttribute("selectiontype") || "single|multiple";
+
     var selectionTypes = selectiontype.split("|");
     if (selectionTypes.includes("any")) {
       return true;
@@ -465,47 +459,41 @@ PlacesController.prototype = {
     if (count == 1 && !selectionTypes.includes("single")) {
       return false;
     }
-    // NB: if there is no selection, we show the item if and only if
-    // the selectiontype includes 'none' - the metadata list will be
-    // empty so none of the other criteria will apply anyway.
+    // If there is no selection and selectionType doesn't include `none`
+    // hide the item, otherwise try to use the root node to extract valid
+    // metadata to compare against.
     if (count == 0) {
-      return selectionTypes.includes("none");
+      if (!selectionTypes.includes("none")) {
+        return false;
+      }
+      aMetaData = [this._selectionMetadataForNode(this._view.result.root)];
     }
 
-    var forceHideAttr = aMenuItem.getAttribute("forcehideselection");
-    if (forceHideAttr) {
-      var forceHideRules = forceHideAttr.split("|");
-      for (let i = 0; i < aMetaData.length; ++i) {
-        for (let j = 0; j < forceHideRules.length; ++j) {
-          if (forceHideRules[j] in aMetaData[i]) {
-            return false;
-          }
-        }
+    let attr = aMenuItem.getAttribute("hideifnodetype");
+    if (attr) {
+      let rules = attr.split("|");
+      if (aMetaData.some(d => rules.some(r => r in d))) {
+        return false;
       }
     }
 
-    var selectionAttr = aMenuItem.getAttribute("selection");
-    if (!selectionAttr) {
-      return !aMenuItem.hidden;
+    attr = aMenuItem.getAttribute("hideifnodetypeisonly");
+    if (attr) {
+      let rules = attr.split("|");
+      if (aMetaData.every(d => rules.every(r => r in d))) {
+        return false;
+      }
     }
 
-    if (selectionAttr == "any") {
+    attr = aMenuItem.getAttribute("nodetype");
+    if (!attr) {
       return true;
     }
 
-    var showRules = selectionAttr.split("|");
-    var anyMatched = false;
-    function metaDataNodeMatches(metaDataNode, rules) {
-      for (var i = 0; i < rules.length; i++) {
-        if (rules[i] in metaDataNode) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    for (var i = 0; i < aMetaData.length; ++i) {
-      if (metaDataNodeMatches(aMetaData[i], showRules)) {
+    let anyMatched = false;
+    let rules = attr.split("|");
+    for (let metaData of aMetaData) {
+      if (rules.some(r => r in metaData)) {
         anyMatched = true;
       } else {
         return false;
@@ -515,57 +503,44 @@ PlacesController.prototype = {
   },
 
   /**
-   * Detects information (meta-data rules) about the current selection in the
-   * view (see _buildSelectionMetadata) and sets the visibility state for each
-   * of the menu-items in the given popup with the following rules applied:
-   *  0) The "ignoreitem" attribute may be set to "true" for this code not to
-   *     handle that menuitem.
-   *  1) The "selectiontype" attribute may be set on a menu-item to "single"
-   *     if the menu-item should be visible only if there is a single node
-   *     selected, or to "multiple" if the menu-item should be visible only if
-   *     multiple nodes are selected, or to "none" if the menuitems should be
-   *     visible for if there are no selected nodes, or to a |-separated
-   *     combination of these.
-   *     If the attribute is not set or set to an invalid value, the menu-item
-   *     may be visible irrespective of the selection.
-   *  2) The "selection" attribute may be set on a menu-item to the various
-   *     meta-data rules for which it may be visible. The rules should be
-   *     separated with the | character.
-   *  3) A menu-item may be visible only if at least one of the rules set in
-   *     its selection attribute apply to each of the selected nodes in the
-   *     view.
-   *  4) The "forcehideselection" attribute may be set on a menu-item to rules
-   *     for which it should be hidden. This attribute takes priority over the
-   *     selection attribute. A menu-item would be hidden if at least one of the
-   *     given rules apply to one of the selected nodes. The rules should be
-   *     separated with the | character.
-   *  5) The "hideifnoinsertionpoint" attribute may be set on a menu-item to
-   *     true if it should be hidden when there's no insertion point
-   *  6) The visibility state of a menu-item is unchanged if none of these
-   *     attribute are set.
-   *  7) These attributes should not be set on separators for which the
-   *     visibility state is "auto-detected."
-   *  8) The "hideifprivatebrowsing" attribute may be set on a menu-item to
-   *     true if it should be hidden inside the private browsing mode
-   *  9) The "forcehideintabbrowser" attribute may be set on a menu-item if
-   *     it should be hidden when we're in a tabbed browsing window.
+   * Uses meta-data rules set as attributes on the menuitems, representing the
+   * current selection in the view (see `_buildSelectionMetadata`) and sets the
+   * visibility state for each menuitem according to the following rules:
+   *  1) The visibility state is unchanged if none of the attributes are set.
+   *  2) Attributes should not be set on menuseparators.
+   *  3) The boolean `ignoreitem` attribute may be set when this code should
+   *     not handle that menuitem.
+   *  4) The `selectiontype` attribute may be set to:
+   *      - `single` if it should be visible only when there is a single node
+   *         selected
+   *      - `multiple` if it should be visible only when multiple nodes are
+   *         selected
+   *      - `none` if it should be visible when there are no selected nodes
+   *      - `any` if it should be visible for any kind of selection
+   *      - a `|` separated combination of the above.
+   *  5) The `nodetype` attribute may be set to values representing the
+   *     type of the node triggering the context menu. The menuitem will be
+   *     visible when one of the rules (separated by `|`) matches.
+   *     In case of multiple selection, the menuitem is visible only if all of
+   *     the selected nodes match one of the rule.
+   *  6) The `hideifnodetype` accepts the same rules as `nodetype`, but
+   *     hides the menuitem if the nodes match at least one of the rules.
+   *     It takes priority over `nodetype`.
+   *  7) The `hideifnodetypeisonly` accepts the same rules as `nodetype`, but
+   *     hides the menuitem if all the nodes match the rules.
+   *  8) The boolean `hideifnoinsertionpoint` attribute may be set to hide a
+   *     menuitem when there's no insertion point. An insertion point represents
+   *     a point in the view where a new item can be inserted.
+   *  9) The boolean `hideifprivatebrowsing` attribute may be set to hide a
+   *     menuitem in private browsing mode
+   * 10) The boolean `hideifsingleclickopens` attribute may be set to hide a
+   *     menuitem in views opening entries with a single click.
+   *
    * @param   aPopup
    *          The menupopup to build children into.
    * @return true if at least one item is visible, false otherwise.
    */
-  buildContextMenu: function PC_buildContextMenu(aPopup) {
-    // In tabbed browsing windows, ensure the plain 'open' item gets hidden,
-    // unless we open in tabs by default, in which case we want it visible
-    // so users can use the context menu to force the bookmark to open in
-    // the current tab.
-    if (window.top.gBrowser) {
-      var openInCurrentTab = document.getElementById("placesContext_open");
-      if (!PlacesUIUtils.loadBookmarksInTabs) {
-        openInCurrentTab.setAttribute("forcehideintabbrowser", "true");
-      } else {
-        openInCurrentTab.removeAttribute("forcehideintabbrowser");
-      }
-    }
+  buildContextMenu(aPopup) {
     var metadata = this._buildSelectionMetadata();
     var ip = this._view.insertionPoint;
     var noIp = !ip || ip.isTag;
@@ -580,20 +555,24 @@ PlacesController.prototype = {
       }
       if (item.localName != "menuseparator") {
         // We allow pasting into tag containers, so special case that.
-        var hideIfNoIP =
+        let hideIfNoIP =
           item.getAttribute("hideifnoinsertionpoint") == "true" &&
           noIp &&
           !(ip && ip.isTag && item.id == "placesContext_paste");
-        var hideIfInTabBrowser =
-          item.getAttribute("forcehideintabbrowser") == "true" &&
-          window.top.gBrowser;
-        var hideIfPrivate =
+        let hideIfPrivate =
           item.getAttribute("hideifprivatebrowsing") == "true" &&
           PrivateBrowsingUtils.isWindowPrivate(window);
-        var shouldHideItem =
+        // Hide `Open` if the primary action on click is opening.
+        let hideIfSingleClickOpens =
+          item.getAttribute("hideifsingleclickopens") == "true" &&
+          !PlacesUIUtils.loadBookmarksInBackground &&
+          !PlacesUIUtils.loadBookmarksInTabs &&
+          this._view.singleClickOpens;
+
+        let shouldHideItem =
           hideIfNoIP ||
-          hideIfInTabBrowser ||
           hideIfPrivate ||
+          hideIfSingleClickOpens ||
           !this._shouldShowMenuItem(item, metadata);
         item.hidden = item.disabled = shouldHideItem;
 
@@ -621,20 +600,32 @@ PlacesController.prototype = {
         // New separator, count again:
         visibleItemsBeforeSep = false;
       }
+
+      if (item.id === "placesContext_deleteBookmark") {
+        document.l10n.setAttributes(item, "places-remove-bookmark", {
+          count: metadata.length,
+        });
+      }
     }
 
-    // Set Open Folder/Links In Tabs items enabled state if they're visible
+    // Set Open Folder/Links In Tabs or Open Bookmark item's enabled state if they're visible
     if (usableItemCount > 0) {
-      var openContainerInTabsItem = document.getElementById(
+      let openContainerInTabsItem = document.getElementById(
         "placesContext_openContainer:tabs"
       );
-      if (!openContainerInTabsItem.hidden) {
-        var containerToUse = this._view.selectedNode || this._view.result.root;
-        if (PlacesUtils.nodeIsContainer(containerToUse)) {
-          if (!PlacesUtils.hasChildURIs(containerToUse)) {
-            openContainerInTabsItem.disabled = true;
-            // Ensure that we don't display the menu if nothing is enabled:
-            usableItemCount--;
+      let openBookmarksItem = document.getElementById(
+        "placesContext_openBookmarkContainer:tabs"
+      );
+      for (let menuItem of [openContainerInTabsItem, openBookmarksItem]) {
+        if (!menuItem.hidden) {
+          var containerToUse =
+            this._view.selectedNode || this._view.result.root;
+          if (PlacesUtils.nodeIsContainer(containerToUse)) {
+            if (!PlacesUtils.hasChildURIs(containerToUse)) {
+              menuItem.disabled = true;
+              // Ensure that we don't display the menu if nothing is enabled:
+              usableItemCount--;
+            }
           }
         }
       }
@@ -717,7 +708,7 @@ PlacesController.prototype = {
       throw Components.Exception("", Cr.NS_ERROR_NOT_AVAILABLE);
     }
 
-    let bookmarkGuid = PlacesUIUtils.showBookmarkDialog(
+    let bookmarkGuid = await PlacesUIUtils.showBookmarkDialog(
       {
         action: "add",
         type: aType,

@@ -34,6 +34,8 @@ XPCOMUtils.defineLazyServiceGetter(
 const isGonk = AppConstants.platform === "gonk";
 
 if (isGonk) {
+  ChromeUtils.import("resource://gre/modules/CustomHeaderInjector.jsm");
+
   XPCOMUtils.defineLazyGetter(this, "libcutils", () => {
     const { libcutils } = ChromeUtils.import(
       "resource://gre/modules/systemlibs.js"
@@ -161,7 +163,6 @@ var shell = {
     };
     this.contentBrowser.addProgressListener(listener);
 
-    Services.ppmm.addMessageListener("content-handler", this);
     Services.ppmm.addMessageListener("dial-handler", this);
     Services.ppmm.addMessageListener("sms-handler", this);
     Services.ppmm.addMessageListener("mail-handler", this);
@@ -175,7 +176,6 @@ var shell = {
   stop() {
     window.removeEventListener("unload", this);
     window.removeEventListener("sizemodechange", this);
-    Services.ppmm.removeMessageListener("content-handler", this);
     Services.ppmm.removeMessageListener("dial-handler", this);
     Services.ppmm.removeMessageListener("sms-handler", this);
     Services.ppmm.removeMessageListener("mail-handler", this);
@@ -208,7 +208,6 @@ var shell = {
 
   receiveMessage(message) {
     const activities = {
-      "content-handler": { name: "view" },
       "dial-handler": { name: "dial" },
       "mail-handler": { name: "new" },
       "sms-handler": { name: "new" },
@@ -222,10 +221,7 @@ var shell = {
     let data = message.data;
     let activity = activities[message.name];
 
-    let a = new window.WebActivity({
-      name: activity.name,
-      data,
-    });
+    let a = new window.WebActivity(activity.name, data);
 
     let promise = a.start();
     if (activity.response) {

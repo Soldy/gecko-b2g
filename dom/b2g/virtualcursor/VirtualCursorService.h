@@ -8,7 +8,7 @@
 #define mozilla_dom_VirtualCursorService_h
 
 #include "nsIVirtualCursorService.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsHashKeys.h"
 #include "nsIDOMWindowUtils.h"
 #include "nsFrameLoader.h"
@@ -62,7 +62,7 @@ class VirtualCursorService final : public nsIVirtualCursor,
   CSSPoint mCSSCursorPoint;
 
   // A table to map outer window to the VirtualCursorProxy
-  nsDataHashtable<nsPtrHashKey<nsPIDOMWindowOuter>, RefPtr<VirtualCursorProxy>>
+  nsTHashMap<nsPtrHashKey<nsPIDOMWindowOuter>, RefPtr<VirtualCursorProxy>>
       mCursorMap;
 };
 

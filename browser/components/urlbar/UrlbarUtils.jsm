@@ -150,7 +150,6 @@ var UrlbarUtils = {
     EXTENSION: "chrome://browser/content/extension.svg",
     HISTORY: "chrome://browser/skin/history.svg",
     SEARCH_GLASS: "chrome://global/skin/icons/search-glass.svg",
-    SEARCH_GLASS_INVERTED: "chrome://browser/skin/search-glass-inverted.svg",
     TIP: "chrome://browser/skin/tip.svg",
   },
 
@@ -189,27 +188,10 @@ var UrlbarUtils = {
   // path-like chars are admitted.
   REGEXP_SINGLE_WORD: /^[^\s@:/?#]+(:\d+)?$/,
 
-  // Names of engines shipped in Firefox that search the web in general.  These
-  // are used to update the input placeholder when entering search mode.
-  // TODO (Bug 1658661): Don't hardcode this list; store search engine category
-  // information someplace better.
-  WEB_ENGINE_NAMES: new Set([
-    "百度", // Baidu
-    "百度搜索", // "Baidu Search", the name of Baidu's OpenSearch engine.
-    "Bing",
-    "DuckDuckGo",
-    "Ecosia",
-    "Google",
-    "Qwant",
-    "Yandex",
-    "Яндекс", // Yandex, non-EN
-  ]),
-
   // Valid entry points for search mode. If adding a value here, please update
   // telemetry documentation and Scalars.yaml.
   SEARCH_MODE_ENTRY: new Set([
     "bookmarkmenu",
-    "handoff",
     "keywordoffer",
     "oneoff",
     "other",
@@ -497,7 +479,7 @@ var UrlbarUtils = {
    *   The reuslt's group.
    */
   getResultGroup(result) {
-    if (result.suggestedIndex >= 0) {
+    if (result.hasSuggestedIndex) {
       return UrlbarUtils.RESULT_GROUP.SUGGESTED_INDEX;
     }
     if (result.heuristic) {
@@ -889,8 +871,7 @@ var UrlbarUtils = {
    * @returns {array} If `str` is a URL, then [prefix, remainder].  Otherwise, ["", str].
    */
   stripURLPrefix(str) {
-    const REGEXP_STRIP_PREFIX = /^[a-z]+:(?:\/){0,2}/i;
-    let match = REGEXP_STRIP_PREFIX.exec(str);
+    let match = UrlbarTokenizer.REGEXP_PREFIX.exec(str);
     if (!match) {
       return ["", str];
     }
@@ -1022,6 +1003,51 @@ var UrlbarUtils = {
   },
 
   /**
+   * Return whether the candidate can autofill to the url.
+   *
+   * @param {string} url
+   * @param {string} candidate
+   * @param {string} checkFragmentOnly
+   *                 If want to check the fragment only, pass true.
+   *                 Otherwise, check whole url.
+   * @returns {boolean} true: can autofill
+   */
+  canAutofillURL(url, candidate, checkFragmentOnly = false) {
+    if (
+      !checkFragmentOnly &&
+      (url.length <= candidate.length ||
+        !url.toLocaleLowerCase().startsWith(candidate.toLocaleLowerCase()))
+    ) {
+      return false;
+    }
+
+    if (!UrlbarTokenizer.REGEXP_PREFIX.test(url)) {
+      url = "http://" + url;
+    }
+
+    if (!UrlbarTokenizer.REGEXP_PREFIX.test(candidate)) {
+      candidate = "http://" + candidate;
+    }
+
+    try {
+      url = new URL(url);
+      candidate = new URL(candidate);
+    } catch (e) {
+      return false;
+    }
+
+    if (
+      !checkFragmentOnly &&
+      candidate.href.endsWith("/") &&
+      (url.pathname.length > candidate.pathname.length || url.hash)
+    ) {
+      return false;
+    }
+
+    return url.hash.startsWith(candidate.hash);
+  },
+
+  /**
    * Extracts a telemetry type from a result, used by scalars and event
    * telemetry.
    *
@@ -1135,6 +1161,9 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       isPrivateEngine: {
         type: "boolean",
       },
+      isGeneralPurposeEngine: {
+        type: "boolean",
+      },
       keyword: {
         type: "string",
       },
@@ -1180,6 +1209,9 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       helpL10nId: {
         type: "string",
       },
+      helpTitle: {
+        type: "string",
+      },
       helpUrl: {
         type: "string",
       },
@@ -1192,8 +1224,29 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       isSponsored: {
         type: "boolean",
       },
+      qsSuggestion: {
+        type: "string",
+      },
       sendAttributionRequest: {
         type: "boolean",
+      },
+      sponsoredAdvertiser: {
+        type: "string",
+      },
+      sponsoredBlockId: {
+        type: "number",
+      },
+      sponsoredClickUrl: {
+        type: "string",
+      },
+      sponsoredImpressionUrl: {
+        type: "string",
+      },
+      sponsoredText: {
+        type: "string",
+      },
+      sponsoredTileId: {
+        type: "number",
       },
       tags: {
         type: "array",
@@ -1644,11 +1697,44 @@ class UrlbarProvider {
   /**
    * Called when the user starts and ends an engagement with the urlbar.
    *
-   * @param {boolean} isPrivate True if the engagement is in a private context.
-   * @param {string} state The state of the engagement, one of: start,
-   *        engagement, abandonment, discard.
+   * @param {boolean} isPrivate
+   *   True if the engagement is in a private context.
+   * @param {string} state
+   *   The state of the engagement, one of the following strings:
+   *
+   *   * start
+   *       A new query has started in the urlbar.
+   *   * engagement
+   *       The user picked a result in the urlbar or used paste-and-go.
+   *   * abandonment
+   *       The urlbar was blurred (i.e., lost focus).
+   *   * discard
+   *       This doesn't correspond to a user action, but it means that the
+   *       urlbar has discarded the engagement for some reason, and the
+   *       `onEngagement` implementation should ignore it.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   *   The engagement's query context.  This is *not* guaranteed to be defined
+   *   when `state` is "start".  It will always be defined for "engagement" and
+   *   "abandonment".
+   * @param {object} details
+   *   This is defined only when `state` is "engagement" or "abandonment", and
+   *   it describes the search string and picked result.  For "engagement", it
+   *   has the following properties:
+   *
+   *   * {string} searchString
+   *       The search string for the engagement's query.
+   *   * {number} selIndex
+   *       The index of the picked result.
+   *   * {string} selType
+   *       The type of the selected result.  See TelemetryEvent.record() in
+   *       UrlbarController.jsm.
+   *   * {string} provider
+   *       The name of the provider that produced the picked result.
+   *
+   *   For "abandonment", only `searchString` is defined.
    */
-  onEngagement(isPrivate, state) {}
+  onEngagement(isPrivate, state, queryContext, details) {}
 
   /**
    * Called when a result from the provider is selected. "Selected" refers to

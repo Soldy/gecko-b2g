@@ -14,8 +14,10 @@ var EXPORTED_SYMBOLS = ["WatchedDataHelpers"];
 // List of all arrays stored in `watchedData`, which are replicated across processes and threads
 const SUPPORTED_DATA = {
   BREAKPOINTS: "breakpoints",
+  XHR_BREAKPOINTS: "xhr-breakpoints",
   RESOURCES: "resources",
   TARGET_CONFIGURATION: "target-configuration",
+  THREAD_CONFIGURATION: "thread-configuration",
   TARGETS: "targets",
 };
 
@@ -57,6 +59,23 @@ const DATA_KEY_FUNCTION = {
     // Configuration data entries are { key, value } objects, `key` can be used
     // as the unique identifier for the entry.
     return key;
+  },
+  [SUPPORTED_DATA.THREAD_CONFIGURATION]: function({ key }) {
+    // See target configuration comment
+    return key;
+  },
+  [SUPPORTED_DATA.XHR_BREAKPOINTS]: function({ path, method }) {
+    if (typeof path != "string") {
+      throw new Error(
+        `XHR Breakpoints expect to have path string, got ${typeof path} instead.`
+      );
+    }
+    if (typeof method != "string") {
+      throw new Error(
+        `XHR Breakpoints expect to have method string, got ${typeof method} instead.`
+      );
+    }
+    return `${path}:${method}`;
   },
 };
 

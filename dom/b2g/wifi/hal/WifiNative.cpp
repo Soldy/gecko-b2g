@@ -318,10 +318,12 @@ Result_t WifiNative::StopWifi() {
     sPasspointHandler->Cleanup();
   }
 
-  // teardown wificond interfaces.
-  result = sWificondControl->TearDownClientInterface(mStaInterfaceName);
+  // TODO: It's the only method to unsubscribe regulatory domain change event,
+  //       implement remain interface check if we support multiple interfaces
+  //       case such as p2p or concurrent mode.
+  result = sWificondControl->TearDownInterfaces();
   if (result != nsIWifiResult::SUCCESS) {
-    WIFI_LOGE(LOG_TAG, "Failed to teardown wificond interfaces");
+    WIFI_LOGE(LOG_TAG, "Failed to teardown interfaces in wificond");
     return result;
   }
 
@@ -823,9 +825,12 @@ Result_t WifiNative::StopSoftAp() {
     return result;
   }
 
-  result = sWificondControl->TearDownSoftapInterface(mApInterfaceName);
+  // TODO: It's the only method to unsubscribe regulatory domain change event,
+  //       implement remain interface check if we support multiple interfaces
+  //       case such as p2p or concurrent mode.
+  result = sWificondControl->TearDownInterfaces();
   if (result != nsIWifiResult::SUCCESS) {
-    WIFI_LOGE(LOG_TAG, "Failed to teardown ap interface in wificond");
+    WIFI_LOGE(LOG_TAG, "Failed to teardown interfaces in wificond");
     return result;
   }
 

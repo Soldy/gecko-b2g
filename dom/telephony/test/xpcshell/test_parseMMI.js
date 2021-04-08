@@ -2,14 +2,15 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 var TS = {};
-subscriptLoader.loadSubScript("resource://gre/components/TelephonyService.js", TS);
-
+Services.scriptloader.loadSubScript(
+  "resource://gre/modules/TelephonyService.jsm",
+  TS
+);
 var NS = {};
-subscriptLoader.loadSubScript("resource://gre/modules/DialNumberUtils.jsm", NS);
-
-function run_test() {
-  run_next_test();
-}
+Services.scriptloader.loadSubScript(
+  "resource://gre/modules/DialNumberUtils.jsm",
+  NS
+);
 
 function parseMMI(mmiString) {
   return NS.DialNumberUtils.parseMMI(mmiString);
@@ -189,7 +190,6 @@ add_test(function test_parseMMI_dial_number() {
 
   run_next_test();
 });
-
 
 /**
  * MMI procedures tests

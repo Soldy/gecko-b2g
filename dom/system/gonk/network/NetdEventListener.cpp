@@ -10,10 +10,24 @@
 #include "mozilla/Sprintf.h"
 #include "NetdEventListener.h"
 #include <android-base/strings.h>
+#include <android/log.h>
 
 #define BUF_SIZE 1024
 
 using android::binder::Status;
+
+static bool ENABLE_NEL_DEBUG = false;
+
+static void NEL_DBG(const char* format, ...) {
+  if (!ENABLE_NEL_DEBUG) {
+    return;
+  }
+
+  va_list args;
+  va_start(args, format);
+  __android_log_vprint(ANDROID_LOG_INFO, "NetdEventListener", format, args);
+  va_end(args);
+}
 
 NetdEventListener::NetdEventListener(NetdEventCallback aCallback)
     : mNetdEventCallback(aCallback) {
@@ -23,6 +37,8 @@ NetdEventListener::NetdEventListener(NetdEventCallback aCallback)
   android::sp<android::ProcessState> ps(android::ProcessState::self());
   ps->startThreadPool();
 }
+
+void NetdEventListener::updateDebug(bool aEnable) { ENABLE_NEL_DEBUG = aEnable; }
 
 void NetdEventListener::sendBroadcast(NetdEvent evt, char* reason) {
   mozilla::dom::NetworkResultOptions result;
@@ -53,6 +69,7 @@ Status NetdEventListener::onDnsEvent(
   SprintfLiteral(message, "%d %d %d %d %s %d %d %s", netId, eventType,
                  returnCode, latencyMs, hostname.c_str(), uid, ipAddressesCount,
                  android::base::Join(ipAddresses, " ").c_str());
+  NEL_DBG("%s %s", __FUNCTION__, message);
   sendBroadcast(DnsEvent, message);
   return Status::ok();
 }
@@ -63,7 +80,24 @@ Status NetdEventListener::onNat64PrefixEvent(int32_t netId, bool added,
   char message[BUF_SIZE];
   SprintfLiteral(message, "%d %s %s %d", netId, added ? "add" : "remove",
                  prefixString.c_str(), prefixLength);
+  NEL_DBG("%s %s", __FUNCTION__, message);
   sendBroadcast(Nat64PrefixEvent, message);
+  return Status::ok();
+}
+
+Status NetdEventListener::onWakeupEvent(
+    const ::android::String16& prefix, int32_t uid, int32_t ethertype,
+    int32_t ipNextHeader, const ::std::vector<uint8_t>& dstHw,
+    const ::android::String16& srcIp, const ::android::String16& dstIp,
+    int32_t srcPort, int32_t dstPort, int64_t timestampNs) {
+  char message[BUF_SIZE];
+  SprintfLiteral(message, "%s %d %d %d %s %s %s %d %ld",
+                 ::android::String8(prefix).string(), uid, ethertype,
+                 ipNextHeader, android::base::Join(dstHw, ":").c_str(),
+                 ::android::String8(srcIp).string(),
+                 ::android::String8(dstIp).string(), dstPort, timestampNs);
+
+  NEL_DBG("%s %s", __FUNCTION__, message);
   return Status::ok();
 }
 
@@ -78,14 +112,6 @@ Status NetdEventListener::onConnectEvent(int32_t netId, int32_t error,
                                          int32_t latencyMs,
                                          const ::android::String16& ipAddr,
                                          int32_t port, int32_t uid) {
-  return Status::ok();
-}
-
-Status NetdEventListener::onWakeupEvent(
-    const ::android::String16& prefix, int32_t uid, int32_t ethertype,
-    int32_t ipNextHeader, const ::std::vector<uint8_t>& dstHw,
-    const ::android::String16& srcIp, const ::android::String16& dstIp,
-    int32_t srcPort, int32_t dstPort, int64_t timestampNs) {
   return Status::ok();
 }
 

@@ -73,5 +73,9 @@ bool MobileMessageThread::IsGroup() const {
   return isGroup;
 }
 
+void MobileMessageThread::GetLastMessageAttachmentStatus(
+    nsString& aRetVal) const {
+  mThread->GetLastMessageAttachmentStatus(aRetVal);
+}
 }  // namespace dom
 }  // namespace mozilla

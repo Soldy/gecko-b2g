@@ -25,7 +25,6 @@ already_AddRefed<PlatformDecoderModule> GonkDecoderModule::Create() {
 
 /* static */
 bool GonkDecoderModule::Init() {
-  MOZ_ASSERT(NS_IsMainThread(), "Must be on main thread.");
   return true;
 }
 

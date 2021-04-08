@@ -43,6 +43,12 @@ class TelephonyCallId final : public nsISupports, public nsWrapperCache {
 
   void UpdateNumber(const nsAString& aNumber) { mNumber = aNumber; }
 
+  void UpdateName(const nsAString& aName) { mName = aName; };
+
+  void UpdateNumberPresentation(uint16_t aNumberPresentation) { mNumberPresentation = aNumberPresentation; }
+
+  void UpdateNamePresentation(uint16_t aNamePresentation) { mNamePresentation = aNamePresentation; }
+
  private:
   ~TelephonyCallId();
 

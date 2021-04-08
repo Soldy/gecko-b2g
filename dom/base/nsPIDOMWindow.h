@@ -12,6 +12,7 @@
 
 #include "nsCOMPtr.h"
 #include "nsTArray.h"
+#include "Units.h"
 #include "mozilla/dom/EventTarget.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/Maybe.h"
@@ -298,12 +299,12 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
   // Calling suspend should prevent any asynchronous tasks from
   // executing javascript for this window.  This means setTimeout,
   // requestAnimationFrame, and events should not be fired. Suspending
-  // a window also suspends its children and workers.  Workers may
+  // a window maybe also suspends its children.  Workers may
   // continue to perform computations in the background.  A window
   // can have Suspend() called multiple times and will only resume after
   // a matching number of Resume() calls.
-  void Suspend();
-  void Resume();
+  void Suspend(bool aIncludeSubWindows = true);
+  void Resume(bool aIncludeSubWindows = true);
 
   // Whether or not this window was suspended by the BrowserContextGroup
   bool GetWasSuspendedByGroup() const { return mWasSuspendedByGroup; }
@@ -418,7 +419,7 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
 
   // Fire any DOM notification events related to things that happened while
   // the window was frozen.
-  virtual nsresult FireDelayedDOMEvents() = 0;
+  virtual nsresult FireDelayedDOMEvents(bool aIncludeSubWindows) = 0;
 
   /**
    * Get the docshell in this window.
@@ -488,15 +489,10 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
 
   virtual void SetFocusedElement(mozilla::dom::Element* aElement,
                                  uint32_t aFocusMethod = 0,
-                                 bool aNeedsFocus = false,
-                                 bool aWillShowOutline = false) = 0;
-  /**
-   * Get whether the focused element did show outlines when it was focused.
-   *
-   * Only for the focus manager. Returns false if there was no focused element.
-   */
-  bool FocusedElementShowedOutline() const {
-    return mFocusedElementShowedOutlines;
+                                 bool aNeedsFocus = false) = 0;
+
+  bool UnknownFocusMethodShouldShowOutline() const {
+    return mUnknownFocusMethodShouldShowOutline;
   }
 
   /**
@@ -682,7 +678,11 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
   // notification.
   bool mHasNotifiedGlobalCreated;
 
-  bool mFocusedElementShowedOutlines = false;
+  // Whether when focused via an "unknown" focus method, we should show outlines
+  // by default or not. The initial value of this is true (so as to show
+  // outlines for stuff like html autofocus, or initial programmatic focus
+  // without any other user interaction).
+  bool mUnknownFocusMethodShouldShowOutline = true;
 
   uint32_t mMarkedCCGeneration;
 
@@ -781,16 +781,11 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
 
   bool GetAudioMuted() const;
 
-  float GetAudioVolume() const;
-  nsresult SetAudioVolume(float aVolume);
-
   void MaybeActiveMediaComponents();
 
   void RefreshMediaElementsVolume();
 
   float GetDevicePixelRatio(mozilla::dom::CallerType aCallerType);
-
-  bool HadOriginalOpener() const;
 
   virtual nsPIDOMWindowOuter* GetPrivateRoot() = 0;
 
@@ -876,7 +871,7 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
 
   // Fire any DOM notification events related to things that happened while
   // the window was frozen.
-  virtual nsresult FireDelayedDOMEvents() = 0;
+  virtual nsresult FireDelayedDOMEvents(bool aIncludeSubWindows) = 0;
 
   /**
    * Get the docshell in this window.
@@ -941,6 +936,9 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
 
   virtual void ForceFullScreenInWidget() = 0;
 
+  virtual void MacFullscreenMenubarOverlapChanged(
+      mozilla::DesktopCoord aOverlapAmount) = 0;
+
   // XXX: These focus methods all forward to the inner, could we change
   // consumers to call these on the inner directly?
 
@@ -956,14 +954,12 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
 
   virtual void SetFocusedElement(mozilla::dom::Element* aElement,
                                  uint32_t aFocusMethod = 0,
-                                 bool aNeedsFocus = false,
-                                 bool aWillShowOutline = false) = 0;
+                                 bool aNeedsFocus = false) = 0;
   /**
-   * Get whether the focused element did show outlines when it was focused.
-   *
-   * Only for the focus manager. Returns false if there was no focused element.
+   * Get whether a focused element focused by unknown reasons (like script
+   * focus) should match the :focus-visible pseudo-class.
    */
-  bool FocusedElementShowedOutline() const;
+  bool UnknownFocusMethodShouldShowOutline() const;
 
   /**
    * Retrieves the method that was used to focus the current node.
@@ -1138,9 +1134,6 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
    * after that.
    */
   SuspendTypes mMediaSuspend;
-
-  bool mAudioMuted;
-  float mAudioVolume;
 
   // current desktop mode flag.
   bool mDesktopModeViewport;

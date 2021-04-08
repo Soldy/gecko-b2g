@@ -260,8 +260,7 @@ partial interface Navigator {
 callback MozGetUserMediaDevicesSuccessCallback = void (nsIVariant? devices);
 partial interface Navigator {
   [Throws, ChromeOnly]
-  void mozGetUserMediaDevices(MediaStreamConstraints constraints,
-                              MozGetUserMediaDevicesSuccessCallback onsuccess,
+  void mozGetUserMediaDevices(MozGetUserMediaDevicesSuccessCallback onsuccess,
                               NavigatorUserMediaErrorCallback onerror,
                               // The originating innerWindowID is needed to
                               // avoid calling the callbacks if the window has
@@ -288,11 +287,6 @@ partial interface Navigator {
 };
 
 partial interface Navigator {
-  [Throws, Pref="dom.presentation.enabled", SameObject]
-  readonly attribute Presentation? presentation;
-};
-
-partial interface Navigator {
   [NewObject, Func="mozilla::dom::TCPSocket::ShouldTCPSocketExist"]
   readonly attribute LegacyMozTCPSocket mozTCPSocket;
 };
@@ -316,7 +310,7 @@ partial interface Navigator {
 
 // https://w3c.github.io/webdriver/webdriver-spec.html#interface
 interface mixin NavigatorAutomationInformation {
-  [Pref="dom.webdriver.enabled"]
+  [Constant, Cached]
   readonly attribute boolean webdriver;
 };
 

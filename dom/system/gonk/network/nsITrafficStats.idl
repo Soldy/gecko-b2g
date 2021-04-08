@@ -1,0 +1,38 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+%{C++
+#define TRAFFIC_STATS_CID \
+{ 0x82345f29, 0x28c5, 0x4af3, \
+  { 0x9f, 0xe4, 0xa5, 0xf1, 0xbf, 0xc9, 0x76, 0xa4 } }
+#define TRAFFIC_STATS_CONTRACTID "@mozilla.org/network/trafficstats;1"
+
+template<typename T> struct already_AddRefed;
+%}
+
+[scriptable, builtinclass, uuid(65dd686c-420e-48e7-a41f-08a72be36614)]
+interface nsIStatsInfo : nsISupports
+{
+  readonly attribute ACString name;
+  readonly attribute long long rxBytes;
+  readonly attribute long long rxPackets;
+  readonly attribute long long txBytes;
+  readonly attribute long long txPackets;
+};
+
+[scriptable, uuid(82345f29-28c5-4af3-9fe4-a5f1bfc976a4)]
+interface nsITrafficStats : nsISupports
+{
+    /**
+     * Returns full statistic info.
+     */
+    void getStats(out Array<nsIStatsInfo> aStatsInfos);
+};
+
+%{C++
+already_AddRefed<nsITrafficStats>
+NS_CreateTrafficStats();
+%}

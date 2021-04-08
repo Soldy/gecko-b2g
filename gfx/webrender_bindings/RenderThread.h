@@ -34,6 +34,7 @@ class GLContext;
 }  // namespace gl
 namespace layers {
 class CompositorBridgeParent;
+class ShaderProgramOGLsHolder;
 class SurfacePool;
 }  // namespace layers
 namespace wr {
@@ -255,16 +256,17 @@ class RenderThread final {
   }
 
   /// Can only be called from the render thread.
-  gl::GLContext* SharedGL(nsACString& aError);
-  gl::GLContext* SharedGL();
-  void ClearSharedGL();
+  gl::GLContext* SingletonGL(nsACString& aError);
+  gl::GLContext* SingletonGL();
+  gl::GLContext* SingletonGLForCompositorOGL();
+  void ClearSingletonGL();
   RefPtr<layers::SurfacePool> SharedSurfacePool();
   void ClearSharedSurfacePool();
 
+  RefPtr<layers::ShaderProgramOGLsHolder> GetProgramsForCompositorOGL();
+
   /// Can only be called from the render thread.
-  void HandleDeviceReset(const char* aWhere,
-                         layers::CompositorBridgeParent* aBridge,
-                         GLenum aReason);
+  void HandleDeviceReset(const char* aWhere, GLenum aReason);
   /// Can only be called from the render thread.
   bool IsHandlingDeviceReset();
   /// Can be called from any thread.
@@ -312,6 +314,8 @@ class RenderThread final {
 
   void AddRenderTextureOp(RenderTextureOp aOp, uint64_t aExternalImageId);
 
+  void CreateSingletonGL(nsACString& aError);
+
   ~RenderThread();
 
   base::Thread* const mThread;
@@ -321,10 +325,12 @@ class RenderThread final {
 
   UniquePtr<WebRenderProgramCache> mProgramCache;
   UniquePtr<WebRenderShaders> mShaders;
+  RefPtr<layers::ShaderProgramOGLsHolder> mProgramsForCompositorOGL;
 
   // An optional shared GLContext to be used for all
   // windows.
-  RefPtr<gl::GLContext> mSharedGL;
+  RefPtr<gl::GLContext> mSingletonGL;
+  bool mSingletonGLIsForHardwareWebRender;
 
   RefPtr<layers::SurfacePool> mSurfacePool;
 

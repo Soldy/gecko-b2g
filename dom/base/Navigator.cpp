@@ -45,7 +45,6 @@
 #include "mozilla/dom/MIDIAccessManager.h"
 #include "mozilla/dom/MIDIOptionsBinding.h"
 #include "mozilla/dom/Permissions.h"
-#include "mozilla/dom/Presentation.h"
 #include "mozilla/dom/ServiceWorkerContainer.h"
 #include "mozilla/dom/StorageManager.h"
 #include "mozilla/dom/TCPSocket.h"
@@ -70,6 +69,9 @@
 #include "nsICookieManager.h"
 #include "nsICookieService.h"
 #include "nsIHttpChannel.h"
+#ifdef ENABLE_MARIONETTE
+#  include "nsIMarionette.h"
+#endif
 #include "nsStreamUtils.h"
 #include "WidgetUtils.h"
 #include "nsIScriptError.h"
@@ -157,7 +159,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Navigator)
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMediaKeySystemAccessManager)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPresentation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGamepadServiceTest)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVRGetDisplaysPromises)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVRServiceTest)
@@ -174,7 +175,6 @@ void Navigator::Invalidate() {
   mMimeTypes = nullptr;
 
   if (mPlugins) {
-    mPlugins->Invalidate();
     mPlugins = nullptr;
   }
 
@@ -189,7 +189,7 @@ void Navigator::Invalidate() {
   }
 
   if (mB2G) {
-    mB2G->Shutdown();
+    mB2G->MainThreadShutdown();
     mB2G = nullptr;
   }
 
@@ -206,10 +206,6 @@ void Navigator::Invalidate() {
   }
 
   mMediaDevices = nullptr;
-
-  if (mPresentation) {
-    mPresentation = nullptr;
-  }
 
   mServiceWorkerContainer = nullptr;
 
@@ -491,7 +487,6 @@ nsPluginArray* Navigator::GetPlugins(ErrorResult& aRv) {
       return nullptr;
     }
     mPlugins = new nsPluginArray(mWindow);
-    mPlugins->Init();
   }
 
   return mPlugins;
@@ -521,15 +516,20 @@ StorageManager* Navigator::Storage() {
 }
 
 bool Navigator::CookieEnabled() {
-  bool cookieEnabled = (nsICookieManager::GetCookieBehavior() !=
-                        nsICookieService::BEHAVIOR_REJECT);
-
   // Check whether an exception overrides the global cookie behavior
   // Note that the code for getting the URI here matches that in
   // nsHTMLDocument::SetCookie.
   if (!mWindow || !mWindow->GetDocShell()) {
-    return cookieEnabled;
+    return nsICookieManager::GetCookieBehavior(false) !=
+           nsICookieService::BEHAVIOR_REJECT;
   }
+
+  nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(mWindow);
+  uint32_t cookieBehavior = loadContext
+                                ? nsICookieManager::GetCookieBehavior(
+                                      loadContext->UsePrivateBrowsing())
+                                : nsICookieManager::GetCookieBehavior(false);
+  bool cookieEnabled = cookieBehavior != nsICookieService::BEHAVIOR_REJECT;
 
   nsCOMPtr<Document> doc = mWindow->GetExtantDoc();
   if (!doc) {
@@ -970,9 +970,11 @@ void Navigator::CheckProtocolHandlerAllowed(const nsAString& aScheme,
   // should have already taken care of this.
   nsCOMPtr<nsIExternalProtocolHandler> externalHandler =
       do_QueryInterface(handler);
-  MOZ_RELEASE_ASSERT(
-      externalHandler,
-      "We should never allow overriding a builtin protocol handler");
+  // We should never allow overriding a builtin protocol handler.
+  if (!externalHandler) {
+    raisePermissionDeniedScheme();
+    return;
+  }
 
   // check if we have prefs set saying not to add this.
   bool defaultExternal =
@@ -1061,7 +1063,7 @@ B2G* Navigator::B2g() {
 
   if (!mB2G) {
     mB2G = new B2G(mWindow->AsGlobal());
-    if (NS_WARN_IF(NS_FAILED(mB2G->Init()))) {
+    if (NS_WARN_IF(NS_FAILED(mB2G->MainThreadInit()))) {
       mB2G = nullptr;
     }
   }
@@ -1333,7 +1335,6 @@ void Navigator::MozGetUserMedia(const MediaStreamConstraints& aConstraints,
 }
 
 void Navigator::MozGetUserMediaDevices(
-    const MediaStreamConstraints& aConstraints,
     MozGetUserMediaDevicesSuccessCallback& aOnSuccess,
     NavigatorUserMediaErrorCallback& aOnError, uint64_t aInnerWindowID,
     const nsAString& aCallID, ErrorResult& aRv) {
@@ -1350,8 +1351,8 @@ void Navigator::MozGetUserMediaDevices(
   RefPtr<MediaManager> manager = MediaManager::Get();
   // XXXbz aOnError seems to be unused?
   nsCOMPtr<nsPIDOMWindowInner> window(mWindow);
-  aRv = manager->GetUserMediaDevices(window, aConstraints, aOnSuccess,
-                                     aInnerWindowID, aCallID);
+  aRv =
+      manager->GetUserMediaDevices(window, aOnSuccess, aInnerWindowID, aCallID);
 }
 
 //*****************************************************************************
@@ -2108,18 +2109,6 @@ already_AddRefed<Promise> Navigator::RequestMediaKeySystemAccess(
   return promise.forget();
 }
 
-Presentation* Navigator::GetPresentation(ErrorResult& aRv) {
-  if (!mPresentation) {
-    if (!mWindow) {
-      aRv.Throw(NS_ERROR_UNEXPECTED);
-      return nullptr;
-    }
-    mPresentation = Presentation::Create(mWindow);
-  }
-
-  return mPresentation;
-}
-
 CredentialsContainer* Navigator::Credentials() {
   if (!mCredentials) {
     mCredentials = new CredentialsContainer(GetWindow());
@@ -2179,7 +2168,16 @@ webgpu::Instance* Navigator::Gpu() {
 
 /* static */
 bool Navigator::Webdriver() {
-  return Preferences::GetBool("marionette.enabled", false);
+  bool marionetteRunning = false;
+
+#ifdef ENABLE_MARIONETTE
+  nsCOMPtr<nsIMarionette> marionette = do_GetService(NS_MARIONETTE_CONTRACTID);
+  if (marionette) {
+    marionette->GetRunning(&marionetteRunning);
+  }
+#endif
+
+  return marionetteRunning;
 }
 
 }  // namespace mozilla::dom

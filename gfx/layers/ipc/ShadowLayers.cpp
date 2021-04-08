@@ -41,7 +41,8 @@
 #include "mozilla/mozalloc.h"              // for operator new, etc
 #include "nsIXULRuntime.h"                 // for BrowserTabsRemoteAutostart
 #include "nsTArray.h"                      // for AutoTArray, nsTArray, etc
-#include "nsXULAppAPI.h"                   // for XRE_GetProcessType, etc
+#include "nsTHashSet.h"
+#include "nsXULAppAPI.h"  // for XRE_GetProcessType, etc
 
 namespace mozilla {
 namespace ipc {
@@ -58,7 +59,7 @@ class ClientTiledLayerBuffer;
 
 typedef nsTArray<SurfaceDescriptor> BufferArray;
 typedef nsTArray<Edit> EditVector;
-typedef nsTHashtable<nsPtrHashKey<ShadowableLayer>> ShadowableLayerSet;
+typedef nsTHashSet<ShadowableLayer*> ShadowableLayerSet;
 typedef nsTArray<OpDestroy> OpDestroyVector;
 
 class Transaction {
@@ -95,11 +96,11 @@ class Transaction {
   }
   void AddMutant(ShadowableLayer* aLayer) {
     MOZ_ASSERT(!Finished(), "forgot BeginTransaction?");
-    mMutants.PutEntry(aLayer);
+    mMutants.Insert(aLayer);
   }
   void AddSimpleMutant(ShadowableLayer* aLayer) {
     MOZ_ASSERT(!Finished(), "forgot BeginTransaction?");
-    mSimpleMutants.PutEntry(aLayer);
+    mSimpleMutants.Insert(aLayer);
   }
   void End() {
     mCset.Clear();
@@ -530,19 +531,6 @@ bool ShadowLayerForwarder::InWorkerThread() {
   return GetTextureForwarder()->GetThread()->IsOnCurrentThread();
 }
 
-void ShadowLayerForwarder::StorePluginWidgetConfigurations(
-    const nsTArray<nsIWidget::Configuration>& aConfigurations) {
-  // Cache new plugin widget configs here until we call update, at which
-  // point this data will get shipped over to chrome.
-  mPluginWindowData.Clear();
-  for (uint32_t idx = 0; idx < aConfigurations.Length(); idx++) {
-    const nsIWidget::Configuration& configuration = aConfigurations[idx];
-    mPluginWindowData.AppendElement(
-        PluginWindowData(configuration.mWindowID, configuration.mClipRegion,
-                         configuration.mBounds, configuration.mVisible));
-  }
-}
-
 void ShadowLayerForwarder::SendPaintTime(TransactionId aId,
                                          TimeDuration aPaintTime) {
   if (!IPCOpen() || !mShadowManager->SendPaintTime(aId, aPaintTime)) {
@@ -610,9 +598,7 @@ bool ShadowLayerForwarder::EndTransaction(
   MOZ_LAYERS_LOG(("[LayersForwarder] building transaction..."));
 
   nsTArray<OpSetSimpleLayerAttributes> setSimpleAttrs;
-  for (ShadowableLayerSet::Iterator it(&mTxn->mSimpleMutants); !it.Done();
-       it.Next()) {
-    ShadowableLayer* shadow = it.Get()->GetKey();
+  for (ShadowableLayer* shadow : mTxn->mSimpleMutants) {
     if (!shadow->HasShadow()) {
       continue;
     }
@@ -629,10 +615,7 @@ bool ShadowLayerForwarder::EndTransaction(
   // attribute changes before new pixels arrive, which can be useful
   // for setting up back/front buffers.
   RenderTraceScope rendertrace2("Foward Transaction", "000092");
-  for (ShadowableLayerSet::Iterator it(&mTxn->mMutants); !it.Done();
-       it.Next()) {
-    ShadowableLayer* shadow = it.Get()->GetKey();
-
+  for (ShadowableLayer* shadow : mTxn->mMutants) {
     if (!shadow->HasShadow()) {
       continue;
     }
@@ -688,7 +671,6 @@ bool ShadowLayerForwarder::EndTransaction(
   info.toDestroy() = mTxn->mDestroyedActors.Clone();
   info.fwdTransactionId() = GetFwdTransactionId();
   info.id() = aId;
-  info.plugins() = mPluginWindowData.Clone();
   info.isFirstPaint() = mIsFirstPaint;
   info.focusTarget() = mFocusTarget;
   info.scheduleComposite() = aScheduleComposite;
@@ -829,7 +811,7 @@ void ShadowLayerForwarder::Connect(CompositableClient* aCompositable,
   static uint64_t sNextID = 1;
   uint64_t id = sNextID++;
 
-  mCompositables.Put(id, aCompositable);
+  mCompositables.InsertOrUpdate(id, aCompositable);
 
   CompositableHandle handle(id);
   aCompositable->InitIPDL(handle);

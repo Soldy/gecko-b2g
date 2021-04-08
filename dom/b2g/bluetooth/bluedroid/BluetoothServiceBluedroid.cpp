@@ -1781,7 +1781,7 @@ void BluetoothServiceBluedroid::RemoteDevicePropertiesNotification(
 
       // Update <address, name> mapping
       mDeviceNameMap.Remove(aBdAddr);
-      mDeviceNameMap.Put(aBdAddr, p.mRemoteName);
+      mDeviceNameMap.InsertOrUpdate(aBdAddr, p.mRemoteName);
     } else if (p.mType == PROPERTY_CLASS_OF_DEVICE) {
       uint32_t cod = p.mUint32;
       AppendNamedValue(propertiesArray, "Cod", cod);
@@ -1920,7 +1920,7 @@ void BluetoothServiceBluedroid::DeviceFoundNotification(
 
   // Update <address, name> mapping
   mDeviceNameMap.Remove(bdAddr);
-  mDeviceNameMap.Put(bdAddr, bdName);
+  mDeviceNameMap.InsertOrUpdate(bdAddr, bdName);
 
   DistributeSignal(u"DeviceFound"_ns, KEY_ADAPTER,
                    BluetoothValue(propertiesArray));
@@ -1968,12 +1968,12 @@ void BluetoothServiceBluedroid::PinRequestNotification(
   } else {
     bdName.Assign(aBdName.mName, aBdName.mLength);
     mDeviceNameMap.Remove(aRemoteBdAddr);
-    mDeviceNameMap.Put(aRemoteBdAddr, bdName);
+    mDeviceNameMap.InsertOrUpdate(aRemoteBdAddr, bdName);
   }
 
   // Update <address, cod> mapping
   mDeviceCodMap.Remove(aRemoteBdAddr);
-  mDeviceCodMap.Put(aRemoteBdAddr, aCod);
+  mDeviceCodMap.InsertOrUpdate(aRemoteBdAddr, aCod);
 
   AppendNamedValue(propertiesArray, "address", aRemoteBdAddr);
   AppendNamedValue(propertiesArray, "name", bdName);
@@ -2007,12 +2007,12 @@ void BluetoothServiceBluedroid::SspRequestNotification(
   } else {
     bdName.Assign(aBdName.mName, aBdName.mLength);
     mDeviceNameMap.Remove(aRemoteBdAddr);
-    mDeviceNameMap.Put(aRemoteBdAddr, bdName);
+    mDeviceNameMap.InsertOrUpdate(aRemoteBdAddr, bdName);
   }
 
   // Update <address, cod> mapping
   mDeviceCodMap.Remove(aRemoteBdAddr);
-  mDeviceCodMap.Put(aRemoteBdAddr, aCod);
+  mDeviceCodMap.InsertOrUpdate(aRemoteBdAddr, aCod);
 
   /**
    * Assign pairing request type and passkey based on the pairing variant.

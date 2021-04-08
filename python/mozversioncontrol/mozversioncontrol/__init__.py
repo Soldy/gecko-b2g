@@ -155,6 +155,13 @@ class Repository(object):
         """Hash of revision the current topic branch is based on."""
 
     @abc.abstractmethod
+    def base_ref_as_hg(self):
+        """Mercurial hash of revision the current topic branch is based on.
+
+        Return None if the hg hash of the base ref could not be calculated.
+        """
+
+    @abc.abstractmethod
     def get_commit_time(self):
         """Return the Unix time of the HEAD revision."""
 
@@ -256,6 +263,10 @@ class Repository(object):
         if git cinnabar is not present.
         """
 
+    @abc.abstractmethod
+    def update(self, ref):
+        """Update the working directory to the specified reference."""
+
     def commit(self, message, author=None, date=None, paths=None):
         """Create a commit using the provided commit message. The author, date,
         and files/paths to be included may also be optionally provided. The
@@ -314,6 +325,9 @@ class HgRepository(Repository):
     @property
     def base_ref(self):
         return self._run("log", "-r", "last(ancestors(.) and public())", "-T", "{node}")
+
+    def base_ref_as_hg(self):
+        return self.base_ref
 
     def __enter__(self):
         if self._client.server is None:
@@ -477,6 +491,9 @@ class HgRepository(Repository):
             else:
                 shutil.rmtree(f)
 
+    def update(self, ref):
+        return self._run("update", "--check", ref)
+
     def push_to_try(self, message):
         try:
             subprocess.check_call(
@@ -523,6 +540,13 @@ class GitRepository(Repository):
         if refs:
             return refs[-1][1:]  # boundary starts with a prefix `-`
         return self.head_ref
+
+    def base_ref_as_hg(self):
+        base_ref = self.base_ref
+        try:
+            return self._run("cinnabar", "git2hg", base_ref)
+        except subprocess.CalledProcessError:
+            return
 
     @property
     def has_git_cinnabar(self):
@@ -623,6 +647,9 @@ class GitRepository(Repository):
             raise CannotDeleteFromRootOfRepositoryException()
         self._run("checkout", "--", path)
         self._run("clean", "-df", path)
+
+    def update(self, ref):
+        self._run("checkout", ref)
 
     def push_to_try(self, message):
         if not self.has_git_cinnabar:

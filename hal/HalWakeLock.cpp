@@ -10,7 +10,7 @@
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
 #include "nsClassHashtable.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsHashKeys.h"
 #include "nsIPropertyBag2.h"
 #include "nsIObserver.h"
@@ -28,7 +28,7 @@ struct LockCount {
   CopyableTArray<uint64_t> processes;
 };
 
-typedef nsDataHashtable<nsUint64HashKey, LockCount> ProcessLockTable;
+typedef nsTHashMap<nsUint64HashKey, LockCount> ProcessLockTable;
 typedef nsClassHashtable<nsStringHashKey, ProcessLockTable> LockTable;
 
 int sActiveListeners = 0;
@@ -184,10 +184,10 @@ void ModifyWakeLock(const nsAString& aTopic, hal::WakeLockControl aLockAdjust,
         if (!entry) {
           entry.Insert(MakeUnique<ProcessLockTable>());
         } else {
-          entry.Data()->Get(aProcessID, &processCount);
-          CountWakeLocks(entry.Data().get(), &totalCount);
+          Unused << entry.Data()->Get(aProcessID, &processCount);
+          CountWakeLocks(entry->get(), &totalCount);
         }
-        return entry.Data().get();
+        return entry->get();
       });
 
   MOZ_ASSERT(processCount.numLocks >= processCount.numHidden);
@@ -208,7 +208,7 @@ void ModifyWakeLock(const nsAString& aTopic, hal::WakeLockControl aLockAdjust,
   totalCount.numHidden += aHiddenAdjust;
 
   if (processCount.numLocks) {
-    table->Put(aProcessID, processCount);
+    table->InsertOrUpdate(aProcessID, processCount);
   } else {
     table->Remove(aProcessID);
   }

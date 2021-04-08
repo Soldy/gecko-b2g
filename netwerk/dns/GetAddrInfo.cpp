@@ -31,8 +31,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/StaticPrefs_network.h"
 
-namespace mozilla {
-namespace net {
+namespace mozilla::net {
 
 static StaticRefPtr<NativeDNSResolverOverride> gOverrideService;
 
@@ -297,13 +296,13 @@ bool FindAddrOverride(const nsACString& aHost, uint16_t aAddressFamily,
     return false;
   }
   AutoReadLock lock(overrideService->mLock);
-  nsTArray<PRNetAddr>* overrides = overrideService->mOverrides.GetValue(aHost);
+  auto overrides = overrideService->mOverrides.Lookup(aHost);
   if (!overrides) {
     return false;
   }
   nsCString* cname = nullptr;
   if (aFlags & nsHostResolver::RES_CANON_NAME) {
-    cname = overrideService->mCnames.GetValue(aHost);
+    cname = overrideService->mCnames.Lookup(aHost).DataPtrOrNull();
   }
 
   RefPtr<AddrInfo> ai;
@@ -424,7 +423,7 @@ NS_IMETHODIMP NativeDNSResolverOverride::AddIPOverride(
   }
 
   AutoWriteLock lock(mLock);
-  auto& overrides = mOverrides.GetOrInsert(aHost);
+  auto& overrides = mOverrides.LookupOrInsert(aHost);
   overrides.AppendElement(tempAddr);
 
   return NS_OK;
@@ -437,7 +436,7 @@ NS_IMETHODIMP NativeDNSResolverOverride::SetCnameOverride(
   }
 
   AutoWriteLock lock(mLock);
-  mCnames.Put(aHost, nsCString(aCNAME));
+  mCnames.InsertOrUpdate(aHost, nsCString(aCNAME));
 
   return NS_OK;
 }
@@ -446,7 +445,7 @@ NS_IMETHODIMP NativeDNSResolverOverride::ClearHostOverride(
     const nsACString& aHost) {
   AutoWriteLock lock(mLock);
   mCnames.Remove(aHost);
-  auto overrides = mOverrides.GetAndRemove(aHost);
+  auto overrides = mOverrides.Extract(aHost);
   if (!overrides) {
     return NS_OK;
   }
@@ -462,5 +461,4 @@ NS_IMETHODIMP NativeDNSResolverOverride::ClearOverrides() {
   return NS_OK;
 }
 
-}  // namespace net
-}  // namespace mozilla
+}  // namespace mozilla::net

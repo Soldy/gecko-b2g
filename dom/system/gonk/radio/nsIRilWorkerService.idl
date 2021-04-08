@@ -17,7 +17,7 @@ interface nsIRilCallback : nsISupports
   void handleRilIndication(in nsIRilIndicationResult response);
 };
 
-[scriptable, uuid(96d07089-9800-4600-9df6-a50de9d7eea8)]
+[scriptable, uuid(ed577b37-4bdf-471b-a11e-8b2b0c4b05aa)]
 interface nsIRilWorker : nsISupports
 {
   void sendRilRequest(in jsval message);
@@ -77,7 +77,7 @@ interface nsIRilWorker : nsISupports
   void getCallForwardStatus(in long serial, in long cfReason, in long serviceClass
                             , in AString number, in long toaNumber);
   void setCallForwardStatus(in long serial, in long action, in long cfReason
-                            , in long serviceClass, in AString number, in long toaNumber);
+                            , in long serviceClass, in AString number, in long toaNumber, in long timeSeconds);
   void getCallWaiting(in long serial, in long serviceClass);
   void setCallWaiting(in long serial, in boolean enable, in long serviceClass);
   void setBarringPassword(in long serial, in AString facility, in AString oldPwd, in AString newPwd);

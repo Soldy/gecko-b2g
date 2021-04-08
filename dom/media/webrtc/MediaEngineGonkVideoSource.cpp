@@ -306,7 +306,7 @@ MediaEngineGonkVideoSource::MediaEngineGonkVideoSource(int aIndex)
   Init();
 }
 
-MediaEngineGonkVideoSource::~MediaEngineGonkVideoSource() { Shutdown(); }
+MediaEngineGonkVideoSource::~MediaEngineGonkVideoSource() { }
 
 size_t MediaEngineGonkVideoSource::NumCapabilities() const {
   AssertIsOnOwningThread();
@@ -362,11 +362,6 @@ nsresult MediaEngineGonkVideoSource::Allocate(
   AssertIsOnOwningThread();
 
   MOZ_ASSERT(mState == kReleased);
-
-  if (!mInitDone) {
-    LOG("Init not done");
-    return NS_ERROR_FAILURE;
-  }
 
   NormalizedConstraints constraints(aConstraints);
   webrtc::CaptureCapability newCapability;
@@ -424,7 +419,6 @@ nsresult MediaEngineGonkVideoSource::Start() {
   AssertIsOnOwningThread();
 
   MOZ_ASSERT(mState == kAllocated || mState == kStopped);
-  MOZ_ASSERT(mInitDone);
   MOZ_ASSERT(mTrack);
 
   {
@@ -504,8 +498,6 @@ nsresult MediaEngineGonkVideoSource::Reconfigure(
   LOG("%s", __PRETTY_FUNCTION__);
   AssertIsOnOwningThread();
 
-  MOZ_ASSERT(mInitDone);
-
   NormalizedConstraints constraints(aConstraints);
   webrtc::CaptureCapability newCapability;
   LOG("ChooseCapability(kFitness) for mTargetCapability (Reconfigure) ++");
@@ -581,8 +573,8 @@ void MediaEngineGonkVideoSource::SetTrack(
 }
 
 /**
- * Initialization and Shutdown functions for the video source, called by the
- * constructor and destructor respectively.
+ * Initialization function for the video source, called by the
+ * constructor.
  */
 
 void MediaEngineGonkVideoSource::Init() {
@@ -595,27 +587,7 @@ void MediaEngineGonkVideoSource::Init() {
   SetName(NS_ConvertUTF8toUTF16(deviceName));
   SetUUID(deviceName.get());
 
-  mInitDone = true;
   LOG("Video device %d initialized, name %s", mCaptureIndex, deviceName.get());
-}
-
-void MediaEngineGonkVideoSource::Shutdown() {
-  LOG("%s", __PRETTY_FUNCTION__);
-  AssertIsOnOwningThread();
-
-  if (!mInitDone) {
-    return;
-  }
-
-  if (mState == kStarted) {
-    Stop();
-  }
-  if (mState == kAllocated || mState == kStopped) {
-    Deallocate();
-  }
-  MOZ_ASSERT(mState == kReleased);
-
-  mInitDone = false;
 }
 
 static int GetRotateAmount(int aScreenAngle, int aCameraMountAngle,

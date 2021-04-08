@@ -10,6 +10,7 @@
 #include "WifiCommon.h"
 #include "WifiEventCallback.h"
 #include "SupplicantStaNetwork.h"
+#include "SupplicantCallback.h"
 
 // There is a conflict with the value of DEBUG in DEBUG builds.
 #if defined(DEBUG)
@@ -42,6 +43,7 @@ using ::android::hardware::wifi::supplicant::V1_0::ISupplicant;
 using ::android::hardware::wifi::supplicant::V1_0::ISupplicantIface;
 using ::android::hardware::wifi::supplicant::V1_0::ISupplicantP2pIface;
 using ::android::hardware::wifi::supplicant::V1_0::ISupplicantStaIface;
+using ::android::hardware::wifi::supplicant::V1_0::ISupplicantStaIfaceCallback;
 using ::android::hardware::wifi::supplicant::V1_0::SupplicantStatus;
 using ::android::hardware::wifi::supplicant::V1_0::SupplicantStatusCode;
 using ::android::hidl::base::V1_0::IBase;
@@ -237,6 +239,7 @@ class SupplicantStaManager
   android::sp<::android::hidl::manager::V1_0::IServiceManager> mServiceManager;
   android::sp<ISupplicant> mSupplicant;
   android::sp<ISupplicantStaIface> mSupplicantStaIface;
+  android::sp<ISupplicantStaIfaceCallback> mSupplicantStaIfaceCallback;
   android::sp<ServiceManagerDeathRecipient> mServiceManagerDeathRecipient;
   android::sp<SupplicantDeathRecipient> mSupplicantDeathRecipient;
 

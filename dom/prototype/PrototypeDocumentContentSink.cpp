@@ -38,6 +38,7 @@
 #include "nsMimeTypes.h"
 #include "nsHtml5SVGLoadDispatcher.h"
 #include "nsTextNode.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/CDATASection.h"
 #include "mozilla/dom/Comment.h"
 #include "mozilla/dom/DocumentType.h"
@@ -1071,7 +1072,7 @@ nsresult PrototypeDocumentContentSink::CreateElementFromPrototype(
 
   // FIXME(bug 1627474): Is this right if this is inside an <html:template>?
   if (result->HasAttr(kNameSpaceID_None, nsGkAtoms::datal10nid)) {
-    mDocument->mL10nProtoElements.Put(result, RefPtr{aPrototype});
+    mDocument->mL10nProtoElements.InsertOrUpdate(result, RefPtr{aPrototype});
     result->SetElementCreatedFromPrototypeAndHasUnmodifiedL10n();
   }
   result.forget(aResult);

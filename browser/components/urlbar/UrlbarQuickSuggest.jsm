@@ -10,9 +10,12 @@ const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+
 XPCOMUtils.defineLazyModuleGetters(this, {
   RemoteSettings: "resource://services-settings/remote-settings.js",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
+  ExperimentFeature: "resource://nimbus/ExperimentAPI.jsm",
 });
 
 XPCOMUtils.defineLazyGlobalGetters(this, ["TextDecoder"]);
@@ -23,7 +26,9 @@ const log = console.createInstance({
 });
 
 const RS_COLLECTION = "quicksuggest";
-const RS_PREF = "quicksuggest.enabled";
+
+// Categories that should show "Firefox Suggest" instead of "Sponsored"
+const NONSPONSORED_IAB_CATEGORIES = new Set(["5 - Education"]);
 
 /**
  * Fetches the suggestions data from RemoteSettings and builds the tree
@@ -34,6 +39,8 @@ class Suggestions {
   _rs = null;
   // Let tests wait for init to complete.
   _initPromise = null;
+  // Resolver function stored to call when init is complete.
+  _initResolve = null;
   // A tree that maps keywords to a result.
   _tree = new KeywordTree();
   // A map of the result data.
@@ -45,11 +52,15 @@ class Suggestions {
     }
     this._initPromise = Promise.resolve();
     this._rs = RemoteSettings(RS_COLLECTION);
-    if (UrlbarPrefs.get(RS_PREF)) {
-      this._setupRemoteSettings();
-      this._initPromise = this._ensureAttachmentsDownloaded();
+    this.onFeatureUpdate = this.onFeatureUpdate.bind(this);
+    this.urlbarExperimentFeature = new ExperimentFeature("urlbar");
+    if (this.urlbarExperimentFeature.getValue().quickSuggestEnabled) {
+      this._initPromise = new Promise(resolve => (this._initResolve = resolve));
+      Services.tm.idleDispatchToMainThread(
+        this._setupRemoteSettings.bind(this)
+      );
     } else {
-      UrlbarPrefs.addObserver(this);
+      this.urlbarExperimentFeature.onUpdate(this.onFeatureUpdate);
     }
     return this._initPromise;
   }
@@ -59,29 +70,93 @@ class Suggestions {
    */
   async query(phrase) {
     log.info("Handling query for", phrase);
-    let index = this._tree.get(phrase);
-    if (!index || !this._results.has(index)) {
+    phrase = phrase.toLowerCase();
+    let resultID = this._tree.get(phrase);
+    if (resultID === null) {
       return null;
     }
-    let result = this._results.get(index);
+    let result = this._results.get(resultID);
+    if (!result) {
+      return null;
+    }
     let d = new Date();
-    let date = `${d.getFullYear()}${d.getMonth() +
-      1}${d.getDate()}${d.getHours()}`;
+    let pad = number => number.toString().padStart(2, "0");
+    let date =
+      `${d.getFullYear()}${pad(d.getMonth() + 1)}` +
+      `${pad(d.getDate())}${pad(d.getHours())}`;
     let icon = await this.fetchIcon(result.icon);
     return {
+      fullKeyword: this.getFullKeyword(phrase, result.keywords),
       title: result.title,
       url: result.url.replace("%YYYYMMDDHH%", date),
+      click_url: result.click_url.replace("%YYYYMMDDHH%", date),
+      // impression_url doesn't have any parameters
+      impression_url: result.impression_url,
+      block_id: result.id,
+      advertiser: result.advertiser.toLocaleLowerCase(),
+      isSponsored: !NONSPONSORED_IAB_CATEGORIES.has(result.iab_category),
       icon,
     };
   }
 
-  /*
-   * Called if a Urlbar preference is changed.
+  /**
+   * Gets the full keyword (i.e., suggestion) for a result and query.  The data
+   * doesn't include full keywords, so we make our own based on the result's
+   * keyword phrases and a particular query.  We use two heuristics:
+   *
+   * (1) Find the first keyword phrase that has more words than the query.  Use
+   *     its first `queryWords.length` words as the full keyword.  e.g., if the
+   *     query is "moz" and `result.keywords` is ["moz", "mozi", "mozil",
+   *     "mozill", "mozilla", "mozilla firefox"], pick "mozilla firefox", pop
+   *     off the "firefox" and use "mozilla" as the full keyword.
+   * (2) If there isn't any keyword phrase with more words, then pick the
+   *     longest phrase.  e.g., pick "mozilla" in the previous example (assuming
+   *     the "mozilla firefox" phrase isn't there).  That might be the query
+   *     itself.
+   *
+   * @param {string} query
+   *   The query string that matched `result`.
+   * @param {array} keywords
+   *   An array of result keywords.
+   * @returns {string}
+   *   The full keyword.
    */
-  onPrefChanged(changedPref) {
-    if (changedPref == RS_PREF && UrlbarPrefs.get(RS_PREF)) {
+  getFullKeyword(query, keywords) {
+    let longerPhrase;
+    let trimmedQuery = query.trim();
+    let queryWords = trimmedQuery.split(" ");
+
+    for (let phrase of keywords) {
+      if (phrase.startsWith(query)) {
+        let trimmedPhrase = phrase.trim();
+        let phraseWords = trimmedPhrase.split(" ");
+        // As an exception to (1), if the query ends with a space, then look for
+        // phrases with one more word so that the suggestion includes a word
+        // following the space.
+        let extra = query.endsWith(" ") ? 1 : 0;
+        let len = queryWords.length + extra;
+        if (len < phraseWords.length) {
+          // We found a phrase with more words.
+          return phraseWords.slice(0, len).join(" ");
+        }
+        if (
+          query.length < phrase.length &&
+          (!longerPhrase || longerPhrase.length < trimmedPhrase.length)
+        ) {
+          // We found a longer phrase with the same number of words.
+          longerPhrase = trimmedPhrase;
+        }
+      }
+    }
+    return longerPhrase || trimmedQuery;
+  }
+
+  /*
+   * Called if a Urlbar Experiment Feature is changed.
+   */
+  onFeatureUpdate() {
+    if (this.urlbarExperimentFeature.getValue().quickSuggestEnabled) {
       this._setupRemoteSettings();
-      this._ensureAttachmentsDownloaded();
     }
   }
 
@@ -90,6 +165,11 @@ class Suggestions {
    */
   async _setupRemoteSettings() {
     this._rs.on("sync", this._onSettingsSync.bind(this));
+    await this._ensureAttachmentsDownloaded();
+    if (this._initResolve) {
+      this._initResolve();
+      this._initResolve = null;
+    }
   }
 
   /*
@@ -216,30 +296,46 @@ class KeywordTree {
     tree.set(RESULT_KEY, id);
   }
 
-  /*
+  /**
    * Get the result for a given phrase.
+   *
+   * @param {string} query
+   *   The query string.
+   * @returns {*}
+   *   The matching result in the tree or null if there isn't a match.
    */
-  get(phrase) {
-    let tree = this.tree;
-    /*eslint no-labels: ["error", { "allowLoop": true }]*/
-    loop: while (phrase.length) {
-      for (const [key, child] of tree.entries()) {
-        // We need to check if key starts with phrase because we
-        // may have flattened the key and so .get("hel") will need
-        // to match index "hello", we will only flatten this way if
-        // the result matches.
-        if (phrase.startsWith(key) || key.startsWith(phrase)) {
-          phrase = phrase.slice(key.length);
-          if (!phrase.length) {
-            return child.get(RESULT_KEY) || null;
+  get(query) {
+    query = query.trimStart() + RESULT_KEY;
+    let node = this.tree;
+    let phrase = "";
+    while (phrase.length < query.length) {
+      // First, assume the tree isn't flattened and try to look up the next char
+      // in the query.
+      let key = query[phrase.length];
+      let child = node.get(key);
+      if (!child) {
+        // Not found, so fall back to looking through all of the node's keys.
+        key = null;
+        for (let childKey of node.keys()) {
+          let childPhrase = phrase + childKey;
+          if (childPhrase == query.substring(0, childPhrase.length)) {
+            key = childKey;
+            break;
           }
-          tree = child;
-          continue loop;
         }
+        if (!key) {
+          return null;
+        }
+        child = node.get(key);
       }
+      node = child;
+      phrase += key;
+    }
+    if (phrase.length != query.length) {
       return null;
     }
-    return null;
+    // At this point, `node` is the found result.
+    return node;
   }
 
   /*
@@ -250,33 +346,34 @@ class KeywordTree {
    * be flattened to ["he", ["llo"]].
    */
   flatten() {
-    for (let key of Array.from(this.tree.keys())) {
-      this._flatten(this.tree, key);
-    }
+    this._flatten("", this.tree, null);
   }
 
-  _flatten(parent, key) {
-    let tree = parent.get(key);
-    let keys = Array.from(tree.keys()).filter(k => k != RESULT_KEY);
-    let result = tree.get(RESULT_KEY);
-
-    if (keys.length == 1) {
-      let childKey = keys[0];
-      let child = tree.get(childKey);
-      let childResult = child.get(RESULT_KEY);
-
-      if (result == childResult) {
-        let newKey = key + childKey;
-        parent.set(newKey, child);
-        parent.delete(key);
-        this._flatten(parent, newKey);
-      } else {
-        this._flatten(tree, childKey);
+  /**
+   * Recursive flatten() helper.
+   *
+   * @param {string} key
+   *   The key for `node` in `parent`.
+   * @param {Map} node
+   *   The currently visited node.
+   * @param {Map} parent
+   *   The parent of `node`, or null if `node` is the root.
+   */
+  _flatten(key, node, parent) {
+    // Flatten the node's children.  We need to store node.entries() in an array
+    // rather than iterating over them directly because _flatten() can modify
+    // them during iteration.
+    for (let [childKey, child] of [...node.entries()]) {
+      if (childKey != RESULT_KEY) {
+        this._flatten(childKey, child, node);
       }
-    } else {
-      for (let k of keys) {
-        this._flatten(tree, k);
-      }
+    }
+    // If the node has a single child, then replace the node in `parent` with
+    // the child.
+    if (node.size == 1 && parent) {
+      parent.delete(key);
+      let childKey = [...node.keys()][0];
+      parent.set(key + childKey, node.get(childKey));
     }
   }
 

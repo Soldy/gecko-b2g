@@ -149,12 +149,17 @@ var TestUtils = {
    *
    * @param condition
    *        A condition function that must return true or false. If the
-   *        condition ever throws, this is also treated as a false. The
-   *        function can be an async function.
+   *        condition ever throws, this function fails and rejects the
+   *        returned promise. The function can be an async function.
+   * @param msg
+   *        A message used to describe the condition being waited for.
+   *        This message will be used to reject the promise should the
+   *        wait fail. It is also used to add a profiler marker in the
+   *        success case.
    * @param interval
    *        The time interval to poll the condition function. Defaults
    *        to 100ms.
-   * @param attempts
+   * @param maxTries
    *        The number of times to poll before giving up and rejecting
    *        if the condition has not yet returned true. Defaults to 50
    *        (~5 seconds for 100ms intervals)
@@ -166,6 +171,7 @@ var TestUtils = {
    * instead. setInterval is not promise-safe.
    */
   waitForCondition(condition, msg, interval = 100, maxTries = 50) {
+    let startTime = Cu.now();
     return new Promise((resolve, reject) => {
       let tries = 0;
       async function tryOnce() {
@@ -185,6 +191,11 @@ var TestUtils = {
         }
 
         if (conditionPassed) {
+          ChromeUtils.addProfilerMarker(
+            "TestUtils",
+            { startTime, category: "Test" },
+            `waitForCondition succeeded after ${tries} retries - ${msg}`
+          );
           resolve(conditionPassed);
           return;
         }
@@ -192,8 +203,7 @@ var TestUtils = {
         setTimeout(tryOnce, interval);
       }
 
-      // FIXME(bug 1596165): This could be a direct call, ideally.
-      setTimeout(tryOnce, interval);
+      TestUtils.executeSoon(tryOnce);
     });
   },
 

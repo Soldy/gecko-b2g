@@ -133,6 +133,8 @@ struct ScreenDetails {
   int32_t colorDepth;
   DesktopToLayoutDeviceScale contentsScaleFactor;
   CSSToLayoutDeviceScale defaultCSSScaleFactor;
+  uint32_t screenRotation;
+  LayoutDeviceIntRect naturalBounds;
   float dpi;
 };
 
@@ -259,6 +261,7 @@ struct DocShellLoadStateInit
   uint32_t InternalLoadFlags;
   bool FirstParty;
   bool HasValidUserGestureActivation;
+  bool AllowFocusMove;
   nsCString TypeHint;
   nsString FileName;
   bool IsFromProcessingFrameAttributes;
@@ -297,6 +300,8 @@ struct DocShellLoadStateInit
   bool TryToReplaceWithSessionHistoryLoad;
 
   LoadingSessionHistoryInfo? loadingSessionHistoryInfo;
+
+  bool IsMetaRefresh;
 };
 
 struct TimedChannelInfo

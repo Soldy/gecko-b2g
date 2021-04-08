@@ -13,6 +13,7 @@ EXTRA_JS_MODULES += [
     "ActivitiesServiceFilter.jsm",
     "ActivityProxy.jsm",
     "ActivityRequestHandlerProxy.jsm",
+    "ActivityUtils.jsm",
 ]
 
 XPCOM_MANIFESTS += [

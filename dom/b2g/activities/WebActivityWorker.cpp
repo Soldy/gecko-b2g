@@ -135,16 +135,20 @@ class OnStartWorkerRunnable final : public WorkerRunnable,
         mStatus(aStatus) {}
 
   bool WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override {
+    MOZ_ASSERT(mProxy);
+
     RefPtr<Promise> promise = mProxy->WorkerPromise();
 
     JS::RootedObject globalObject(aCx, JS::CurrentGlobalOrNull(aCx));
     if (NS_WARN_IF(!globalObject)) {
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     nsCOMPtr<nsIGlobalObject> global = xpc::NativeGlobal(globalObject);
     if (NS_WARN_IF(!global)) {
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     JS::RootedValue result(aCx);
@@ -152,6 +156,7 @@ class OnStartWorkerRunnable final : public WorkerRunnable,
     Read(global, aCx, &result, rv);
     if (NS_WARN_IF(rv.Failed())) {
       promise->MaybeReject(NS_ERROR_UNEXPECTED);
+      mProxy->CleanUp();
       return false;
     }
     JS_WrapValue(aCx, &result);
@@ -164,14 +169,12 @@ class OnStartWorkerRunnable final : public WorkerRunnable,
       promise->MaybeReject(result);
     }
 
+    mProxy->CleanUp();
     return true;
   }
 
  private:
-  ~OnStartWorkerRunnable() {
-    MOZ_ASSERT(mProxy);
-    mProxy->CleanUp();
-  };
+  ~OnStartWorkerRunnable() = default;
 
   RefPtr<PromiseWorkerProxy> mProxy;
   nsresult mStatus;

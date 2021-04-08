@@ -11,12 +11,15 @@
 #include "FlacDemuxer.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/ModuleUtils.h"
+#include "mozilla/ScopeExit.h"
 #include "mp3sniff.h"
 #include "nestegg/nestegg.h"
+#include "nsHttpChannel.h"
 #include "nsIClassInfoImpl.h"
 #include "nsIChannel.h"
 #include "nsMediaSniffer.h"
 #include "nsMimeTypes.h"
+#include "nsQueryObject.h"
 #include "nsString.h"
 
 #include <algorithm>
@@ -174,6 +177,19 @@ nsMediaSniffer::GetMIMETypeFromContent(nsIRequest* aRequest,
 
   const uint32_t clampedLength = std::min(aLength, MAX_BYTES_SNIFFED);
 
+  auto maybeUpdate = mozilla::MakeScopeExit([&channel]() {
+    if (channel && XRE_IsParentProcess()) {
+      if (RefPtr<mozilla::net::nsHttpChannel> httpChannel =
+              do_QueryObject(channel)) {
+        // If the audio or video type pattern matching algorithm given bytes
+        // does not return undefined, then disable the further check and allow
+        // the response.
+        httpChannel->DisableIsOpaqueResponseAllowedAfterSniffCheck(
+            mozilla::net::nsHttpChannel::SnifferType::Media);
+      }
+    };
+  });
+
   for (size_t i = 0; i < mozilla::ArrayLength(sSnifferEntries); ++i) {
     const nsMediaSnifferEntry& currentEntry = sSnifferEntries[i];
     if (clampedLength < currentEntry.mLength || currentEntry.mLength == 0) {
@@ -226,6 +242,7 @@ nsMediaSniffer::GetMIMETypeFromContent(nsIRequest* aRequest,
     return NS_OK;
   }
 #endif
+  maybeUpdate.release();
 
   // Could not sniff the media type, we are required to set it to
   // application/octet-stream.

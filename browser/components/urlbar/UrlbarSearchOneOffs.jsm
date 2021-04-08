@@ -33,6 +33,7 @@ class UrlbarSearchOneOffs extends SearchOneOffs {
     UrlbarPrefs.addObserver(this);
     // Override the SearchOneOffs.jsm value for the Address Bar.
     this.disableOneOffsHorizontalKeyNavigation = true;
+    this._webEngines = [];
   }
 
   /**
@@ -43,6 +44,19 @@ class UrlbarSearchOneOffs extends SearchOneOffs {
    */
   get localButtons() {
     return this.getSelectableButtons(false).filter(b => b.source);
+  }
+
+  /**
+   * Invoked when Web provided search engines list changes.
+   * @param {Array} engines Array of Web provided search engines. Each engine
+   *        is defined as  { icon, name, tooltip, uri }.
+   */
+  updateWebEngines(engines) {
+    this._webEngines = engines;
+    this.invalidateCache();
+    if (this.view.isOpen) {
+      this._rebuild();
+    }
   }
 
   /**
@@ -319,6 +333,22 @@ class UrlbarSearchOneOffs extends SearchOneOffs {
   _rebuildEngineList(engines) {
     super._rebuildEngineList(engines);
 
+    if (UrlbarPrefs.get("browser.proton.urlbar.enabled")) {
+      for (let engine of this._webEngines) {
+        let button = this.document.createXULElement("button");
+        button.id = this._buttonIDForEngine(engine);
+        button.classList.add("searchbar-engine-one-off-item");
+        button.classList.add("searchbar-engine-one-off-add-engine");
+        button.setAttribute("tabindex", "-1");
+        if (engine.icon) {
+          button.setAttribute("image", engine.icon);
+        }
+        button.setAttribute("tooltiptext", engine.tooltip);
+        button.webEngine = engine;
+        this.buttons.appendChild(button);
+      }
+    }
+
     for (let { source, pref, restrict } of UrlbarUtils.LOCAL_SEARCH_MODES) {
       if (!UrlbarPrefs.get(pref)) {
         continue;
@@ -350,6 +380,13 @@ class UrlbarSearchOneOffs extends SearchOneOffs {
     }
 
     let button = event.originalTarget;
+
+    if (button.webEngine) {
+      // Once the engine is added we'll receive a new updateWebEngines call.
+      this.input.addSearchEngineHelper.addSearchEngine(button.webEngine);
+      return;
+    }
+
     if (!button.engine && !button.source) {
       return;
     }

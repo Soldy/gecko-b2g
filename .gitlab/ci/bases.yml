@@ -1,0 +1,117 @@
+variables:
+  SCCACHE_REDIS_BASEURL: redis://10.81.70.108
+
+.global_setup: &global_setup
+  - export CI_USE_MIRROR=${CI_USE_MIRROR:-false} # in case not set in config.toml
+  - echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
+  - git config --global url."${CI_SERVER_URL}/".insteadOf "git@${CI_SERVER_HOST}:"
+  - |
+    if ${CI_USE_MIRROR}; then
+      git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow
+      echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
+      git config --global url."${LOCAL_GIT_MIRROR}".insteadOf "${CI_SERVER_URL}"
+    fi
+
+.koost_setup: &koost_setup
+  - |
+    if [[ ${GIT_CLONE_PATH##*/} == koost ]]; then
+      cd ${GIT_CLONE_PATH%/*}
+      git init
+      git fetch ${CI_SERVER_URL}/KaiOS/gecko-dev.git next --no-tags --depth 1
+      git checkout FETCH_HEAD
+      check_format_opt="${check_format_opt} --koost"
+    else
+      cd ${GIT_CLONE_PATH}
+      if [[ ${CI_JOB_NAME} != lint ]]; then
+        git clone ${CI_SERVER_URL}/KaiOS/koost.git -b next --depth 1
+        git -C koost log -1
+      fi
+    fi
+
+.lint_base:
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+  tags:
+    - gecko-lint
+  before_script:
+    - *global_setup
+    - git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow || true
+    - 'git log --decorate --oneline --graph -10 --color=always HEAD kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}'
+    - 'export mr_commits=$(git rev-list kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}.. --count)'
+  script:
+    - 'check_format_opt="--against HEAD~${mr_commits} -v"'
+    - *koost_setup
+    - ./check-format.sh ${check_format_opt}
+
+.build_desktop:
+  image: ${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0_5_0
+  tags:
+    - gecko-dev
+  variables:
+    MOZ_OBJDIR: 'objdir-desktop-gecko'
+    MOZCONFIG: 'mozconfig-b2g-desktop'
+    SCCACHE_REDIS_DB: 4 # use DB #4 as sccache
+    SCCACHE_CACHE_SIZE: 6G
+  before_script:
+    - *global_setup
+    - *koost_setup
+  script:
+    - export SCCACHE_REDIS=${SCCACHE_REDIS_BASEURL}/${SCCACHE_REDIS_DB}
+    - sccache -z
+    - ./mach build
+    - ./mach package
+    - sccache -s
+
+.build_emulator:
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+  tags:
+    - gecko-dev
+  variables:
+    GONK_PRODUCT_NAME: generic_x86_64
+    PLATFORM_VERSION: 29
+    TARGET_ARCH: x86_64
+    TARGET_ARCH_VARIANT: x86_64
+    TARGET_CPU_VARIANT: generic
+    BINSUFFIX: 64
+    B2G_DEBUG: 1
+    SCCACHE_REDIS_DB: 2 # use DB #2 as sccache
+    SCCACHE_CACHE_SIZE: 2G
+  before_script:
+    - *global_setup
+  script:
+    - git clone --depth 1 git@git.kaiostech.com:KaiOS/dummy/emulator-10.git > /dev/null 2>&1
+    - export SCCACHE_REDIS=${SCCACHE_REDIS_BASEURL}/${SCCACHE_REDIS_DB}
+    - sccache -z
+    - export GONK_PATH=${PWD}/emulator-10
+    - export GECKO_OBJDIR=${PWD}/objdir-emulator-gecko
+    - ./build-b2g.sh
+    - ./build-b2g.sh package
+    - sccache -s
+
+.build_arm:
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+  tags:
+    - gecko-dev
+  variables:
+    GONK_PRODUCT_NAME: msm8937_32go
+    GET_FRAMEBUFFER_FORMAT_FROM_HWC: 1
+    PLATFORM_VERSION: 29
+    TARGET_ARCH: arm
+    TARGET_ARCH_VARIANT: armv8-a
+    TARGET_CPU_VARIANT: cortex-a53
+    ANDROID_NDK: '~/.mozbuild/android-ndk-r20b-canary'
+    PRODUCT_MANUFACTURER: QUALCOMM
+    SCCACHE_REDIS_DB: 3 # use DB #3 as sccache
+    SCCACHE_CACHE_SIZE: 2G
+  before_script:
+    - *global_setup
+    - *koost_setup
+  script:
+    - rm -rf gonk-q && git clone ${CI_SERVER_URL}/KaiOS/dummy/gonk-q.git
+    - git -C gonk-q log -1
+    - export SCCACHE_REDIS=${SCCACHE_REDIS_BASEURL}/${SCCACHE_REDIS_DB}
+    - sccache -z
+    - export GONK_PATH=${PWD}/gonk-q
+    - export GECKO_OBJDIR=${PWD}/objdir-arm-gecko
+    - ./build-b2g.sh
+    - ./build-b2g.sh package
+    - sccache -s

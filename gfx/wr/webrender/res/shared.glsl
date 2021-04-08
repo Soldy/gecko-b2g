@@ -8,6 +8,13 @@
 #extension GL_OES_EGL_image_external_essl3 : require
 #endif
 
+#ifdef WR_FEATURE_TEXTURE_EXTERNAL_ESSL1
+// Some GLES 3 devices do not support GL_OES_EGL_image_external_essl3, so we
+// must use GL_OES_EGL_image_external instead and make the shader ESSL1
+// compatible.
+#extension GL_OES_EGL_image_external : require
+#endif
+
 #ifdef WR_FEATURE_ADVANCED_BLEND
 #extension GL_KHR_blend_equation_advanced : require
 #endif
@@ -22,10 +29,10 @@
 
 #include base
 
-#if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT) || defined(WR_FEATURE_TEXTURE_2D)
-#define TEX_SAMPLE(sampler, tex_coord) texture(sampler, tex_coord.xy)
+#if defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
+#define TEX_SAMPLE(sampler, tex_coord) texture2D(sampler, tex_coord.xy)
 #else
-#define TEX_SAMPLE(sampler, tex_coord) texture(sampler, tex_coord)
+#define TEX_SAMPLE(sampler, tex_coord) texture(sampler, tex_coord.xy)
 #endif
 
 #if defined(WR_FEATURE_TEXTURE_EXTERNAL) && defined(PLATFORM_ANDROID)
@@ -33,17 +40,8 @@
 // textureSize(samplerExternalOES) in a vertex shader without potentially
 // sampling from the texture. This tricks the driver in to thinking the texture
 // may be sampled from, avoiding the crash. See bug 1692848.
-uniform float u_mali_workaround_dummy;
-highp ivec2 textureSizeMaliWorkaround(samplerExternalOES sampler, int lod) {
-  // The uniform's default value is 0.0, so we'll never take this branch. If we
-  // used a constant instead of a uniform then the compiler would optimize this
-  // out, and the workaround wouldn't work.
-  if (u_mali_workaround_dummy != 0.0) {
-    return ivec2(texture(sampler, vec2(0.0, 0.0)).rr);
-  }
-  return textureSize(sampler, lod);
-}
-#define TEX_SIZE(sampler) textureSizeMaliWorkaround(sampler, 0)
+uniform bool u_mali_workaround_dummy;
+#define TEX_SIZE(sampler) (u_mali_workaround_dummy ? ivec2(texture(sampler, vec2(0.0, 0.0)).rr) : textureSize(sampler, 0))
 #else
 #define TEX_SIZE(sampler) textureSize(sampler, 0)
 #endif
@@ -60,7 +58,7 @@ highp ivec2 textureSizeMaliWorkaround(samplerExternalOES sampler, int lod) {
     uniform mat4 uTransform;       // Orthographic projection
 
     // Attribute inputs
-    in vec2 aPosition;
+    attribute vec2 aPosition;
 
     // get_fetch_uv is a macro to work around a macOS Intel driver parsing bug.
     // TODO: convert back to a function once the driver issues are resolved, if ever.
@@ -81,7 +79,9 @@ highp ivec2 textureSizeMaliWorkaround(samplerExternalOES sampler, int lod) {
         layout(blend_support_all_equations) out;
     #endif
 
-    #ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+    #if __VERSION__ == 100
+        #define oFragColor gl_FragColor
+    #elif defined(WR_FEATURE_DUAL_SOURCE_BLENDING)
         layout(location = 0, index = 0) out vec4 oFragColor;
         layout(location = 0, index = 1) out vec4 oFragBlend;
     #else
@@ -103,6 +103,9 @@ highp ivec2 textureSizeMaliWorkaround(samplerExternalOES sampler, int lod) {
         return dot(normalize(perp_dir), dir_to_p0);
     }
 
+// fwidth is not defined in ESSL 1, but that's okay because we don't need
+// it for any ESSL 1 shader variants.
+#if __VERSION__ != 100
     /// Find the appropriate half range to apply the AA approximation over.
     /// This range represents a coefficient to go from one CSS pixel to half a device pixel.
     float compute_aa_range(vec2 position) {
@@ -136,6 +139,7 @@ highp ivec2 textureSizeMaliWorkaround(samplerExternalOES sampler, int lod) {
             return inversesqrt(0.5 * dot(w, w));
         #endif
     }
+#endif
 
     /// Return the blending coefficient for distance antialiasing.
     ///
@@ -183,14 +187,10 @@ uniform sampler2D sColor2;
 uniform sampler2DRect sColor0;
 uniform sampler2DRect sColor1;
 uniform sampler2DRect sColor2;
-#elif defined WR_FEATURE_TEXTURE_EXTERNAL
+#elif defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
 uniform samplerExternalOES sColor0;
 uniform samplerExternalOES sColor1;
 uniform samplerExternalOES sColor2;
-#elif defined WR_FEATURE_TEXTURE_2D_ARRAY
-uniform sampler2DArray sColor0;
-uniform sampler2DArray sColor1;
-uniform sampler2DArray sColor2;
 #endif
 
 #ifdef WR_FEATURE_DITHERING

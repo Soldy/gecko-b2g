@@ -3133,6 +3133,9 @@ this.GECKO_CALL_ERROR_DATA_DISABLED = "DataDisabled";
 this.GECKO_CALL_ERROR_WIFI_LOST = "WifiLost";
 this.GECKO_CALL_ERROR_UNSPECIFIED = "Unspecified";
 
+this.GECKO_CONF_CALL_ERROR_ADD = "add";
+this.GECKO_CONF_CALL_ERROR_REMOVE = "remove";
+
 this.RIL_CALL_FAILCAUSE_TO_GECKO_CALL_ERROR = {};
 RIL_CALL_FAILCAUSE_TO_GECKO_CALL_ERROR[
   CALL_FAIL_UNOBTAINABLE_NUMBER
@@ -3954,6 +3957,56 @@ this.GECKO_RADIO_TECH = [
   "iwlan",
   "lte_ca",
 ];
+
+this.GECKO_3GPP_TECH = [
+  null,
+  "gprs",
+  "edge",
+  "umts",
+  null,
+  null,
+  null,
+  null,
+  null,
+  "hsdpa",
+  "hsupa",
+  "hspa",
+  null,
+  null,
+  "lte",
+  "hspa+",
+  "gsm",
+  "tdscdma",
+  "iwlan",
+  "lte_ca",
+];
+
+this.GECKO_3GPP2_TECH = [
+  null,
+  null,
+  null,
+  null,
+  "is95a",
+  "is95b",
+  "1xrtt",
+  "evdo0",
+  "evdoa",
+  null,
+  null,
+  null,
+  "evdob",
+  "ehrpd",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+];
+
+this.GECKO_PROFILE_INFO_TYPE_COMMON = 0;
+this.GECKO_PROFILE_INFO_TYPE_3GPP = 1;
+this.GECKO_PROFILE_INFO_TYPE_3GPP2 = 2;
 
 this.GECKO_VOICEMAIL_MESSAGE_COUNT_UNKNOWN = -1;
 

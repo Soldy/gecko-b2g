@@ -43,8 +43,6 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
   nsresult GetOutput(int64_t aStreamOffset,
                      MediaDataDecoder::DecodedData& aOutData) override;
 
-  nsresult Shutdown() override;
-
   const char* GetDescriptionName() const override {
     return "gonk video decoder";
   }
@@ -55,18 +53,18 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
 
   static void RecycleCallback(TextureClient* aClient, void* aClosure);
 
- protected:
-  void ProcessFlush() override {
+ private:
+  void FlushInternal() override {
     mEOSSent = false;
     // Bug 1199809: workaround to avoid sending the graphic buffer by making a
     // copy of output buffer after calling flush(). Bug 1203859 was created to
     // reimplementing Gonk PDM on top of OpenMax IL directly. Its buffer
     // management will work better with Gecko and solve problems like this.
     mNeedsCopyBuffer = true;
-    GonkDecoderManager::ProcessFlush();
   }
 
- private:
+  void ShutdownInternal() override;
+
   struct FrameInfo {
     int32_t mWidth = 0;
     int32_t mHeight = 0;
@@ -79,17 +77,17 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
     int32_t mCropBottom = 0;
   };
 
-  void onMessageReceived(
-      const android::sp<android::AMessage>& aMessage) override;
-
   bool SetVideoFormat();
 
-  nsresult CreateVideoData(android::MediaBuffer* aBuffer, int64_t aStreamOffset,
-                           VideoData** aOutData);
+  nsresult CreateVideoData(
+      const android::sp<android::SimpleMediaBuffer>& aBuffer,
+      int64_t aStreamOffset, VideoData** aOutData);
   already_AddRefed<VideoData> CreateVideoDataFromGraphicBuffer(
-      android::MediaBuffer* aSource, gfx::IntRect& aPicture);
+      const android::sp<android::SimpleMediaBuffer>& aSource,
+      gfx::IntRect& aPicture);
   already_AddRefed<VideoData> CreateVideoDataFromDataBuffer(
-      android::MediaBuffer* aSource, gfx::IntRect& aPicture);
+      const android::sp<android::SimpleMediaBuffer>& aSource,
+      gfx::IntRect& aPicture);
 
   uint8_t* GetColorConverterBuffer(int32_t aWidth, int32_t aHeight);
 
@@ -98,8 +96,9 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
   void CodecCanceled();
 
   void ReleaseAllPendingVideoBuffers();
-  void PostReleaseVideoBuffer(android::MediaBuffer* aBuffer,
-                              layers::FenceHandle mReleaseFence);
+  void PostReleaseVideoBuffer(
+      const android::sp<android::SimpleMediaBuffer>& aBuffer,
+      layers::FenceHandle mReleaseFence);
 
   VideoInfo mConfig;
 
@@ -119,14 +118,11 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
 
   android::sp<android::IGraphicBufferProducer> mGraphicBufferProducer;
 
-  enum {
-    kNotifyPostReleaseBuffer = 'nprb',
-  };
-
   struct ReleaseItem {
-    ReleaseItem(android::MediaBuffer* aBuffer, layers::FenceHandle& aFence)
+    ReleaseItem(const android::sp<android::SimpleMediaBuffer>& aBuffer,
+                layers::FenceHandle& aFence)
         : mBuffer(aBuffer), mReleaseFence(aFence) {}
-    android::MediaBuffer* mBuffer;
+    android::sp<android::SimpleMediaBuffer> mBuffer;
     layers::FenceHandle mReleaseFence;
   };
   nsTArray<ReleaseItem> mPendingReleaseItems;
@@ -134,19 +130,17 @@ class GonkVideoDecoderManager : public GonkDecoderManager {
   // The lock protects mPendingReleaseItems.
   Mutex mPendingReleaseItemsLock;
 
-  RefPtr<TaskQueue> mReaderTaskQueue;
-
   // Bug 1199809: do we need to make a copy of output buffer? Used only when
   // the decoder outputs graphic buffers.
   bool mNeedsCopyBuffer;
 
   // MediaCodec can not handle double EOS flag before flushing it.
-  // But MediaFormatReader will send Drain() again command when it is in 
+  // But MediaFormatReader will send Drain() again command when it is in
   // PartialDrainPending state.
   // In that case, GonkVideoDecoderManager returns EOS directly instead of sends
   // EOS flag to MediaCodec.
-  // The mEOSSent flag will be reset when GonkVideoDecoderManager::ProcessFlush()
-  // is called.
+  // The mEOSSent flag will be reset when
+  // GonkVideoDecoderManager::ProcessFlush() is called.
   bool mEOSSent;
 };
 

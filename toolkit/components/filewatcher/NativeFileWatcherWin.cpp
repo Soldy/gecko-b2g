@@ -13,7 +13,7 @@
 #include "mozilla/UniquePtr.h"
 #include "nsClassHashtable.h"
 #include "nsComponentManagerUtils.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsIFile.h"
 #include "nsIObserverService.h"
 #include "nsProxyRelease.h"
@@ -276,7 +276,7 @@ class NativeFileWatcherIOTask : public Runnable {
   // NativeFileWatcherService::RemovePath.
   nsClassHashtable<nsStringHashKey, WatchedResourceDescriptor>
       mWatchedResourcesByPath;
-  nsDataHashtable<nsVoidPtrHashKey, WatchedResourceDescriptor*>
+  nsTHashMap<nsVoidPtrHashKey, WatchedResourceDescriptor*>
       mWatchedResourcesByHandle;
 
   // The same callback can be associated to multiple watches so we need to keep
@@ -662,10 +662,11 @@ nsresult NativeFileWatcherIOTask::AddPathRunnableMethod(
   nsresult rv = AddDirectoryToWatchList(resourceDesc.get());
   if (NS_SUCCEEDED(rv)) {
     // Add the resource pointer to both indexes.
-    mWatchedResourcesByHandle.Put(
-        resHandle, mWatchedResourcesByPath
-                       .Put(wrappedParameters->mPath, std::move(resourceDesc))
-                       .get());
+    mWatchedResourcesByHandle.InsertOrUpdate(
+        resHandle,
+        mWatchedResourcesByPath
+            .InsertOrUpdate(wrappedParameters->mPath, std::move(resourceDesc))
+            .get());
 
     // Dispatch the success callback.
     nsresult rv = ReportSuccess(wrappedParameters->mSuccessCallbackHandle,
@@ -846,11 +847,11 @@ nsresult NativeFileWatcherIOTask::DeactivateRunnableMethod() {
              "watches manually before quitting.");
 
   // Log any pending watch.
-  for (auto it = mWatchedResourcesByHandle.Iter(); !it.Done(); it.Next()) {
+  for (const auto& data : mWatchedResourcesByHandle.Values()) {
     FILEWATCHERLOG(
         "NativeFileWatcherIOTask::DeactivateRunnableMethod - "
         "%S is still being watched.",
-        it.UserData()->mPath.get());
+        data->mPath.get());
   }
 
   // We return immediately if |mShuttingDown| is true (see below for
@@ -1097,10 +1098,7 @@ void NativeFileWatcherIOTask::AppendCallbacksToHashtables(
     const nsMainThreadPtrHandle<nsINativeFileWatcherErrorCallback>&
         aOnErrorHandle) {
   ChangeCallbackArray* const callbacksArray =
-      mChangeCallbacksTable
-          .GetOrInsertWith(aPath,
-                           [] { return MakeUnique<ChangeCallbackArray>(); })
-          .get();
+      mChangeCallbacksTable.GetOrInsertNew(aPath);
 
   // Now we do have an entry for that path. Check to see if the callback is
   // already there.
@@ -1114,10 +1112,7 @@ void NativeFileWatcherIOTask::AppendCallbacksToHashtables(
 
   // Same thing for the error callback.
   ErrorCallbackArray* const errorCallbacksArray =
-      mErrorCallbacksTable
-          .GetOrInsertWith(aPath,
-                           [] { return MakeUnique<ErrorCallbackArray>(); })
-          .get();
+      mErrorCallbacksTable.GetOrInsertNew(aPath);
 
   ErrorCallbackArray::index_type errorCallbackIndex =
       errorCallbacksArray->IndexOf(aOnErrorHandle);

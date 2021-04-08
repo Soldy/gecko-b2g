@@ -28,6 +28,7 @@
 #include "nsIObserverService.h"
 #include "nsNetCID.h"
 #include "mozilla/Services.h"
+#include "mozilla/dom/Promise.h"
 
 #ifdef XP_MACOSX
 #  include "nsILocalFileMac.h"
@@ -871,12 +872,6 @@ nsUpdateProcessor::FixUpdateDirectoryPerms(bool aUseServiceOnFailure) {
         mStartServiceArgCount = mInstallPath ? 3 : 2;
         mStartServiceArgs =
             mozilla::MakeUnique<LPCWSTR[]>(mStartServiceArgCount);
-        if (!mStartServiceArgs) {
-          LOG(
-              ("Error: Unable to allocate memory for argument pointers. Cannot "
-               "fix permissions.\n"));
-          return NS_ERROR_FAILURE;
-        }
         mStartServiceArgs[0] = L"MozillaMaintenance";
         mStartServiceArgs[1] = L"fix-update-directory-perms";
         if (mInstallPath) {
@@ -1074,7 +1069,10 @@ void nsUpdateProcessor::UpdateDone() {
   nsCOMPtr<nsIUpdateManager> um =
       do_GetService("@mozilla.org/updates/update-manager;1");
   if (um) {
-    um->RefreshUpdateStatus();
+    // This completes asynchronously, but nothing else that we are doing in this
+    // function requires waiting for this to complete.
+    RefPtr<mozilla::dom::Promise> outPromise;
+    um->RefreshUpdateStatus(getter_AddRefs(outPromise));
   }
 
   ShutdownWatcherThread();

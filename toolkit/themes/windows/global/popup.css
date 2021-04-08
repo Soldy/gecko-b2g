@@ -19,24 +19,27 @@ panel {
 menupopup {
   appearance: auto;
   -moz-default-appearance: menupopup;
+  --nested-margin: -3px;
 }
 
-@supports -moz-bool-pref("browser.proton.contextmenus.enabled") {
+@media (-moz-proton-contextmenus) {
 @media (-moz-windows-default-theme) and (-moz-os-version: windows-win10) {
   menupopup {
     /* Disable the default appearance so we can override the native styling. */
     appearance: none;
-
-    /* Leave enough space for the drop shadow and border. */
-    padding: 3px 30px 42px;
-
-    /* But also prevent the menu from opening away from where it should be. */
-    margin-inline-start: -30px;
-    margin-top: -3px;
+    /* Force a rounded-rect dropshadow to appear. */
+    -moz-window-shadow: cliprounded;
 
     /* Prevent any background or border around the outside of the shadow. */
     background-color: transparent;
     border-color: transparent;
+    border-radius: 4px;
+
+    /* Set this here rather than on the scrollbox so it is more easily
+     * overridden by e.g. ContentSelectDropdown */
+    color: var(--menu-color);
+
+    --nested-margin: -6px;
   }
 
   menupopup > menuitem,
@@ -49,14 +52,11 @@ menupopup {
      defined here to keep it inside of the shadow. */
   .menupopup-arrowscrollbox {
     background-color: var(--menu-background-color);
-    color: var(--menu-color);
 
     border: 1px solid var(--menu-border-color);
     border-radius: 4px;
 
-    box-shadow:
-      0px 2.4px 7.2px rgba(0, 0, 0, 0.18),
-      0px 12.8px 28.8px rgba(0, 0, 0, 0.22);
+    padding-block: 4px;
 
     /* Prevent contained items from drawing over the border-radius. */
     overflow: hidden;
@@ -66,8 +66,8 @@ menupopup {
 
 menupopup > menu > menupopup {
  /* align submenus */
-  margin-inline-start: -3px;
-  margin-top: -3px;
+  margin-inline-start: var(--nested-margin);
+  margin-top: var(--nested-margin);
 }
 
 panel[type="arrow"] {
@@ -90,6 +90,7 @@ panel[type="arrow"][side="right"] {
   padding: var(--arrowpanel-padding);
   color: var(--arrowpanel-color);
   background: var(--arrowpanel-background);
+  border-radius: var(--arrowpanel-border-radius);
   background-clip: padding-box;
   border: 1px solid var(--arrowpanel-border-color);
   box-shadow: 0 0 4px hsla(0,0%,0%,.2);
@@ -105,9 +106,11 @@ panel[type="arrow"][side="right"] {
   -moz-box-orient: vertical;
 }
 
+@media not (-moz-proton) {
 @media (-moz-os-version: windows-win7) {
 .panel-arrowcontent {
   border-radius: 4px;
+}
 }
 }
 
@@ -168,7 +171,7 @@ menulist > menupopup {
   background-color: Field;
 }
 
-@supports -moz-bool-pref("browser.proton.contextmenus.enabled") {
+@media (-moz-proton-contextmenus) {
 @media (-moz-windows-default-theme) and (-moz-os-version: windows-win10) {
   /* For Win10, the popup itself needs to have a transparent background because
      otherwise the background color would appear behind the drop shadow. */

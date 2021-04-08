@@ -32,7 +32,6 @@ use crate::computed_value_flags::*;
 use crate::hash::FxHashMap;
 use crate::media_queries::Device;
 use crate::parser::ParserContext;
-use crate::properties::longhands::system_font::SystemFont;
 use crate::selector_parser::PseudoElement;
 #[cfg(feature = "servo")] use servo_config::prefs;
 use style_traits::{CssWriter, KeywordsCollectFn, ParseError, ParsingMode};
@@ -44,6 +43,7 @@ use crate::values::generics::text::LineHeight;
 use crate::values::{computed, resolved};
 use crate::values::computed::NonNegativeLength;
 use crate::values::serialize_atom_name;
+use crate::values::specified::font::SystemFont;
 use crate::rule_tree::StrongRuleNode;
 use crate::Zero;
 use crate::str::{CssString, CssStringWriter};
@@ -54,7 +54,8 @@ pub use self::cascade::*;
 
 <%!
     from collections import defaultdict
-    from data import Method, PropertyRestrictions, Keyword, to_rust_ident, to_camel_case, RULE_VALUES, SYSTEM_FONT_LONGHANDS
+    from data import Method, PropertyRestrictions, Keyword, to_rust_ident, \
+                     to_camel_case, RULE_VALUES, SYSTEM_FONT_LONGHANDS
     import os.path
 %>
 
@@ -1199,7 +1200,10 @@ impl LonghandId {
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<PropertyDeclaration, ParseError<'i>> {
-        type ParsePropertyFn = for<'i, 't> fn(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<PropertyDeclaration, ParseError<'i>>;
+        type ParsePropertyFn = for<'i, 't> fn(
+            context: &ParserContext,
+            input: &mut Parser<'i, 't>,
+        ) -> Result<PropertyDeclaration, ParseError<'i>>;
         static PARSE_PROPERTY: [ParsePropertyFn; ${len(data.longhands)}] = [
         % for property in data.longhands:
             longhands::${property.ident}::parse_declared,
@@ -1753,7 +1757,21 @@ impl UnparsedValue {
             shorthand_cache.insert((shorthand, longhand), declaration);
         }
 
-        Cow::Borrowed(&shorthand_cache[&(shorthand, longhand_id)])
+        let key = (shorthand, longhand_id);
+        match shorthand_cache.get(&key) {
+            Some(decl) => Cow::Borrowed(decl),
+            None => {
+                // FIXME: We should always have the key here but it seems
+                // sometimes we don't, see bug 1696409.
+                #[cfg(feature = "gecko")]
+                {
+                    if structs::GECKO_IS_NIGHTLY {
+                        panic!("Expected {:?} to be in the cache but it was not!", key);
+                    }
+                }
+                invalid_at_computed_value_time()
+            }
+        }
     }
 }
 
@@ -1948,7 +1966,7 @@ impl PropertyId {
                 % for (kind, properties) in [("Longhand", data.longhands), ("Shorthand", data.shorthands)]:
                 % for property in properties:
                 "${property.name}" => StaticId::${kind}(${kind}Id::${property.camel_case}),
-                % for alias in property.alias:
+                % for alias in property.aliases:
                 "${alias.name}" => {
                     StaticId::${kind}Alias(
                         ${kind}Id::${property.camel_case},
@@ -4089,7 +4107,7 @@ macro_rules! css_properties_accessors {
             % for kind, props in [("Longhand", data.longhands), ("Shorthand", data.shorthands)]:
                 % for property in props:
                     % if property.enabled_in_content():
-                        % for prop in [property] + property.alias:
+                        % for prop in [property] + property.aliases:
                             % if '-' in prop.name:
                                 [${prop.ident.capitalize()}, Set${prop.ident.capitalize()},
                                  PropertyId::${kind}(${kind}Id::${property.camel_case})],

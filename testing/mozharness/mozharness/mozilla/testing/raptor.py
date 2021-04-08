@@ -226,15 +226,6 @@ class Raptor(
                 },
             ],
             [
-                ["--no-conditioned-profile"],
-                {
-                    "action": "store_true",
-                    "dest": "no_conditioned_profile",
-                    "default": False,
-                    "help": "Run without the conditioned profile.",
-                },
-            ],
-            [
                 ["--device-name"],
                 {
                     "dest": "device_name",
@@ -394,12 +385,12 @@ class Raptor(
                 },
             ],
             [
-                ["--conditioned-profile-scenario"],
+                ["--conditioned-profile"],
                 {
-                    "dest": "conditioned_profile_scenario",
+                    "dest": "conditioned_profile",
                     "type": "str",
-                    "default": "settled",
-                    "help": "Name of profile scenario.",
+                    "default": None,
+                    "help": "Name of conditioned profile to use.",
                 },
             ],
             [
@@ -607,9 +598,7 @@ class Raptor(
         self.live_sites = self.config.get("live_sites")
         self.chimera = self.config.get("chimera")
         self.disable_perf_tuning = self.config.get("disable_perf_tuning")
-        self.conditioned_profile_scenario = self.config.get(
-            "conditioned_profile_scenario", "settled"
-        )
+        self.conditioned_profile = self.config.get("conditioned_profile")
         self.extra_prefs = self.config.get("extra_prefs")
         self.environment = self.config.get("environment")
         self.is_release_build = self.config.get("is_release_build")
@@ -617,9 +606,10 @@ class Raptor(
         self.chromium_dist_path = None
         self.firefox_android_browsers = ["fennec", "geckoview", "refbrow", "fenix"]
         self.android_browsers = self.firefox_android_browsers + ["chrome-m"]
-        self.browsertime_visualmetrics = False
+        self.browsertime_visualmetrics = self.config.get("browsertime_visualmetrics")
         self.browsertime_video = False
         self.enable_marionette_trace = self.config.get("enable_marionette_trace")
+        self.browser_cycles = self.config.get("browser_cycles")
 
         for (arg,), details in Raptor.browsertime_options:
             # Allow overriding defaults on the `./mach raptor-test ...` command-line.
@@ -845,10 +835,8 @@ class Raptor(
             kw_options["device-name"] = self.config["device_name"]
         if self.config.get("activity") is not None:
             kw_options["activity"] = self.config["activity"]
-        if self.config.get("conditioned_profile_scenario") is not None:
-            kw_options["conditioned-profile-scenario"] = self.config[
-                "conditioned_profile_scenario"
-            ]
+        if self.config.get("conditioned_profile") is not None:
+            kw_options["conditioned-profile"] = self.config["conditioned_profile"]
 
         kw_options.update(kw)
         if self.host:
@@ -883,8 +871,6 @@ class Raptor(
             options.extend(["--cold"])
         if self.config.get("enable_webrender", False):
             options.extend(["--enable-webrender"])
-        if self.config.get("no_conditioned_profile", False):
-            options.extend(["--no-conditioned-profile"])
         if self.config.get("enable_fission", False):
             options.extend(["--enable-fission"])
         if self.config.get("verbose", False):
@@ -899,6 +885,10 @@ class Raptor(
             )
         if self.config.get("enable_marionette_trace", False):
             options.extend(["--enable-marionette-trace"])
+        if self.config.get("browser_cycles"):
+            options.extend(
+                ["--browser-cycles={}".format(self.config.get("browser_cycles"))]
+            )
 
         for (arg,), details in Raptor.browsertime_options:
             # Allow overriding defaults on the `./mach raptor-test ...` command-line
@@ -991,7 +981,7 @@ class Raptor(
         )
 
         modules = ["pip>=1.5"]
-        if self.run_local:
+        if self.run_local and self.browsertime_visualmetrics:
             # Add modules required for visual metrics
             modules.extend(
                 ["numpy==1.16.1", "Pillow==6.1.0", "scipy==1.2.3", "pyssim==0.4"]
@@ -1055,9 +1045,6 @@ class Raptor(
         # mitmproxy needs path to mozharness when installing the cert, and tooltool
         env["SCRIPTSPATH"] = scripts_path
         env["EXTERNALTOOLSPATH"] = external_tools_path
-
-        # disable "GC poisoning" Bug# 1499043
-        env["JSGC_DISABLE_POISONING"] = "1"
 
         # Needed to load unsigned Raptor WebExt on release builds
         if self.is_release_build:

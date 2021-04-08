@@ -100,6 +100,13 @@ SupplicantStaNetwork::GetSupplicantStaNetworkV1_2() const {
 }
 
 /**
+ * Set roaming bssid to supplicant.
+ */
+Result_t SupplicantStaNetwork::SetRoamingBssid(const std::string& aBssid) {
+  return ConvertStatusToResult(SetBssid(aBssid));
+}
+
+/**
  * Set configurations to supplicant.
  */
 Result_t SupplicantStaNetwork::SetConfiguration(

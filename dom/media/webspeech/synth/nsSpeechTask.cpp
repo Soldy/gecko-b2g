@@ -137,7 +137,7 @@ nsSpeechTask::SetupAudioNative(nsISpeechTaskCallback* aCallback, uint32_t aRate)
       /*OutputDeviceID*/ nullptr);
   mStream = g1->CreateSourceTrack(MediaSegment::AUDIO);
 
-  MOZ_ASSERT(!mStream);
+  MOZ_ASSERT(mStream);
 
   mStream->AddListener(new SynthStreamListener(this, mStream));
   mStream->AddAudioOutput(this);

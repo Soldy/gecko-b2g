@@ -165,7 +165,7 @@ void AsyncImagePipelineManager::AddAsyncImagePipeline(
   MOZ_ASSERT(!mAsyncImagePipelines.Contains(id));
   auto holder = MakeUnique<AsyncImagePipeline>();
   holder->mImageHost = aImageHost;
-  mAsyncImagePipelines.Put(id, std::move(holder));
+  mAsyncImagePipelines.InsertOrUpdate(id, std::move(holder));
   AddPipeline(aPipelineId, /* aWrBridge */ nullptr);
 }
 
@@ -247,12 +247,13 @@ Maybe<TextureHost::ResourceUpdateOp> AsyncImagePipelineManager::UpdateImageKeys(
 
   // If we already had a texture and the format hasn't changed, better to reuse
   // the image keys than create new ones.
+  auto backend = aSceneBuilderTxn.GetBackendType();
   bool canUpdate = !!previousTexture &&
                    previousTexture->GetSize() == texture->GetSize() &&
                    previousTexture->GetFormat() == texture->GetFormat() &&
                    previousTexture->NeedsYFlip() == texture->NeedsYFlip() &&
-                   previousTexture->SupportsExternalCompositing() ==
-                       texture->SupportsExternalCompositing() &&
+                   previousTexture->SupportsExternalCompositing(backend) ==
+                       texture->SupportsExternalCompositing(backend) &&
                    aPipeline->mKeys.Length() == numKeys;
 
   if (!canUpdate) {
@@ -343,9 +344,9 @@ void AsyncImagePipelineManager::ApplyAsyncImagesOfImageBridge(
 
   // We use a pipeline with a very small display list for each video element.
   // Update each of them if needed.
-  for (auto iter = mAsyncImagePipelines.Iter(); !iter.Done(); iter.Next()) {
-    wr::PipelineId pipelineId = wr::AsPipelineId(iter.Key());
-    AsyncImagePipeline* pipeline = iter.UserData();
+  for (const auto& entry : mAsyncImagePipelines) {
+    wr::PipelineId pipelineId = wr::AsPipelineId(entry.GetKey());
+    AsyncImagePipeline* pipeline = entry.GetWeak();
 
 #ifdef XP_WIN
     if (isChanged) {
@@ -405,7 +406,7 @@ void AsyncImagePipelineManager::ApplyAsyncImageForPipeline(
 
   aPipeline->mIsChanged = false;
 
-  wr::DisplayListBuilder builder(aPipelineId);
+  wr::DisplayListBuilder builder(aPipelineId, mApi->GetBackendType());
 
   float opacity = 1.0f;
   wr::StackingContextParams params;
@@ -477,7 +478,7 @@ void AsyncImagePipelineManager::ApplyAsyncImageForPipeline(
   if (!pipeline) {
     return;
   }
-  wr::TransactionBuilder fastTxn(/* aUseSceneBuilderThread */ false);
+  wr::TransactionBuilder fastTxn(mApi, /* aUseSceneBuilderThread */ false);
   wr::AutoTransactionSender sender(mApi, &fastTxn);
 
   // Transaction for async image pipeline that uses ImageBridge always need to
@@ -514,7 +515,7 @@ void AsyncImagePipelineManager::SetEmptyDisplayList(
   auto& txn = pipeline->mImageHost->GetAsyncRef() ? aTxnForImageBridge : aTxn;
 
   wr::Epoch epoch = GetNextImageEpoch();
-  wr::DisplayListBuilder builder(aPipelineId);
+  wr::DisplayListBuilder builder(aPipelineId, mApi->GetBackendType());
 
   wr::BuiltDisplayList dl;
   builder.Finalize(dl);

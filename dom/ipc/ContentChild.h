@@ -24,7 +24,7 @@
 #include "nsRefPtrHashtable.h"
 #include "nsString.h"
 #include "nsTArrayForwardDeclare.h"
-#include "nsTHashtable.h"
+#include "nsTHashSet.h"
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
 #  include "nsIFile.h"
@@ -57,8 +57,6 @@ class PScriptCacheChild;
 namespace widget {
 enum class ThemeChangeKind : uint8_t;
 }
-
-using mozilla::loader::PScriptCacheChild;
 
 #if !defined(XP_WIN)
 // Returns whether or not the currently running build is an unpackaged
@@ -294,16 +292,6 @@ class ContentChild final : public PContentChild,
 
   bool DeallocPBenchmarkStorageChild(PBenchmarkStorageChild* aActor);
 
-  PPresentationChild* AllocPPresentationChild();
-
-  bool DeallocPPresentationChild(PPresentationChild* aActor);
-
-  mozilla::ipc::IPCResult RecvNotifyPresentationReceiverLaunched(
-      PBrowserChild* aIframe, const nsString& aSessionId);
-
-  mozilla::ipc::IPCResult RecvNotifyPresentationReceiverCleanUp(
-      const nsString& aSessionId);
-
   mozilla::ipc::IPCResult RecvNotifyEmptyHTTPCache();
 
 #ifdef MOZ_WEBSPEECH
@@ -342,7 +330,7 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvNotifyVisited(nsTArray<VisitedQueryResult>&&);
 
-  mozilla::ipc::IPCResult RecvThemeChanged(LookAndFeelData&& aLookAndFeelData,
+  mozilla::ipc::IPCResult RecvThemeChanged(FullLookAndFeel&&,
                                            widget::ThemeChangeKind);
 
   mozilla::ipc::IPCResult RecvUpdateSystemParameters(
@@ -597,7 +585,7 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
       XPCOMInitData&& aXPCOMInit, const StructuredCloneData& aInitialData,
-      LookAndFeelData&& aLookAndFeelData,
+      FullLookAndFeel&& aLookAndFeelData,
       nsTArray<SystemFontListEntry>&& aFontList,
       const Maybe<base::SharedMemoryHandle>& aSharedUASheetHandle,
       const uintptr_t& aSharedUASheetAddress,
@@ -659,7 +647,7 @@ class ContentChild final : public PContentChild,
   bool DeallocPSessionStorageObserverChild(
       PSessionStorageObserverChild* aActor);
 
-  LookAndFeelData& BorrowLookAndFeelData() { return mLookAndFeelData; }
+  FullLookAndFeel& BorrowLookAndFeelData() { return mLookAndFeelData; }
 
   /**
    * Helper function for protocols that use the GPU process when available.
@@ -673,10 +661,6 @@ class ContentChild final : public PContentChild,
   typedef std::function<void(PRFileDesc*)> AnonymousTemporaryFileCallback;
   nsresult AsyncOpenAnonymousTemporaryFile(
       const AnonymousTemporaryFileCallback& aCallback);
-
-  mozilla::ipc::IPCResult RecvSetPluginList(
-      const uint32_t& aPluginEpoch, nsTArray<PluginTag>&& aPluginTags,
-      nsTArray<FakePluginTag>&& aFakePluginTags);
 
   mozilla::ipc::IPCResult RecvSaveRecording(const FileDescriptor& aFile);
 
@@ -824,12 +808,12 @@ class ContentChild final : public PContentChild,
       const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
       uint64_t aActionId);
   mozilla::ipc::IPCResult RecvAdjustWindowFocus(
-      const MaybeDiscarded<BrowsingContext>& aContext, bool aCheckPermission,
-      bool aIsVisible);
+      const MaybeDiscarded<BrowsingContext>& aContext, bool aIsVisible,
+      uint64_t aActionId);
   mozilla::ipc::IPCResult RecvClearFocus(
       const MaybeDiscarded<BrowsingContext>& aContext);
   mozilla::ipc::IPCResult RecvSetFocusedBrowsingContext(
-      const MaybeDiscarded<BrowsingContext>& aContext);
+      const MaybeDiscarded<BrowsingContext>& aContext, uint64_t aActionId);
   mozilla::ipc::IPCResult RecvSetActiveBrowsingContext(
       const MaybeDiscarded<BrowsingContext>& aContext, uint64_t aActionId);
   mozilla::ipc::IPCResult RecvAbortOrientationPendingPromises(
@@ -848,10 +832,17 @@ class ContentChild final : public PContentChild,
       bool aIsLeavingDocument, bool aAdjustWidget, uint64_t aActionId);
   mozilla::ipc::IPCResult RecvSetupFocusedAndActive(
       const MaybeDiscarded<BrowsingContext>& aFocusedBrowsingContext,
-      const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext);
-  mozilla::ipc::IPCResult RecvReviseActiveBrowsingContext(
+      uint64_t aActionIdForFocused,
       const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext,
-      uint64_t aActionId);
+      uint64_t aActionIdForActive);
+  mozilla::ipc::IPCResult RecvReviseActiveBrowsingContext(
+      uint64_t aOldActionId,
+      const MaybeDiscarded<BrowsingContext>& aActiveBrowsingContext,
+      uint64_t aNewActionId);
+  mozilla::ipc::IPCResult RecvReviseFocusedBrowsingContext(
+      uint64_t aOldActionId,
+      const MaybeDiscarded<BrowsingContext>& aFocusedBrowsingContext,
+      uint64_t aNewActionId);
   mozilla::ipc::IPCResult RecvMaybeExitFullscreen(
       const MaybeDiscarded<BrowsingContext>& aContext);
 
@@ -931,6 +922,15 @@ class ContentChild final : public PContentChild,
       const MaybeDiscarded<BrowsingContext>& aStartingAt,
       DispatchBeforeUnloadToSubtreeResolver&& aResolver);
 
+  mozilla::ipc::IPCResult RecvCanSavePresentation(
+      const MaybeDiscarded<BrowsingContext>& aTopLevelContext,
+      Maybe<uint64_t> aDocumentChannelId,
+      CanSavePresentationResolver&& aResolve);
+
+  mozilla::ipc::IPCResult RecvFlushTabState(
+      const MaybeDiscarded<BrowsingContext>& aContext,
+      FlushTabStateResolver&& aResolver);
+
  public:
   static void DispatchBeforeUnloadToSubtree(
       BrowsingContext* aStartingAt,
@@ -955,7 +955,7 @@ class ContentChild final : public PContentChild,
   nsTArray<mozilla::UniquePtr<AlertObserver>> mAlertObservers;
   RefPtr<ConsoleListener> mConsoleListener;
 
-  nsTHashtable<nsPtrHashKey<nsIObserver>> mIdleObservers;
+  nsTHashSet<nsIObserver*> mIdleObservers;
 
   nsTArray<nsCString> mAvailableDictionaries;
 
@@ -964,7 +964,7 @@ class ContentChild final : public PContentChild,
   // only on MacOSX and Linux.
   nsTArray<mozilla::dom::SystemFontListEntry> mFontList;
   // Temporary storage for look and feel data.
-  LookAndFeelData mLookAndFeelData;
+  FullLookAndFeel mLookAndFeelData;
   // Temporary storage for list of shared-fontlist memory blocks.
   nsTArray<base::SharedMemoryHandle> mSharedFontListBlocks;
 

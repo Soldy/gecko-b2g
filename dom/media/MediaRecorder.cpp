@@ -140,7 +140,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(MediaRecorder,
                                                   DOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mStream)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mAudioNode)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mInvalidModificationDomException)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOtherDomException)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSecurityDomException)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mUnknownDomException)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocument)
@@ -150,7 +150,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(MediaRecorder,
                                                 DOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mStream)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mAudioNode)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mInvalidModificationDomException)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOtherDomException)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSecurityDomException)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mUnknownDomException)
   tmp->UnRegisterActivityObserver();
@@ -267,6 +267,11 @@ TypeSupport CanRecordAudioTrackWith(const Maybe<MediaContainerType>& aMimeType,
     // A mime type string was set, but it couldn't be parsed to a valid
     // MediaContainerType.
     return TypeSupport::MediaTypeInvalid;
+  }
+
+  if (aMimeType->Type() == MEDIAMIMETYPE(AUDIO_3GPP) &&
+      MediaEncoder::IsOMXEncoderEnabled()) {
+    return TypeSupport::Supported;
   }
 
   if (aMimeType->Type() != MEDIAMIMETYPE(VIDEO_WEBM) &&
@@ -486,7 +491,11 @@ nsString SelectMimeType(bool aHasVideo, bool aHasAudio,
       } else if (aHasVideo) {
         codecs = "vp8"_ns;
       } else {
-        codecs = "opus"_ns;
+        if (majorType.EqualsLiteral(AUDIO_3GPP) && MediaEncoder::IsOMXEncoderEnabled()) {
+          codecs = "amr"_ns;
+        } else {
+          codecs = "opus"_ns;
+        }
       }
     }
     result = NS_ConvertUTF8toUTF16(
@@ -616,8 +625,8 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
         ("Session.NotifyTrackAdded %p Raising error due to track set change",
          this));
     // There's a chance we have a sensible JS stack here.
-    if (!mRecorder->mInvalidModificationDomException) {
-      mRecorder->mInvalidModificationDomException = DOMException::Create(
+    if (!mRecorder->mOtherDomException) {
+      mRecorder->mOtherDomException = DOMException::Create(
           NS_ERROR_DOM_INVALID_MODIFICATION_ERR,
           "An attempt was made to add a track to the recorded MediaStream "
           "during the recording"_ns);
@@ -634,8 +643,8 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
         ("Session.NotifyTrackRemoved %p Raising error due to track set change",
          this));
     // There's a chance we have a sensible JS stack here.
-    if (!mRecorder->mInvalidModificationDomException) {
-      mRecorder->mInvalidModificationDomException = DOMException::Create(
+    if (!mRecorder->mOtherDomException) {
+      mRecorder->mOtherDomException = DOMException::Create(
           NS_ERROR_DOM_INVALID_MODIFICATION_ERR,
           "An attempt was made to remove a track from the recorded MediaStream "
           "during the recording"_ns);
@@ -666,20 +675,6 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
         } else {
           MOZ_CRASH("Unexpected track type");
         }
-      }
-
-      if (audioTracks > 1 || videoTracks > 1) {
-        // When MediaRecorder supports multiple tracks, we should set up a
-        // single MediaInputPort from the input stream, and let main thread
-        // check track principals async later.
-        nsPIDOMWindowInner* window = mRecorder->GetOwner();
-        Document* document = window ? window->GetExtantDoc() : nullptr;
-        nsContentUtils::ReportToConsole(nsIScriptError::errorFlag, "Media"_ns,
-                                        document,
-                                        nsContentUtils::eDOM_PROPERTIES,
-                                        "MediaRecorderMultiTracksNotSupported");
-        DoSessionEndTask(NS_ERROR_ABORT);
-        return;
       }
 
       for (const auto& t : mMediaStreamTracks) {
@@ -936,21 +931,28 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
       mRunningState = Err(rv);
     }
 
-    (rv == NS_ERROR_ABORT || rv == NS_ERROR_DOM_SECURITY_ERR
-         ? mEncoder->Cancel()
-         : mEncoder->Stop())
-        ->Then(mEncoderThread, __func__,
-               [encoder = mEncoder](
-                   const GenericNonExclusivePromise::ResolveOrRejectValue&
-                       aValue) {
-                 MOZ_DIAGNOSTIC_ASSERT(aValue.IsResolve());
-                 return encoder->RequestData();
-               })
+    RefPtr<MediaEncoder::BlobPromise> blobPromise;
+    if (!mEncoder) {
+      blobPromise = MediaEncoder::BlobPromise::CreateAndReject(NS_OK, __func__);
+    } else {
+      blobPromise =
+          (rv == NS_ERROR_ABORT || rv == NS_ERROR_DOM_SECURITY_ERR
+               ? mEncoder->Cancel()
+               : mEncoder->Stop())
+              ->Then(mEncoderThread, __func__,
+                     [encoder = mEncoder](
+                         const GenericNonExclusivePromise::ResolveOrRejectValue&
+                             aValue) {
+                       MOZ_DIAGNOSTIC_ASSERT(aValue.IsResolve());
+                       return encoder->RequestData();
+                     });
+    }
+
+    blobPromise
         ->Then(
             mMainThread, __func__,
-            [this, self = RefPtr<Session>(this), encoder = mEncoder, rv,
-             needsStartEvent](
-                const MediaEncoder::BlobPromise::ResolveOrRejectValue& aRrv) {
+            [this, self = RefPtr<Session>(this), rv, needsStartEvent](
+                const MediaEncoder::BlobPromise::ResolveOrRejectValue& aRv) {
               if (mRecorder->mSessions.LastElement() == this) {
                 // Set state to inactive, but only if the recorder is not
                 // controlled by another session already.
@@ -968,7 +970,7 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
 
               // Fire a blob event named dataavailable
               RefPtr<BlobImpl> blobImpl;
-              if (rv == NS_ERROR_DOM_SECURITY_ERR || aRrv.IsReject()) {
+              if (rv == NS_ERROR_DOM_SECURITY_ERR || aRv.IsReject()) {
                 // In case of SecurityError, the blob data must be discarded.
                 // We create a new empty one and throw the blob with its data
                 // away.
@@ -976,7 +978,7 @@ class MediaRecorder::Session : public PrincipalChangeObserver<MediaStreamTrack>,
                 // memory blob instead.
                 blobImpl = new EmptyBlobImpl(mMimeType);
               } else {
-                blobImpl = aRrv.ResolveValue();
+                blobImpl = aRv.ResolveValue();
               }
               if (NS_FAILED(mRecorder->CreateAndDispatchBlobEvent(blobImpl))) {
                 // Failed to dispatch blob event. That's unexpected. It's
@@ -1304,20 +1306,20 @@ void MediaRecorder::Start(const Optional<uint32_t>& aTimeslice,
   //    videoBitsPerSecond and audioBitsPerSecond is close to the value of
   //    recorder’s
   //    [[ConstrainedBitsPerSecond]] slot.
-  if (mConstrainedBitsPerSecond) {
-    uint8_t numVideoTracks = 0;
-    uint8_t numAudioTracks = 0;
-    for (const auto& t : tracks) {
-      if (t->AsVideoStreamTrack() && numVideoTracks < UINT8_MAX) {
-        ++numVideoTracks;
-      } else if (t->AsAudioStreamTrack() && numAudioTracks < UINT8_MAX) {
-        ++numAudioTracks;
-      }
-    }
-    if (mAudioNode) {
-      MOZ_DIAGNOSTIC_ASSERT(!mStream);
+  uint8_t numVideoTracks = 0;
+  uint8_t numAudioTracks = 0;
+  for (const auto& t : tracks) {
+    if (t->AsVideoStreamTrack() && numVideoTracks < UINT8_MAX) {
+      ++numVideoTracks;
+    } else if (t->AsAudioStreamTrack() && numAudioTracks < UINT8_MAX) {
       ++numAudioTracks;
     }
+  }
+  if (mAudioNode) {
+    MOZ_DIAGNOSTIC_ASSERT(!mStream);
+    ++numAudioTracks;
+  }
+  if (mConstrainedBitsPerSecond) {
     SelectBitrates(*mConstrainedBitsPerSecond, numVideoTracks,
                    &mVideoBitsPerSecond, numAudioTracks, &mAudioBitsPerSecond);
   }
@@ -1338,7 +1340,26 @@ void MediaRecorder::Start(const Optional<uint32_t>& aTimeslice,
   //     long period of time.
   const uint32_t audioBitrate = mAudioBitsPerSecond;
 
-  // 12. Set recorder’s state to recording
+  // 12. Constrain the configuration of recorder to encode using the BitrateMode
+  //     specified by the value of recorder’s audioBitrateMode attribute for all
+  //     audio tracks recorder will be recording.
+  // -- NOT IMPLEMENTED
+
+  // 13. For each track in tracks, if the User Agent cannot record the track
+  //     using the current configuration, then throw a NotSupportedError
+  //     DOMException and abort these steps.
+  if (numVideoTracks > 1) {
+    aResult.ThrowNotSupportedError(
+        "MediaRecorder does not support recording more than one video track"_ns);
+    return;
+  }
+  if (numAudioTracks > 1) {
+    aResult.ThrowNotSupportedError(
+        "MediaRecorder does not support recording more than one audio track"_ns);
+    return;
+  }
+
+  // 14. Set recorder’s state to recording
   mState = RecordingState::Recording;
 
   MediaRecorderReporter::AddMediaRecorder(this);
@@ -1748,11 +1769,14 @@ void MediaRecorder::NotifyError(nsresult aRv) {
       }
       init.mError = std::move(mSecurityDomException);
       break;
-    case NS_ERROR_DOM_INVALID_MODIFICATION_ERR:
-      MOZ_DIAGNOSTIC_ASSERT(mInvalidModificationDomException);
-      init.mError = std::move(mInvalidModificationDomException);
-      break;
     default:
+      if (mOtherDomException && aRv == mOtherDomException->GetResult()) {
+        LOG(LogLevel::Debug, ("MediaRecorder.NotifyError: "
+                              "mOtherDomException being fired for aRv: %X",
+                              uint32_t(aRv)));
+        init.mError = std::move(mOtherDomException);
+        break;
+      }
       if (!mUnknownDomException) {
         LOG(LogLevel::Debug, ("MediaRecorder.NotifyError: "
                               "mUnknownDomException was not initialized"));
@@ -1762,6 +1786,7 @@ void MediaRecorder::NotifyError(nsresult aRv) {
                             "mUnknownDomException being fired for aRv: %X",
                             uint32_t(aRv)));
       init.mError = std::move(mUnknownDomException);
+      break;
   }
 
   RefPtr<MediaRecorderErrorEvent> event =

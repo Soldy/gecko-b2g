@@ -774,7 +774,7 @@ add_task(async function test_empty_progress_tryToKeepPartialData() {
 add_task(async function test_empty_noprogress() {
   let sourcePath = "/test_empty_noprogress.txt";
   let sourceUrl = httpUrl("test_empty_noprogress.txt");
-  let deferRequestReceived = Promise.defer();
+  let deferRequestReceived = PromiseUtils.defer();
 
   // Register an interruptible handler that notifies us when the request occurs.
   function cleanup() {
@@ -903,7 +903,7 @@ add_task(async function test_cancel_midway() {
   }
 
   // Cancel the download after receiving the first part of the response.
-  let deferCancel = Promise.defer();
+  let deferCancel = PromiseUtils.defer();
   let onchange = function() {
     if (!download.stopped && !download.canceled && download.progress == 50) {
       // Cancel the download immediately during the notification.
@@ -1084,7 +1084,7 @@ add_task(async function test_cancel_midway_restart_tryToKeepPartialData() {
 
   // The second time, we'll request and obtain the second part of the response,
   // but we still stop when half of the remaining progress is reached.
-  let deferMidway = Promise.defer();
+  let deferMidway = PromiseUtils.defer();
   download.onchange = function() {
     if (
       !download.stopped &&
@@ -2897,4 +2897,81 @@ add_task(async function test_launchWhenSucceeded_deleteTempFileOnExit() {
   expire.observe(null, "profile-before-change", null);
   Assert.equal(false, await OS.File.exists(autoDeleteTargetPathTwo));
   Assert.ok(await OS.File.exists(noAutoDeleteTargetPath));
+});
+
+add_task(async function test_partitionKey() {
+  let targetFile = getTempFile(TEST_TARGET_FILE_NAME);
+  Services.prefs.setBoolPref("privacy.partition.network_state", true);
+
+  function promiseVerifyDownloadChannel(url, partitionKey) {
+    return TestUtils.topicObserved(
+      "http-on-modify-request",
+      (subject, data) => {
+        let httpChannel = subject.QueryInterface(Ci.nsIHttpChannel);
+        if (httpChannel.URI.spec != url) {
+          return false;
+        }
+
+        let reqLoadInfo = httpChannel.loadInfo;
+        let cookieJarSettings = reqLoadInfo.cookieJarSettings;
+
+        // Check the partitionKey of the cookieJarSettings.
+        Assert.equal(cookieJarSettings.partitionKey, partitionKey);
+
+        return true;
+      }
+    );
+  }
+
+  let test_url = httpUrl("source.txt");
+  let uri = Services.io.newURI(test_url);
+  let cookieJarSettings = Cc["@mozilla.org/cookieJarSettings;1"].createInstance(
+    Ci.nsICookieJarSettings
+  );
+  cookieJarSettings.initWithURI(uri, false);
+  let expectedPartitionKey = cookieJarSettings.partitionKey;
+
+  let verifyPromise;
+
+  let download;
+  if (!gUseLegacySaver) {
+    // When testing DownloadCopySaver, we have control over the download, thus
+    // we can check its basic properties before it starts.
+    download = await Downloads.createDownload({
+      source: { url: test_url, cookieJarSettings },
+      target: { path: targetFile.path },
+      saver: { type: "copy" },
+    });
+
+    Assert.equal(download.source.url, test_url);
+    Assert.equal(download.target.path, targetFile.path);
+
+    verifyPromise = promiseVerifyDownloadChannel(
+      test_url,
+      expectedPartitionKey
+    );
+
+    await download.start();
+  } else {
+    verifyPromise = promiseVerifyDownloadChannel(
+      test_url,
+      expectedPartitionKey
+    );
+
+    // When testing DownloadLegacySaver, the download is already started when it
+    // is created, thus we must check its basic properties while in progress.
+    download = await promiseStartLegacyDownload(null, {
+      targetFile,
+      cookieJarSettings,
+    });
+
+    Assert.equal(download.source.url, test_url);
+    Assert.equal(download.target.path, targetFile.path);
+
+    await promiseDownloadStopped(download);
+  }
+
+  await verifyPromise;
+
+  Services.prefs.clearUserPref("privacy.partition.network_state");
 });

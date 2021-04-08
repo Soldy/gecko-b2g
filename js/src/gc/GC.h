@@ -15,6 +15,7 @@
 
 #include "gc/AllocKind.h"
 #include "gc/GCEnum.h"
+#include "js/GCAPI.h"
 #include "js/TraceKind.h"
 
 class JSExternalString;
@@ -23,7 +24,6 @@ class JSTracer;
 
 namespace js {
 
-class AccessorShape;
 class FatInlineAtom;
 class NormalAtom;
 

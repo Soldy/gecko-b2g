@@ -1245,7 +1245,7 @@ bool nsAppShell::ProcessNextNativeEvent(bool mayWait) {
     AUTO_PROFILER_LABEL("nsAppShell::ProcessNextNativeEvent::Wait", IDLE);
 
     if ((event_count = epoll_wait(epollfd, events, 16, mayWait ? -1 : 0)) <= 0)
-      return true;
+      return false;
   }
 
   for (int i = 0; i < event_count; i++) mHandlers[events[i].data.u32].run();

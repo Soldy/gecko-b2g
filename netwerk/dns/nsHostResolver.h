@@ -30,6 +30,7 @@
 #include "nsIDNSByTypeRecord.h"
 #include "mozilla/net/DNSByTypeRecord.h"
 #include "mozilla/Maybe.h"
+#include "TRRSkippedReason.h"
 
 class nsHostResolver;
 class nsResolveHostCallback;
@@ -57,10 +58,10 @@ extern mozilla::Atomic<bool, mozilla::Relaxed> gNativeIsLocalhost;
 struct nsHostKey {
   const nsCString host;
   const nsCString mTrrServer;
-  uint16_t type;
-  uint16_t flags;
-  uint16_t af;
-  bool pb;
+  uint16_t type = 0;
+  uint16_t flags = 0;
+  uint16_t af = 0;
+  bool pb = false;
   const nsCString originSuffix;
   explicit nsHostKey(const nsACString& host, const nsACString& aTrrServer,
                      uint16_t type, uint16_t flags, uint16_t af, bool pb,
@@ -76,6 +77,8 @@ struct nsHostKey {
 class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
                      public nsHostKey,
                      public nsISupports {
+  using TRRSkippedReason = mozilla::net::TRRSkippedReason;
+
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
 
@@ -86,52 +89,10 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
   // Returns the TRR mode encoded by the flags
   nsIRequest::TRRMode TRRMode();
 
-  // IMPORTANT: when adding new values, always add them to the end, otherwise
-  // it will mess up telemetry.
-  enum TRRSkippedReason : uint32_t {
-    TRR_UNSET = 0,
-    TRR_OK = 1,           // Only set when we actually got a positive TRR result
-    TRR_NO_GSERVICE = 2,  // no gService
-    TRR_PARENTAL_CONTROL = 3,         // parental control is on
-    TRR_OFF_EXPLICIT = 4,             // user has set mode5
-    TRR_REQ_MODE_DISABLED = 5,        // request  has disabled flags set
-    TRR_MODE_NOT_ENABLED = 6,         // mode0
-    TRR_FAILED = 7,                   // unknown failure
-    TRR_MODE_UNHANDLED_DEFAULT = 8,   // Unhandled case in ComputeEffectiveMode
-    TRR_MODE_UNHANDLED_DISABLED = 9,  // Unhandled case in ComputeEffectiveMode
-    TRR_DISABLED_FLAG = 10,           // the DISABLE_TRR flag was set
-    TRR_TIMEOUT = 11,                 // the TRR channel timed out
-    TRR_CHANNEL_DNS_FAIL = 12,        // DoH server name failed to resolve
-    TRR_IS_OFFLINE = 13,              // The browser is offline/no interfaces up
-    TRR_NOT_CONFIRMED = 14,           // TRR confirmation is not done yet
-    TRR_DID_NOT_MAKE_QUERY = 15,  // TrrLookup exited without doing a TRR query
-    TRR_UNKNOWN_CHANNEL_FAILURE = 16,  // unknown channel failure reason
-    TRR_HOST_BLOCKED_TEMPORARY = 17,   // host blocklisted
-    TRR_SEND_FAILED = 18,          // The call to TRR::SendHTTPRequest failed
-    TRR_NET_RESET = 19,            // NS_ERROR_NET_RESET
-    TRR_NET_TIMEOUT = 20,          // NS_ERROR_NET_TIMEOUT
-    TRR_NET_REFUSED = 21,          // NS_ERROR_CONNECTION_REFUSED
-    TRR_NET_INTERRUPT = 22,        // NS_ERROR_NET_INTERRUPT
-    TRR_NET_INADEQ_SEQURITY = 23,  // NS_ERROR_NET_INADEQUATE_SECURITY
-    TRR_NO_ANSWERS = 24,           // TRR returned no answers
-    TRR_DECODE_FAILED = 25,        // DohDecode failed
-    TRR_EXCLUDED = 26,             // ExcludedFromTRR
-    TRR_SERVER_RESPONSE_ERR = 27,  // Server responded with non-200 code
-    TRR_RCODE_FAIL = 28,           // DNS response contains a non-NOERROR rcode
-    TRR_NO_CONNECTIVITY = 29,      // Not confirmed because of no connectivity
-    TRR_NXDOMAIN = 30,            // DNS response contains NXDOMAIN rcode (0x03)
-    TRR_REQ_CANCELLED = 31,       // The request has been cancelled
-    ODOH_KEY_NOT_USABLE = 32,     // We don't have a valid ODoHConfig to use.
-    ODOH_UPDATE_KEY_FAILED = 33,  // Failed to update the ODoHConfigs.
-    ODOH_KEY_NOT_AVAILABLE = 34,  // ODoH requests timeout because of no key.
-    ODOH_ENCRYPTION_FAILED = 35,  // Failed to encrypt DNS packets.
-    ODOH_DECRYPTION_FAILED = 36,  // Failed to decrypt DNS packets.
-  };
-
   // Records the first reason that caused TRR to be skipped or to fail.
   void RecordReason(TRRSkippedReason reason) {
-    if (mTRRTRRSkippedReason == TRR_UNSET) {
-      mTRRTRRSkippedReason = reason;
+    if (mTRRSkippedReason == TRRSkippedReason::TRR_UNSET) {
+      mTRRSkippedReason = reason;
     }
   }
 
@@ -191,28 +152,31 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
   // but a request to refresh it will be made.
   mozilla::TimeStamp mGraceStart;
 
+  uint32_t mTtl = 0;
+
   // The computed TRR mode that is actually used by the request.
   // It is set in nsHostResolver::NameLookup and is based on the mode of the
   // default resolver and the TRRMode encoded in the flags.
   // The mode into account if the TRR service is disabled,
   // parental controls are on, domain matches exclusion list, etc.
-  nsIRequest::TRRMode mEffectiveTRRMode;
+  nsIRequest::TRRMode mEffectiveTRRMode = nsIRequest::TRR_DEFAULT_MODE;
 
-  TRRSkippedReason mTRRTRRSkippedReason = TRR_UNSET;
-  TRRSkippedReason mTRRAFailReason = TRR_UNSET;
-  TRRSkippedReason mTRRAAAAFailReason = TRR_UNSET;
+  TRRSkippedReason mTRRSkippedReason = TRRSkippedReason::TRR_UNSET;
+  TRRSkippedReason mTRRAFailReason = TRRSkippedReason::TRR_UNSET;
+  TRRSkippedReason mTRRAAAAFailReason = TRRSkippedReason::TRR_UNSET;
 
   mozilla::DataMutex<RefPtr<mozilla::net::TRRQuery>> mTRRQuery;
 
-  mozilla::Atomic<int32_t>
-      mResolving;  // counter of outstanding resolving calls
+  // counter of outstanding resolving calls
+  mozilla::Atomic<int32_t> mResolving{0};
 
-  uint8_t negative : 1; /* True if this record is a cache of a failed
-                           lookup.  Negative cache entries are valid just
-                           like any other (though never for more than 60
-                           seconds), but a use of that negative entry
-                           forces an asynchronous refresh. */
-  uint8_t mDoomed : 1;  // explicitly expired
+  // True if this record is a cache of a failed lookup.  Negative cache
+  // entries are valid just like any other (though never for more than 60
+  // seconds), but a use of that negative entry forces an asynchronous refresh.
+  bool negative = false;
+
+  // Explicitly expired
+  bool mDoomed = false;
 };
 
 // b020e996-f6ab-45e5-9bf5-1da71dd0053a
@@ -224,7 +188,8 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
   }
 
 class AddrHostRecord final : public nsHostRecord {
-  typedef mozilla::Mutex Mutex;
+  using Mutex = mozilla::Mutex;
+  using DNSResolverType = mozilla::net::DNSResolverType;
 
  public:
   NS_DECLARE_STATIC_IID_ACCESSOR(ADDRHOSTRECORD_IID)
@@ -247,8 +212,9 @@ class AddrHostRecord final : public nsHostRecord {
    * the other threads just read it.  therefore the resolver worker
    * thread doesn't need to lock when reading |addr_info|.
    */
-  Mutex addr_info_lock;
-  int addr_info_gencnt; /* generation count of |addr_info| */
+  Mutex addr_info_lock{"AddrHostRecord.addr_info_lock"};
+  // generation count of |addr_info|
+  int addr_info_gencnt = 0;
   RefPtr<mozilla::net::AddrInfo> addr_info;
   mozilla::UniquePtr<mozilla::net::NetAddr> addr;
 
@@ -294,9 +260,9 @@ class AddrHostRecord final : public nsHostRecord {
   mozilla::TimeDuration mNativeDuration;
 
   // TRR or ODoH was used on this record
-  mozilla::Atomic<mozilla::net::DNSResolverType> mResolverType;
-  uint8_t mTRRSuccess;     // number of successful TRR responses
-  uint8_t mNativeSuccess;  // number of native lookup responses
+  mozilla::Atomic<DNSResolverType> mResolverType{DNSResolverType::Native};
+  uint8_t mTRRSuccess = 0;     // number of successful TRR responses
+  uint8_t mNativeSuccess = 0;  // number of native lookup responses
 
   // clang-format off
   MOZ_ATOMIC_BITFIELDS(mAtomicBitfields, 8, (
@@ -358,7 +324,7 @@ class TypeHostRecord final : public nsHostRecord,
   bool HasUsableResult();
 
   mozilla::net::TypeRecordResultType mResults = AsVariant(mozilla::Nothing());
-  mozilla::Mutex mResultsLock;
+  mozilla::Mutex mResultsLock{"TypeHostRecord.mResultsLock"};
 
   // When the lookups of this record started (for telemetry).
   mozilla::TimeStamp mStart;
@@ -430,7 +396,7 @@ class AHostResolver {
   virtual LookupStatus CompleteLookup(nsHostRecord*, nsresult,
                                       mozilla::net::AddrInfo*, bool pb,
                                       const nsACString& aOriginsuffix,
-                                      nsHostRecord::TRRSkippedReason aReason,
+                                      mozilla::net::TRRSkippedReason aReason,
                                       mozilla::net::TRR*) = 0;
   virtual LookupStatus CompleteLookupByType(
       nsHostRecord*, nsresult, mozilla::net::TypeRecordResultType& aResult,
@@ -558,7 +524,7 @@ class nsHostResolver : public nsISupports, public AHostResolver {
 
   LookupStatus CompleteLookup(nsHostRecord*, nsresult, mozilla::net::AddrInfo*,
                               bool pb, const nsACString& aOriginsuffix,
-                              nsHostRecord::TRRSkippedReason aReason,
+                              mozilla::net::TRRSkippedReason aReason,
                               mozilla::net::TRR* aTRRRequest) override;
   LookupStatus CompleteLookupByType(nsHostRecord*, nsresult,
                                     mozilla::net::TypeRecordResultType& aResult,
@@ -621,17 +587,18 @@ class nsHostResolver : public nsISupports, public AHostResolver {
     METHOD_NETWORK_SHARED = 7
   };
 
-  uint32_t mMaxCacheEntries;
-  uint32_t mDefaultCacheLifetime;  // granularity seconds
-  uint32_t mDefaultGracePeriod;    // granularity seconds
-  mutable Mutex mLock;  // mutable so SizeOfIncludingThis can be const
+  uint32_t mMaxCacheEntries = 0;
+  uint32_t mDefaultCacheLifetime = 0;  // granularity seconds
+  uint32_t mDefaultGracePeriod = 0;    // granularity seconds
+  // mutable so SizeOfIncludingThis can be const
+  mutable Mutex mLock{"nsHostResolver.mLock"};
   CondVar mIdleTaskCV;
   nsRefPtrHashtable<nsGenericHashKey<nsHostKey>, nsHostRecord> mRecordDB;
   mozilla::LinkedList<RefPtr<nsHostRecord>> mHighQ;
   mozilla::LinkedList<RefPtr<nsHostRecord>> mMediumQ;
   mozilla::LinkedList<RefPtr<nsHostRecord>> mLowQ;
   mozilla::LinkedList<RefPtr<nsHostRecord>> mEvictionQ;
-  uint32_t mEvictionQSize;
+  uint32_t mEvictionQSize = 0;
   PRTime mCreationTime;
   mozilla::TimeDuration mLongIdleTimeout;
   mozilla::TimeDuration mShortIdleTimeout;
@@ -639,11 +606,11 @@ class nsHostResolver : public nsISupports, public AHostResolver {
   RefPtr<nsIThreadPool> mResolverThreads;
   RefPtr<mozilla::net::NetworkConnectivityService> mNCS;
 
-  mozilla::Atomic<bool> mShutdown;
-  mozilla::Atomic<uint32_t> mNumIdleTasks;
-  mozilla::Atomic<uint32_t> mActiveTaskCount;
-  mozilla::Atomic<uint32_t> mActiveAnyThreadCount;
-  mozilla::Atomic<uint32_t> mPendingCount;
+  mozilla::Atomic<bool> mShutdown{true};
+  mozilla::Atomic<uint32_t> mNumIdleTasks{0};
+  mozilla::Atomic<uint32_t> mActiveTaskCount{0};
+  mozilla::Atomic<uint32_t> mActiveAnyThreadCount{0};
+  mozilla::Atomic<uint32_t> mPendingCount{0};
 
   // Set the expiration time stamps appropriately.
   void PrepareRecordExpirationAddrRecord(AddrHostRecord* rec) const;

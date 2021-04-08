@@ -83,6 +83,7 @@ class EffectSet;
 struct ActiveScrolledRoot;
 enum class ScrollOrigin : uint8_t;
 enum class StyleImageOrientation : uint8_t;
+enum class StyleSystemFont : uint8_t;
 enum class StyleScrollbarWidth : uint8_t;
 struct OverflowAreas;
 namespace dom {
@@ -445,11 +446,22 @@ class nsLayoutUtils {
    * Get the parent of aFrame. If aFrame is the root frame for a document,
    * and the document has a parent document in the same view hierarchy, then
    * we try to return the subdocumentframe in the parent document.
-   * @param aExtraOffset [in/out] if non-null, then as we cross documents
+   * @param aCrossDocOffset [in/out] if non-null, then as we cross documents
    * an extra offset may be required and it will be added to aCrossDocOffset.
    * Be careful dealing with this extra offset as it is in app units of the
    * parent document, which may have a different app units per dev pixel ratio
    * than the child document.
+   * Note that, while this function crosses document boundaries, it (naturally)
+   * cannot cross process boundaries.
+   */
+  static nsIFrame* GetCrossDocParentFrameInProcess(
+      const nsIFrame* aFrame, nsPoint* aCrossDocOffset = nullptr);
+
+  /**
+   * Does the same thing as GetCrossDocParentFrameInProcess().
+   * The purpose of having two functions is to more easily track which call
+   * sites have been audited to consider out-of-process iframes (bug 1599913).
+   * Once all call sites have been audited, this function can be removed.
    */
   static nsIFrame* GetCrossDocParentFrame(const nsIFrame* aFrame,
                                           nsPoint* aCrossDocOffset = nullptr);
@@ -484,8 +496,26 @@ class nsLayoutUtils {
    *
    * Just like IsProperAncestorFrameCrossDoc, except that it returns true when
    * aFrame == aAncestorFrame.
+   *
+   * TODO: Bug 1700245, all call sites of this function will be eventually
+   * replaced by IsAncestorFrameCrossDocInProcess.
    */
   static bool IsAncestorFrameCrossDoc(
+      const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+      const nsIFrame* aCommonAncestor = nullptr);
+
+  /**
+   * IsAncestorFrameCrossDocInProcess checks whether aAncestorFrame is an
+   * ancestor of aFrame or equal to aFrame, looking across document boundaries
+   * in the same process.
+   * @param aCommonAncestor nullptr, or a common ancestor of aFrame and
+   * aAncestorFrame. If non-null, this can bound the search and speed up
+   * the function.
+   *
+   * Just like IsProperAncestorFrameCrossDoc, except that it returns true when
+   * aFrame == aAncestorFrame.
+   */
+  static bool IsAncestorFrameCrossDocInProcess(
       const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
       const nsIFrame* aCommonAncestor = nullptr);
 
@@ -1098,6 +1128,7 @@ class nsLayoutUtils {
     Compressed = 0x200,
     ForWebRender = 0x400,
     UseHighQualityScaling = 0x800,
+    ResetViewportScrolling = 0x1000,
   };
 
   /**
@@ -1126,6 +1157,9 @@ class nsLayoutUtils {
    * as being relative to the document (normally it's relative to the CSS
    * viewport) and the document is painted as if no scrolling has occured.
    * Only considered if PresShell::IgnoringViewportScrolling is true.
+   * If ResetViewportScrolling is used, then the root scroll frame's scroll
+   * position is set to 0 during painting, so that position:fixed elements
+   * are drawn in their initial position.
    * PAINT_TO_WINDOW sets painting to window to true on the display list
    * builder even if we can't tell that we are painting to the window.
    * If PAINT_EXISTING_TRANSACTION is set, then BeginTransaction() has already
@@ -1978,6 +2012,15 @@ class nsLayoutUtils {
                                      mozilla::Side aSide);
 
   /**
+   * Return the border radius size (width, height) based only on the top-left
+   * corner. This is a special case used for drawing the Windows 10 drop-shadow,
+   * and only supports a specified length (not percentages) on the top-left
+   * corner.
+   */
+  static LayoutDeviceIntSize GetBorderRadiusForMenuDropShadow(
+      const nsIFrame* aFrame);
+
+  /**
    * Determine if a widget is likely to require transparency or translucency.
    *   @param aBackgroundFrame The frame that the background is set on. For
    *                           <window>s, this will be the canvas frame.
@@ -2108,7 +2151,10 @@ class nsLayoutUtils {
     SFE_NO_RASTERIZING_VECTORS = 1 << 4,
     /* If image type is vector, the return surface size will same as
        element size, not image's intrinsic size. */
-    SFE_USE_ELEMENT_SIZE_IF_VECTOR = 1 << 5
+    SFE_USE_ELEMENT_SIZE_IF_VECTOR = 1 << 5,
+    /* Instead of converting the colorspace to the display's colorspace,
+       use sRGB. */
+    SFE_TO_SRGB_COLORSPACE = 1 << 6
   };
 
   // This function can be called on any thread.
@@ -2193,8 +2239,8 @@ class nsLayoutUtils {
    */
   typedef nsTArray<mozilla::UniquePtr<mozilla::dom::InspectorFontFace>>
       UsedFontFaceList;
-  typedef nsDataHashtable<nsPtrHashKey<gfxFontEntry>,
-                          mozilla::dom::InspectorFontFace*>
+  typedef nsTHashMap<nsPtrHashKey<gfxFontEntry>,
+                     mozilla::dom::InspectorFontFace*>
       UsedFontFaceTable;
 
   /**
@@ -2850,7 +2896,7 @@ class nsLayoutUtils {
       bool aUseUserFontSet);
 
   static void ComputeSystemFont(nsFont* aSystemFont,
-                                mozilla::LookAndFeel::FontID aFontID,
+                                mozilla::StyleSystemFont aFontID,
                                 const nsFont* aDefaultVariableFont,
                                 const mozilla::dom::Document* aDocument);
 

@@ -224,7 +224,72 @@ def to_phys(name, logical, physical):
     return name.replace(logical, physical).replace("inset-", "")
 
 
-class Longhand(object):
+class Property(object):
+    def __init__(
+        self,
+        name,
+        spec,
+        servo_2013_pref,
+        servo_2020_pref,
+        gecko_pref,
+        enabled_in,
+        rule_types_allowed,
+        aliases,
+        extra_prefixes,
+        flags,
+    ):
+        self.name = name
+        if not spec:
+            raise TypeError("Spec should be specified for " + name)
+        self.spec = spec
+        self.ident = to_rust_ident(name)
+        self.camel_case = to_camel_case(self.ident)
+        self.servo_2013_pref = servo_2013_pref
+        self.servo_2020_pref = servo_2020_pref
+        self.gecko_pref = gecko_pref
+        self.rule_types_allowed = rule_values_from_arg(rule_types_allowed)
+        # For enabled_in, the setup is as follows:
+        # It needs to be one of the four values: ["", "ua", "chrome", "content"]
+        #  * "chrome" implies "ua", and implies that they're explicitly
+        #    enabled.
+        #  * "" implies the property will never be parsed.
+        #  * "content" implies the property is accessible unconditionally,
+        #    modulo a pref, set via servo_pref / gecko_pref.
+        assert enabled_in in ("", "ua", "chrome", "content")
+        self.enabled_in = enabled_in
+        self.aliases = parse_property_aliases(aliases)
+        self.extra_prefixes = parse_property_aliases(extra_prefixes)
+        self.flags = flags.split() if flags else []
+
+    def rule_types_allowed_names(self):
+        for name in RULE_VALUES:
+            if self.rule_types_allowed & RULE_VALUES[name] != 0:
+                yield name
+
+    def experimental(self, engine):
+        if engine == "gecko":
+            return bool(self.gecko_pref)
+        elif engine == "servo-2013":
+            return bool(self.servo_2013_pref)
+        elif engine == "servo-2020":
+            return bool(self.servo_2020_pref)
+        else:
+            raise Exception("Bad engine: " + engine)
+
+    def explicitly_enabled_in_ua_sheets(self):
+        return self.enabled_in in ("ua", "chrome")
+
+    def explicitly_enabled_in_chrome(self):
+        return self.enabled_in == "chrome"
+
+    def enabled_in_content(self):
+        return self.enabled_in == "content"
+
+    def nscsspropertyid(self):
+        return "nsCSSPropertyID::eCSSProperty_" + self.ident
+
+
+class Longhand(Property):
     def __init__(
         self,
         style_struct,
@@ -244,7 +309,7 @@ class Longhand(object):
         cast_type="u8",
         logical=False,
         logical_group=None,
-        alias=None,
+        aliases=None,
         extra_prefixes=None,
         boxed=False,
         flags=None,
@@ -254,18 +319,23 @@ class Longhand(object):
         vector=False,
         servo_restyle_damage="repaint",
     ):
-        self.name = name
-        if not spec:
-            raise TypeError("Spec should be specified for %s" % name)
-        self.spec = spec
+        Property.__init__(
+            self,
+            name=name,
+            spec=spec,
+            servo_2013_pref=servo_2013_pref,
+            servo_2020_pref=servo_2020_pref,
+            gecko_pref=gecko_pref,
+            enabled_in=enabled_in,
+            rule_types_allowed=rule_types_allowed,
+            aliases=aliases,
+            extra_prefixes=extra_prefixes,
+            flags=flags,
+        )
+
         self.keyword = keyword
         self.predefined_type = predefined_type
-        self.ident = to_rust_ident(name)
-        self.camel_case = to_camel_case(self.ident)
         self.style_struct = style_struct
-        self.servo_2013_pref = servo_2013_pref
-        self.servo_2020_pref = servo_2020_pref
-        self.gecko_pref = gecko_pref
         self.has_effect_on_gecko_scrollbars = has_effect_on_gecko_scrollbars
         assert (
             has_effect_on_gecko_scrollbars in [None, False, True]
@@ -278,16 +348,6 @@ class Longhand(object):
             + "specified, and must have a value of True or False, iff a "
             + "property is inherited and is behind a Gecko pref"
         )
-        self.rule_types_allowed = rule_values_from_arg(rule_types_allowed)
-        # For enabled_in, the setup is as follows:
-        # It needs to be one of the four values: ["", "ua", "chrome", "content"]
-        #  * "chrome" implies "ua", and implies that they're explicitly
-        #    enabled.
-        #  * "" implies the property will never be parsed.
-        #  * "content" implies the property is accessible unconditionally,
-        #    modulo a pref, set via servo_pref / gecko_pref.
-        assert enabled_in in ["", "ua", "chrome", "content"]
-        self.enabled_in = enabled_in
         self.need_index = need_index
         self.gecko_ffi_name = gecko_ffi_name or "m" + self.camel_case
         self.cast_type = cast_type
@@ -296,10 +356,7 @@ class Longhand(object):
         if self.logical:
             assert logical_group, "Property " + name + " must have a logical group"
 
-        self.alias = parse_property_aliases(alias)
-        self.extra_prefixes = parse_property_aliases(extra_prefixes)
         self.boxed = arg_to_bool(boxed)
-        self.flags = flags.split() if flags else []
         self.allow_quirks = allow_quirks
         self.ignored_when_colors_disabled = ignored_when_colors_disabled
         self.is_vector = vector
@@ -354,26 +411,6 @@ class Longhand(object):
             data.longhands_by_name[to_phys(self.name, logical_side, physical_side)]
             for physical_side in physical
         ]
-
-    def experimental(self, engine):
-        if engine == "gecko":
-            return bool(self.gecko_pref)
-        elif engine == "servo-2013":
-            return bool(self.servo_2013_pref)
-        elif engine == "servo-2020":
-            return bool(self.servo_2020_pref)
-        else:
-            raise Exception("Bad engine: " + engine)
-
-    # FIXME(emilio): Shorthand and Longhand should really share a base class.
-    def explicitly_enabled_in_ua_sheets(self):
-        return self.enabled_in in ["ua", "chrome"]
-
-    def explicitly_enabled_in_chrome(self):
-        return self.enabled_in == "chrome"
-
-    def enabled_in_content(self):
-        return self.enabled_in == "content"
 
     def may_be_disabled_in(self, shorthand, engine):
         if engine == "gecko":
@@ -463,6 +500,7 @@ class Longhand(object):
                 "Percentage",
                 "PositiveIntegerOrNone",
                 "Resize",
+                "RubyPosition",
                 "SVGOpacity",
                 "SVGPaintOrder",
                 "ScrollSnapAlign",
@@ -494,11 +532,8 @@ class Longhand(object):
             return computed
         return "<{} as ToAnimatedValue>::AnimatedValue".format(computed)
 
-    def nscsspropertyid(self):
-        return "nsCSSPropertyID::eCSSProperty_%s" % self.ident
 
-
-class Shorthand(object):
+class Shorthand(Property):
     def __init__(
         self,
         name,
@@ -509,26 +544,24 @@ class Shorthand(object):
         gecko_pref=None,
         enabled_in="content",
         rule_types_allowed=DEFAULT_RULES,
-        alias=None,
+        aliases=None,
         extra_prefixes=None,
         flags=None,
     ):
-        self.name = name
-        if not spec:
-            raise TypeError("Spec should be specified for %s" % name)
-        self.spec = spec
-        self.ident = to_rust_ident(name)
-        self.camel_case = to_camel_case(self.ident)
-        self.servo_2013_pref = servo_2013_pref
-        self.servo_2020_pref = servo_2020_pref
-        self.gecko_pref = gecko_pref
+        Property.__init__(
+            self,
+            name=name,
+            spec=spec,
+            servo_2013_pref=servo_2013_pref,
+            servo_2020_pref=servo_2020_pref,
+            gecko_pref=gecko_pref,
+            enabled_in=enabled_in,
+            rule_types_allowed=rule_types_allowed,
+            aliases=aliases,
+            extra_prefixes=extra_prefixes,
+            flags=flags,
+        )
         self.sub_properties = sub_properties
-        assert enabled_in in ["", "ua", "chrome", "content"]
-        self.enabled_in = enabled_in
-        self.alias = parse_property_aliases(alias)
-        self.extra_prefixes = parse_property_aliases(extra_prefixes)
-        self.rule_types_allowed = rule_values_from_arg(rule_types_allowed)
-        self.flags = flags.split() if flags else []
 
     def get_animatable(self):
         for sub in self.sub_properties:
@@ -551,29 +584,6 @@ class Shorthand(object):
     def type():
         return "shorthand"
 
-    def experimental(self, engine):
-        if engine == "gecko":
-            return bool(self.gecko_pref)
-        elif engine == "servo-2013":
-            return bool(self.servo_2013_pref)
-        elif engine == "servo-2020":
-            return bool(self.servo_2020_pref)
-        else:
-            raise Exception("Bad engine: " + engine)
-
-    # FIXME(emilio): Shorthand and Longhand should really share a base class.
-    def explicitly_enabled_in_ua_sheets(self):
-        return self.enabled_in in ["ua", "chrome"]
-
-    def explicitly_enabled_in_chrome(self):
-        return self.enabled_in == "chrome"
-
-    def enabled_in_content(self):
-        return self.enabled_in == "content"
-
-    def nscsspropertyid(self):
-        return "nsCSSPropertyID::eCSSProperty_%s" % self.ident
-
 
 class Alias(object):
     def __init__(self, name, original, gecko_pref):
@@ -592,6 +602,11 @@ class Alias(object):
     @staticmethod
     def type():
         return "alias"
+
+    def rule_types_allowed_names(self):
+        for name in RULE_VALUES:
+            if self.rule_types_allowed & RULE_VALUES[name] != 0:
+                yield name
 
     def experimental(self, engine):
         if engine == "gecko":
@@ -683,7 +698,7 @@ class PropertiesData(object):
         #       See servo/servo#14941.
         if self.engine == "gecko":
             for (prefix, pref) in property.extra_prefixes:
-                property.alias.append(("-%s-%s" % (prefix, property.name), pref))
+                property.aliases.append(("-%s-%s" % (prefix, property.name), pref))
 
     def declare_longhand(self, name, engines=None, **kwargs):
         engines = engines.split()
@@ -692,8 +707,8 @@ class PropertiesData(object):
 
         longhand = Longhand(self.current_style_struct, name, **kwargs)
         self.add_prefixed_aliases(longhand)
-        longhand.alias = [Alias(xp[0], longhand, xp[1]) for xp in longhand.alias]
-        self.longhand_aliases += longhand.alias
+        longhand.aliases = [Alias(xp[0], longhand, xp[1]) for xp in longhand.aliases]
+        self.longhand_aliases += longhand.aliases
         self.current_style_struct.longhands.append(longhand)
         self.longhands.append(longhand)
         self.longhands_by_name[name] = longhand
@@ -712,8 +727,8 @@ class PropertiesData(object):
         sub_properties = [self.longhands_by_name[s] for s in sub_properties]
         shorthand = Shorthand(name, sub_properties, *args, **kwargs)
         self.add_prefixed_aliases(shorthand)
-        shorthand.alias = [Alias(xp[0], shorthand, xp[1]) for xp in shorthand.alias]
-        self.shorthand_aliases += shorthand.alias
+        shorthand.aliases = [Alias(xp[0], shorthand, xp[1]) for xp in shorthand.aliases]
+        self.shorthand_aliases += shorthand.aliases
         self.shorthands.append(shorthand)
         self.shorthands_by_name[name] = shorthand
         return shorthand

@@ -14,18 +14,18 @@ b2g-manifests:
     fetch:
         type: git
         repo: https://github.com/kaiostech/manifests/
-        revision: 7632d5806dd1ea54dbfb6b507043691fa16998ca
+        revision: a605ab4265e90d4d506517c22404abf5284cc812
 
 gonk-misc:
     description: Random parts that make gonk work
     fetch:
         type: git
         repo: https://github.com/kaiostech/gonk-misc/
-        revision: f45aae54d4fb89c8bf18dc5444ac0baecb3a3bf1
+        revision: b0b209f89bb598af0f8ba8e40aec9fc346ab6dd9 
 
 api-daemon:
     description: Rust daemons to access various native services
     fetch:
         type: git
         repo: https://github.com/kaiostech/api-daemon/
-        revision: f232a2d80990af5b9ef9e7b2ca449003d4259f78
+        revision: 3eb2b9ee685edb72228308438dd8945e13d48b39

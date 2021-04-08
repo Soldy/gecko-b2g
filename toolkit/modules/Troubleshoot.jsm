@@ -114,6 +114,7 @@ const PREFS_BLACKLIST = [
   /^browser[.]fixup[.]domainwhitelist[.]/,
   /^media[.]webrtc[.]debug[.]aec_log_dir/,
   /^media[.]webrtc[.]debug[.]log_file/,
+  /^print[.].*print_to_filename$/,
   /^network[.]proxy[.]/,
 ];
 
@@ -905,11 +906,12 @@ var dataProviders = {
         NormandyPreferenceRollouts.getAllActive(),
         NormandyPreferenceStudies.getAllActive(),
       ].map(promise =>
-        promise.then(items =>
-          items.sort((a, b) => {
-            return a.slug.localeCompare(b.slug);
+        promise
+          .catch(error => {
+            Cu.reportError(error);
+            return [];
           })
-        )
+          .then(items => items.sort((a, b) => a.slug.localeCompare(b.slug)))
       )
     );
 

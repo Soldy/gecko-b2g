@@ -267,7 +267,10 @@ let URICountListener = {
   },
 
   onLocationChange(browser, webProgress, request, uri, flags) {
-    if (!(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
+    if (
+      !(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT) &&
+      webProgress.isTopLevel
+    ) {
       // By default, assume we no longer need to track this tab.
       SearchSERPTelemetry.stopTrackingBrowser(browser);
     }
@@ -341,7 +344,11 @@ let URICountListener = {
     }
 
     if (!(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
-      SearchSERPTelemetry.updateTrackingStatus(browser, uriSpec);
+      SearchSERPTelemetry.updateTrackingStatus(
+        browser,
+        uriSpec,
+        webProgress.loadType
+      );
     }
 
     // Update total URI count, including when in private mode.

@@ -17,7 +17,7 @@
 #include "nsPIDOMWindow.h"
 #include "nsHashKeys.h"
 #include "nsRefPtrHashtable.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "ICameraControl.h"
 
 struct JSContext;

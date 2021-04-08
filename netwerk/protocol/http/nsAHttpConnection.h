@@ -5,6 +5,7 @@
 #ifndef nsAHttpConnection_h__
 #define nsAHttpConnection_h__
 
+#include "mozilla/net/DNS.h"
 #include "nsHttp.h"
 #include "nsISupports.h"
 #include "nsAHttpTransaction.h"
@@ -138,7 +139,7 @@ class nsAHttpConnection : public nsISupports {
   virtual already_AddRefed<HttpConnectionBase> HttpConnection() = 0;
 
   // Get the nsISocketTransport used by the connection without changing
-  //  references or ownership.
+  // references or ownership.
   virtual nsISocketTransport* Transport() = 0;
 
   // The number of transaction bytes written out on this HTTP Connection, does
@@ -153,11 +154,16 @@ class nsAHttpConnection : public nsISupports {
   virtual HttpVersion Version() = 0;
 
   // A notification of the current active tab id change.
-  virtual void TopLevelOuterContentWindowIdChanged(uint64_t windowId) = 0;
+  virtual void TopBrowsingContextIdChanged(uint64_t id) = 0;
 
   // categories set by nsHttpTransaction to identify how this connection is
   // being used.
   virtual void SetTrafficCategory(HttpTrafficCategory) = 0;
+
+  virtual nsresult GetSelfAddr(NetAddr* addr) = 0;
+  virtual nsresult GetPeerAddr(NetAddr* addr) = 0;
+  virtual bool ResolvedByTRR() = 0;
+  virtual bool GetEchConfigUsed() = 0;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsAHttpConnection, NS_AHTTPCONNECTION_IID)
@@ -176,7 +182,7 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsAHttpConnection, NS_AHTTPCONNECTION_IID)
   [[nodiscard]] nsresult PushBack(const char*, uint32_t) override;         \
   already_AddRefed<HttpConnectionBase> TakeHttpConnection() override;      \
   already_AddRefed<HttpConnectionBase> HttpConnection() override;          \
-  void TopLevelOuterContentWindowIdChanged(uint64_t windowId) override;    \
+  void TopBrowsingContextIdChanged(uint64_t id) override;                  \
   /*                                                                       \
      Thes methods below have automatic definitions that just forward the   \
      function to a lower level connection object                           \
@@ -237,6 +243,20 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsAHttpConnection, NS_AHTTPCONNECTION_IID)
   }                                                                        \
   void SetTrafficCategory(HttpTrafficCategory aCategory) override {        \
     if (fwdObject) (fwdObject)->SetTrafficCategory(aCategory);             \
+  }                                                                        \
+  nsresult GetSelfAddr(NetAddr* addr) override {                           \
+    if (!(fwdObject)) return NS_ERROR_FAILURE;                             \
+    return (fwdObject)->GetSelfAddr(addr);                                 \
+  }                                                                        \
+  nsresult GetPeerAddr(NetAddr* addr) override {                           \
+    if (!(fwdObject)) return NS_ERROR_FAILURE;                             \
+    return (fwdObject)->GetPeerAddr(addr);                                 \
+  }                                                                        \
+  bool ResolvedByTRR() override {                                          \
+    return (!fwdObject) ? false : (fwdObject)->ResolvedByTRR();            \
+  }                                                                        \
+  bool GetEchConfigUsed() override {                                       \
+    return (!fwdObject) ? false : (fwdObject)->GetEchConfigUsed();         \
   }
 
 // ThrottleResponse deliberately ommited since we want different implementation

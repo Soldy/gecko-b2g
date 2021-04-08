@@ -207,7 +207,6 @@ PurgeTrackerService.prototype = {
           Ci.nsIClearDataService.CLEAR_DOM_STORAGES |
           Ci.nsIClearDataService.CLEAR_SECURITY_SETTINGS |
           Ci.nsIClearDataService.CLEAR_EME |
-          Ci.nsIClearDataService.CLEAR_PLUGIN_DATA |
           Ci.nsIClearDataService.CLEAR_MEDIA_DEVICES |
           Ci.nsIClearDataService.CLEAR_STORAGE_ACCESS |
           Ci.nsIClearDataService.CLEAR_AUTH_TOKENS |
@@ -319,7 +318,7 @@ PurgeTrackerService.prototype = {
     //   * BEHAVIOR_LIMIT_FOREIGN
     //   * BEHAVIOR_REJECT_TRACKER (ETP)
     //   * BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN (dFPI)
-    let cookieBehavior = Services.cookies.cookieBehavior;
+    let cookieBehavior = Services.cookies.getCookieBehavior(false);
 
     let activeWithCookieBehavior =
       cookieBehavior == Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN ||

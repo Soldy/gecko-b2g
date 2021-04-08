@@ -246,7 +246,7 @@ CameraRecorderProfile* CameraRecorderProfiles::NamedGetter(
         mCameraControl->GetProfileInfo(aName);
     if (p) {
       profile = new CameraRecorderProfile(this, *p);
-      mProfiles.Put(aName, RefPtr{profile});
+      mProfiles.InsertOrUpdate(aName, RefPtr{profile});
       aFound = true;
     }
   }

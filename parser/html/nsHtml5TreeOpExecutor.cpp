@@ -210,9 +210,24 @@ nsHtml5TreeOpExecutor::DidBuildModel(bool aTerminated) {
   if (mStarted) {
     mDocument->EndLoad();
 
+    // Gather telemetry only for top-level content navigations in order to
+    // avoid noise from ad iframes.
+    bool topLevel = false;
+    if (BrowsingContext* bc = mDocument->GetBrowsingContext()) {
+      topLevel = bc->IsTopContent();
+    }
+
+    // Gather telemetry only for text/html and text/plain (excluding CSS, JS,
+    // etc. being viewed as text.)
+    nsAutoString contentType;
+    mDocument->GetContentType(contentType);
+    bool htmlOrPlain = contentType.EqualsLiteral(u"text/html") ||
+                       contentType.EqualsLiteral(u"text/plain");
+
     // Gather chardetng telemetry
     MOZ_ASSERT(mDocument->IsHTMLDocument());
-    if (!aTerminated && !mDocument->AsHTMLDocument()->IsViewSource()) {
+    if (htmlOrPlain && topLevel && !aTerminated &&
+        !mDocument->AsHTMLDocument()->IsViewSource()) {
       // We deliberately measure only normally-completed (non-aborted) loads
       // that are not View Source loads. This seems like a better place for
       // checking normal completion than anything in nsHtml5StreamParser.
@@ -434,6 +449,7 @@ void nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync() {
     gBackgroundFlushRunner = IdleTaskRunner::Create(
         &BackgroundFlushCallback,
         "nsHtml5TreeOpExecutor::BackgroundFlushCallback",
+        0,    // Start looking for idle time immediately.
         250,  // The hard deadline: 250ms.
         StaticPrefs::content_sink_interactive_parse_time() /
             1000,               // Required budget.
@@ -1120,6 +1136,10 @@ void nsHtml5TreeOpExecutor::PreloadScript(
     bool aLinkPreload) {
   nsCOMPtr<nsIURI> uri = ConvertIfNotPreloadedYetAndMediaApplies(aURL, aMedia);
   if (!uri) {
+    return;
+  }
+  auto key = PreloadHashKey::CreateAsScript(uri, aCrossOrigin, aType);
+  if (mDocument->Preloads().PreloadExists(key)) {
     return;
   }
   mDocument->ScriptLoader()->PreloadURI(

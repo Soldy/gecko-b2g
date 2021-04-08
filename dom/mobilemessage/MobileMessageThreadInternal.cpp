@@ -19,7 +19,8 @@ NS_IMPL_ISUPPORTS(MobileMessageThreadInternal, nsIMobileMessageThread)
     uint64_t aId, const JS::Value& aParticipants, uint64_t aTimestamp,
     const nsAString& aLastMessageSubject, const nsAString& aBody,
     uint64_t aUnreadCount, const nsAString& aLastMessageType, bool aIsGroup,
-    JSContext* aCx, nsIMobileMessageThread** aThread) {
+    const nsAString& aLastMessageAttachmentStatus, JSContext* aCx,
+    nsIMobileMessageThread** aThread) {
   *aThread = nullptr;
 
   // ThreadData exposes these as references, so we can simply assign
@@ -81,6 +82,23 @@ NS_IMPL_ISUPPORTS(MobileMessageThreadInternal, nsIMobileMessageThread)
     data.lastMessageType() = lastMessageType;
   }
 
+  // Set |lastAttachmentStatus|.
+  {
+    AttachmentStatus lastAttachmentStatus;
+    if (aLastMessageAttachmentStatus.Equals(ATTACHMENT_STATUS_NONE)) {
+      lastAttachmentStatus = eAttachmentStatus_None;
+    } else if (aLastMessageAttachmentStatus.Equals(
+                   ATTACHMENT_STATUS_NOT_DOWNLOADED)) {
+      lastAttachmentStatus = eAttachmentStatus_NotDownloaded;
+    } else if (aLastMessageAttachmentStatus.Equals(
+                   ATTACHMENT_STATUS_DOWNLOADED)) {
+      lastAttachmentStatus = eAttachmentStatus_Downloaded;
+    } else {
+      return NS_ERROR_INVALID_ARG;
+    }
+    data.lastMessageAttachmentStatus() = lastAttachmentStatus;
+  }
+
   data.isGroup() = aIsGroup;
 
   nsCOMPtr<nsIMobileMessageThread> thread =
@@ -92,9 +110,11 @@ NS_IMPL_ISUPPORTS(MobileMessageThreadInternal, nsIMobileMessageThread)
 MobileMessageThreadInternal::MobileMessageThreadInternal(
     uint64_t aId, const nsTArray<nsString>& aParticipants, uint64_t aTimestamp,
     const nsString& aLastMessageSubject, const nsString& aBody,
-    uint64_t aUnreadCount, MessageType aLastMessageType, bool aIsGroup)
+    uint64_t aUnreadCount, MessageType aLastMessageType, bool aIsGroup,
+    AttachmentStatus aLastMessageAttachmentStatus)
     : mData(aId, aParticipants, aTimestamp, aLastMessageSubject, aBody,
-            aUnreadCount, aLastMessageType, aIsGroup) {
+            aUnreadCount, aLastMessageType, aIsGroup,
+            aLastMessageAttachmentStatus) {
   MOZ_ASSERT(aParticipants.Length());
 }
 
@@ -164,6 +184,27 @@ MobileMessageThreadInternal::GetLastMessageType(nsAString& aLastMessageType) {
 NS_IMETHODIMP
 MobileMessageThreadInternal::GetIsGroup(bool* aIsGroup) {
   *aIsGroup = mData.isGroup();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+MobileMessageThreadInternal::GetLastMessageAttachmentStatus(
+    nsAString& aLastMessageAttachmentStatus) {
+  switch (mData.lastMessageAttachmentStatus()) {
+    case eAttachmentStatus_None:
+      aLastMessageAttachmentStatus = ATTACHMENT_STATUS_NONE;
+      break;
+    case eAttachmentStatus_NotDownloaded:
+      aLastMessageAttachmentStatus = ATTACHMENT_STATUS_NOT_DOWNLOADED;
+      break;
+    case eAttachmentStatus_Downloaded:
+      aLastMessageAttachmentStatus = ATTACHMENT_STATUS_DOWNLOADED;
+      break;
+    case eAttachmentStatus_EndGuard:
+    default:
+      MOZ_CRASH("We shouldn't get any other attchment status!");
+  }
+
   return NS_OK;
 }
 

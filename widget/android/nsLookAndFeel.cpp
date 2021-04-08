@@ -20,11 +20,7 @@ using mozilla::dom::ContentChild;
 
 static const char16_t UNICODE_BULLET = 0x2022;
 
-nsLookAndFeel::nsLookAndFeel(const LookAndFeelCache* aCache) {
-  if (aCache) {
-    DoSetCache(*aCache);
-  }
-}
+nsLookAndFeel::nsLookAndFeel() = default;
 
 nsLookAndFeel::~nsLookAndFeel() {}
 
@@ -81,11 +77,10 @@ void nsLookAndFeel::RefreshImpl() {
 
   mInitializedSystemColors = false;
   mInitializedShowPassword = false;
-  mPrefersReducedMotionCached = false;
-  mSystemUsesDarkThemeCached = false;
 }
 
-nsresult nsLookAndFeel::NativeGetColor(ColorID aID, nscolor& aColor) {
+nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme,
+                                       nscolor& aColor) {
   nsresult rv = NS_OK;
 
   EnsureInitSystemColors();
@@ -362,10 +357,6 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       aResult = eScrollThumbStyle_Proportional;
       break;
 
-    case IntID::TouchEnabled:
-      aResult = 1;
-      break;
-
     case IntID::WindowsDefaultTheme:
     case IntID::WindowsThemeIdentifier:
     case IntID::OperatingSystemVersionIdentifier:
@@ -387,12 +378,7 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       break;
 
     case IntID::PrefersReducedMotion:
-      if (!mPrefersReducedMotionCached && XRE_IsParentProcess()) {
-        mPrefersReducedMotion =
-            java::GeckoSystemStateListener::PrefersReducedMotion();
-        mPrefersReducedMotionCached = true;
-      }
-      aResult = mPrefersReducedMotion;
+      aResult = java::GeckoSystemStateListener::PrefersReducedMotion();
       break;
 
     case IntID::PrimaryPointerCapabilities:
@@ -403,21 +389,8 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       break;
 
     case IntID::SystemUsesDarkTheme: {
-      if (!mSystemUsesDarkThemeCached && XRE_IsParentProcess()) {
-        // Bail out if AndroidBridge hasn't initialized since we try to query
-        // this value via nsMediaFeatures::InitSystemMetrics without
-        // initializing AndroidBridge on xpcshell tests.
-        if (!jni::IsAvailable()) {
-          return NS_ERROR_FAILURE;
-        }
-
-        java::GeckoRuntime::LocalRef runtime =
-            java::GeckoRuntime::GetInstance();
-        mSystemUsesDarkTheme = runtime && runtime->UsesDarkTheme();
-        mSystemUsesDarkThemeCached = true;
-      }
-
-      aResult = mSystemUsesDarkTheme;
+      java::GeckoRuntime::LocalRef runtime = java::GeckoRuntime::GetInstance();
+      aResult = runtime && runtime->UsesDarkTheme();
       break;
     }
 
@@ -494,40 +467,5 @@ void nsLookAndFeel::EnsureInitShowPassword() {
   if (!mInitializedShowPassword && jni::IsAvailable()) {
     mShowPassword = java::GeckoAppShell::GetShowPasswordSetting();
     mInitializedShowPassword = true;
-  }
-}
-
-widget::LookAndFeelCache nsLookAndFeel::GetCacheImpl() {
-  LookAndFeelCache cache = nsXPLookAndFeel::GetCacheImpl();
-
-  const IntID kIdsToCache[] = {IntID::PrefersReducedMotion,
-                               IntID::SystemUsesDarkTheme};
-
-  for (IntID id : kIdsToCache) {
-    cache.mInts().AppendElement(LookAndFeelInt(id, GetInt(id)));
-  }
-
-  return cache;
-}
-
-void nsLookAndFeel::SetCacheImpl(const LookAndFeelCache& aCache) {
-  DoSetCache(aCache);
-}
-
-void nsLookAndFeel::DoSetCache(const LookAndFeelCache& aCache) {
-  for (const auto& entry : aCache.mInts()) {
-    switch (entry.id()) {
-      case IntID::PrefersReducedMotion:
-        mPrefersReducedMotion = entry.value();
-        mPrefersReducedMotionCached = true;
-        break;
-      case IntID::SystemUsesDarkTheme:
-        mSystemUsesDarkTheme = !!entry.value();
-        mSystemUsesDarkThemeCached = true;
-        break;
-      default:
-        MOZ_ASSERT_UNREACHABLE("Bogus Int ID in cache");
-        break;
-    }
   }
 }

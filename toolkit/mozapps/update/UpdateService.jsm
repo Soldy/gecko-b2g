@@ -39,6 +39,17 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.jsm",
 });
 
+if (AppConstants.ENABLE_REMOTE_AGENT) {
+  XPCOMUtils.defineLazyServiceGetter(
+    this,
+    "RemoteAgent",
+    "@mozilla.org/remote/agent;1",
+    "nsIRemoteAgent"
+  );
+} else {
+  this.RemoteAgent = { listening: false };
+}
+
 const UPDATESERVICE_CID = Components.ID(
   "{B3C290A6-3943-4B89-8BBE-C01EB7B3B311}"
 );
@@ -159,6 +170,17 @@ const WRITE_ERROR_DIR_ACCESS_DENIED = 68;
 const WRITE_ERROR_DELETE_BACKUP = 69;
 const WRITE_ERROR_EXTRACT = 70;
 
+// Error codes 80 through 99 are reserved for UpdateService.jsm and are not
+// defined in common/updatererrors.h
+const ERR_OLDER_VERSION_OR_SAME_BUILD = 90;
+const ERR_UPDATE_STATE_NONE = 91;
+const ERR_CHANNEL_CHANGE = 92;
+const INVALID_UPDATER_STATE_CODE = 98;
+const INVALID_UPDATER_STATUS_CODE = 99;
+
+const BACKGROUND_TASK_NEEDED_ELEVATION_ERROR = 105;
+const WRITE_ERROR_BACKGROUND_TASK_SHARING_VIOLATION = 106;
+
 // Array of write errors to simplify checks for write errors
 const WRITE_ERRORS = [
   WRITE_ERROR,
@@ -174,6 +196,7 @@ const WRITE_ERRORS = [
   WRITE_ERROR_DIR_ACCESS_DENIED,
   WRITE_ERROR_DELETE_BACKUP,
   WRITE_ERROR_EXTRACT,
+  WRITE_ERROR_BACKGROUND_TASK_SHARING_VIOLATION,
 ];
 
 // Array of write errors to simplify checks for service errors
@@ -193,14 +216,6 @@ const SERVICE_ERRORS = [
   SERVICE_STILL_APPLYING_NO_EXIT_CODE,
   SERVICE_COULD_NOT_IMPERSONATE,
 ];
-
-// Error codes 80 through 99 are reserved for nsUpdateService.js and are not
-// defined in common/updatererrors.h
-const ERR_OLDER_VERSION_OR_SAME_BUILD = 90;
-const ERR_UPDATE_STATE_NONE = 91;
-const ERR_CHANNEL_CHANGE = 92;
-const INVALID_UPDATER_STATE_CODE = 98;
-const INVALID_UPDATER_STATUS_CODE = 99;
 
 // Custom update error codes
 const BACKGROUNDCHECK_MULTIPLE_FAILURES = 110;
@@ -280,6 +295,14 @@ var gBITSInUseByAnotherUser = false;
 // accurate than checking for STATE_APPLYING because there are brief periods of
 // time at the beginning and end of staging when that will not be the state.
 let gStagingInProgress = false;
+// The update service can be invoked as part of a standalone headless background
+// task.  In this context, when the background task kicks off an update
+// download, we don't want it to move on to staging. As soon as the download has
+// kicked off, the task begins shutting down and, even if the the download
+// completes incredibly quickly, we don't want staging to begin while we are
+// shutting down. That isn't a well tested scenario and it's possible that it
+// could leave us in a bad state.
+let gOnlyDownloadUpdatesThisSession = false;
 
 XPCOMUtils.defineLazyGetter(this, "gLogEnabled", function aus_gLogEnabled() {
   return (
@@ -708,6 +731,15 @@ function getCanApplyUpdates() {
       // in nsXULAppInfo::GetUserCanElevate which is located in nsAppRunner.cpp.
       let userCanElevate = Services.appinfo.QueryInterface(Ci.nsIWinAppHelper)
         .userCanElevate;
+      const bts =
+        "@mozilla.org/backgroundtasks;1" in Cc &&
+        Cc["@mozilla.org/backgroundtasks;1"].getService(Ci.nsIBackgroundTasks);
+      if (bts && bts.isBackgroundTaskMode) {
+        LOG(
+          "getCanApplyUpdates - in background task mode, assuming user can't elevate"
+        );
+        userCanElevate = false;
+      }
       if (!userCanElevate) {
         // if we're unable to create the test file this will throw an exception.
         let appDirTestFile = getAppBaseDir();
@@ -793,9 +825,11 @@ XPCOMUtils.defineLazyGetter(
 /**
  * Whether or not the application can stage an update.
  *
+ * @param {boolean} [transient] Whether transient factors such as the update
+ *        mutex should be considered.
  * @return true if updates can be staged.
  */
-function getCanStageUpdates() {
+function getCanStageUpdates(transient = true) {
   // If staging updates are disabled, then just bail out!
   if (!Services.prefs.getBoolPref(PREF_APP_UPDATE_STAGING_ENABLED, false)) {
     LOG(
@@ -812,7 +846,7 @@ function getCanStageUpdates() {
     return true;
   }
 
-  if (!hasUpdateMutex()) {
+  if (transient && !hasUpdateMutex()) {
     LOG(
       "getCanStageUpdates - unable to apply updates because another " +
         "instance of the application is already handling updates for this " +
@@ -827,6 +861,8 @@ function getCanStageUpdates() {
 /*
  * Whether or not the application can use BITS to download updates.
  *
+ * @param {boolean} [transient] Whether transient factors such as the update
+ *        mutex should be considered.
  * @return A string with one of these values:
  *           CanUseBits
  *           NoBits_NotWindows
@@ -839,7 +875,7 @@ function getCanStageUpdates() {
  *         probes. If this function is made to return other values, they should
  *         also be added to the labels lists for those probes in Histograms.json
  */
-function getCanUseBits() {
+function getCanUseBits(transient = true) {
   if (AppConstants.platform != "win") {
     LOG("getCanUseBits - Not using BITS because this is not Windows");
     return "NoBits_NotWindows";
@@ -853,10 +889,6 @@ function getCanUseBits() {
     LOG("getCanUseBits - Not using BITS. Disabled by pref.");
     return "NoBits_Pref";
   }
-  if (gBITSInUseByAnotherUser) {
-    LOG("getCanUseBits - Not using BITS. Already in use by another user");
-    return "NoBits_OtherUser";
-  }
   // Firefox support for passing proxies to BITS is still rudimentary.
   // For now, disable BITS support on configurations that are not using the
   // standard system proxy.
@@ -868,6 +900,10 @@ function getCanUseBits() {
   ) {
     LOG("getCanUseBits - Not using BITS because of proxy usage");
     return "NoBits_Proxy";
+  }
+  if (transient && gBITSInUseByAnotherUser) {
+    LOG("getCanUseBits - Not using BITS. Already in use by another user");
+    return "NoBits_OtherUser";
   }
   LOG("getCanUseBits - BITS can be used to download updates");
   return "CanUseBits";
@@ -1450,6 +1486,25 @@ function handleUpdateFailure(update, errorCode) {
     return true;
   }
 
+  if (update.errorCode == BACKGROUND_TASK_NEEDED_ELEVATION_ERROR) {
+    // There's no need to count attempts and escalate: it's expected that the
+    // background update task will try to update and fail due to required
+    // elevation repeatedly if, for example, the maintenance service is not
+    // available (or not functioning) and the installation requires privileges
+    // to update.
+
+    let bestState = getBestPendingState();
+    LOG(
+      "handleUpdateFailure - witnessed BACKGROUND_TASK_NEEDED_ELEVATION_ERROR, " +
+        "returning to " +
+        bestState
+    );
+    writeStatusFile(getReadyUpdateDir(), (update.state = bestState));
+
+    // Return true to indicate a recoverable error.
+    return true;
+  }
+
   if (update.errorCode == ELEVATION_CANCELED) {
     let elevationAttempts = Services.prefs.getIntPref(
       PREF_APP_UPDATE_ELEVATE_ATTEMPTS,
@@ -1588,7 +1643,7 @@ function getPatchOfType(update, patch_type) {
  *
  * @param postStaging true if we have just attempted to stage an update.
  */
-function handleFallbackToCompleteUpdate(postStaging) {
+async function handleFallbackToCompleteUpdate(postStaging) {
   // If we failed to install an update, we need to fall back to a complete
   // update. If the install directory has been modified, more partial updates
   // will fail for the same reason. Since we only download partial updates
@@ -1614,7 +1669,7 @@ function handleFallbackToCompleteUpdate(postStaging) {
     return;
   }
 
-  aus.stopDownload();
+  await aus.stopDownload();
   cleanupActiveUpdates();
 
   if (!update.selectedPatch) {
@@ -2498,6 +2553,13 @@ UpdateService.prototype = {
    *          Additional data
    */
   observe: async function AUS_observe(subject, topic, data) {
+    // Background tasks do not notify any delayed startup notificatons.  The
+    // intentional fallthrough blocks below make it awkward to define this locally.
+    const bts =
+      "@mozilla.org/backgroundtasks;1" in Cc &&
+      Cc["@mozilla.org/backgroundtasks;1"].getService(Ci.nsIBackgroundTasks);
+    let isBackgroundTaskMode = bts && bts.isBackgroundTaskMode;
+
     switch (topic) {
       case "post-update-processing":
         // This pref was not cleared out of profiles after it stopped being used
@@ -2506,7 +2568,7 @@ UpdateService.prototype = {
         Services.prefs.clearUserPref("app.update.enabled");
         Services.prefs.clearUserPref("app.update.BITS.inTrialGroup");
 
-        if (Services.appinfo.ID in APPID_TO_TOPIC) {
+        if (!isBackgroundTaskMode && Services.appinfo.ID in APPID_TO_TOPIC) {
           // Delay post-update processing to ensure that possible update
           // dialogs are shown in front of the app window, if possible.
           // See bug 311614.
@@ -2516,7 +2578,7 @@ UpdateService.prototype = {
       // intentional fallthrough
       case "sessionstore-windows-restored":
       case "mail-startup-done":
-        if (Services.appinfo.ID in APPID_TO_TOPIC) {
+        if (!isBackgroundTaskMode && Services.appinfo.ID in APPID_TO_TOPIC) {
           Services.obs.removeObserver(
             this,
             APPID_TO_TOPIC[Services.appinfo.ID]
@@ -2525,7 +2587,7 @@ UpdateService.prototype = {
       // intentional fallthrough
       case "test-post-update-processing":
         // Clean up any extant updates
-        this._postUpdateProcessing();
+        await this._postUpdateProcessing();
         break;
       case "network:offline-status-changed":
         this._offlineStatusChanged(data);
@@ -2570,8 +2632,13 @@ UpdateService.prototype = {
         // be resumed the next time the application starts. Downloads using
         // Windows BITS are not stopped since they don't require Firefox to be
         // running to perform the download.
-        if (this._downloader && !this._downloader.usingBits) {
-          this.stopDownload();
+        if (this._downloader) {
+          if (this._downloader.usingBits) {
+            await this._downloader.cleanup();
+          } else {
+            // stopDownload() calls _downloader.cleanup()
+            await this.stopDownload();
+          }
         }
         // Prevent leaking the downloader (bug 454964)
         this._downloader = null;
@@ -2612,7 +2679,7 @@ UpdateService.prototype = {
    * notify the user of install success.
    */
   /* eslint-disable-next-line complexity */
-  _postUpdateProcessing: function AUS__postUpdateProcessing() {
+  _postUpdateProcessing: async function AUS__postUpdateProcessing() {
     if (this.disabledByPolicy) {
       // This function is a point when we can potentially enter the update
       // system, even with update disabled. Make sure that we do not continue
@@ -2930,7 +2997,7 @@ UpdateService.prototype = {
       }
 
       // Something went wrong with the patch application process.
-      handleFallbackToCompleteUpdate(false);
+      await handleFallbackToCompleteUpdate(false);
     }
   },
 
@@ -3583,7 +3650,7 @@ UpdateService.prototype = {
     }
 
     return (
-      (Cu.isInAutomation || marionetteRunning) &&
+      (Cu.isInAutomation || marionetteRunning || RemoteAgent.listening) &&
       Services.prefs.getBoolPref(PREF_APP_UPDATE_DISABLEDFORTESTING, false)
     );
   },
@@ -3607,10 +3674,10 @@ UpdateService.prototype = {
   /**
    * See nsIUpdateService.idl
    */
-  get canCheckForUpdates() {
+  get canUsuallyCheckForUpdates() {
     if (this.disabledByPolicy) {
       LOG(
-        "UpdateService.canCheckForUpdates - unable to automatically check " +
+        "UpdateService.canUsuallyCheckForUpdates - unable to automatically check " +
           "for updates, the option has been disabled by the administrator."
       );
       return false;
@@ -3619,7 +3686,7 @@ UpdateService.prototype = {
     // If we don't know the binary platform we're updating, we can't update.
     if (!UpdateUtils.ABI) {
       LOG(
-        "UpdateService.canCheckForUpdates - unable to check for updates, " +
+        "UpdateService.canUsuallyCheckForUpdates - unable to check for updates, " +
           "unknown ABI"
       );
       return false;
@@ -3628,9 +3695,21 @@ UpdateService.prototype = {
     // If we don't know the OS version we're updating, we can't update.
     if (!UpdateUtils.OSVersion) {
       LOG(
-        "UpdateService.canCheckForUpdates - unable to check for updates, " +
+        "UpdateService.canUsuallyCheckForUpdates - unable to check for updates, " +
           "unknown OS version"
       );
+      return false;
+    }
+
+    LOG("UpdateService.canUsuallyCheckForUpdates - able to check for updates");
+    return true;
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  get canCheckForUpdates() {
+    if (!this.canUsuallyCheckForUpdates) {
       return false;
     }
 
@@ -3665,10 +3744,26 @@ UpdateService.prototype = {
   /**
    * See nsIUpdateService.idl
    */
+  get canUsuallyApplyUpdates() {
+    return getCanApplyUpdates();
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
   get canApplyUpdates() {
     return (
-      getCanApplyUpdates() && hasUpdateMutex() && !isOtherInstanceRunning()
+      this.canUsuallyApplyUpdates &&
+      hasUpdateMutex() &&
+      !isOtherInstanceRunning()
     );
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  get canUsuallyStageUpdates() {
+    return getCanStageUpdates(false);
   },
 
   /**
@@ -3676,6 +3771,20 @@ UpdateService.prototype = {
    */
   get canStageUpdates() {
     return getCanStageUpdates();
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  get canUsuallyUseBits() {
+    return getCanUseBits(false) == "CanUseBits";
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  get canUseBits() {
+    return getCanUseBits() == "CanUseBits";
   },
 
   /**
@@ -3841,17 +3950,20 @@ UpdateService.prototype = {
   /**
    * See nsIUpdateService.idl
    */
-  stopDownload: function AUS_stopDownload() {
+  stopDownload: async function AUS_stopDownload() {
     if (this.isDownloading) {
-      this._downloader.cancel();
+      await this._downloader.cancel();
     } else if (this._retryTimer) {
       // Download status is still considered as 'downloading' during retry.
       // We need to cancel both retry and download at this stage.
       this._retryTimer.cancel();
       this._retryTimer = null;
       if (this._downloader) {
-        this._downloader.cancel();
+        await this._downloader.cancel();
       }
+    }
+    if (this._downloader) {
+      await this._downloader.cleanup();
     }
     this._downloader = null;
   },
@@ -3910,6 +4022,20 @@ UpdateService.prototype = {
       }
     }
     LOG("End of UpdateService status");
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  get onlyDownloadUpdatesThisSession() {
+    return gOnlyDownloadUpdatesThisSession;
+  },
+
+  /**
+   * See nsIUpdateService.idl
+   */
+  set onlyDownloadUpdatesThisSession(newValue) {
+    gOnlyDownloadUpdatesThisSession = newValue;
   },
 
   classID: UPDATESERVICE_CID,
@@ -4353,7 +4479,7 @@ UpdateManager.prototype = {
         update.state = getBestPendingState();
         writeStatusFile(getReadyUpdateDir(), update.state);
       } else if (!handleUpdateFailure(update, parts[1])) {
-        handleFallbackToCompleteUpdate(true);
+        await handleFallbackToCompleteUpdate(true);
       }
     }
     if (update.state == STATE_APPLIED && shouldUseService()) {
@@ -4370,14 +4496,13 @@ UpdateManager.prototype = {
 
     // Send an observer notification which the app update doorhanger uses to
     // display a restart notification after any langpacks have staged.
-    promiseLangPacksUpdated(update).then(() => {
-      LOG(
-        "UpdateManager:refreshUpdateStatus - Notifying observers that " +
-          "the update was staged. topic: update-staged, status: " +
-          update.state
-      );
-      Services.obs.notifyObservers(update, "update-staged", update.state);
-    });
+    await promiseLangPacksUpdated(update);
+    LOG(
+      "UpdateManager:refreshUpdateStatus - Notifying observers that " +
+        "the update was staged. topic: update-staged, status: " +
+        update.state
+    );
+    Services.obs.notifyObservers(update, "update-staged", update.state);
   },
 
   /**
@@ -4891,6 +5016,14 @@ Downloader.prototype = {
   _langPackTimeout: null,
 
   /**
+   * If gOnlyDownloadUpdatesThisSession is true, we prevent the update process
+   * from progressing past the downloading stage. If the download finishes,
+   * pretend that it hasn't in order to keep the current update in the
+   * "downloading" state.
+   */
+  _pretendingDownloadIsNotDone: false,
+
+  /**
    * Cancels the active download.
    *
    * For a BITS download, this will cancel and remove the download job. For
@@ -4930,7 +5063,21 @@ Downloader.prototype = {
         throw e;
       }
     } else if (this._request && this._request instanceof Ci.nsIRequest) {
-      this._request.cancel(cancelError);
+      // Normally, cancelling an nsIIncrementalDownload results in it stopping
+      // the download but leaving the downloaded data so that we can resume the
+      // download later. If we've already finished the download, there is no
+      // transfer to stop.
+      // Note that this differs from the BITS case. Cancelling a BITS job, even
+      // when the transfer has completed, results in all data being deleted.
+      // Therefore, even if the transfer has completed, cancelling a BITS job
+      // has effects that we must not skip.
+      if (this._pretendingDownloadIsNotDone) {
+        LOG(
+          "Downloader: cancel - Ignoring cancel request of finished download"
+        );
+      } else {
+        this._request.cancel(cancelError);
+      }
     }
   },
 
@@ -5612,6 +5759,22 @@ Downloader.prototype = {
    */
   /* eslint-disable-next-line complexity */
   onStopRequest: async function Downloader_onStopRequest(request, status) {
+    if (gOnlyDownloadUpdatesThisSession) {
+      LOG(
+        "Downloader:onStopRequest - End of update download detected and " +
+          "ignored because we are restricted to update downloads this " +
+          "session. We will continue with this update next session."
+      );
+      // In order to keep the update from progressing past the downloading
+      // stage, we will pretend that the download is still going.
+      // A lot of this work is done for us by just not setting this._request to
+      // null, which usually signals that the transfer has completed.
+      this._pretendingDownloadIsNotDone = true;
+      // This notification is currently used only for testing.
+      Services.obs.notifyObservers(null, "update-download-restriction-hit");
+      return;
+    }
+
     if (!this.usingBits) {
       LOG(
         "Downloader:onStopRequest - downloader: nsIIncrementalDownload, " +
@@ -6108,13 +6271,12 @@ Downloader.prototype = {
    * This function should be called when shutting down so that resources get
    * freed properly.
    */
-  cleanup: function Downloader_cleanup() {
+  cleanup: async function Downloader_cleanup() {
     if (this.usingBits) {
       if (this._pendingRequest) {
-        this._pendingRequest.then(() => this._request.shutdown());
-      } else {
-        this._request.shutdown();
+        await this._pendingRequest;
       }
+      this._request.shutdown();
     }
   },
 

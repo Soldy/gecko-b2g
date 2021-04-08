@@ -333,6 +333,7 @@
     "recordingstatus",
     "resize",
     "scroll",
+    "showmodalprompt",
   ];
 
   class WebView extends HTMLElement {
@@ -610,6 +611,7 @@
         case "recordingstatus":
         case "resize":
         case "scroll":
+        case "showmodalprompt":
           this.dispatchCustomEvent(event.type, event.detail);
           break;
         case "backgroundcolor":
@@ -822,6 +824,11 @@
     deactivateKeyForwarding() {
       this.log(`deactivateKeyForwarding`);
       Services.KeyboardAppProxy.deactivate();
+    }
+
+    download(url) {
+      this.log(`download ${url}`);
+      this.browser?.webViewDownload(url);
     }
   }
 

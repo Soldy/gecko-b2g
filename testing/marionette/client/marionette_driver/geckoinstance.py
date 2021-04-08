@@ -82,9 +82,6 @@ class GeckoInstance(object):
         # Disable idle-daily notifications to avoid expensive operations
         # that may cause unexpected test timeouts.
         "idle.lastDailyNotification": -1,
-        "javascript.options.showInConsole": True,
-        # (deprecated and can be removed when Firefox 60 ships)
-        "marionette.defaultPrefs.enabled": True,
         # Disable recommended automation prefs in CI
         "marionette.prefs.recommended": False,
         # Disable download and usage of OpenH264, and Widevine plugins
@@ -275,10 +272,9 @@ class GeckoInstance(object):
             args["preferences"].update(
                 {
                     "devtools.browsertoolbox.panel": "jsdebugger",
-                    "devtools.debugger.remote-enabled": True,
                     "devtools.chrome.enabled": True,
                     "devtools.debugger.prompt-connection": False,
-                    "marionette.debugging.clicktostart": True,
+                    "devtools.debugger.remote-enabled": True,
                 }
             )
 
@@ -316,10 +312,10 @@ class GeckoInstance(object):
         }
 
         if self.gecko_log == "-":
-            if six.PY2:
-                process_args["stream"] = codecs.getwriter("utf-8")(sys.stdout)
-            else:
+            if hasattr(sys.stdout, "buffer"):
                 process_args["stream"] = codecs.getwriter("utf-8")(sys.stdout.buffer)
+            else:
+                process_args["stream"] = codecs.getwriter("utf-8")(sys.stdout)
         else:
             process_args["logfile"] = self.gecko_log
 

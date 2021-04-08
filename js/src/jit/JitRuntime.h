@@ -26,6 +26,7 @@
 #include "jit/JitCode.h"
 #include "jit/shared/Assembler-shared.h"
 #include "js/AllocPolicy.h"
+#include "js/ProfilingFrameIterator.h"
 #include "js/TypeDecls.h"
 #include "js/UniquePtr.h"
 #include "js/Vector.h"
@@ -166,7 +167,6 @@ class JitRuntime {
   WriteOnceData<uint32_t> stringPreBarrierOffset_{0};
   WriteOnceData<uint32_t> objectPreBarrierOffset_{0};
   WriteOnceData<uint32_t> shapePreBarrierOffset_{0};
-  WriteOnceData<uint32_t> objectGroupPreBarrierOffset_{0};
 
   // Thunk to call malloc/free.
   WriteOnceData<uint32_t> freeStubOffset_{0};
@@ -369,6 +369,13 @@ class JitRuntime {
                                trampolineCode(enterJITOffset_).value);
   }
 
+  // Return the registers from the native caller frame of the given JIT frame.
+  // Nothing{} if frameStackAddress is NOT pointing at a native-to-JIT entry
+  // frame, or if the information is not accessible/implemented on this
+  // platform.
+  static mozilla::Maybe<::JS::ProfilingFrameIterator::RegisterState>
+  getCppEntryRegisters(JitFrameLayout* frameStackAddress);
+
   TrampolinePtr preBarrier(MIRType type) const {
     switch (type) {
       case MIRType::Value:
@@ -379,8 +386,6 @@ class JitRuntime {
         return trampolineCode(objectPreBarrierOffset_);
       case MIRType::Shape:
         return trampolineCode(shapePreBarrierOffset_);
-      case MIRType::ObjectGroup:
-        return trampolineCode(objectGroupPreBarrierOffset_);
       default:
         MOZ_CRASH();
     }

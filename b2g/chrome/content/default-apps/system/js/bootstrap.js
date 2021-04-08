@@ -8,7 +8,7 @@ document.addEventListener(
   "DOMContentLoaded",
   () => {
     let wm = document.querySelector("gaia-wm");
-    wm.open_frame("resource://default-homescreen/index.html", {
+    wm.open_frame("resource://default-app-homescreen/index.html", {
       isHomescreen: true,
     });
   },

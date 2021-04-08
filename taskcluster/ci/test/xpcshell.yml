@@ -12,7 +12,6 @@ job-defaults:
         by-test-platform:
             android-em-7.*: geckoview-androidTest.apk
             default: null
-    fission-tier: 2
     mozharness:
         script:
             by-test-platform:
@@ -48,15 +47,18 @@ xpcshell:
     description: "xpcshell test run"
     treeherder-symbol: X(X)
     run-on-projects:
-        by-test-platform:
-            .*-tsan/opt: ['trunk']
-            windows10-64-asan/opt: []  # No XPCShell on ASAN yet
-            default: built-projects
+        by-variant:
+            fission: []
+            default:
+                by-test-platform:
+                    .*-tsan/opt: ['trunk']
+                    windows10-64-asan/opt: []  # No XPCShell on ASAN yet
+                    default: built-projects
     chunks:
         by-test-platform:
             .*-ccov.*/.*: 6
             windows10-64-ccov-qr/opt: 6
-            android-em-7.*: 4
+            android-em-7.*: 2
             gonk-b2g-em.*: 4
             macosx1014-64(-shippable|-devedition|-asan)?(-qr)?/.*: 2
             linux1804-64(-qr)?/debug: 6
@@ -69,14 +71,16 @@ xpcshell:
             windows(7-32|10-64)(-shippable)?/opt: 5400
             .*-ccov.*/.*: 7200
             .*-tsan/opt: 7200
-            android-em-7.*: 5400
             gonk-b2g-em.*: 5400
             default: 2700
     allow-software-gl-layers: false
     tier:
-        by-test-platform:
-            windows10-64-asan.*: 3
-            default: default
+        by-variant:
+            fission: 2
+            default:
+                by-test-platform:
+                    windows10-64-asan.*: 3
+                    default: default
     fetches:
         toolchain:
             by-test-platform:
@@ -112,7 +116,10 @@ xpcshell:
 xpcshell-apple-silicon:
     description: "xpcshell apple silicon specific failures test run"
     treeherder-symbol: X-f(AS)
-    run-on-projects: ["mozilla-central"]
+    run-on-projects:
+        by-variant:
+            fission: []
+            default: ["mozilla-central"]
     chunks: 2
     max-run-time: 2700
     allow-software-gl-layers: false
@@ -124,6 +131,8 @@ xpcshell-apple-silicon:
             - unittests/mac_unittest.py
         extra-options:
             - --run-failures=apple_silicon
+            - --timeout-as-pass
+            - --crash-as-pass
     fetches:
         toolchain:
             - macosx64-node

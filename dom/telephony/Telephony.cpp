@@ -428,9 +428,19 @@ nsresult Telephony::HandleCallInfo(nsITelephonyCallInfo* aInfo) {
   call->UpdateVerStatus(verStatus);
 
   nsAutoString number;
+  nsAutoString name;
+  uint16_t numberPresentation;
+  uint16_t namePresentation;
   aInfo->GetNumber(number);
+  aInfo->GetName(name);
+  aInfo->GetNumberPresentation(&numberPresentation);
+  aInfo->GetNamePresentation(&namePresentation);
   RefPtr<TelephonyCallId> id = call->Id();
   id->UpdateNumber(number);
+  id->UpdateName(name);
+  id->UpdateNumberPresentation(numberPresentation);
+  id->UpdateNamePresentation(namePresentation);
+
 
   nsAutoString disconnectedReason;
   aInfo->GetDisconnectedReason(disconnectedReason);
@@ -676,6 +686,53 @@ void Telephony::OwnAudioChannel(ErrorResult& aRv) {
   if (NS_WARN_IF(aRv.Failed())) {
     return;
   }
+}
+
+already_AddRefed<Promise> Telephony::SendUSSD(
+    const nsAString& aUssd, const Optional<uint32_t>& aServiceId,
+    ErrorResult& aRv) {
+  uint32_t serviceId = GetServiceId(aServiceId, true /* aGetIfActiveCall */);
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(GetOwner());
+  if (!global) {
+    return nullptr;
+  }
+
+  RefPtr<Promise> promise = Promise::Create(global, aRv);
+  if (aRv.Failed()) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsITelephonyCallback> callback = new TelephonyCallback(promise);
+
+  nsresult rv = mService->SendUSSD(serviceId, aUssd, callback);
+  if (NS_FAILED(rv)) {
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
+  }
+
+  return promise.forget();
+}
+
+already_AddRefed<Promise> Telephony::CancelUSSD(
+    const Optional<uint32_t>& aServiceId, ErrorResult& aRv) {
+  uint32_t serviceId = GetServiceId(aServiceId, true /* aGetIfActiveCall */);
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(GetOwner());
+  if (!global) {
+    return nullptr;
+  }
+
+  RefPtr<Promise> promise = Promise::Create(global, aRv);
+  if (aRv.Failed()) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsITelephonyCallback> callback = new TelephonyCallback(promise);
+
+  nsresult rv = mService->CancelUSSD(serviceId, callback);
+  if (NS_FAILED(rv)) {
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
+  }
+
+  return promise.forget();
 }
 
 nsresult Telephony::HandleAudioChannelState() {
@@ -1098,7 +1155,7 @@ already_AddRefed<nsITelephonyService> NS_CreateTelephonyService() {
     service = new mozilla::dom::telephony::TelephonyIPCService();
   } else {
 #if defined(MOZ_WIDGET_GONK) && defined(MOZ_B2G_RIL)
-    service = do_CreateInstance(GONK_TELEPHONY_SERVICE_CONTRACTID);
+    service = do_GetService(GONK_TELEPHONY_SERVICE_CONTRACTID);
 #endif
   }
 

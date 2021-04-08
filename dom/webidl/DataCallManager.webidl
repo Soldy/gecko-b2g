@@ -82,6 +82,9 @@ interface DataCall : EventTarget {
   // Network interface name.
   readonly attribute DOMString name;
 
+  // Network interface id.
+  readonly attribute DOMString netId;
+
   // List of ip addresses with prefix length.
   //[Cached, Pure]
   //readonly attribute sequence<DOMString> addresses;

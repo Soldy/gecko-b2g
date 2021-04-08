@@ -315,7 +315,7 @@ void nsDOMCameraManager::Register(nsDOMCameraControl* aDOMCameraControl) {
 
   CameraControls* controls = sActiveWindows->Get(mWindowId);
   if (!controls) {
-    controls = sActiveWindows->Put(mWindowId, MakeUnique<CameraControls>()).get();
+    controls = sActiveWindows->InsertOrUpdate(mWindowId, MakeUnique<CameraControls>()).get();
   }
 
   // Remove any stale CameraControl objects to limit our memory usage

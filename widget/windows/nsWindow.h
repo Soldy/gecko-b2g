@@ -42,7 +42,7 @@
 
 #ifdef ACCESSIBILITY
 #  include "oleacc.h"
-#  include "mozilla/a11y/Accessible.h"
+#  include "mozilla/a11y/LocalAccessible.h"
 #endif
 
 #include "nsUXThemeData.h"
@@ -222,14 +222,16 @@ class nsWindow final : public nsWindowBase {
       int32_t aNativeKeyboardLayout, int32_t aNativeKeyCode,
       uint32_t aModifierFlags, const nsAString& aCharacters,
       const nsAString& aUnmodifiedCharacters, nsIObserver* aObserver) override;
-  virtual nsresult SynthesizeNativeMouseEvent(LayoutDeviceIntPoint aPoint,
-                                              uint32_t aNativeMessage,
-                                              uint32_t aModifierFlags,
-                                              nsIObserver* aObserver) override;
+  virtual nsresult SynthesizeNativeMouseEvent(
+      LayoutDeviceIntPoint aPoint, NativeMouseMessage aNativeMessage,
+      mozilla::MouseButton aButton, nsIWidget::Modifiers aModifierFlags,
+      nsIObserver* aObserver) override;
 
   virtual nsresult SynthesizeNativeMouseMove(LayoutDeviceIntPoint aPoint,
                                              nsIObserver* aObserver) override {
-    return SynthesizeNativeMouseEvent(aPoint, MOUSEEVENTF_MOVE, 0, aObserver);
+    return SynthesizeNativeMouseEvent(
+        aPoint, NativeMouseMessage::Move, mozilla::MouseButton::eNotPressed,
+        nsIWidget::Modifiers::NO_MODIFIERS, aObserver);
   }
 
   virtual nsresult SynthesizeNativeMouseScrollEvent(
@@ -275,7 +277,7 @@ class nsWindow final : public nsWindowBase {
   /**
    * Return an accessible associated with the window.
    */
-  mozilla::a11y::Accessible* GetAccessible();
+  mozilla::a11y::LocalAccessible* GetAccessible();
 #endif  // ACCESSIBILITY
 
   /**
@@ -292,6 +294,7 @@ class nsWindow final : public nsWindowBase {
    * Misc.
    */
   virtual bool AutoErase(HDC dc);
+  bool WidgetTypePrefersSoftwareWebRender() const override;
   bool WidgetTypeSupportsAcceleration() override;
 
   void ForcePresent();

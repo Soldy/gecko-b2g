@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  */
-enum MsgAttachmentStatus {"none-attachment", "not-download", "has-attachment"};
 [Pref="dom.sms.enabled",
  Func="B2G::HasMobileMessageSupport",
  Exposed=Window]
@@ -48,5 +47,11 @@ interface MobileMessageThread {
     * The flag to indicate that a group flag.
     */
   readonly attribute boolean isGroup;
+
+  /**
+   * Attachment status of the last message in the thread.
+   * Should be "none", "not-downloaded", or "downloaded".
+   */
+  readonly attribute DOMString lastMessageAttachmentStatus;
 
 };

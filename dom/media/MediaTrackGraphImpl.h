@@ -118,7 +118,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
                                TrackRate aSampleRate, uint32_t aChannelCount,
                                dom::AudioChannel aChannel,
                                CubebUtils::AudioDeviceID aOutputDeviceID,
-                               AbstractThread* aWindow);
+                               nsISerialEventTarget* aWindow);
 
   // Intended only for assertions, either on graph thread or not running (in
   // which case we must be on the main thread).
@@ -497,7 +497,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
     MOZ_ASSERT(OnGraphThreadOrNotRunning());
 
 #ifdef ANDROID
-    if (!mInputDeviceUsers.GetValue(mInputDeviceID)) {
+    if (!mInputDeviceUsers.Contains(mInputDeviceID)) {
       return 0;
     }
 #else
@@ -511,10 +511,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
     uint32_t maxInputChannels = 0;
     // When/if we decide to support multiple input device per graph, this needs
     // loop over them.
-    nsTArray<RefPtr<AudioDataListener>>* listeners =
-        mInputDeviceUsers.GetValue(mInputDeviceID);
-    MOZ_ASSERT(listeners);
-    for (const auto& listener : *listeners) {
+    for (const auto& listener : *mInputDeviceUsers.Lookup(mInputDeviceID)) {
       maxInputChannels = std::max(maxInputChannels,
                                   listener->RequestedInputChannelCount(this));
     }
@@ -524,17 +521,16 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
   AudioInputType AudioInputDevicePreference() {
     MOZ_ASSERT(OnGraphThreadOrNotRunning());
 
-    if (!mInputDeviceUsers.GetValue(mInputDeviceID)) {
+    auto listeners = mInputDeviceUsers.Lookup(mInputDeviceID);
+    if (!listeners) {
       return AudioInputType::Unknown;
     }
     bool voiceInput = false;
     // When/if we decide to support multiple input device per graph, this needs
     // loop over them.
-    nsTArray<RefPtr<AudioDataListener>>* listeners =
-        mInputDeviceUsers.GetValue(mInputDeviceID);
-    MOZ_ASSERT(listeners);
 
     // If at least one track is considered to be voice,
+    // XXX This could use short-circuit evaluation resp. std::any_of.
     for (const auto& listener : *listeners) {
       voiceInput |= listener->IsVoiceInput(this);
     }
@@ -553,8 +549,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
     *aEnableAgc = false;
     *aEnableNs = false;
 
-    nsTArray<RefPtr<AudioDataListener>>* listeners =
-        mInputDeviceUsers.GetValue(mInputDeviceID);
+    auto listeners = mInputDeviceUsers.Lookup(mInputDeviceID);
     if (!listeners) {
       return;
     }
@@ -800,7 +795,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
   // used to deliver audio input frames and to notify the listeners that the
   // audio device that delivers the audio frames has changed.
   // This is only touched on the graph thread.
-  nsDataHashtable<nsVoidPtrHashKey, nsTArray<RefPtr<AudioDataListener>>>
+  nsTHashMap<nsVoidPtrHashKey, nsTArray<RefPtr<AudioDataListener>>>
       mInputDeviceUsers;
 
   /**
@@ -1000,7 +995,7 @@ class MediaTrackGraphImpl : public MediaTrackGraph,
    * blocking order.
    */
   bool mTrackOrderDirty;
-  const RefPtr<AbstractThread> mAbstractMainThread;
+  const RefPtr<nsISerialEventTarget> mMainThread;
 
   dom::AudioChannel AudioChannel() const override { return mAudioChannel; }
 

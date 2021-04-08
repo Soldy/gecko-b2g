@@ -47,6 +47,7 @@ class GonkOffloadPlayer : public MediaOffloadPlayer,
   void PlaybackSettingsChanged();
   // Must be called after matadata is loaded.
   bool VideoEnabled() { return mInfo.HasVideo() && mVideoFrameContainer; }
+  void UpdateAudibleState();
 
   bool mPrepared = false;
   bool mVisibleSeek = false;

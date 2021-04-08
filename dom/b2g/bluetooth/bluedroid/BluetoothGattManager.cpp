@@ -15,7 +15,7 @@
 #include "mozilla/dom/bluetooth/BluetoothCommon.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "nsIObserverService.h"
 #include "nsThreadUtils.h"
 
@@ -277,7 +277,7 @@ class BluetoothGattServer final : public nsISupports {
   RefPtr<BluetoothReplyRunnable> mSendIndicationRunnable;
 
   // Map connection id from device address
-  nsDataHashtable<BluetoothAddressHashKey, int> mConnectionMap;
+  nsTHashMap<BluetoothAddressHashKey, int> mConnectionMap;
 
  private:
   ~BluetoothGattServer() {}
@@ -1875,7 +1875,7 @@ void BluetoothGattManager::ConnectPeripheral(
     return;
   }
 
-  server->mConnectionMap.Put(aAddress, 0);
+  server->mConnectionMap.InsertOrUpdate(aAddress, 0);
   server->mConnectPeripheralRunnable = aRunnable;
 
   if (server->mServerIf > 0) {
@@ -3042,7 +3042,7 @@ void BluetoothGattManager::ConnectionNotification(
 
   // Update the connection map based on the connection status
   if (aConnected) {
-    server->mConnectionMap.Put(aBdAddr, aConnId);
+    server->mConnectionMap.InsertOrUpdate(aBdAddr, aConnId);
   } else {
     server->mConnectionMap.Remove(aBdAddr);
   }

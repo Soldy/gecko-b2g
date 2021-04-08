@@ -14,6 +14,7 @@
 
 #include "mozilla/dom/BluetoothMapParametersBinding.h"
 #include "mozilla/EndianUtils.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"

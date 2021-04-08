@@ -72,7 +72,10 @@ async function promptNoDelegate(aThirdPartyOrgin, audio = true, video = true) {
     `expected camera to be ${video ? "" : "not"} shared`
   );
   await indicator;
-  await checkSharingUI({ audio, video });
+  await checkSharingUI({ audio, video }, undefined, undefined, {
+    video: { scope: SitePermissions.SCOPE_PERSISTENT },
+    audio: { scope: SitePermissions.SCOPE_PERSISTENT },
+  });
 
   // Cleanup.
   await closeStream(false, "frame4");
@@ -94,8 +97,12 @@ async function promptNoDelegateScreenSharing(aThirdPartyOrgin) {
 
   checkDeviceSelectors(false, false, true);
   const notification = PopupNotifications.panel.firstElementChild;
-  const iconclass = notification.getAttribute("iconclass");
-  ok(iconclass.includes("screen-icon"), "panel using screen icon");
+
+  // With Proton enabled, the icon does not appear in the panel.
+  if (!gProtonDoorhangers) {
+    const iconclass = notification.getAttribute("iconclass");
+    ok(iconclass.includes("screen-icon"), "panel using screen icon");
+  }
 
   // The 'Remember this decision' checkbox is hidden.
   const checkbox = notification.checkbox;
@@ -144,7 +151,9 @@ async function promptNoDelegateScreenSharing(aThirdPartyOrgin) {
   );
 
   await indicator;
-  await checkSharingUI({ screen: "Screen" });
+  await checkSharingUI({ screen: "Screen" }, undefined, undefined, {
+    screen: { scope: SitePermissions.SCOPE_PERSISTENT },
+  });
   await closeStream(false, "frame4");
 
   PermissionTestUtils.remove(uri, "screen");
@@ -217,8 +226,12 @@ var gTests = [
 
       checkDeviceSelectors(false, false, true);
       const notification = PopupNotifications.panel.firstElementChild;
-      const iconclass = notification.getAttribute("iconclass");
-      ok(iconclass.includes("screen-icon"), "panel using screen icon");
+
+      // With Proton enabled, the icon does not appear in the panel.
+      if (!gProtonDoorhangers) {
+        const iconclass = notification.getAttribute("iconclass");
+        ok(iconclass.includes("screen-icon"), "panel using screen icon");
+      }
 
       // The 'Remember this decision' checkbox is visible.
       const checkbox = notification.checkbox;
@@ -728,7 +741,10 @@ var gTests = [
         "expected camera and microphone to be shared"
       );
       await indicator;
-      await checkSharingUI({ audio: true, video: true });
+      await checkSharingUI({ audio: true, video: true }, undefined, undefined, {
+        audio: { scope: SitePermissions.SCOPE_PERSISTENT },
+        video: { scope: SitePermissions.SCOPE_PERSISTENT },
+      });
       await closeStream(true);
 
       // Check that we get a prompt.

@@ -10,7 +10,7 @@ use crate::common::{JsonValue, ObjectRef, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub static SERVICE_FINGERPRINT: &str =
-    "c3459eb31483ae8ab5299bc3e983399f45953b5b04c2b2991ecaa61c34c761e";
+    "95202d3b4068cea1ee3924c7d9282b9c6f49b119da6d29ee65ab4233da4fcc1";
 
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
 pub enum CardInfoType {
@@ -128,43 +128,43 @@ pub enum GeckoBridgeFromClient {
 
 #[derive(Debug, Deserialize)]
 pub enum GeckoBridgeToClient {
-    GeckoFeaturesBoolPrefChangedSuccess,                 // 0
-    GeckoFeaturesBoolPrefChangedError,                   // 1
-    GeckoFeaturesCharPrefChangedSuccess,                 // 2
-    GeckoFeaturesCharPrefChangedError,                   // 3
-    GeckoFeaturesImportSimContactsSuccess,               // 4
-    GeckoFeaturesImportSimContactsError,                 // 5
-    GeckoFeaturesIntPrefChangedSuccess,                  // 6
-    GeckoFeaturesIntPrefChangedError,                    // 7
-    GeckoFeaturesRegisterTokenSuccess,                   // 8
-    GeckoFeaturesRegisterTokenError,                     // 9
-    GeckoFeaturesSetAppsServiceDelegateSuccess,          // 10
-    GeckoFeaturesSetAppsServiceDelegateError,            // 11
-    GeckoFeaturesSetMobileManagerDelegateSuccess,        // 12
-    GeckoFeaturesSetMobileManagerDelegateError,          // 13
-    GeckoFeaturesSetNetworkManagerDelegateSuccess,       // 14
-    GeckoFeaturesSetNetworkManagerDelegateError,         // 15
-    GeckoFeaturesSetPowerManagerDelegateSuccess,         // 16
-    GeckoFeaturesSetPowerManagerDelegateError,           // 17
-    GeckoFeaturesSetPreferenceDelegateSuccess,           // 18
-    GeckoFeaturesSetPreferenceDelegateError,             // 19
-    AppsServiceDelegateOnBoot(String, JsonValue),        // 20
-    AppsServiceDelegateOnBootDone,                       // 21
-    AppsServiceDelegateOnClear(String, String),          // 22
-    AppsServiceDelegateOnInstall(String, JsonValue),     // 23
-    AppsServiceDelegateOnUninstall(String),              // 24
-    AppsServiceDelegateOnUpdate(String, JsonValue),      // 25
-    MobileManagerDelegateGetCardInfo(i64, CardInfoType), // 26
-    MobileManagerDelegateGetMncMcc(i64, bool),           // 27
-    NetworkManagerDelegateGetNetworkInfo,                // 28
-    PowerManagerDelegateRequestWakelock(String),         // 29
-    PowerManagerDelegateSetScreenEnabled(bool, bool),    // 30
-    PreferenceDelegateGetBool(String),                   // 31
-    PreferenceDelegateGetChar(String),                   // 32
-    PreferenceDelegateGetInt(String),                    // 33
-    PreferenceDelegateSetBool(String, bool),             // 34
-    PreferenceDelegateSetChar(String, String),           // 35
-    PreferenceDelegateSetInt(String, i64),               // 36
-    WakelockGetTopic,                                    // 37
-    WakelockUnlock,                                      // 38
+    GeckoFeaturesBoolPrefChangedSuccess,                   // 0
+    GeckoFeaturesBoolPrefChangedError,                     // 1
+    GeckoFeaturesCharPrefChangedSuccess,                   // 2
+    GeckoFeaturesCharPrefChangedError,                     // 3
+    GeckoFeaturesImportSimContactsSuccess,                 // 4
+    GeckoFeaturesImportSimContactsError,                   // 5
+    GeckoFeaturesIntPrefChangedSuccess,                    // 6
+    GeckoFeaturesIntPrefChangedError,                      // 7
+    GeckoFeaturesRegisterTokenSuccess,                     // 8
+    GeckoFeaturesRegisterTokenError,                       // 9
+    GeckoFeaturesSetAppsServiceDelegateSuccess,            // 10
+    GeckoFeaturesSetAppsServiceDelegateError,              // 11
+    GeckoFeaturesSetMobileManagerDelegateSuccess,          // 12
+    GeckoFeaturesSetMobileManagerDelegateError,            // 13
+    GeckoFeaturesSetNetworkManagerDelegateSuccess,         // 14
+    GeckoFeaturesSetNetworkManagerDelegateError,           // 15
+    GeckoFeaturesSetPowerManagerDelegateSuccess,           // 16
+    GeckoFeaturesSetPowerManagerDelegateError,             // 17
+    GeckoFeaturesSetPreferenceDelegateSuccess,             // 18
+    GeckoFeaturesSetPreferenceDelegateError,               // 19
+    AppsServiceDelegateOnBoot(String, JsonValue),          // 20
+    AppsServiceDelegateOnBootDone,                         // 21
+    AppsServiceDelegateOnClear(String, String, JsonValue), // 22
+    AppsServiceDelegateOnInstall(String, JsonValue),       // 23
+    AppsServiceDelegateOnUninstall(String),                // 24
+    AppsServiceDelegateOnUpdate(String, JsonValue),        // 25
+    MobileManagerDelegateGetCardInfo(i64, CardInfoType),   // 26
+    MobileManagerDelegateGetMncMcc(i64, bool),             // 27
+    NetworkManagerDelegateGetNetworkInfo,                  // 28
+    PowerManagerDelegateRequestWakelock(String),           // 29
+    PowerManagerDelegateSetScreenEnabled(bool, bool),      // 30
+    PreferenceDelegateGetBool(String),                     // 31
+    PreferenceDelegateGetChar(String),                     // 32
+    PreferenceDelegateGetInt(String),                      // 33
+    PreferenceDelegateSetBool(String, bool),               // 34
+    PreferenceDelegateSetChar(String, String),             // 35
+    PreferenceDelegateSetInt(String, i64),                 // 36
+    WakelockGetTopic,                                      // 37
+    WakelockUnlock,                                        // 38
 }

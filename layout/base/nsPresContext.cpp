@@ -47,7 +47,6 @@
 #include "nsViewManager.h"
 #include "mozilla/RestyleManager.h"
 #include "SurfaceCacheUtils.h"
-#include "nsMediaFeatures.h"
 #include "gfxPlatform.h"
 #include "nsFontFaceLoader.h"
 #include "mozilla/AnimationEventDispatcher.h"
@@ -220,6 +219,7 @@ nsPresContext::nsPresContext(dom::Document* aDocument, nsPresContextType aType)
       mQuirkSheetAdded(false),
       mHadNonBlankPaint(false),
       mHadContentfulPaint(false),
+      mHadNonTickContentfulPaint(false),
       mHadContentfulPaintComposite(false)
 #ifdef DEBUG
       ,
@@ -452,7 +452,7 @@ void nsPresContext::AppUnitsPerDevPixelChanged() {
   // item gets created/removed.
   if (mPresShell) {
     if (nsIFrame* frame = mPresShell->GetRootFrame()) {
-      frame = nsLayoutUtils::GetCrossDocParentFrame(frame);
+      frame = nsLayoutUtils::GetCrossDocParentFrameInProcess(frame);
       if (frame) {
         int32_t parentAPD = frame->PresContext()->AppUnitsPerDevPixel();
         if ((parentAPD == oldAppUnitsPerDevPixel) !=
@@ -1387,10 +1387,6 @@ void nsPresContext::ThemeChangedInternal() {
     }
   }
 
-  // This will force the system metrics to be generated the next time they're
-  // used.
-  nsMediaFeatures::FreeSystemMetrics();
-
   // Reset default background and foreground colors for the document since they
   // may be using system colors.
   PreferenceSheet::Refresh();
@@ -1664,8 +1660,9 @@ nsCompatibility nsPresContext::CompatibilityMode() const {
 }
 
 void nsPresContext::SetPaginatedScrolling(bool aPaginated) {
-  if (mType == eContext_PrintPreview || mType == eContext_PageLayout)
+  if (mType == eContext_PrintPreview || mType == eContext_PageLayout) {
     mCanPaginatedScroll = aPaginated;
+  }
 }
 
 void nsPresContext::SetPrintSettings(nsIPrintSettings* aPrintSettings) {
@@ -2422,33 +2419,42 @@ void nsPresContext::NotifyNonBlankPaint() {
 }
 
 void nsPresContext::NotifyContentfulPaint() {
+  nsRootPresContext* rootPresContext = GetRootPresContext();
+  if (!rootPresContext) {
+    return;
+  }
   if (!mHadContentfulPaint) {
 #if defined(MOZ_WIDGET_ANDROID)
-    (new AsyncEventDispatcher(mDocument, u"MozFirstContentfulPaint"_ns,
-                              CanBubble::eYes, ChromeOnlyDispatch::eYes))
-        ->PostDOMEvent();
+    if (!mHadNonTickContentfulPaint) {
+      (new AsyncEventDispatcher(mDocument, u"MozFirstContentfulPaint"_ns,
+                                CanBubble::eYes, ChromeOnlyDispatch::eYes))
+          ->PostDOMEvent();
+    }
 #endif
+    if (!rootPresContext->RefreshDriver()->IsInRefresh()) {
+      if (!mHadNonTickContentfulPaint) {
+        rootPresContext->RefreshDriver()
+            ->AddForceNotifyContentfulPaintPresContext(this);
+        mHadNonTickContentfulPaint = true;
+      }
+      return;
+    }
     mHadContentfulPaint = true;
-    if (nsRootPresContext* rootPresContext = GetRootPresContext()) {
-      mFirstContentfulPaintTransactionId =
-          Some(rootPresContext->mRefreshDriver->LastTransactionId().Next());
-      if (nsPIDOMWindowInner* innerWindow = mDocument->GetInnerWindow()) {
-        if (Performance* perf = innerWindow->GetPerformance()) {
-          TimeStamp nowTime =
-              rootPresContext->RefreshDriver()->MostRecentRefresh(
-                  /* aEnsureTimerStarted */ false);
-          MOZ_ASSERT(
-              !nowTime.IsNull(),
-              "Most recent refresh timestamp should exist since we are in "
-              "a refresh driver tick");
-          MOZ_ASSERT(rootPresContext->RefreshDriver()->IsInRefresh(),
-                     "We should only notify contentful paint during refresh "
-                     "driver ticks");
-          RefPtr<PerformancePaintTiming> paintTiming =
-              new PerformancePaintTiming(perf, u"first-contentful-paint"_ns,
-                                         nowTime);
-          perf->SetFCPTimingEntry(paintTiming);
-        }
+    mFirstContentfulPaintTransactionId =
+        Some(rootPresContext->mRefreshDriver->LastTransactionId().Next());
+    if (nsPIDOMWindowInner* innerWindow = mDocument->GetInnerWindow()) {
+      if (Performance* perf = innerWindow->GetPerformance()) {
+        TimeStamp nowTime = rootPresContext->RefreshDriver()->MostRecentRefresh(
+            /* aEnsureTimerStarted */ false);
+        MOZ_ASSERT(!nowTime.IsNull(),
+                   "Most recent refresh timestamp should exist since we are in "
+                   "a refresh driver tick");
+        MOZ_ASSERT(rootPresContext->RefreshDriver()->IsInRefresh(),
+                   "We should only notify contentful paint during refresh "
+                   "driver ticks");
+        RefPtr<PerformancePaintTiming> paintTiming = new PerformancePaintTiming(
+            perf, u"first-contentful-paint"_ns, nowTime);
+        perf->SetFCPTimingEntry(paintTiming);
       }
     }
   }
@@ -2462,6 +2468,7 @@ void nsPresContext::NotifyPaintStatusReset() {
                             CanBubble::eYes, ChromeOnlyDispatch::eYes))
       ->PostDOMEvent();
 #endif
+  mHadNonTickContentfulPaint = false;
 }
 
 void nsPresContext::NotifyDOMContentFlushed() {

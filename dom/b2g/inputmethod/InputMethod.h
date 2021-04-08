@@ -53,8 +53,6 @@ class InputMethod final : public nsISupports, public nsWrapperCache {
  protected:
   ~InputMethod() = default;
 
-  nsresult PermissionCheck();
-
   nsCOMPtr<nsIGlobalObject> mGlobal;
 };
 

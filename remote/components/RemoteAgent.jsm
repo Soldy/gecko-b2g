@@ -20,7 +20,8 @@ XPCOMUtils.defineLazyModuleGetters(this, {
     "chrome://remote/content/cdp/RecommendedPreferences.jsm",
   TargetList: "chrome://remote/content/cdp/targets/TargetList.jsm",
 });
-XPCOMUtils.defineLazyGetter(this, "log", Log.get);
+
+XPCOMUtils.defineLazyGetter(this, "logger", () => Log.get());
 
 const ENABLED = "remote.enabled";
 const FORCE_LOCAL = "remote.force-local";
@@ -28,6 +29,10 @@ const FORCE_LOCAL = "remote.force-local";
 const LOOPBACKS = ["localhost", "127.0.0.1", "[::1]"];
 
 class RemoteAgentClass {
+  constructor() {
+    this.alteredPrefs = new Set();
+  }
+
   get listening() {
     return !!this.server && !this.server.isStopped();
   }
@@ -75,16 +80,22 @@ class RemoteAgentClass {
       port = -1;
     }
 
-    Preferences.set(RecommendedPreferences);
+    for (let [k, v] of RecommendedPreferences) {
+      if (!Preferences.isSet(k)) {
+        logger.debug(`Setting recommended pref ${k} to ${v}`);
+        Preferences.set(k, v);
+        this.alteredPrefs.add(k);
+      }
+    }
 
     this.server = new HttpServer();
     this.server.registerPrefixHandler("/json/", new JSONHandler(this));
 
-    this.targets = new TargetList();
-    this.targets.on("target-created", (eventName, target) => {
+    this.targetList = new TargetList();
+    this.targetList.on("target-created", (eventName, target) => {
       this.server.registerPathHandler(target.path, target);
     });
-    this.targets.on("target-destroyed", (eventName, target) => {
+    this.targetList.on("target-destroyed", (eventName, target) => {
       this.server.registerPathHandler(target.path, null);
     });
 
@@ -93,11 +104,11 @@ class RemoteAgentClass {
 
   async asyncListen(host, port) {
     try {
-      await this.targets.watchForTargets();
+      await this.targetList.watchForTargets();
 
       // Immediatly instantiate the main process target in order
       // to be accessible via HTTP endpoint on startup
-      const mainTarget = this.targets.getMainProcessTarget();
+      const mainTarget = this.targetList.getMainProcessTarget();
 
       this.server._start(port, host);
       Services.obs.notifyObservers(
@@ -107,21 +118,22 @@ class RemoteAgentClass {
       );
     } catch (e) {
       await this.close();
-      log.error(`Unable to start remote agent: ${e.message}`, e);
+      logger.error(`Unable to start remote agent: ${e.message}`, e);
     }
   }
 
   close() {
     try {
-      // if called early at startup, preferences may not be available
-      try {
-        Preferences.reset(Object.keys(RecommendedPreferences));
-      } catch (e) {}
+      for (let k of this.alteredPrefs) {
+        logger.debug(`Resetting recommended pref ${k}`);
+        Preferences.reset(k);
+      }
+      this.alteredPrefs.clear();
 
-      // destroy targets before stopping server,
+      // destroy targetList before stopping server,
       // otherwise the HTTP will fail to stop
-      if (this.targets) {
-        this.targets.destructor();
+      if (this.targetList) {
+        this.targetList.destructor();
       }
 
       if (this.listening) {
@@ -129,10 +141,10 @@ class RemoteAgentClass {
       }
     } catch (e) {
       // this function must never fail
-      log.error("unable to stop listener", e);
+      logger.error("unable to stop listener", e);
     } finally {
       this.server = null;
-      this.targets = null;
+      this.targetList = null;
     }
 
     return Promise.resolve();

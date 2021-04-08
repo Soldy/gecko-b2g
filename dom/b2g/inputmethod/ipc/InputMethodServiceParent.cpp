@@ -166,7 +166,7 @@ InputMethodServiceParent::SetComposition(uint32_t aId,
                                          nsIEditableSupportListener* aListener,
                                          const nsAString& aText) {
   IME_LOGD("InputMethodServiceParent::SetComposition");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(SetCompositionRequest(sRequestId, nsString(aText)));
   return NS_OK;
 }
@@ -176,7 +176,7 @@ InputMethodServiceParent::EndComposition(uint32_t aId,
                                          nsIEditableSupportListener* aListener,
                                          const nsAString& aText) {
   IME_LOGD("InputMethodServiceParent::EndComposition");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(EndCompositionRequest(sRequestId, nsString(aText)));
   return NS_OK;
 }
@@ -186,7 +186,7 @@ InputMethodServiceParent::Keydown(uint32_t aId,
                                   nsIEditableSupportListener* aListener,
                                   const nsAString& aKey) {
   IME_LOGD("InputMethodServiceParent::Keydown");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(KeydownRequest(sRequestId, nsString(aKey)));
   return NS_OK;
 }
@@ -196,7 +196,7 @@ InputMethodServiceParent::Keyup(uint32_t aId,
                                 nsIEditableSupportListener* aListener,
                                 const nsAString& aKey) {
   IME_LOGD("InputMethodServiceParent::Keyup");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(KeyupRequest(sRequestId, nsString(aKey)));
   return NS_OK;
 }
@@ -206,7 +206,7 @@ InputMethodServiceParent::SendKey(uint32_t aId,
                                   nsIEditableSupportListener* aListener,
                                   const nsAString& aKey) {
   IME_LOGD("InputMethodServiceParent::SendKey");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(SendKeyRequest(sRequestId, nsString(aKey)));
   return NS_OK;
 }
@@ -215,7 +215,7 @@ NS_IMETHODIMP
 InputMethodServiceParent::DeleteBackward(
     uint32_t aId, nsIEditableSupportListener* aListener) {
   IME_LOGD("InputMethodServiceParent::DeleteBackward");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(DeleteBackwardRequest(sRequestId));
   return NS_OK;
 }
@@ -224,7 +224,7 @@ NS_IMETHODIMP
 InputMethodServiceParent::SetSelectedOption(
     uint32_t aId, nsIEditableSupportListener* aListener, int32_t aOptionIndex) {
   IME_LOGD("InputMethodServiceParent::SetSelectedOption");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(SetSelectedOptionRequest(sRequestId, aOptionIndex));
   return NS_OK;
 }
@@ -234,7 +234,7 @@ InputMethodServiceParent::SetSelectedOptions(
     uint32_t aId, nsIEditableSupportListener* aListener,
     const nsTArray<int32_t>& aOptionIndexes) {
   IME_LOGD("InputMethodServiceParent::SetSelectedOptions");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(SetSelectedOptionsRequest(sRequestId, aOptionIndexes));
   return NS_OK;
 }
@@ -243,7 +243,7 @@ NS_IMETHODIMP
 InputMethodServiceParent::RemoveFocus(uint32_t aId,
                                       nsIEditableSupportListener* aListener) {
   IME_LOGD("InputMethodServiceParent::RemoveFocus");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   CommonRequest request(sRequestId, u"RemoveFocus"_ns);
   Unused << SendRequest(request);
   return NS_OK;
@@ -253,7 +253,7 @@ NS_IMETHODIMP
 InputMethodServiceParent::GetSelectionRange(
     uint32_t aId, nsIEditableSupportListener* aListener) {
   IME_LOGD("InputMethodServiceParent::GetSelectionRange");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(GetSelectionRangeRequest(sRequestId));
   return NS_OK;
 }
@@ -263,7 +263,7 @@ InputMethodServiceParent::GetText(uint32_t aId,
                                   nsIEditableSupportListener* aListener,
                                   int32_t aOffset, int32_t aLength) {
   IME_LOGD("InputMethodServiceParent::GetText");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(GetTextRequest(sRequestId, aOffset, aLength));
   return NS_OK;
 }
@@ -273,7 +273,7 @@ InputMethodServiceParent::SetValue(uint32_t aId,
                                    nsIEditableSupportListener* aListener,
                                    const nsAString& aValue) {
   IME_LOGD("InputMethodServiceParent::SetValue");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(SetValueRequest(sRequestId, nsString(aValue)));
   return NS_OK;
 }
@@ -282,7 +282,7 @@ NS_IMETHODIMP
 InputMethodServiceParent::ClearAll(uint32_t aId,
                                    nsIEditableSupportListener* aListener) {
   IME_LOGD("InputMethodServiceParent::ClearAll");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   CommonRequest request(sRequestId, u"ClearAll"_ns);
   Unused << SendRequest(request);
   return NS_OK;
@@ -293,7 +293,7 @@ InputMethodServiceParent::ReplaceSurroundingText(
     uint32_t aId, nsIEditableSupportListener* aListener, const nsAString& aText,
     int32_t aOffset, int32_t aLength) {
   IME_LOGD("InputMethodServiceParent::ReplaceSurroundingText");
-  mRequestMap.Put(++sRequestId, aListener);
+  mRequestMap.InsertOrUpdate(++sRequestId, aListener);
   Unused << SendRequest(ReplaceSurroundingTextRequest(
       sRequestId, nsString(aText), aOffset, aLength));
   return NS_OK;

@@ -3,11 +3,11 @@
 
 [scriptable, uuid(40c07250-b984-4ba7-8420-85d27a02ebf6)]
 interface nsIAppsServiceDelegate : nsISupports {
-    void onBoot(in AString aManifestUrl, in AString value);
+    void onBoot(in AString aManifestUrl, in AString aValue);
     void onBootDone();
-    void onClear(in AString aManifestUrl, in AString value);
-    void onInstall(in AString aManifestUrl, in AString value);
-    void onUpdate(in AString aManifestUrl, in AString value);
+    void onClear(in AString aManifestUrl, in AString aType, in AString aValue);
+    void onInstall(in AString aManifestUrl, in AString aValue);
+    void onUpdate(in AString aManifestUrl, in AString aValue);
     void onUninstall(in AString aManifestUrl);
 };
 

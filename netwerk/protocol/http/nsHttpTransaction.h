@@ -17,6 +17,7 @@
 #include "nsIInterfaceRequestor.h"
 #include "nsIAsyncOutputStream.h"
 #include "nsITimer.h"
+#include "nsTHashMap.h"
 #include "TimingStruct.h"
 #include "Http2Push.h"
 #include "mozilla/net/DNS.h"
@@ -99,7 +100,12 @@ class nsHttpTransaction final : public nsAHttpTransaction,
       // for the response headers.
       mPendingDurationTime = TimeStamp::Now() - mPendingTime;
     }
-    mPendingTime = now ? TimeStamp::Now() : TimeStamp();
+    // Note that the transaction could be added in to a pending queue multiple
+    // times (when the transaction is restarted or moved to a new conn entry due
+    // to HTTPS RR), so we should only set the pending time once.
+    if (mPendingTime.IsNull()) {
+      mPendingTime = now ? TimeStamp::Now() : TimeStamp();
+    }
   }
   const TimeStamp GetPendingTime() { return mPendingTime; }
 
@@ -139,9 +145,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   // restart - this indicates that state for dev tools
   void Refused0RTT();
 
-  uint64_t TopLevelOuterContentWindowId() override {
-    return mTopLevelOuterContentWindowId;
-  }
+  uint64_t TopBrowsingContextId() override { return mTopBrowsingContextId; }
 
   void SetHttpTrailers(nsCString& aTrailers);
 
@@ -245,7 +249,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
       nsresult aErrorCode);
 
   void OnHttp3BackupTimer();
-  void OnBackupConnectionReady();
+  void OnBackupConnectionReady(bool aHTTPSRRUsed);
   void OnFastFallbackTimer();
   void HandleFallback(nsHttpConnectionInfo* aFallbackConnInfo);
   void MaybeCancelFallbackTimer();
@@ -436,7 +440,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   TimeStamp mPendingTime;
   TimeDuration mPendingDurationTime;
 
-  uint64_t mTopLevelOuterContentWindowId;
+  uint64_t mTopBrowsingContextId;
 
   // For Rate Pacing via an EventTokenBucket
  public:
@@ -517,8 +521,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   Atomic<int32_t> mProxyConnectResponseCode;
 
   OnPushCallback mOnPushCallback;
-  nsDataHashtable<nsUint32HashKey, RefPtr<Http2PushedStreamWrapper>>
-      mIDToStreamMap;
+  nsTHashMap<uint32_t, RefPtr<Http2PushedStreamWrapper>> mIDToStreamMap;
 
   nsCOMPtr<nsICancelable> mDNSRequest;
   Atomic<uint32_t, Relaxed> mHTTPSSVCReceivedStage;
@@ -535,7 +538,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   RefPtr<HTTPSRecordResolver> mResolver;
   TRANSACTION_RESTART_REASON mRestartReason = TRANSACTION_RESTART_NONE;
 
-  nsDataHashtable<nsUint32HashKey, uint32_t> mEchRetryCounterMap;
+  nsTHashMap<nsUint32HashKey, uint32_t> mEchRetryCounterMap;
 
   bool mSupportsHTTP3 = false;
 };

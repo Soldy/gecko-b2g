@@ -6,10 +6,8 @@
 
 %filter substitution
 %define urlbarViewPadding 4px
-%define urlbarViewIconMarginEnd (@identityBoxPaddingInline@ + @identityBoxMarginInline@)
-%define urlbarViewMarginInline 7px
-%define urlbarViewItemInlinePadding 6px
 %define urlbarViewFaviconWidth 16px
+%define urlbarViewIconMarginEnd (var(--urlbar-icon-padding) + var(--identity-box-margin-inline))
 
 %include ../shared/urlbar/dynamicResults.inc.css
 
@@ -18,6 +16,9 @@
   --autocomplete-popup-color: var(--arrowpanel-color);
   --autocomplete-popup-highlight-background: Highlight;
   --autocomplete-popup-highlight-color: HighlightText;
+
+  --urlbar-result-hover-bgcolor: var(--arrowpanel-dimmed);
+  --urlbar-popup-action-color: hsl(178, 100%, 28%);
 
   /* Colors copied from in-content button styling */
   --urlbarView-button-background: rgba(12, 12, 13, 0.1);
@@ -28,15 +29,24 @@
   --urlbarView-primary-button-background-hover: #003eaa;
   --urlbarView-primary-button-background-active: #002275;
   --urlbarView-action-slide-in-distance: 200px;
+
+  --urlbarView-item-inline-padding: calc(var(--urlbar-icon-padding) / 2 + 3px);
 }
 
-:root:-moz-lwtheme {
+@media not (-moz-proton-urlbar) {
+:root {
   --urlbar-popup-url-color: hsl(210, 77%, 47%);
-  --urlbar-popup-action-color: hsl(178, 100%, 28%);
 }
+} /*** END !proton ***/
 
-:root:-moz-lwtheme[lwt-toolbar-field-focus-brighttext] {
-  --urlbar-popup-url-color: @lwtPopupBrighttextLinkColor@;
+@media (-moz-proton-urlbar) {
+:root:-moz-lwtheme {
+  --urlbar-popup-url-color: rgb(0,97,224);
+}
+} /*** END proton ***/
+
+:root[lwt-toolbar-field-focus-brighttext] {
+  --urlbar-popup-url-color: var(--lwt-popup-brighttext-url-color);
   --urlbar-popup-action-color: #30e60b;
 
   /* Colors copied from in-content button styling */
@@ -44,6 +54,27 @@
   --urlbarView-button-background-hover: rgba(249, 249, 250, 0.15);
   --urlbarView-button-background-active: rgba(249, 249, 250, 0.2);
 }
+
+@media (-moz-proton-urlbar) {
+:root {
+  --urlbarView-item-inline-padding: var(--urlbar-icon-padding);
+}
+
+:root:-moz-lwtheme {
+  --urlbar-popup-action-color: rgb(21,20,26);
+  /* Fallback colours for when theme authors don't define lwtheme variables. */
+  --autocomplete-popup-highlight-background: rgb(0, 99, 255);
+  --autocomplete-popup-highlight-color: white;
+}
+
+:root[lwt-toolbar-field-brighttext] {
+  --autocomplete-popup-highlight-background: rgb(0, 99, 225);
+}
+
+:root[lwt-toolbar-field-focus-brighttext] {
+  --urlbar-popup-action-color: rgb(191,191,201);
+}
+} /*** END proton ***/
 
 :root:-moz-locale-dir(rtl) {
   --urlbarView-action-slide-in-distance: -200px;
@@ -56,18 +87,23 @@
   display: block;
   text-shadow: none;
   overflow: clip;
-  margin-inline: @urlbarViewMarginInline@;
-  width: calc(100% - 2 * @urlbarViewMarginInline@);
-
+  margin-inline: calc(5px + var(--urlbar-container-padding));
+  width: calc(100% - 2 * (5px + var(--urlbar-container-padding)));
   /* Match urlbar-background's border. */
   border-inline: 1px solid transparent;
 }
 
+@media not (-moz-proton-urlbar) {
+.urlbarView {
+  margin-inline: calc(4px + var(--identity-box-margin-inline));
+  width: calc(100% - 2 * (4px + var(--identity-box-margin-inline)));
+}
 /* If the view is open, offset the toolbar overlap so the view's top border
    aligns with the toolbar. */
 #urlbar[open] > .urlbarView {
   margin-block-start: -@urlbarBreakoutExtend@;
 }
+} /*** END !proton ***/
 
 .urlbarView-body-inner {
   width: 100%;
@@ -95,6 +131,17 @@
   padding-block: 3px;
 }
 
+:root[uidensity=compact] .urlbarView-row {
+  padding-block: 2px;
+}
+
+@media (-moz-proton-urlbar) {
+:root:not([uidensity=compact]) .urlbarView-row:not([type=tip], [type=dynamic]) {
+  min-height: 32px;
+  padding-block: 4px;
+}
+} /*** END proton ***/
+
 .urlbarView-row-inner {
   display: flex;
   flex-wrap: nowrap;
@@ -102,9 +149,15 @@
   flex-shrink: 1;
   overflow: hidden;
   border-radius: 2px;
-  padding-inline-start: @urlbarViewItemInlinePadding@;
+  padding-inline-start: var(--urlbarView-item-inline-padding);
   padding-block: 6px;
 }
+
+@media (-moz-proton-urlbar) {
+.urlbarView-row-inner {
+  border-radius: var(--toolbarbutton-border-radius);
+}
+} /*** END proton ***/
 
 :root[uidensity=touch] .urlbarView-row:not([type=tip], [type=dynamic]) {
   padding-block: 11px;
@@ -114,6 +167,7 @@
   padding-block-start: 18px;
   /* Compensating for the 16px bottom margin on the tip elements. */
   padding-block-end: calc(18px - 16px);
+  padding-inline-end: calc(@urlbarViewIconMarginEnd@);
 }
 
 .urlbarView-row-inner,
@@ -123,6 +177,13 @@
   align-items: end;
   justify-content: start;
 }
+
+@media (-moz-proton-urlbar) {
+.urlbarView-row-inner,
+.urlbarView-no-wrap {
+  align-items: center;
+}
+} /*** END proton ***/
 
 .urlbarView-no-wrap {
   flex-grow: 0;
@@ -158,16 +219,16 @@
   }
   /* urlbarView-url is forced to be LTR for RTL locales, so set the padding based on the browser's directionality. */
   .urlbarView-results[wrap] > .urlbarView-row[has-url] > .urlbarView-row-inner > .urlbarView-url:-moz-locale-dir(ltr) {
-    padding-left: calc(@urlbarViewItemInlinePadding@ + @identityBoxMarginInline@ + @urlbarViewFaviconWidth@);
+    padding-left: calc(var(--urlbarView-item-inline-padding) + var(--identity-box-margin-inline) + @urlbarViewFaviconWidth@);
   }
   .urlbarView-results[wrap] > .urlbarView-row[has-url] > .urlbarView-row-inner > .urlbarView-url:-moz-locale-dir(rtl) {
-    padding-right: calc(@urlbarViewItemInlinePadding@ + @identityBoxMarginInline@ + @urlbarViewFaviconWidth@);
+    padding-right: calc(var(--urlbarView-item-inline-padding) + var(--identity-box-margin-inline) + @urlbarViewFaviconWidth@);
   }
   /* Note: switchtab entries show the url only in override mode,
      remotetab and sponsored ones only when selected or :hover. */
   .urlbarView[actionoverride] .urlbarView-results[wrap] > .urlbarView-row[has-url] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator,
   .urlbarView-results[wrap] > .urlbarView-row[has-url]:not([type$=tab], [sponsored]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator,
-  .urlbarView-results[wrap] > .urlbarView-row:is([type=remotetab], [sponsored]):is(:hover, [selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator,
+  .urlbarView-results[wrap] > .urlbarView-row[has-url]:is([type=remotetab], [sponsored]):is(:hover, [selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator,
   .urlbarView-results[wrap] > .urlbarView-row[type=tabtosearch] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator {
     display: none;
   }
@@ -176,7 +237,7 @@
   }
   .urlbarView-results[wrap] > .urlbarView-row[type=tabtosearch] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action {
     flex-basis: 100%;
-    margin-inline-start: calc(@urlbarViewItemInlinePadding@ + @identityBoxMarginInline@ + @urlbarViewFaviconWidth@);
+    margin-inline-start: calc(var(--urlbarView-item-inline-padding) + var(--identity-box-margin-inline) + @urlbarViewFaviconWidth@);
   }
 }
 
@@ -201,14 +262,22 @@
   direction: ltr !important;
 }
 
+.urlbarView-url:-moz-locale-dir(rtl) {
+  /* .urlbarView-url can grow due to `flex-grow: 1`, so without `text-align:
+     right`, the URL text would be left-aligned within .urlbarView-url for RTL
+     due to the `direction: ltr` rule.  .urlbarView-title does not have this
+     problem since it does not have flex. */
+  text-align: right;
+}
+
 .urlbarView-row:not([type=tip], [type=dynamic], [has-help]):hover > .urlbarView-row-inner,
-.urlbarView-row[has-help] > .urlbarView-row-inner:hover {
-  background: var(--arrowpanel-dimmed);
+.urlbarView-row[has-help] > .urlbarView-row-inner:not([selected]):hover {
+  background-color: var(--urlbar-result-hover-bgcolor);
 }
 
 .urlbarView-row:not([type=tip], [type=dynamic])[selected] > .urlbarView-row-inner,
 .urlbarView-row-inner[selected] {
-  background: var(--autocomplete-popup-highlight-background);
+  background-color: var(--autocomplete-popup-highlight-background);
   color: var(--autocomplete-popup-highlight-color);
   fill-opacity: 1;
 }
@@ -226,6 +295,13 @@
   -moz-context-properties: fill, fill-opacity;
 }
 
+@media not (-moz-proton-urlbar) {
+.urlbarView-favicon {
+  /* 2px is from identity-block.inc.css */
+  margin-inline-end: calc(var(--urlbar-icon-padding) / 2 + var(--identity-box-margin-inline) + 2px);
+}
+} /*** END !proton ***/
+
 .urlbarView-row[type=tip] > .urlbarView-row-inner > .urlbarView-favicon {
   width: 24px;
   height: 24px;
@@ -239,22 +315,11 @@
 }
 
 .urlbarView-row[type=tabtosearch] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon {
-  color: #0060df; /* Blue-60 */
-  stroke: #fff;
-  -moz-context-properties: fill, stroke;
-}
-
-.urlbarView-row[type=tabtosearch][selected] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon {
-  color: #fff;
-  stroke: #0060df;
-}
-
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[type=tabtosearch]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon {
-  color: #0a84ff; /* Blue-50 */
-}
-
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[type=tabtosearch][selected] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon {
-  stroke: #0a84ff;
+  /* We use the URL color for this icon to inherit its accessibility
+     properties, like adapting to high contrast modes. We also want to ensure
+     contrast from the result highlight. */
+  color: var(--urlbar-popup-url-color);
+  -moz-context-properties: fill;
 }
 
 /* Type icon */
@@ -265,23 +330,43 @@
   height: 12px;
   margin-bottom: -4px;
   margin-inline-start: 8px;
+  align-self: end;
   background-repeat: no-repeat;
   background-size: contain;
   -moz-context-properties: fill, stroke;
 }
 
-/* Favicon badges have this priority: switchtab/remotetab > pinned > bookmark. */
+/* Favicon badges have this priority: pinned > bookmark. */
 
 .urlbarView-row[type=bookmark] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
   background-image: url(chrome://browser/skin/bookmark-12.svg);
-  color: #0060df; /* Blue-60 */
+  color: rgb(0,97,224);
   stroke: #fff;
 }
 
 .urlbarView-row[pinned] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
   background-image: url(chrome://browser/skin/pin-12.svg);
-  color: #b1b1b3; /* Grey-40 */
+  color: rgb(191,191,201);
   stroke: #fff;
+}
+
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[type=bookmark] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+  color: rgb(0,221,255);
+  stroke: rgb(50,49,60);
+}
+
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[pinned] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+  color: rgb(224,224,230);
+  stroke: rgb(50,49,60);
+}
+
+@media not (-moz-proton-urlbar) {
+.urlbarView-row[type=bookmark] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+  color: #0060df; /* Blue-60 */
+}
+
+.urlbarView-row[pinned] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+  color: #b1b1b3; /* Grey-40 */
 }
 
 .urlbarView:not([actionoverride]) .urlbarView-row[type=switchtab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon,
@@ -291,21 +376,23 @@
   stroke: #fff;
 }
 
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[type=bookmark] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView:not([actionoverride]) .urlbarView-row[type=switchtab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon,
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[type=remotetab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+  color: #00c8d7; /* Teal-60 */
+  stroke: #38383d; /* Grey-70 */
+}
+
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[type=bookmark] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
   color: #0a84ff; /* Blue-50 */
   stroke: #38383d; /* Grey-70 */
 }
 
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[pinned] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[pinned] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
   color: #d7d7db; /* Grey-30 */
   stroke: #38383d; /* Grey-70 */
 }
+} /*** END !proton ***/
 
-:root[lwt-toolbar-field-brighttext] .urlbarView:not([actionoverride]) .urlbarView-row[type=switchtab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon,
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[type=remotetab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-type-icon {
-  color: #00c8d7; /* Teal-60 */
-  stroke: #38383d; /* Grey-70 */
-}
 
 /* Help button */
 
@@ -324,6 +411,12 @@
   margin-inline-end: 4px;
   -moz-context-properties: fill, fill-opacity;
 }
+
+@media (-moz-proton-urlbar) {
+.urlbarView-help {
+  border-radius: var(--toolbarbutton-border-radius);
+}
+} /*** END proton ***/
 
 .urlbarView-help[selected] {
   box-shadow: 0 0 0 1px #0a84ff inset, 0 0 0 1px #0a84ff, 0 0 0 4px rgba(10, 132, 255, 0.3);
@@ -386,7 +479,14 @@
   text-align: center;
   flex-basis: initial;
   flex-shrink: 0;
+  margin-inline-end: 4px;
 }
+
+@media (-moz-proton-urlbar) {
+.urlbarView-tip-button {
+  border-radius: var(--toolbarbutton-border-radius);
+}
+} /*** END proton ***/
 
 .urlbarView-tip-button:hover {
   background-color: var(--urlbarView-button-background-hover);
@@ -527,12 +627,43 @@
   visibility: collapse;
 }
 
-.urlbarView-row:is([type=remotetab], [sponsored]):is([selected], :hover) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action,
+.urlbarView-row[has-url]:is([type=remotetab], [sponsored]):is([selected], :hover) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action,
 .urlbarView-row:is([type=search], [restyled-search]):not([selected], [show-action-text], :hover) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action,
 .urlbarView-row:not([has-action], [has-url], [restyled-search]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action,
 .urlbarView[actionoverride] .urlbarView-row[type=switchtab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action {
   display: none;
 }
+
+@media (-moz-proton-urlbar) {
+/* Switch-to-tab action text is styled as a chiclet. */
+.urlbarView-row:is([type=switchtab], [type=remotetab]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action {
+  background-color: var(--urlbar-box-bgcolor);
+  border-radius: var(--toolbarbutton-border-radius);
+  padding: 6px 8px;
+  margin-block: -6px;
+  margin-inline-start: 8px;
+}
+
+:root[uidensity=compact] .urlbarView-row:is([type=switchtab], [type=remotetab]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action {
+  padding: 3px 6px;
+  margin-block: -3px;
+}
+
+.urlbarView-row:is([type=switchtab], [type=remotetab]):is([selected], :hover) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-action {
+  background-color: var(--urlbar-box-active-bgcolor);
+}
+
+.urlbarView-row[type=remotetab]:not([selected], :hover) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator::before,
+.urlbarView:not([actionoverride]) .urlbarView-row[type=switchtab] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-title-separator::before {
+  /* We make the title separator transparent so it stays in the accessibility
+     tree. We want screen readers to pause between the result title and the
+     switch-to-tab action text. */
+  opacity: 0;
+  /* -1em for the width of the \2014 character. -.4em to offset the
+     margin-inline-start already set on this element. */
+  margin-inline-end: -1.4em;
+}
+} /*** END !proton ***/
 
 .urlbarView-tags {
   overflow: hidden;
@@ -560,9 +691,16 @@
   flex-wrap: wrap;
 }
 
-.urlbarView[noresults] > .search-one-offs {
-  border-top: none;
+.urlbarView:not([noresults]) > .search-one-offs:not([hidden]) {
+  border-top: 1px solid var(--panel-separator-color);
 }
+
+@media (-moz-proton-urlbar) {
+#urlbar .search-one-offs:not([hidden]) {
+  padding-block: 10px;
+  border-top-color: var(--urlbar-separator-color);
+}
+} /*** END proton ***/
 
 #urlbar .search-panel-one-offs-container {
   /* Make sure horizontally we can fit four buttons, empty space, settings. */
@@ -589,6 +727,12 @@
   margin-inline-end: 8px;
 }
 
+@media (-moz-proton-urlbar) {
+#urlbar .searchbar-engine-one-off-item {
+  border-radius: var(--toolbarbutton-border-radius);
+}
+} /*** END proton ***/
+
 #urlbar .searchbar-engine-one-off-item:last-child {
   /* This applies to both the last one-off and the compact settings button */
   margin-inline-end: 0;
@@ -606,7 +750,7 @@
 .urlbarView-row[source="bookmarks"] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
 #urlbar-engine-one-off-item-bookmarks {
   list-style-image: url("chrome://browser/skin/bookmark.svg");
-  fill: #0060df; /* Blue-60 */
+  fill: rgb(0,97,224);
   fill-opacity: 1;
   -moz-context-properties: fill, fill-opacity;
 }
@@ -614,8 +758,8 @@
 .urlbarView-row[source="tabs"] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
 #urlbar-engine-one-off-item-tabs {
   list-style-image: url("chrome://browser/skin/tab.svg");
-  fill: #008eaf; /* Teal-70 */
-  fill-opacity: 1;
+  fill: currentColor;
+  fill-opacity: .9;
   -moz-context-properties: fill, fill-opacity;
 }
 
@@ -627,14 +771,9 @@
   -moz-context-properties: fill, fill-opacity;
 }
 
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[source="bookmarks"]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
-:root[lwt-toolbar-field-brighttext] #urlbar-engine-one-off-item-bookmarks:not([selected]) {
-  fill: #0a84ff; /* Blue-50 */
-}
-
-:root[lwt-toolbar-field-brighttext] .urlbarView-row[source="tabs"]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
-:root[lwt-toolbar-field-brighttext] #urlbar-engine-one-off-item-tabs:not([selected]) {
-  fill: #00c8d7; /* Teal-60 */
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[source="bookmarks"]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
+:root[lwt-toolbar-field-focus-brighttext] #urlbar-engine-one-off-item-bookmarks:not([selected]) {
+  fill: rgb(0,221,255);
 }
 
 .urlbarView-row[source="bookmarks"][selected] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
@@ -645,13 +784,47 @@
   fill-opacity: .9;
 }
 
+@media not (-moz-proton-urlbar) {
+.urlbarView-row[source="bookmarks"] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
+#urlbar-engine-one-off-item-bookmarks {
+  fill: #0060df; /* Blue-60 */
+}
+
+.urlbarView-row[source="tabs"] > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
+#urlbar-engine-one-off-item-tabs {
+  fill: #008eaf; /* Teal-70 */
+  fill-opacity: 1;
+}
+
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[source="bookmarks"]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
+:root[lwt-toolbar-field-focus-brighttext] #urlbar-engine-one-off-item-bookmarks:not([selected]) {
+  fill: #0a84ff; /* Blue-50 */
+}
+
+:root[lwt-toolbar-field-focus-brighttext] .urlbarView-row[source="tabs"]:not([selected]) > .urlbarView-row-inner > .urlbarView-no-wrap > .urlbarView-favicon,
+:root[lwt-toolbar-field-focus-brighttext] #urlbar-engine-one-off-item-tabs:not([selected]) {
+  fill: #00c8d7; /* Teal-60 */
+}
+} /*** END !proton ***/
+
 /* search bar popup */
 
 #PopupSearchAutoComplete {
-  background: var(--autocomplete-popup-background);
+  background-color: var(--autocomplete-popup-background);
   color: var(--autocomplete-popup-color);
   border-color: var(--arrowpanel-border-color);
 }
+
+@media (-moz-proton-urlbar) {
+#PopupSearchAutoComplete {
+  background-color: var(--lwt-toolbar-field-focus);
+  border: 1px solid var(--arrowpanel-border-color);
+  /* Remove the top border since the panel is flush with the input. */
+  border-top-width: 0;
+  /* override autocomplete.css padding */
+  padding: var(--panel-subview-body-padding) !important;
+}
+} /*** END proton ***/
 
 #PopupSearchAutoComplete .autocomplete-richlistitem[selected] {
   background: var(--autocomplete-popup-highlight-background);

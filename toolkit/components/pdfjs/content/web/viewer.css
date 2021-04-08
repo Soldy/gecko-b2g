@@ -269,6 +269,182 @@
   cursor: pointer;
 }
 
+*/* Copyright 2021 Mozilla Foundation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.xfaLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 200;
+  transform-origin: 0 0;
+}
+
+.xfaLayer * {
+  color: inherit;
+  font: inherit;
+  font-kerning: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-decoration: inherit;
+  vertical-align: inherit;
+  box-sizing: border-box;
+}
+
+.xfaFont {
+  color: black;
+  font-weight: normal;
+  font-kerning: none;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-decoration: none;
+  vertical-align: 0;
+}
+
+.xfaDraw {
+  z-index: 200;
+}
+
+.xfaExclgroup {
+  z-index: 300;
+}
+
+.xfaField {
+  z-index: 300;
+}
+
+.xfaSubform {
+  z-index: 100;
+}
+
+.xfaLabel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.xfaCaption {
+  flex: 1 1 auto;
+}
+
+.xfaTextfield,
+.xfaSelect {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  border: none;
+}
+
+.xfaLabel > input[type="checkbox"] {
+  /* Use this trick to make the checkbox invisible but
+       but still focusable. */
+  position: absolute;
+  left: -99999px;
+}
+
+.xfaLabel > input[type="checkbox"]:focus + .xfaCheckboxMark {
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+}
+
+.xfaCheckboxMark {
+  cursor: pointer;
+  flex: 0 0 auto;
+  border-style: solid;
+  border-width: 2px;
+  border-color: #8f8f9d;
+  font-size: 10px;
+  line-height: 10px;
+  width: 10px;
+  height: 10px;
+  text-align: center;
+  vertical-align: middle;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.xfaCheckbox:checked + .xfaCheckboxMark::after {
+  content: attr(mark);
+}
+
+.xfaButton {
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  border: none;
+  text-align: center;
+}
+
+.xfaButton:hover {
+  background: Highlight;
+}
+
+.xfaLrTb,
+.xfaRlTb,
+.xfaTb,
+.xfaPosition {
+  display: block;
+}
+
+.xfaPosition {
+  position: relative;
+}
+
+.xfaValignMiddle {
+  display: flex;
+  align-items: center;
+}
+
+.xfaLrTb > div {
+  display: inline;
+  float: left;
+}
+
+.xfaRlTb > div {
+  display: inline;
+  float: right;
+}
+
+.xfaTable {
+  display: flex;
+  flex-direction: column;
+}
+
+.xfaTable .xfaRow {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+}
+
+.xfaTable .xfaRow > div {
+  flex: 1 1 auto;
+}
+
+.xfaTable .xfaRlRow {
+  display: flex;
+  flex-direction: row-reverse;
+  flex: 1;
+}
+
+.xfaTable .xfaRlRow > div {
+  flex: 1;
+}
+
 .pdfViewer .canvasWrapper {
   overflow: hidden;
 }
@@ -402,7 +578,8 @@
   --scrollbar-bg-color: auto;
   --toolbar-icon-bg-color: rgba(0, 0, 0, 1);
 
-  --sidebar-bg-color: rgba(245, 246, 247, 1);
+  --sidebar-narrow-bg-color: rgba(237, 237, 240, 0.9);
+  --sidebar-toolbar-bg-color: rgba(245, 246, 247, 1);
   --toolbar-bg-color: rgba(249, 249, 250, 1);
   --toolbar-border-color: rgba(204, 204, 204, 1);
   --button-hover-color: rgba(221, 222, 223, 1);
@@ -476,7 +653,8 @@
     --scrollbar-bg-color: rgba(35, 35, 39, 1);
     --toolbar-icon-bg-color: rgba(255, 255, 255, 1);
 
-    --sidebar-bg-color: rgba(50, 50, 52, 1);
+    --sidebar-narrow-bg-color: rgba(42, 42, 46, 0.9);
+    --sidebar-toolbar-bg-color: rgba(50, 50, 52, 1);
     --toolbar-bg-color: rgba(56, 56, 61, 1);
     --toolbar-border-color: rgba(12, 12, 13, 1);
     --button-hover-color: rgba(102, 102, 103, 1);
@@ -687,7 +865,7 @@ html[dir="rtl"]
 #toolbarSidebar {
   width: 100%;
   height: 32px;
-  background-color: var(--sidebar-bg-color);
+  background-color: var(--sidebar-toolbar-bg-color);
 }
 html[dir="ltr"] #toolbarSidebar {
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.25), 0 1px 0 rgba(0, 0, 0, 0.15),
@@ -2072,17 +2250,24 @@ html[dir="rtl"] #documentPropertiesOverlay .row > * {
   }
   /* wrapper around (scaled) print canvas elements */
   #printContainer > div {
-    position: relative;
-    top: 0;
-    left: 0;
-    width: 1px;
-    height: 1px;
-    overflow: visible;
     page-break-after: always;
     page-break-inside: avoid;
+
+    /* The wrapper always cover the whole page. */
+    height: 100%;
+    width: 100%;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
   }
   #printContainer canvas,
   #printContainer img {
+    /* The intrinsic canvas / image size will make sure that we fit the page. */
+    max-width: 100%;
+    max-height: 100%;
+
     direction: ltr;
     display: block;
   }
@@ -2105,8 +2290,8 @@ html[dir="rtl"] #documentPropertiesOverlay .row > * {
 }
 
 @media all and (max-width: 840px) {
-  #sidebarContent {
-    background-color: rgba(0, 0, 0, 0.7);
+  #sidebarContainer {
+    background-color: var(--sidebar-narrow-bg-color);
   }
 
   html[dir="ltr"] #outerContainer.sidebarOpen #viewerContainer {

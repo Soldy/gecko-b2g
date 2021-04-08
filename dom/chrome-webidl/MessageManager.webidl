@@ -269,6 +269,13 @@ interface mixin MessageListenerManagerMixin
   [Throws]
   void removeWeakMessageListener(DOMString messageName,
                                  MessageListener listener);
+
+  /**
+   * Remove message entry from hash table to save memory usage if no more
+   * listeners will be added to the message in the future.
+   */
+  [Throws]
+  void removeMessageListenerHashEntry(DOMString messageName);
 };
 
 /**

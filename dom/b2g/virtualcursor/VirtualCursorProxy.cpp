@@ -62,6 +62,10 @@ void VirtualCursorProxy::IsEnabled(bool* aEnabled) {
   *aEnabled = mSimulator->isEnabled();
 }
 
+void VirtualCursorProxy::UpdateScreenSize(int32_t aWidth, int32_t aHeight) {
+  mSimulator->UpdateScreenSize(aWidth, aHeight);
+}
+
 void VirtualCursorProxy::UpdateChromeOffset(
     const LayoutDeviceIntPoint& aChromeOffset) {
   mSimulator->UpdateChromeOffset(aChromeOffset);

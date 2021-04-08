@@ -35,7 +35,6 @@ class WebExtension(Perftest):
         self.cpu_profiler = None
 
         super(WebExtension, self).__init__(*args, **kwargs)
-        self.using_condprof = self.config.get("using_condprof", True)
 
         # set up the results handler
         self.results_handler = RaptorResultsHandler(**self.config)
@@ -196,7 +195,7 @@ class WebExtension(Perftest):
             return
 
         LOG.info("removing webext %s" % self.raptor_webext)
-        if self.config["app"] in ["firefox", "geckoview", "fennec", "refbrow", "fenix"]:
+        if self.config["app"] in ["firefox", "geckoview", "refbrow", "fenix"]:
             self.profile.addons.remove_addon(self.webext_id)
 
         # for chrome the addon is just a list (appended to cmd line)

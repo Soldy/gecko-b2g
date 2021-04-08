@@ -751,8 +751,6 @@ void CanvasGradient::AddColorStop(float aOffset, const nsACString& aColorstr,
     return aRv.ThrowSyntaxError("Invalid color");
   }
 
-  mStops = nullptr;
-
   GradientStop newStop;
 
   newStop.offset = aOffset;
@@ -2185,8 +2183,10 @@ already_AddRefed<CanvasPattern> CanvasRenderingContext2D::CreatePattern(
 
   // The canvas spec says that createPattern should use the first frame
   // of animated images
-  SurfaceFromElementResult res = nsLayoutUtils::SurfaceFromElement(
-      element, nsLayoutUtils::SFE_WANT_FIRST_FRAME_IF_IMAGE, mTarget);
+  auto flags = nsLayoutUtils::SFE_WANT_FIRST_FRAME_IF_IMAGE |
+               nsLayoutUtils::SFE_TO_SRGB_COLORSPACE;
+  SurfaceFromElementResult res =
+      nsLayoutUtils::SurfaceFromElement(element, flags, mTarget);
 
   // Per spec, we should throw here for the HTMLImageElement and SVGImageElement
   // cases if the image request state is "broken".  In terms of the infromation
@@ -4042,13 +4042,37 @@ TextMetrics* CanvasRenderingContext2D::DrawOrMeasureText(
 }
 
 gfxFontGroup* CanvasRenderingContext2D::GetCurrentFontStyle() {
-  // use lazy initilization for the font group since it's rather expensive
-  if (!CurrentState().fontGroup) {
+  // Use lazy (re)initialization for the fontGroup since it's rather expensive.
+
+  RefPtr<PresShell> presShell = GetPresShell();
+  gfxTextPerfMetrics* tp = nullptr;
+  FontMatchingStats* fontStats = nullptr;
+  if (presShell && !presShell->IsDestroying()) {
+    nsPresContext* pc = presShell->GetPresContext();
+    tp = pc->GetTextPerfMetrics();
+    fontStats = pc->GetFontMatchingStats();
+  }
+
+  // If we have a cached fontGroup, check that it is valid for the current
+  // prescontext; if not, we need to discard and re-create it.
+  RefPtr<gfxFontGroup>& fontGroup = CurrentState().fontGroup;
+  if (fontGroup) {
+    if (fontGroup->GetFontMatchingStats() != fontStats ||
+        fontGroup->GetTextPerfMetrics() != tp) {
+      fontGroup = nullptr;
+    }
+  }
+
+  if (!fontGroup) {
     ErrorResult err;
     constexpr auto kDefaultFontStyle = "10px sans-serif"_ns;
-    static float kDefaultFontSize = 10.0;
-    RefPtr<PresShell> presShell = GetPresShell();
-    bool fontUpdated = SetFontInternal(kDefaultFontStyle, err);
+    const float kDefaultFontSize = 10.0;
+    // If the font has already been set, we're re-creating the fontGroup
+    // and should re-use the existing font attribute; if not, we initialize
+    // it to the canvas default.
+    const nsCString& currentFont = CurrentState().font;
+    bool fontUpdated = SetFontInternal(
+        currentFont.IsEmpty() ? kDefaultFontStyle : currentFont, err);
     if (err.Failed() || !fontUpdated) {
       err.SuppressException();
       // XXX Should we get a default lang from the prescontext or something?
@@ -4056,19 +4080,13 @@ gfxFontGroup* CanvasRenderingContext2D::GetCurrentFontStyle() {
       bool explicitLanguage = false;
       gfxFontStyle style;
       style.size = kDefaultFontSize;
-      gfxTextPerfMetrics* tp = nullptr;
-      FontMatchingStats* fontStats = nullptr;
-      if (presShell && !presShell->IsDestroying()) {
-        tp = presShell->GetPresContext()->GetTextPerfMetrics();
-        fontStats = presShell->GetPresContext()->GetFontMatchingStats();
-      }
       int32_t perDevPixel, perCSSPixel;
       GetAppUnitsValues(&perDevPixel, &perCSSPixel);
       gfxFloat devToCssSize = gfxFloat(perDevPixel) / gfxFloat(perCSSPixel);
-      CurrentState().fontGroup = gfxPlatform::GetPlatform()->CreateFontGroup(
+      fontGroup = gfxPlatform::GetPlatform()->CreateFontGroup(
           FontFamilyList(StyleGenericFontFamily::SansSerif), &style, language,
           explicitLanguage, tp, fontStats, nullptr, devToCssSize);
-      if (CurrentState().fontGroup) {
+      if (fontGroup) {
         CurrentState().font = kDefaultFontStyle;
       } else {
         NS_ERROR("Default canvas font is invalid");
@@ -4076,10 +4094,10 @@ gfxFontGroup* CanvasRenderingContext2D::GetCurrentFontStyle() {
     }
   } else {
     // The fontgroup needs to check if its cached families/faces are valid.
-    CurrentState().fontGroup->CheckForUpdatedPlatformList();
+    fontGroup->CheckForUpdatedPlatformList();
   }
 
-  return CurrentState().fontGroup;
+  return fontGroup;
 }
 
 //
@@ -4508,7 +4526,8 @@ void CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
     // The canvas spec says that drawImage should draw the first frame
     // of animated images. We also don't want to rasterize vector images.
     uint32_t sfeFlags = nsLayoutUtils::SFE_WANT_FIRST_FRAME_IF_IMAGE |
-                        nsLayoutUtils::SFE_NO_RASTERIZING_VECTORS;
+                        nsLayoutUtils::SFE_NO_RASTERIZING_VECTORS |
+                        nsLayoutUtils::SFE_TO_SRGB_COLORSPACE;
 
     SurfaceFromElementResult res =
         CanvasRenderingContext2D::CachedSurfaceFromElement(element);
@@ -4789,6 +4808,7 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
                                           double aX, double aY, double aW,
                                           double aH, const nsACString& aBgColor,
                                           uint32_t aFlags,
+                                          nsIPrincipal& aSubjectPrincipal,
                                           ErrorResult& aError) {
   if (int32_t(aW) == 0 || int32_t(aH) == 0) {
     return;
@@ -4799,6 +4819,12 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
   if (!Factory::CheckSurfaceSize(IntSize(int32_t(aW), int32_t(aH)), 0xffff)) {
     aError.Throw(NS_ERROR_FAILURE);
     return;
+  }
+
+  Document* doc = aWindow.GetExtantDoc();
+  if (doc && aSubjectPrincipal.GetIsAddonOrExpandedAddonPrincipal()) {
+    doc->WarnOnceAbout(
+        DeprecatedOperations::eDrawWindowCanvasRenderingContext2D);
   }
 
   // Flush layout updates

@@ -6,18 +6,19 @@
 
 var EXPORTED_SYMBOLS = ["JSONHandler"];
 
-const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
+);
 
-const { HTTP_404, HTTP_505 } = ChromeUtils.import(
-  "chrome://remote/content/server/HTTPD.jsm"
-);
-const { Log } = ChromeUtils.import("chrome://remote/content/shared/Log.jsm");
-const { Protocol } = ChromeUtils.import(
-  "chrome://remote/content/cdp/Protocol.jsm"
-);
-const { RemoteAgentError } = ChromeUtils.import(
-  "chrome://remote/content/cdp/Error.jsm"
-);
+XPCOMUtils.defineLazyModuleGetters(this, {
+  Services: "resource://gre/modules/Services.jsm",
+
+  HTTP_404: "chrome://remote/content/server/HTTPD.jsm",
+  HTTP_505: "chrome://remote/content/server/HTTPD.jsm",
+  Log: "chrome://remote/content/shared/Log.jsm",
+  Protocol: "chrome://remote/content/cdp/Protocol.jsm",
+  RemoteAgentError: "chrome://remote/content/cdp/Error.jsm",
+});
 
 class JSONHandler {
   constructor(agent) {
@@ -30,7 +31,7 @@ class JSONHandler {
   }
 
   getVersion() {
-    const mainProcessTarget = this.agent.targets.getMainProcessTarget();
+    const mainProcessTarget = this.agent.targetList.getMainProcessTarget();
 
     const { userAgent } = Cc[
       "@mozilla.org/network/protocol;1?name=http"
@@ -51,7 +52,7 @@ class JSONHandler {
   }
 
   getTargetList() {
-    return [...this.agent.targets];
+    return [...this.agent.targetList];
   }
 
   // nsIHttpRequestHandler

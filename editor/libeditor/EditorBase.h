@@ -273,7 +273,7 @@ class EditorBase : public nsIEditor,
       SelectionType aSelectionType = SelectionType::eNormal) const {
     if (aSelectionType == SelectionType::eNormal &&
         IsEditActionDataAvailable()) {
-      return SelectionRefPtr().get();
+      return &SelectionRef();
     }
     nsISelectionController* sc = GetSelectionController();
     if (!sc) {
@@ -287,6 +287,12 @@ class EditorBase : public nsIEditor,
    * Fast non-refcounting editor root element accessor
    */
   Element* GetRoot() const { return mRootElement; }
+
+  /**
+   * Likewise, but gets the text control element instead of the root for
+   * plaintext editors.
+   */
+  Element* GetExposedRoot() const;
 
   /**
    * Set or unset TextInputListener.  If setting non-nullptr when the editor
@@ -921,11 +927,14 @@ class EditorBase : public nsIEditor,
 
     bool IsCanceled() const { return mBeforeInputEventCanceled; }
 
-    const RefPtr<Selection>& SelectionRefPtr() const {
+    /**
+     * Returns a `Selection` for normal selection.  The lifetime is guaranteed
+     * during alive this instance in the stack.
+     */
+    MOZ_KNOWN_LIVE Selection& SelectionRef() const {
       MOZ_ASSERT(!mSelection ||
                  (mSelection->GetType() == SelectionType::eNormal));
-
-      return mSelection;
+      return *mSelection;
     }
 
     nsIPrincipal* GetPrincipal() const { return mPrincipal; }
@@ -1304,19 +1313,17 @@ class EditorBase : public nsIEditor,
   }
 
   /**
-   * SelectionRefPtr() returns cached Selection.  This is pretty faster than
+   * SelectionRef() returns cached normal Selection.  This is pretty faster than
    * EditorBase::GetSelection() if available.
-   * Note that this never returns nullptr unless public methods ignore
-   * result of AutoEditActionDataSetter::CanHandle() and keep handling edit
-   * action but any methods should stop handling edit action if it returns
-   * false.
+   * Note that this never crash unless public methods ignore the result of
+   * AutoEditActionDataSetter::CanHandle() and keep handling edit action but any
+   * methods should stop handling edit action if it returns false.
    */
-  const RefPtr<Selection>& SelectionRefPtr() const {
+  MOZ_KNOWN_LIVE Selection& SelectionRef() const {
     MOZ_ASSERT(mEditActionData);
-    MOZ_ASSERT(mEditActionData->SelectionRefPtr()->GetType() ==
+    MOZ_ASSERT(mEditActionData->SelectionRef().GetType() ==
                SelectionType::eNormal);
-
-    return mEditActionData->SelectionRefPtr();
+    return mEditActionData->SelectionRef();
   }
 
   nsIPrincipal* GetEditActionPrincipal() const {
@@ -1862,12 +1869,6 @@ class EditorBase : public nsIEditor,
   virtual Element* GetEditorRoot() const;
 
   /**
-   * Likewise, but gets the text control element instead of the root for
-   * plaintext editors.
-   */
-  Element* GetExposedRoot() const;
-
-  /**
    * Whether the editor is active on the DOM window.  Note that when this
    * returns true but GetFocusedContent() returns null, it means that this
    * editor was focused when the DOM window was active.
@@ -2083,6 +2084,13 @@ class EditorBase : public nsIEditor,
       // canceled or not.  Although it's DOM specific code, let's return
       // DOM_SUCCESS_DOM_NO_OPERATION here.
       case NS_ERROR_EDITOR_ACTION_CANCELED:
+        return NS_SUCCESS_DOM_NO_OPERATION;
+      // If there is no selection range or editable selection ranges, editor
+      // needs to stop handling it.  However, editor shouldn't return error for
+      // the callers to avoid throwing exception.  However, they may want to
+      // check whether it works or not.  Therefore, we should return
+      // NS_SUCCESS_DOM_NO_OPERATION instead.
+      case NS_ERROR_EDITOR_NO_EDITABLE_RANGE:
         return NS_SUCCESS_DOM_NO_OPERATION;
       default:
         return aRv;

@@ -599,12 +599,9 @@ nsresult GfxInfo::GetFeatureStatusImpl(
       const nsCString& gpu = mGLStrings->Renderer();
       NS_LossyConvertUTF16toASCII model(mModel);
 
-#ifdef NIGHTLY_BUILD
-      // On Nightly enable Webrender on all Adreno 4xx GPUs
-      isUnblocked |= gpu.Find("Adreno (TM) 4", /*ignoreCase*/ true) >= 0;
-#endif
-      // Enable Webrender on all Adreno 5xx and 6xx GPUs
-      isUnblocked |= gpu.Find("Adreno (TM) 5", /*ignoreCase*/ true) >= 0 ||
+      // Enable Webrender on all Adreno 4xx, 5xx and 6xx GPUs
+      isUnblocked |= gpu.Find("Adreno (TM) 4", /*ignoreCase*/ true) >= 0 ||
+                     gpu.Find("Adreno (TM) 5", /*ignoreCase*/ true) >= 0 ||
                      gpu.Find("Adreno (TM) 6", /*ignoreCase*/ true) >= 0;
 
       // Enable Webrender on all Mali-Txxx GPUs
@@ -615,17 +612,9 @@ nsresult GfxInfo::GetFeatureStatusImpl(
                      // Excluding G31 due to bug 1689947.
                      gpu.Find("Mali-G31", /*ignoreCase*/ true) == kNotFound;
 
-      // Webrender requires the extension GL_OES_EGL_image_external_essl3
-      // to render video. Bug 1507074 tracks removing this requirement.
-      bool supportsImageExternalEssl3 = mGLStrings->Extensions().Contains(
-          "GL_OES_EGL_image_external_essl3"_ns);
-
       if (!isUnblocked) {
         *aStatus = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
         aFailureId = "FEATURE_FAILURE_WEBRENDER_BLOCKED_DEVICE";
-      } else if (!supportsImageExternalEssl3) {
-        *aStatus = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
-        aFailureId = "FEATURE_FAILURE_WEBRENDER_NO_IMAGE_EXTERNAL";
       } else {
         *aStatus = nsIGfxInfo::FEATURE_ALLOW_QUALIFIED;
       }
@@ -663,6 +652,20 @@ nsresult GfxInfo::GetFeatureStatusImpl(
       }
       return NS_OK;
     }
+
+#ifdef NIGHTLY_BUILD
+    if (aFeature == FEATURE_WEBRENDER_SOFTWARE) {
+      const bool isMali4xx =
+          mGLStrings->Renderer().Find("Mali-4", /*ignoreCase*/ true) >= 0;
+      if (isMali4xx) {
+        *aStatus = nsIGfxInfo::FEATURE_ALLOW_ALWAYS;
+      } else {
+        *aStatus = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
+        aFailureId = "FEATURE_FAILURE_BUG_1703140";
+      }
+      return NS_OK;
+    }
+#endif
   }
 
   return GfxInfoBase::GetFeatureStatusImpl(

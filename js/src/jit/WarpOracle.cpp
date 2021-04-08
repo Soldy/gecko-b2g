@@ -25,6 +25,7 @@
 #include "vm/BuiltinObjectKind.h"
 #include "vm/BytecodeIterator.h"
 #include "vm/BytecodeLocation.h"
+#include "vm/GetterSetter.h"
 #include "vm/Instrumentation.h"
 #include "vm/Opcodes.h"
 
@@ -181,7 +182,8 @@ AbortReasonOr<WarpSnapshot*> WarpOracle::createSnapshot() {
   //
   // Note: this assertion catches potential performance issues.
   // Failing this assertion is not a correctness/security problem.
-  // We therefore ignore cases involving OOM or stack overflow.
+  // We therefore ignore cases involving OOM, stack overflow, or
+  // stubs purged by GC.
   HashNumber hash = icScript->hash();
   if (outerScript_->jitScript()->hasFailedICHash()) {
     HashNumber oldHash = outerScript_->jitScript()->getFailedICHash();
@@ -280,12 +282,12 @@ AbortReasonOr<WarpEnvironment> WarpScriptOracle::createEnvironment() {
     callObjectTemplate = &templateEnv->as<CallObject>();
   }
 
-  LexicalEnvironmentObject* namedLambdaTemplate = nullptr;
+  NamedLambdaObject* namedLambdaTemplate = nullptr;
   if (fun->needsNamedLambdaEnvironment()) {
     if (callObjectTemplate) {
       templateEnv = templateEnv->enclosingEnvironment();
     }
-    namedLambdaTemplate = &templateEnv->as<LexicalEnvironmentObject>();
+    namedLambdaTemplate = &templateEnv->as<NamedLambdaObject>();
   }
 
   return WarpEnvironment(
@@ -844,6 +846,7 @@ AbortReasonOr<Ok> WarpScriptOracle::maybeInlineIC(WarpOpSnapshotList& snapshots,
   // Don't optimize if there are other stubs with entered-count > 0. Counters
   // are reset when a new stub is attached so this means the stub that was added
   // most recently didn't handle all cases.
+  // If this code is changed, ICScript::hash may also need changing.
   for (ICStub* next = stub->next(); next; next = next->maybeNext()) {
     if (next->enteredCount() == 0) {
       continue;
@@ -970,7 +973,7 @@ AbortReasonOr<bool> WarpScriptOracle::maybeInlineCall(
   }
 
   RootedFunction targetFunction(cx_, inlineData->target);
-  if (!TrialInliner::canInline(targetFunction, script_)) {
+  if (!TrialInliner::canInline(targetFunction, script_, loc)) {
     return false;
   }
 
@@ -987,7 +990,7 @@ AbortReasonOr<bool> WarpScriptOracle::maybeInlineCall(
 
   // Create a CompileInfo for the inlined script.
   jsbytecode* osrPc = nullptr;
-  bool needsArgsObj = false;
+  bool needsArgsObj = targetScript->needsArgsObj();
   CompileInfo* info = lifoAlloc->new_<CompileInfo>(
       mirGen_.runtime, targetScript, targetFunction, osrPc,
       info_->analysisMode(), needsArgsObj, inlineScriptTree);
@@ -1066,9 +1069,9 @@ bool WarpScriptOracle::replaceNurseryPointers(ICCacheIRStub* stub,
         static_assert(std::is_convertible_v<Shape*, gc::TenuredCell*>,
                       "Code assumes shapes are tenured");
         break;
-      case StubField::Type::ObjectGroup:
-        static_assert(std::is_convertible_v<ObjectGroup*, gc::TenuredCell*>,
-                      "Code assumes groups are tenured");
+      case StubField::Type::GetterSetter:
+        static_assert(std::is_convertible_v<GetterSetter*, gc::TenuredCell*>,
+                      "Code assumes GetterSetters are tenured");
         break;
       case StubField::Type::Symbol:
         static_assert(std::is_convertible_v<JS::Symbol*, gc::TenuredCell*>,

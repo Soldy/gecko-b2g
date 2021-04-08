@@ -27,6 +27,8 @@ var prefs = [
   // Prevent the dynamic toolbar from interfering with main-thread scroll
   // offset values.
   ["browser.chrome.dynamictoolbar", false],
+  // This group fails with proton enabled. See bug 1703646.
+  ["browser.proton.enabled", false],
   // Explicitly enable pinch-zooming, so this test can run on desktop
   // even though zooming isn't enabled by default on desktop yet.
   ["apz.allow_zooming", true],
@@ -40,7 +42,8 @@ var prefs = [
   // Disable touch resampling so that touch events are processed without delay
   // and we don't zoom more than expected due to overprediction.
   ["android.touch_resampling.enabled", false],
-
+  // Tests depend on window.visualViewport
+  ["dom.visualviewport.enabled", true],
 ];
 
 var instant_repaint_prefs = [
@@ -69,7 +72,7 @@ if (isApzEnabled()) {
 
   if (getPlatform() == "linux") {
         subtests.push(
-          { file: "helper_zoom_with_touchpad.html", prefs: [["apz.gtk.touchpad_pinch.enabled", true]] }
+          {file: "helper_zoom_with_touchpad.html", "prefs": prefs}
         );
   }
   window.onload = function() {

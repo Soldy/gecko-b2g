@@ -12,6 +12,7 @@ const { AppConstants } = ChromeUtils.import(
 const { Troubleshoot } = ChromeUtils.import(
   "resource://gre/modules/Troubleshoot.jsm"
 );
+const { sinon } = ChromeUtils.import("resource://testing-common/Sinon.jsm");
 
 const { FeatureGate } = ChromeUtils.import(
   "resource://featuregates/FeatureGate.jsm"
@@ -28,6 +29,8 @@ const { AddonStudies } = ChromeUtils.import(
 const { NormandyTestUtils } = ChromeUtils.import(
   "resource://testing-common/NormandyTestUtils.jsm"
 );
+
+NormandyTestUtils.init({ Assert });
 
 function test() {
   waitForExplicitFinish();
@@ -140,14 +143,22 @@ var tests = [
   },
 
   function printingPreferences(done) {
-    let prefs = ["javascript.print_to_filename", "print.print_to_filename"];
+    let prefs = [
+      "javascript.print_to_filename",
+      "print.print_bgimages",
+      "print.print_to_filename",
+    ];
     prefs.forEach(function(p) {
       Services.prefs.setBoolPref(p, true);
       is(Services.prefs.getBoolPref(p), true, "The pref should be set: " + p);
     });
     Troubleshoot.snapshot(function(snapshot) {
       let p = snapshot.printingPreferences;
-      is(p["print.print_to_filename"], true, "The pref should be present");
+      is(p["print.print_bgimages"], true, "The pref should be present");
+      ok(
+        !("print.print_to_filename" in p),
+        "The pref should not be present (sensitive)"
+      );
       ok(
         !("javascript.print_to_filename" in p),
         "The pref should be absent because it's not a print pref."
@@ -197,18 +208,18 @@ var tests = [
           }),
         ],
       }),
-      async function testNormandyInfoInTroubleshooting(
-        prefStudies,
+      async function testNormandyInfoInTroubleshooting({
+        prefExperiments,
         addonStudies,
-        prefRollouts
-      ) {
+        prefRollouts,
+      }) {
         await new Promise(resolve => {
           Troubleshoot.snapshot(function(snapshot) {
             let info = snapshot.normandy;
             // The order should be flipped, since each category is sorted by slug.
             Assert.deepEqual(
               info.prefStudies,
-              [prefStudies[1], prefStudies[0]],
+              [prefExperiments[1], prefExperiments[0]],
               "prefs studies should exist in the right order"
             );
             Assert.deepEqual(
@@ -221,6 +232,51 @@ var tests = [
               [prefRollouts[1], prefRollouts[0]],
               "pref rollouts should exist in the right order"
             );
+            resolve();
+          });
+        });
+      }
+    )().then(done);
+  },
+
+  function normandyErrorHandling(done) {
+    NormandyTestUtils.decorate(
+      NormandyTestUtils.withStub(PreferenceExperiments, "getAllActive", {
+        returnValue: Promise.reject("Expected error - PreferenceExperiments"),
+      }),
+      NormandyTestUtils.withStub(AddonStudies, "getAllActive", {
+        returnValue: Promise.reject("Expected error - AddonStudies"),
+      }),
+      NormandyTestUtils.withStub(PreferenceRollouts, "getAllActive", {
+        returnValue: Promise.reject("Expected error - PreferenceRollouts"),
+      }),
+      NormandyTestUtils.withConsoleSpy(),
+      async function testNormandyErrorHandling({ consoleSpy }) {
+        await new Promise(resolve => {
+          Troubleshoot.snapshot(snapshot => {
+            let info = snapshot.normandy;
+            Assert.deepEqual(
+              info.prefStudies,
+              [],
+              "prefs studies should be an empty list if there is an error"
+            );
+            Assert.deepEqual(
+              info.addonStudies,
+              [],
+              "addon studies should be an empty list if there is an error"
+            );
+            Assert.deepEqual(
+              info.prefRollouts,
+              [],
+              "pref rollouts should be an empty list if there is an error"
+            );
+
+            consoleSpy.assertAtLeast([
+              /Expected error - PreferenceExperiments/,
+              /Expected error - AddonStudies/,
+              /Expected error - PreferenceRollouts/,
+            ]);
+
             resolve();
           });
         });

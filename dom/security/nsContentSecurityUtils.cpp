@@ -245,6 +245,8 @@ FilenameTypeAndDetails nsContentSecurityUtils::FilenameToFilenameType(
   static constexpr auto kResourceURI = "resourceuri"_ns;
   static constexpr auto kBlobUri = "bloburi"_ns;
   static constexpr auto kDataUri = "dataurl"_ns;
+  static constexpr auto kDataUriWebExtCStyle =
+      "dataurl-extension-contentstyle"_ns;
   static constexpr auto kSingleString = "singlestring"_ns;
   static constexpr auto kMozillaExtension = "mozillaextension"_ns;
   static constexpr auto kOtherExtension = "otherextension"_ns;
@@ -276,6 +278,9 @@ FilenameTypeAndDetails nsContentSecurityUtils::FilenameToFilenameType(
   // blob: and data:
   if (StringBeginsWith(fileName, u"blob:"_ns)) {
     return FilenameTypeAndDetails(kBlobUri, Nothing());
+  }
+  if (StringBeginsWith(fileName, u"data:text/css;extension=style;"_ns)) {
+    return FilenameTypeAndDetails(kDataUriWebExtCStyle, Nothing());
   }
   if (StringBeginsWith(fileName, u"data:"_ns)) {
     return FilenameTypeAndDetails(kDataUri, Nothing());
@@ -336,7 +341,22 @@ FilenameTypeAndDetails nsContentSecurityUtils::FilenameToFilenameType(
     if (hr == S_OK && cchDecodedUrl) {
       nsAutoString sanitizedPathAndScheme;
       sanitizedPathAndScheme.Append(szOut);
-      if (sanitizedPathAndScheme == u"file"_ns) {
+      if (sanitizedPathAndScheme == u"about"_ns) {
+        int32_t desired_length = fileName.Length();
+        int32_t possible_new_length = 0;
+
+        possible_new_length = fileName.FindChar('?');
+        if (possible_new_length != -1 && possible_new_length < desired_length) {
+          desired_length = possible_new_length;
+        }
+
+        possible_new_length = fileName.FindChar('#');
+        if (possible_new_length != -1 && possible_new_length < desired_length) {
+          desired_length = possible_new_length;
+        }
+
+        sanitizedPathAndScheme = Substring(fileName, 0, desired_length);
+      } else if (sanitizedPathAndScheme == u"file"_ns) {
         sanitizedPathAndScheme.Append(u"://.../"_ns);
         sanitizedPathAndScheme.Append(strSanitizedPath);
       } else if (sanitizedPathAndScheme == u"moz-extension"_ns &&
@@ -498,7 +518,7 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
     // DevEdition/Nightly.
     bool xpinstallSignatures;
     Preferences::GetBool("xpinstall.signatures.required", &xpinstallSignatures);
-    if (xpinstallSignatures) {
+    if (!xpinstallSignatures) {
       sJSHacksPresent = true;
     }
 
@@ -1031,7 +1051,7 @@ bool nsContentSecurityUtils::ValidateScriptFilename(const char* aFilename,
     // DevEdition/Nightly.
     bool xpinstallSignatures;
     Preferences::GetBool("xpinstall.signatures.required", &xpinstallSignatures);
-    if (xpinstallSignatures) {
+    if (!xpinstallSignatures) {
       sJSHacksPresent = true;
     }
 

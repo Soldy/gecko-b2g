@@ -101,7 +101,7 @@ class GeckoViewProcessHangMonitor extends GeckoViewModule {
   observe(aSubject, aTopic, aData) {
     debug`observe(aTopic=${aTopic})`;
     aSubject.QueryInterface(Ci.nsIHangReport);
-    if (!aSubject.isReportForBrowser(this.browser.frameLoader)) {
+    if (!aSubject.isReportForBrowserOrChildren(this.browser.frameLoader)) {
       return;
     }
 
@@ -136,11 +136,7 @@ class GeckoViewProcessHangMonitor extends GeckoViewModule {
   stopHang(report) {
     switch (report.hangType) {
       case report.SLOW_SCRIPT: {
-        if (report.addonId) {
-          report.terminateGlobal();
-        } else {
-          report.terminateScript();
-        }
+        report.terminateScript();
         break;
       }
       case report.PLUGIN_HANG: {

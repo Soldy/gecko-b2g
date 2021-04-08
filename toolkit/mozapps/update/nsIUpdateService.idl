@@ -341,8 +341,10 @@ interface nsIApplicationUpdateService : nsISupports
    * calling nsIRequest::Cancel on the download's nsIRequest. When downloading
    * with nsIIncrementalDownload, this will leave the partial download in place.
    * When downloading with BITS, any partial download progress will be removed.
+   *
+   * @returns A Promise that resolves once the download has been stopped.
    */
-  void stopDownload();
+  Promise stopDownload();
 
   /**
    * Whether or not there is an download happening at the moment.
@@ -350,9 +352,17 @@ interface nsIApplicationUpdateService : nsISupports
   readonly attribute boolean isDownloading;
 
   /**
-   * Whether or not the Update Service can check for updates. This is a function
-   * of whether or not application update is disabled by the application and the
-   * platform the application is running on.
+   * Whether or not the Update Service can usually check for updates. This is a
+   * function of whether or not application update is disabled by the
+   * application and the platform the application is running on.
+   */
+  readonly attribute boolean canUsuallyCheckForUpdates;
+
+  /**
+   * Whether or not the Update Service can check for updates right now. This is
+   * a function of whether or not application update is disabled by the
+   * application, the platform the application is running on, and transient
+   * factors such as whether other instances are running.
    */
   readonly attribute boolean canCheckForUpdates;
 
@@ -363,11 +373,21 @@ interface nsIApplicationUpdateService : nsISupports
   readonly attribute boolean elevationRequired;
 
   /**
-   * Whether or not the Update Service can download and install updates.
+   * Whether or not the Update Service can usually download and install updates.
    * On Windows, this is a function of whether or not the maintenance service
    * is installed and enabled. On other systems, and as a fallback on Windows,
    * this depends on whether the current user has write access to the install
    * directory.
+   */
+  readonly attribute boolean canUsuallyApplyUpdates;
+
+  /**
+   * Whether or not the Update Service can download and install updates right now.
+   * On Windows, this is a function of whether or not the maintenance service
+   * is installed and enabled. On other systems, and as a fallback on Windows,
+   * this depends on whether the current user has write access to the install
+   * directory. On all systems, this includes transient factors such as whether
+   * other instances are running.
    */
   readonly attribute boolean canApplyUpdates;
 
@@ -380,9 +400,27 @@ interface nsIApplicationUpdateService : nsISupports
   readonly attribute boolean isOtherInstanceHandlingUpdates;
 
   /**
-   * Whether the Update Service is able to stage updates.
+   * Whether the Update Service is usually able to stage updates.
+   */
+  readonly attribute boolean canUsuallyStageUpdates;
+
+  /**
+   * Whether the Update Service is able to stage updates right now.  On all
+   * systems, this includes transient factors such as whether other instances
+   * are running.
    */
   readonly attribute boolean canStageUpdates;
+
+  /**
+   * On Windows, whether the Update Service can usually use BITS.
+   */
+  readonly attribute boolean canUsuallyUseBits;
+
+  /**
+   * On Windows, whether the Update Service can use BITS right now.  This
+   * includes transient factors such as whether other instances are running.
+   */
+  readonly attribute boolean canUseBits;
 
   /**
    * Indicates whether or not the enterprise policy that allows only manual
@@ -399,6 +437,15 @@ interface nsIApplicationUpdateService : nsISupports
    * bothering them with a doorhanger.
    */
   readonly attribute boolean manualUpdateOnly;
+
+  /**
+   * This can be set to true to prevent updates being processed beyond starting
+   * an update download. This should only be used when we are being run as a
+   * background task.
+   * This exists to prevent a particularly fast update download from beginning
+   * to stage while the background task is shutting down.
+   */
+  attribute boolean onlyDownloadUpdatesThisSession;
 };
 
 /**
@@ -461,10 +508,12 @@ interface nsIUpdateSyncManager : nsISupports
 
   /**
    * Should only be used for testing.
-   * Closes and reopens the lock file, possibly under a different name if the
-   * path hash has changed (which should only happen if a test is forcing it).
+   *
+   * Closes and reopens the lock file, possibly under a different name if a
+   * parameter is given (or the path hash has changed, which should only happen
+   * if a test is forcing it).
    */
-  void resetLock();
+  void resetLock([optional] in nsIFile anAppFile);
 };
 
 /**
@@ -516,8 +565,10 @@ interface nsIUpdateManager : nsISupports
 
   /**
    * Refresh the update status based on the information in update.status.
+   *
+   * @returns A Promise that resolves after the update status is refreshed.
    */
-  void refreshUpdateStatus();
+  Promise refreshUpdateStatus();
 
   /**
    * The user agreed to proceed with an elevated update and we are now

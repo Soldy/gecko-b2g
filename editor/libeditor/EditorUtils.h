@@ -720,13 +720,10 @@ class MOZ_RAII AutoTransactionBatchExternal final {
  *****************************************************************************/
 class MOZ_STACK_CLASS AutoSelectionRangeArray final {
  public:
-  explicit AutoSelectionRangeArray(dom::Selection* aSelection) {
-    if (!aSelection) {
-      return;
-    }
-    uint32_t rangeCount = aSelection->RangeCount();
+  explicit AutoSelectionRangeArray(dom::Selection& aSelection) {
+    uint32_t rangeCount = aSelection.RangeCount();
     for (uint32_t i = 0; i < rangeCount; i++) {
-      mRanges.AppendElement(*aSelection->GetRangeAt(i));
+      mRanges.AppendElement(*aSelection.GetRangeAt(i));
     }
   }
 
@@ -755,6 +752,15 @@ class MOZ_STACK_CLASS AutoRangeArray final {
       }
     }
   }
+
+  /**
+   * EnsureOnlyEditableRanges() removes ranges which cannot modify.
+   * Note that this is designed only for `HTMLEditor` because this must not
+   * be required by `TextEditor`.
+   */
+  void EnsureOnlyEditableRanges(const dom::Element& aEditingHost);
+  static bool IsEditableRange(const dom::AbstractRange& aRange,
+                              const dom::Element& aEditingHost);
 
   auto& Ranges() { return mRanges; }
   const auto& Ranges() const { return mRanges; }
@@ -926,6 +932,12 @@ class MOZ_STACK_CLASS AutoRangeArray final {
   }
   nsIContent* GetChildAtFocusOffset() const {
     return FocusRef().IsSet() ? FocusRef().GetChildAtOffset() : nullptr;
+  }
+
+  void RemoveAllRanges() {
+    mRanges.Clear();
+    mAnchorFocusRange = nullptr;
+    mDirection = nsDirection::eDirNext;
   }
 
  private:
@@ -1102,18 +1114,13 @@ class EditorUtils final {
    */
   static bool IsEditableContent(const nsIContent& aContent,
                                 EditorType aEditorType) {
-    if ((aEditorType == EditorType::HTML && !aContent.IsEditable()) ||
-        EditorUtils::IsPaddingBRElementForEmptyEditor(aContent)) {
+    if (aEditorType == EditorType::HTML && !aContent.IsEditable()) {
+      // FIXME(emilio): Why only for HTML editors? All content from the root
+      // content in text editors is also editable, so afaict we can remove the
+      // special-case.
       return false;
     }
-
-    // In HTML editors, if we're dealing with an element, then ask it
-    // whether it's editable.
-    if (aContent.IsElement()) {
-      return aEditorType == EditorType::HTML ? aContent.IsEditable() : true;
-    }
-    // Text nodes are considered to be editable by both typed of editors.
-    return aContent.IsText();
+    return IsElementOrText(aContent);
   }
 
   /**
@@ -1125,8 +1132,7 @@ class EditorUtils final {
     if (aContent.IsText()) {
       return true;
     }
-    return aContent.IsElement() &&
-           !EditorUtils::IsPaddingBRElementForEmptyEditor(aContent);
+    return aContent.IsElement() && !IsPaddingBRElementForEmptyEditor(aContent);
   }
 
   /**

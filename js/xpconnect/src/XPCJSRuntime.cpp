@@ -86,54 +86,45 @@
 using namespace mozilla;
 using namespace xpc;
 using namespace JS;
-using mozilla::dom::AutoEntryScript;
 using mozilla::dom::PerThreadAtomCache;
 
 /***************************************************************************/
 
 const char* const XPCJSRuntime::mStrings[] = {
-    "constructor",       // IDX_CONSTRUCTOR
-    "toString",          // IDX_TO_STRING
-    "toSource",          // IDX_TO_SOURCE
-    "lastResult",        // IDX_LAST_RESULT
-    "returnCode",        // IDX_RETURN_CODE
-    "value",             // IDX_VALUE
-    "QueryInterface",    // IDX_QUERY_INTERFACE
-    "Components",        // IDX_COMPONENTS
-    "Cc",                // IDX_CC
-    "Ci",                // IDX_CI
-    "Cr",                // IDX_CR
-    "Cu",                // IDX_CU
-    "wrappedJSObject",   // IDX_WRAPPED_JSOBJECT
-    "Object",            // IDX_OBJECT
-    "Function",          // IDX_FUNCTION
-    "prototype",         // IDX_PROTOTYPE
-    "createInstance",    // IDX_CREATE_INSTANCE
-    "item",              // IDX_ITEM
-    "__proto__",         // IDX_PROTO
-    "eval",              // IDX_EVAL
-    "controllers",       // IDX_CONTROLLERS
-    "Controllers",       // IDX_CONTROLLERS_CLASS
-    "realFrameElement",  // IDX_REALFRAMEELEMENT
-    "length",            // IDX_LENGTH
-    "name",              // IDX_NAME
-    "undefined",         // IDX_UNDEFINED
-    "",                  // IDX_EMPTYSTRING
-    "fileName",          // IDX_FILENAME
-    "lineNumber",        // IDX_LINENUMBER
-    "columnNumber",      // IDX_COLUMNNUMBER
-    "stack",             // IDX_STACK
-    "message",           // IDX_MESSAGE
-    "errors",            // IDX_ERRORS
-    "lastIndex",         // IDX_LASTINDEX
-    "then",              // IDX_THEN
-    "isInstance",        // IDX_ISINSTANCE
-    "Infinity",          // IDX_INFINITY
-    "NaN",               // IDX_NAN
-    "classId",           // IDX_CLASS_ID
-    "interfaceId",       // IDX_INTERFACE_ID
-    "initializer",       // IDX_INITIALIZER
-    "print",             // IDX_PRINT
+    "constructor",      // IDX_CONSTRUCTOR
+    "toString",         // IDX_TO_STRING
+    "toSource",         // IDX_TO_SOURCE
+    "value",            // IDX_VALUE
+    "QueryInterface",   // IDX_QUERY_INTERFACE
+    "Components",       // IDX_COMPONENTS
+    "Cc",               // IDX_CC
+    "Ci",               // IDX_CI
+    "Cr",               // IDX_CR
+    "Cu",               // IDX_CU
+    "wrappedJSObject",  // IDX_WRAPPED_JSOBJECT
+    "prototype",        // IDX_PROTOTYPE
+    "eval",             // IDX_EVAL
+    "controllers",      // IDX_CONTROLLERS
+    "Controllers",      // IDX_CONTROLLERS_CLASS
+    "length",           // IDX_LENGTH
+    "name",             // IDX_NAME
+    "undefined",        // IDX_UNDEFINED
+    "",                 // IDX_EMPTYSTRING
+    "fileName",         // IDX_FILENAME
+    "lineNumber",       // IDX_LINENUMBER
+    "columnNumber",     // IDX_COLUMNNUMBER
+    "stack",            // IDX_STACK
+    "message",          // IDX_MESSAGE
+    "errors",           // IDX_ERRORS
+    "lastIndex",        // IDX_LASTINDEX
+    "then",             // IDX_THEN
+    "isInstance",       // IDX_ISINSTANCE
+    "Infinity",         // IDX_INFINITY
+    "NaN",              // IDX_NAN
+    "classId",          // IDX_CLASS_ID
+    "interfaceId",      // IDX_INTERFACE_ID
+    "initializer",      // IDX_INITIALIZER
+    "print",            // IDX_PRINT
 };
 
 /***************************************************************************/
@@ -427,8 +418,8 @@ void RealmPrivate::UnregisterStackFrame(JSStackFrameBase* aFrame) {
 }
 
 void RealmPrivate::NukeJSStackFrames() {
-  for (auto iter = mJSStackFrames.Iter(); !iter.Done(); iter.Next()) {
-    iter.Get()->GetKey()->Clear();
+  for (const auto& key : mJSStackFrames.Keys()) {
+    key->Clear();
   }
 
   mJSStackFrames.Clear();
@@ -610,6 +601,26 @@ nsGlobalWindowInner* WindowGlobalOrNull(JSObject* aObj) {
   JSObject* glob = JS::GetNonCCWObjectGlobal(aObj);
 
   return WindowOrNull(glob);
+}
+
+nsGlobalWindowInner* SandboxWindowOrNull(JSObject* aObj, JSContext* aCx) {
+  MOZ_ASSERT(aObj);
+
+  if (!IsSandbox(aObj)) {
+    return nullptr;
+  }
+
+  // Sandbox can't be a Proxy so it must have a static prototype.
+  JSObject* proto = GetStaticPrototype(aObj);
+  if (!proto || !IsSandboxPrototypeProxy(proto)) {
+    return nullptr;
+  }
+
+  proto = js::CheckedUnwrapDynamic(proto, aCx, /* stopAtWindowProxy = */ false);
+  if (!proto) {
+    return nullptr;
+  }
+  return WindowOrNull(proto);
 }
 
 nsGlobalWindowInner* CurrentWindowOrNull(JSContext* cx) {
@@ -1406,9 +1417,9 @@ static void ReportZoneStats(const JS::ZoneStats& zStats,
   ZRREPORT_GC_BYTES(pathPrefix + "jit-codes-gc-heap"_ns, zStats.jitCodesGCHeap,
                     "References to executable code pools used by the JITs.");
 
-  ZRREPORT_GC_BYTES(
-      pathPrefix + "object-groups/gc-heap"_ns, zStats.objectGroupsGCHeap,
-      "Classification and type inference information about objects.");
+  ZRREPORT_GC_BYTES(pathPrefix + "getter-setters-gc-heap"_ns,
+                    zStats.getterSettersGCHeap,
+                    "Information for getter/setter properties.");
 
   ZRREPORT_GC_BYTES(pathPrefix + "scopes/gc-heap"_ns, zStats.scopesGCHeap,
                     "Scope information for scripts.");
@@ -1996,8 +2007,7 @@ void ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
   rtPath2.ReplaceLiteral(0, strlen("explicit"), "decommitted");
 
   REPORT_GC_BYTES(
-      rtPath2 + "gc-heap/decommitted-arenas"_ns,
-      rtStats.gcHeapDecommittedArenas,
+      rtPath2 + "gc-heap/decommitted-pages"_ns, rtStats.gcHeapDecommittedPages,
       "GC arenas in non-empty chunks that is decommitted, i.e. it takes up "
       "address space but no physical memory or swap space.");
 
@@ -2355,9 +2365,9 @@ void JSReporter::CollectReports(WindowPaths* windowPaths,
 
   REPORT_BYTES(
       nsLiteralCString(
-          "js-main-runtime-gc-heap-committed/unused/gc-things/object-groups"),
-      KIND_OTHER, rtStats.zTotals.unusedGCThings.objectGroup,
-      "Unused object group cells within non-empty arenas.");
+          "js-main-runtime-gc-heap-committed/unused/gc-things/getter-setters"),
+      KIND_OTHER, rtStats.zTotals.unusedGCThings.getterSetter,
+      "Unused getter-setter cells within non-empty arenas.");
 
   REPORT_BYTES(nsLiteralCString(
                    "js-main-runtime-gc-heap-committed/unused/gc-things/scopes"),
@@ -2422,9 +2432,9 @@ void JSReporter::CollectReports(WindowPaths* windowPaths,
 
   MREPORT_BYTES(
       nsLiteralCString(
-          "js-main-runtime-gc-heap-committed/used/gc-things/object-groups"),
-      KIND_OTHER, rtStats.zTotals.objectGroupsGCHeap,
-      "Used object group cells.");
+          "js-main-runtime-gc-heap-committed/used/gc-things/getter-setters"),
+      KIND_OTHER, rtStats.zTotals.getterSettersGCHeap,
+      "Used getter/setter cells.");
 
   MREPORT_BYTES(nsLiteralCString(
                     "js-main-runtime-gc-heap-committed/used/gc-things/scopes"),

@@ -111,8 +111,7 @@ AlarmProxy.prototype = {
       date,
       ignoreTimezone,
       data,
-      pageURL: aUrl,
-      manifestURL: aUrl,
+      url: aUrl,
     });
   },
 
@@ -120,7 +119,7 @@ AlarmProxy.prototype = {
     debug("remove " + aId + " " + aUrl);
     Services.cpmm.sendAsyncMessage("Alarm:Remove", {
       id: aId,
-      manifestURL: aUrl,
+      url: aUrl,
     });
   },
 
@@ -157,7 +156,7 @@ AlarmProxy.prototype = {
 
     Services.cpmm.sendAsyncMessage("Alarm:GetAll", {
       requestId,
-      manifestURL: aUrl,
+      url: aUrl,
     });
   },
 

@@ -7,6 +7,7 @@
 
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/Helpers.h"
+#include "mozilla/gfx/PathHelpers.h"
 #include "nsChildView.h"
 #include "nsDeviceContext.h"
 #include "nsLayoutUtils.h"
@@ -38,6 +39,8 @@
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/StaticPrefs_widget.h"
 #include "nsLookAndFeel.h"
+#include "MacThemeGeometryType.h"
+#include "SDKDeclarations.h"
 #include "VibrancyManager.h"
 
 #include "gfxContext.h"
@@ -72,9 +75,31 @@ void CUIDraw(CUIRendererRef r, CGRect rect, CGContextRef ctx, CFDictionaryRef op
 }
 @end
 
+// This is the window for our MOZCellDrawView. When an NSCell is drawn, some NSCell implementations
+// look at the draw view's window to determine whether the cell should draw with the active look.
+@interface MOZCellDrawWindow : NSWindow
+@property BOOL cellsShouldLookActive;
+@end
+
+@implementation MOZCellDrawWindow
+
+// Override three different methods, for good measure. The NSCell implementation could call any one
+// of them.
+- (BOOL)_hasActiveAppearance {
+  return self.cellsShouldLookActive;
+}
+- (BOOL)hasKeyAppearance {
+  return self.cellsShouldLookActive;
+}
+- (BOOL)_hasKeyAppearance {
+  return self.cellsShouldLookActive;
+}
+
+@end
+
 // The purpose of this class is to provide objects that can be used when drawing
-// NSCells using drawWithFrame:inView: without causing any harm. The only
-// messages that will be sent to such an object are "isFlipped" and
+// NSCells using drawWithFrame:inView: without causing any harm. Only a small
+// number of methods are called on the draw view, among those "isFlipped" and
 // "currentEditor": isFlipped needs to return YES in order to avoid drawing bugs
 // on 10.4 (see bug 465069); currentEditor (which isn't even a method of
 // NSView) will be called when drawing search fields, and we only provide it in
@@ -82,11 +107,13 @@ void CUIDraw(CUIRendererRef r, CGRect rect, CGContextRef ctx, CFDictionaryRef op
 // There's no need to pass the actual NSView that we're drawing into to
 // drawWithFrame:inView:. What's more, doing so even causes unnecessary
 // invalidations as soon as we draw a focusring!
-@interface CellDrawView : NSView
+// This class needs to be an NSControl so that NSTextFieldCell (and
+// NSSearchFieldCell, which is a subclass of NSTextFieldCell) draws a focus ring.
+@interface MOZCellDrawView : NSControl
 
 @end
 
-@implementation CellDrawView
+@implementation MOZCellDrawView
 
 - (BOOL)isFlipped {
   return YES;
@@ -96,25 +123,6 @@ void CUIDraw(CUIRendererRef r, CGRect rect, CGContextRef ctx, CFDictionaryRef op
   return nil;
 }
 
-@end
-
-// These two classes don't actually add any behavior over NSButtonCell. Their
-// purpose is to make it easy to distinguish NSCell objects that are used for
-// drawing radio buttons / checkboxes from other cell types.
-// The class names are made up, there are no classes with these names in AppKit.
-// The reason we need them is that calling [cell setButtonType:NSRadioButton]
-// doesn't leave an easy-to-check "marker" on the cell object - there is no
-// -[NSButtonCell buttonType] method.
-@interface RadioButtonCell : NSButtonCell
-@end
-
-@implementation RadioButtonCell
-@end
-
-@interface CheckboxCell : NSButtonCell
-@end
-
-@implementation CheckboxCell
 @end
 
 static void DrawFocusRingForCellIfNeeded(NSCell* aCell, NSRect aWithFrame, NSView* aInView) {
@@ -144,30 +152,9 @@ static void DrawFocusRingForCellIfNeeded(NSCell* aCell, NSRect aWithFrame, NSVie
   }
 }
 
-static bool FocusIsDrawnByDrawWithFrame(NSCell* aCell) {
-#if defined(MAC_OS_X_VERSION_10_8) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_8
-  // When building with the 10.8 SDK or higher, focus rings don't draw as part
-  // of -[NSCell drawWithFrame:inView:] and must be drawn by a separate call
-  // to -[NSCell drawFocusRingMaskWithFrame:inView:]; .
-  // See the NSButtonCell section under
-  // https://developer.apple.com/library/mac/releasenotes/AppKit/RN-AppKitOlderNotes/#X10_8Notes
-  return false;
-#else
-  // On 10.10, whether the focus ring is drawn as part of
-  // -[NSCell drawWithFrame:inView:] depends on the cell type.
-  // Radio buttons and checkboxes draw their own focus rings, other cell
-  // types need -[NSCell drawFocusRingMaskWithFrame:inView:].
-  return
-      [aCell isKindOfClass:[RadioButtonCell class]] || [aCell isKindOfClass:[CheckboxCell class]];
-#endif
-}
-
 static void DrawCellIncludingFocusRing(NSCell* aCell, NSRect aWithFrame, NSView* aInView) {
   [aCell drawWithFrame:aWithFrame inView:aInView];
-
-  if (!FocusIsDrawnByDrawWithFrame(aCell)) {
-    DrawFocusRingForCellIfNeeded(aCell, aWithFrame, aInView);
-  }
+  DrawFocusRingForCellIfNeeded(aCell, aWithFrame, aInView);
 }
 
 /**
@@ -260,50 +247,33 @@ static void DrawCellIncludingFocusRing(NSCell* aCell, NSRect aWithFrame, NSView*
 
 @end
 
-@interface SearchFieldCellWithFocusRing : NSSearchFieldCell {
-}
+@interface MOZSearchFieldCell : NSSearchFieldCell
+@property BOOL shouldUseToolbarStyle;
 @end
 
-// Workaround for Bug 542048
-// On 64-bit, NSSearchFieldCells don't draw focus rings.
-@implementation SearchFieldCellWithFocusRing
+@implementation MOZSearchFieldCell
 
-- (void)drawWithFrame:(NSRect)rect inView:(NSView*)controlView {
-  [super drawWithFrame:rect inView:controlView];
+- (instancetype)init {
+  // We would like to render a search field which has the magnifying glass icon at the start of the
+  // search field, and no cancel button.
+  // On 10.12 and 10.13, empty search fields render the magnifying glass icon in the middle of the
+  // field. So in order to get the icon to show at the start of the field, we need to give the field
+  // some content. We achieve this with a single space character.
+  self = [super initTextCell:@" "];
 
-  if (FocusIsDrawnByDrawWithFrame(self)) {
-    // For some reason, -[NSSearchFieldCell drawWithFrame:inView] doesn't draw a
-    // focus ring in 64 bit mode, no matter what SDK is used or what OS X version
-    // we're running on. But if FocusIsDrawnByDrawWithFrame(self), then our
-    // caller expects us to draw a focus ring. So we just do that here.
-    DrawFocusRingForCellIfNeeded(self, rect, controlView);
-  }
+  // However, because the field is now non-empty, by default it shows a cancel button. To hide the
+  // cancel button, override it with a custom NSButtonCell which renders nothing.
+  NSButtonCell* invisibleCell = [[NSButtonCell alloc] initImageCell:nil];
+  invisibleCell.bezeled = NO;
+  invisibleCell.bordered = NO;
+  self.cancelButtonCell = invisibleCell;
+  [invisibleCell release];
+
+  return self;
 }
-
-- (void)drawFocusRingMaskWithFrame:(NSRect)rect inView:(NSView*)controlView {
-  // By default this draws nothing. I don't know why.
-  // We just draw the search field again. It's a great mask shape for its own
-  // focus ring.
-  [super drawWithFrame:rect inView:controlView];
-}
-
-@end
-
-@interface ToolbarSearchFieldCellWithFocusRing : SearchFieldCellWithFocusRing
-@end
-
-@implementation ToolbarSearchFieldCellWithFocusRing
 
 - (BOOL)_isToolbarMode {
-  // This function is called during -[NSSearchFieldCell drawWithFrame:inView:].
-  // On earlier macOS versions, returning YES from it selects the style
-  // that's appropriate for search fields inside toolbars. On Big Sur,
-  // returning YES causes the search field to be drawn incorrectly, with
-  // the toolbar gradient appearing as the field background.
-  if (nsCocoaFeatures::OnBigSurOrLater()) {
-    return NO;
-  }
-  return YES;
+  return self.shouldUseToolbarStyle;
 }
 
 @end
@@ -451,24 +421,23 @@ nsNativeThemeCocoa::nsNativeThemeCocoa() {
   [mPushButtonCell setButtonType:NSMomentaryPushInButton];
   [mPushButtonCell setHighlightsBy:NSPushInCellMask];
 
-  mRadioButtonCell = [[RadioButtonCell alloc] initTextCell:@""];
+  mRadioButtonCell = [[NSButtonCell alloc] initTextCell:@""];
   [mRadioButtonCell setButtonType:NSRadioButton];
 
-  mCheckboxCell = [[CheckboxCell alloc] initTextCell:@""];
+  mCheckboxCell = [[NSButtonCell alloc] initTextCell:@""];
   [mCheckboxCell setButtonType:NSSwitchButton];
   [mCheckboxCell setAllowsMixedState:YES];
 
-  mSearchFieldCell = [[SearchFieldCellWithFocusRing alloc] initTextCell:@""];
+  mTextFieldCell = [[NSTextFieldCell alloc] initTextCell:@""];
+  [mTextFieldCell setBezeled:YES];
+  [mTextFieldCell setEditable:YES];
+  [mTextFieldCell setFocusRingType:NSFocusRingTypeExterior];
+
+  mSearchFieldCell = [[MOZSearchFieldCell alloc] init];
   [mSearchFieldCell setBezelStyle:NSTextFieldRoundedBezel];
   [mSearchFieldCell setBezeled:YES];
   [mSearchFieldCell setEditable:YES];
   [mSearchFieldCell setFocusRingType:NSFocusRingTypeExterior];
-
-  mToolbarSearchFieldCell = [[ToolbarSearchFieldCellWithFocusRing alloc] initTextCell:@""];
-  [mToolbarSearchFieldCell setBezelStyle:NSTextFieldRoundedBezel];
-  [mToolbarSearchFieldCell setBezeled:YES];
-  [mToolbarSearchFieldCell setEditable:YES];
-  [mToolbarSearchFieldCell setFocusRingType:NSFocusRingTypeExterior];
 
   mDropdownCell = [[NSPopUpButtonCell alloc] initTextCell:@"" pullsDown:NO];
 
@@ -482,7 +451,24 @@ nsNativeThemeCocoa::nsNativeThemeCocoa() {
   mMeterBarCell = [[NSLevelIndicatorCell alloc]
       initWithLevelIndicatorStyle:NSContinuousCapacityLevelIndicatorStyle];
 
-  mCellDrawView = [[CellDrawView alloc] init];
+  mCellDrawView = [[MOZCellDrawView alloc] init];
+
+  if (XRE_IsParentProcess()) {
+    // Put the cell draw view into a window that is never shown.
+    // This allows us to convince some NSCell implementations (such as NSButtonCell for default
+    // buttons) to draw with the active appearance. Another benefit of putting the draw view in a
+    // window is the fact that it lets NSTextFieldCell (and its subclass NSSearchFieldCell) inherit
+    // the current NSApplication effectiveAppearance automatically, so the field adapts to Dark Mode
+    // correctly.
+    // We don't create this window when the native theme is used in the content process because
+    // NSWindow creation runs into the sandbox and because we never run default buttons in content
+    // processes anyway.
+    mCellDrawWindow = [[MOZCellDrawWindow alloc] initWithContentRect:NSZeroRect
+                                                           styleMask:NSWindowStyleMaskBorderless
+                                                             backing:NSBackingStoreBuffered
+                                                               defer:NO];
+    [mCellDrawWindow.contentView addSubview:mCellDrawView];
+  }
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -497,10 +483,11 @@ nsNativeThemeCocoa::~nsNativeThemeCocoa() {
   [mPushButtonCell release];
   [mRadioButtonCell release];
   [mCheckboxCell release];
+  [mTextFieldCell release];
   [mSearchFieldCell release];
-  [mToolbarSearchFieldCell release];
   [mDropdownCell release];
   [mComboBoxCell release];
+  [mCellDrawWindow release];
   [mCellDrawView release];
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
@@ -799,27 +786,17 @@ static void DrawCellWithSnapping(NSCell* cell, CGContextRef cgContext, const HIR
 + (CUIRendererRef)coreUIRenderer;
 @end
 
-static id GetAquaAppearance() {
-  Class NSAppearanceClass = NSClassFromString(@"NSAppearance");
-  if (NSAppearanceClass && [NSAppearanceClass respondsToSelector:@selector(appearanceNamed:)]) {
-    return [NSAppearanceClass performSelector:@selector(appearanceNamed:)
-                                   withObject:@"NSAppearanceNameAqua"];
-  }
-  return nil;
-}
-
 @interface NSObject (NSAppearanceCoreUIRendering)
 - (void)_drawInRect:(CGRect)rect context:(CGContextRef)cgContext options:(id)options;
 @end
 
 static void RenderWithCoreUI(CGRect aRect, CGContextRef cgContext, NSDictionary* aOptions,
                              bool aSkipAreaCheck = false) {
-  id appearance = GetAquaAppearance();
-
   if (!aSkipAreaCheck && aRect.size.width * aRect.size.height > BITMAP_MAX_AREA) {
     return;
   }
 
+  NSAppearance* appearance = NSAppearance.currentAppearance;
   if (appearance && [appearance respondsToSelector:@selector(_drawInRect:context:options:)]) {
     // Render through NSAppearance on Mac OS 10.10 and up. This will call
     // CUIDraw with a CoreUI renderer that will give us the correct 10.10
@@ -940,6 +917,9 @@ void nsNativeThemeCocoa::DrawCheckboxOrRadio(CGContextRef cgContext, bool inChec
                                inBoxRect.origin.y + (int)((inBoxRect.size.height - length) / 2.0f),
                                length, length);
 
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aParams.controlParams.insideActiveWindow;
+  }
   DrawCellWithSnapping(cell, cgContext, drawRect, inCheckbox ? checkboxSettings : radioSettings,
                        aParams.verticalAlignFactor, mCellDrawView, NO);
 
@@ -997,31 +977,59 @@ static bool IsInsideToolbar(nsIFrame* aFrame) {
   return false;
 }
 
-nsNativeThemeCocoa::SearchFieldParams nsNativeThemeCocoa::ComputeSearchFieldParams(
+nsNativeThemeCocoa::TextFieldParams nsNativeThemeCocoa::ComputeTextFieldParams(
     nsIFrame* aFrame, EventStates aEventState) {
-  SearchFieldParams params;
+  TextFieldParams params;
   params.insideToolbar = IsInsideToolbar(aFrame);
   params.disabled = IsDisabled(aFrame, aEventState);
-  params.focused = IsFocused(aFrame);
+
+  // See ShouldUnconditionallyDrawFocusRingIfFocused.
+  params.focused = aEventState.HasState(NS_EVENT_STATE_FOCUS);
+  // XUL textboxes set the native appearance on the containing box, while
+  // concrete focus is set on the html:input element within it. We can
+  // though, check the focused attribute of xul textboxes in this case.
+  // On Mac, focus rings are always shown for textboxes, so we do not need
+  // to check the window's focus ring state here
+  if (aFrame->GetContent()->IsXULElement() && IsFocused(aFrame)) {
+    params.focused = true;
+  }
+
   params.rtl = IsFrameRTL(aFrame);
   params.verticalAlignFactor = VerticalAlignFactor(aFrame);
   return params;
 }
 
-void nsNativeThemeCocoa::DrawSearchField(CGContextRef cgContext, const HIRect& inBoxRect,
-                                         const SearchFieldParams& aParams) {
+void nsNativeThemeCocoa::DrawTextField(CGContextRef cgContext, const HIRect& inBoxRect,
+                                       const TextFieldParams& aParams) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
-  NSSearchFieldCell* cell = aParams.insideToolbar ? mToolbarSearchFieldCell : mSearchFieldCell;
+  NSTextFieldCell* cell = mTextFieldCell;
   [cell setEnabled:!aParams.disabled];
   [cell setShowsFirstResponder:aParams.focused];
 
-  // When using the 10.11 SDK, the default string will be shown if we don't
-  // set the placeholder string.
-  [cell setPlaceholderString:@""];
-
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = YES;  // TODO: propagate correct activeness state
+  }
   DrawCellWithSnapping(cell, cgContext, inBoxRect, searchFieldSettings, aParams.verticalAlignFactor,
                        mCellDrawView, aParams.rtl);
+
+  NS_OBJC_END_TRY_IGNORE_BLOCK;
+}
+
+void nsNativeThemeCocoa::DrawSearchField(CGContextRef cgContext, const HIRect& inBoxRect,
+                                         const TextFieldParams& aParams) {
+  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
+
+  mSearchFieldCell.enabled = !aParams.disabled;
+  mSearchFieldCell.showsFirstResponder = aParams.focused;
+  mSearchFieldCell.placeholderString = @"";
+  mSearchFieldCell.shouldUseToolbarStyle = aParams.insideToolbar;
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = YES;  // TODO: propagate correct activeness state
+  }
+  DrawCellWithSnapping(mSearchFieldCell, cgContext, inBoxRect, searchFieldSettings,
+                       aParams.verticalAlignFactor, mCellDrawView, aParams.rtl);
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -1122,11 +1130,6 @@ nsNativeThemeCocoa::MenuItemParams nsNativeThemeCocoa::ComputeMenuItemParams(
   return params;
 }
 
-static void SetCGContextFillColor(CGContextRef cgContext, const sRGBColor& aColor) {
-  DeviceColor color = ToDeviceColor(aColor);
-  CGContextSetRGBFillColor(cgContext, color.r, color.g, color.b, color.a);
-}
-
 void nsNativeThemeCocoa::DrawMenuItem(CGContextRef cgContext, const CGRect& inBoxRect,
                                       const MenuItemParams& aParams) {
   if (aParams.checked) {
@@ -1225,12 +1228,17 @@ static const CellRenderSettings pushButtonSettings = {{
 // we switch over to doing square buttons which looks fine at any size.
 #define DO_SQUARE_BUTTON_HEIGHT 26
 
-void nsNativeThemeCocoa::DrawRoundedBezelPushButton(CGContextRef cgContext, const HIRect& inBoxRect,
-                                                    ControlParams aControlParams) {
+void nsNativeThemeCocoa::DrawPushButton(CGContextRef cgContext, const HIRect& inBoxRect,
+                                        ButtonType aButtonType, ControlParams aControlParams) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
   ApplyControlParamsToNSCell(aControlParams, mPushButtonCell);
   [mPushButtonCell setBezelStyle:NSRoundedBezelStyle];
+  mPushButtonCell.keyEquivalent = aButtonType == ButtonType::eDefaultPushButton ? @"\r" : @"";
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aControlParams.insideActiveWindow;
+  }
   DrawCellWithSnapping(mPushButtonCell, cgContext, inBoxRect, pushButtonSettings, 0.5f,
                        mCellDrawView, aControlParams.rtl, 1.0f);
 
@@ -1243,6 +1251,10 @@ void nsNativeThemeCocoa::DrawSquareBezelPushButton(CGContextRef cgContext, const
 
   ApplyControlParamsToNSCell(aControlParams, mPushButtonCell);
   [mPushButtonCell setBezelStyle:NSShadowlessSquareBezelStyle];
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aControlParams.insideActiveWindow;
+  }
   DrawCellWithScaling(mPushButtonCell, cgContext, inBoxRect, NSControlSizeRegular, NSZeroSize,
                       NSMakeSize(14, 0), NULL, mCellDrawView, aControlParams.rtl);
 
@@ -1254,6 +1266,10 @@ void nsNativeThemeCocoa::DrawHelpButton(CGContextRef cgContext, const HIRect& in
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
   ApplyControlParamsToNSCell(aControlParams, mHelpButtonCell);
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aControlParams.insideActiveWindow;
+  }
   DrawCellWithScaling(mHelpButtonCell, cgContext, inBoxRect, NSControlSizeRegular, NSZeroSize,
                       kHelpButtonSize, NULL, mCellDrawView,
                       false);  // Don't mirror icon in RTL.
@@ -1268,6 +1284,10 @@ void nsNativeThemeCocoa::DrawDisclosureButton(CGContextRef cgContext, const HIRe
 
   ApplyControlParamsToNSCell(aControlParams, mDisclosureButtonCell);
   [mDisclosureButtonCell setState:aCellState];
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aControlParams.insideActiveWindow;
+  }
   DrawCellWithScaling(mDisclosureButtonCell, cgContext, inBoxRect, NSControlSizeRegular, NSZeroSize,
                       kDisclosureButtonSize, NULL, mCellDrawView,
                       false);  // Don't mirror icon in RTL.
@@ -1396,11 +1416,6 @@ void nsNativeThemeCocoa::DrawHIThemeButton(CGContextRef cgContext, const HIRect&
     bdi.adornment |= kThemeAdornmentFocus;
   }
 
-  if ((aAdornment & kThemeAdornmentDefault) && !aParams.disabled) {
-    bdi.animation.time.start = 0;
-    bdi.animation.time.current = CFAbsoluteTimeGetCurrent();
-  }
-
   RenderTransformedHIThemeControl(cgContext, aRect, RenderButton, &bdi, aParams.rtl);
 
 #if DRAW_IN_FRAME_DEBUG
@@ -1417,40 +1432,8 @@ void nsNativeThemeCocoa::DrawButton(CGContextRef cgContext, const HIRect& inBoxR
 
   switch (aParams.button) {
     case ButtonType::eRegularPushButton:
-    case ButtonType::eDefaultPushButton: {
-      ThemeButtonAdornment adornment = aParams.button == ButtonType::eDefaultPushButton
-                                           ? kThemeAdornmentDefault
-                                           : kThemeAdornmentNone;
-      HIRect drawFrame = inBoxRect;
-      drawFrame.size.height -= 2;
-      if (inBoxRect.size.height >= pushButtonSettings.naturalSizes[regularControlSize].height) {
-        DrawHIThemeButton(cgContext, drawFrame, kThemePushButton, kThemeButtonOff,
-                          ToThemeDrawState(controlParams), adornment, controlParams);
-        return;
-      }
-      if (inBoxRect.size.height >= pushButtonSettings.naturalSizes[smallControlSize].height) {
-        drawFrame.origin.y -= 1;
-        drawFrame.origin.x += 1;
-        drawFrame.size.width -= 2;
-        DrawHIThemeButton(cgContext, drawFrame, kThemePushButtonSmall, kThemeButtonOff,
-                          ToThemeDrawState(controlParams), adornment, controlParams);
-        return;
-      }
-      DrawHIThemeButton(cgContext, drawFrame, kThemePushButtonMini, kThemeButtonOff,
-                        ToThemeDrawState(controlParams), adornment, controlParams);
-      return;
-    }
-    case ButtonType::eRegularBevelButton:
-    case ButtonType::eDefaultBevelButton: {
-      ThemeButtonAdornment adornment = aParams.button == ButtonType::eDefaultBevelButton
-                                           ? kThemeAdornmentDefault
-                                           : kThemeAdornmentNone;
-      DrawHIThemeButton(cgContext, inBoxRect, kThemeMediumBevelButton, kThemeButtonOff,
-                        ToThemeDrawState(controlParams), adornment, controlParams);
-      return;
-    }
-    case ButtonType::eRoundedBezelPushButton:
-      DrawRoundedBezelPushButton(cgContext, inBoxRect, controlParams);
+    case ButtonType::eDefaultPushButton:
+      DrawPushButton(cgContext, inBoxRect, aParams.button, controlParams);
       return;
     case ButtonType::eSquareBezelPushButton:
       DrawSquareBezelPushButton(cgContext, inBoxRect, controlParams);
@@ -1609,6 +1592,10 @@ void nsNativeThemeCocoa::DrawDropdown(CGContextRef cgContext, const HIRect& inBo
 
   const CellRenderSettings& settings =
       aParams.editable ? editableMenulistSettings : dropdownSettings;
+
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aParams.controlParams.insideActiveWindow;
+  }
   DrawCellWithSnapping(cell, cgContext, inBoxRect, settings, 0.5f, mCellDrawView,
                        aParams.controlParams.rtl);
 
@@ -1698,47 +1685,6 @@ void nsNativeThemeCocoa::DrawSpinButton(CGContextRef cgContext, const HIRect& in
   HIThemeDrawButton(&drawRect, &bdi, cgContext, HITHEME_ORIENTATION, NULL);
 
   CGContextRestoreGState(cgContext);
-
-  NS_OBJC_END_TRY_IGNORE_BLOCK;
-}
-
-void nsNativeThemeCocoa::DrawTextBox(CGContextRef cgContext, const HIRect& inBoxRect,
-                                     TextBoxParams aParams) {
-  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
-
-  SetCGContextFillColor(cgContext, sRGBColor(1.0, 1.0, 1.0, 1.0));
-  CGContextFillRect(cgContext, inBoxRect);
-
-#if DRAW_IN_FRAME_DEBUG
-  CGContextSetRGBFillColor(cgContext, 0.0, 0.0, 0.5, 0.25);
-  CGContextFillRect(cgContext, inBoxRect);
-#endif
-
-  if (aParams.borderless) {
-    return;
-  }
-
-  HIThemeFrameDrawInfo fdi;
-  fdi.version = 0;
-  fdi.kind = kHIThemeFrameTextFieldSquare;
-
-  // We don't ever set an inactive state for this because it doesn't
-  // look right (see other apps).
-  fdi.state = aParams.disabled ? kThemeStateUnavailable : kThemeStateActive;
-  fdi.isFocused = aParams.focused;
-
-  // HIThemeDrawFrame takes the rect for the content area of the frame, not
-  // the bounding rect for the frame. Here we reduce the size of the rect we
-  // will pass to make it the size of the content.
-  HIRect drawRect = inBoxRect;
-  SInt32 frameOutset = 0;
-  ::GetThemeMetric(kThemeMetricEditTextFrameOutset, &frameOutset);
-  drawRect.origin.x += frameOutset;
-  drawRect.origin.y += frameOutset;
-  drawRect.size.width -= frameOutset * 2;
-  drawRect.size.height -= frameOutset * 2;
-
-  HIThemeDrawFrame(&drawRect, &fdi, cgContext, HITHEME_ORIENTATION);
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -1843,6 +1789,9 @@ void nsNativeThemeCocoa::DrawProgress(CGContextRef cgContext, const HIRect& inBo
   [cell setControlTint:(aParams.insideActiveWindow ? [NSColor currentControlTint]
                                                    : NSClearControlTint)];
 
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = aParams.insideActiveWindow;
+  }
   DrawCellWithSnapping(cell, cgContext, inBoxRect,
                        progressSettings[aParams.horizontal][aParams.indeterminate],
                        aParams.verticalAlignFactor, mCellDrawView, aParams.rtl);
@@ -1952,6 +1901,9 @@ void nsNativeThemeCocoa::DrawMeter(CGContextRef cgContext, const HIRect& inBoxRe
     CGContextTranslateCTM(cgContext, -CGRectGetMidX(rect), -CGRectGetMidY(rect));
   }
 
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = YES;  // TODO: propagate correct activeness state
+  }
   DrawCellWithSnapping(cell, cgContext, rect, meterSetting, aParams.verticalAlignFactor,
                        mCellDrawView, !vertical && aParams.rtl);
 
@@ -2242,54 +2194,6 @@ static bool ToolbarCanBeUnified(const gfx::Rect& aRect, NSWindow* aWindow) {
          aRect.YMost() <= unifiedToolbarHeight;
 }
 
-// By default, kCUIWidgetWindowFrame drawing draws rounded corners in the
-// upper corners. Depending on the context type, it fills the background in
-// the corners with black or leaves it transparent. Unfortunately, this corner
-// rounding interacts poorly with the window corner masking we apply during
-// titlebar drawing and results in small remnants of the corner background
-// appearing at the rounded edge.
-// So we draw square corners.
-static void DrawNativeTitlebarToolbarWithSquareCorners(CGContextRef aContext, const CGRect& aRect,
-                                                       CGFloat aUnifiedHeight, BOOL aIsMain,
-                                                       BOOL aIsFlipped) {
-  // We extend the draw rect horizontally and clip away the rounded corners.
-  const CGFloat extendHorizontal = 10;
-  CGRect drawRect = CGRectInset(aRect, -extendHorizontal, 0);
-  CGContextSaveGState(aContext);
-  CGContextClipToRect(aContext, aRect);
-
-  RenderWithCoreUI(
-      drawRect, aContext,
-      [NSDictionary
-          dictionaryWithObjectsAndKeys:@"kCUIWidgetWindowFrame", @"widget", @"regularwin",
-                                       @"windowtype", (aIsMain ? @"normal" : @"inactive"), @"state",
-                                       [NSNumber numberWithDouble:aUnifiedHeight],
-                                       @"kCUIWindowFrameUnifiedTitleBarHeightKey",
-                                       [NSNumber numberWithBool:YES],
-                                       @"kCUIWindowFrameDrawTitleSeparatorKey",
-                                       [NSNumber numberWithBool:aIsFlipped], @"is.flipped", nil]);
-
-  CGContextRestoreGState(aContext);
-}
-
-void nsNativeThemeCocoa::DrawUnifiedToolbar(CGContextRef cgContext, const HIRect& inBoxRect,
-                                            const UnifiedToolbarParams& aParams) {
-  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
-
-  CGContextSaveGState(cgContext);
-  CGContextClipToRect(cgContext, inBoxRect);
-
-  CGFloat titlebarHeight = aParams.unifiedHeight - inBoxRect.size.height;
-  CGRect drawRect = CGRectMake(inBoxRect.origin.x, inBoxRect.origin.y - titlebarHeight,
-                               inBoxRect.size.width, inBoxRect.size.height + titlebarHeight);
-  DrawNativeTitlebarToolbarWithSquareCorners(cgContext, drawRect, aParams.unifiedHeight,
-                                             aParams.isMain, YES);
-
-  CGContextRestoreGState(cgContext);
-
-  NS_OBJC_END_TRY_IGNORE_BLOCK;
-}
-
 void nsNativeThemeCocoa::DrawStatusBar(CGContextRef cgContext, const HIRect& inBoxRect,
                                        bool aIsMain) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
@@ -2322,18 +2226,6 @@ void nsNativeThemeCocoa::DrawStatusBar(CGContextRef cgContext, const HIRect& inB
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
-void nsNativeThemeCocoa::DrawNativeTitlebar(CGContextRef aContext, CGRect aTitlebarRect,
-                                            CGFloat aUnifiedHeight, BOOL aIsMain, BOOL aIsFlipped) {
-  CGFloat unifiedHeight = std::max(aUnifiedHeight, aTitlebarRect.size.height);
-  DrawNativeTitlebarToolbarWithSquareCorners(aContext, aTitlebarRect, unifiedHeight, aIsMain,
-                                             aIsFlipped);
-}
-
-void nsNativeThemeCocoa::DrawNativeTitlebar(CGContextRef aContext, CGRect aTitlebarRect,
-                                            const UnifiedToolbarParams& aParams) {
-  DrawNativeTitlebar(aContext, aTitlebarRect, aParams.unifiedHeight, aParams.isMain, YES);
-}
-
 static void RenderResizer(CGContextRef cgContext, const HIRect& aRenderRect, void* aData) {
   HIThemeGrowBoxDrawInfo* drawInfo = (HIThemeGrowBoxDrawInfo*)aData;
   HIThemeDrawGrowBox(&CGPointZero, drawInfo, cgContext, kHIThemeOrientationNormal);
@@ -2354,37 +2246,22 @@ void nsNativeThemeCocoa::DrawResizer(CGContextRef cgContext, const HIRect& aRect
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
-static const sRGBColor kMultilineTextFieldTopBorderColor(0.4510, 0.4510, 0.4510, 1.0);
-static const sRGBColor kMultilineTextFieldSidesAndBottomBorderColor(0.6, 0.6, 0.6, 1.0);
-static const sRGBColor kListboxTopBorderColor(0.557, 0.557, 0.557, 1.0);
-static const sRGBColor kListBoxSidesAndBottomBorderColor(0.745, 0.745, 0.745, 1.0);
-
 void nsNativeThemeCocoa::DrawMultilineTextField(CGContextRef cgContext, const CGRect& inBoxRect,
                                                 bool aIsFocused) {
-  SetCGContextFillColor(cgContext, sRGBColor(1.0, 1.0, 1.0, 1.0));
+  mTextFieldCell.enabled = YES;
+  mTextFieldCell.showsFirstResponder = aIsFocused;
 
-  CGContextFillRect(cgContext, inBoxRect);
-
-  float x = inBoxRect.origin.x, y = inBoxRect.origin.y;
-  float w = inBoxRect.size.width, h = inBoxRect.size.height;
-  SetCGContextFillColor(cgContext, kMultilineTextFieldTopBorderColor);
-  CGContextFillRect(cgContext, CGRectMake(x, y, w, 1));
-  SetCGContextFillColor(cgContext, kMultilineTextFieldSidesAndBottomBorderColor);
-  CGContextFillRect(cgContext, CGRectMake(x, y + 1, 1, h - 1));
-  CGContextFillRect(cgContext, CGRectMake(x + w - 1, y + 1, 1, h - 1));
-  CGContextFillRect(cgContext, CGRectMake(x + 1, y + h - 1, w - 2, 1));
-
-  if (aIsFocused) {
-    NSGraphicsContext* savedContext = [NSGraphicsContext currentContext];
-    [NSGraphicsContext
-        setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:cgContext
-                                                                     flipped:YES]];
-    CGContextSaveGState(cgContext);
-    NSSetFocusRingStyle(NSFocusRingOnly);
-    NSRectFill(NSRectFromCGRect(inBoxRect));
-    CGContextRestoreGState(cgContext);
-    [NSGraphicsContext setCurrentContext:savedContext];
+  if (mCellDrawWindow) {
+    mCellDrawWindow.cellsShouldLookActive = YES;
   }
+
+  // DrawCellIncludingFocusRing draws into the current NSGraphicsContext, so do the usual
+  // save+restore dance.
+  NSGraphicsContext* savedContext = NSGraphicsContext.currentContext;
+  NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:cgContext
+                                                                             flipped:YES];
+  DrawCellIncludingFocusRing(mTextFieldCell, inBoxRect, mCellDrawView);
+  NSGraphicsContext.currentContext = savedContext;
 }
 
 void nsNativeThemeCocoa::DrawSourceListSelection(CGContextRef aContext, const CGRect& aRect,
@@ -2519,8 +2396,8 @@ Maybe<nsNativeThemeCocoa::WidgetInfo> nsNativeThemeCocoa::ComputeWidgetInfo(
         return Some(WidgetInfo::Button(ButtonParams{ComputeControlParams(aFrame, eventState),
                                                     ButtonType::eSquareBezelPushButton}));
       }
-      return Some(WidgetInfo::Button(ButtonParams{ComputeControlParams(aFrame, eventState),
-                                                  ButtonType::eRoundedBezelPushButton}));
+      return Some(WidgetInfo::Button(
+          ButtonParams{ComputeControlParams(aFrame, eventState), ButtonType::eRegularPushButton}));
 
     case StyleAppearance::FocusOutline:
       return Some(WidgetInfo::FocusOutline());
@@ -2596,20 +2473,16 @@ Maybe<nsNativeThemeCocoa::WidgetInfo> nsNativeThemeCocoa::ComputeWidgetInfo(
       NSWindow* win = NativeWindowForFrame(aFrame);
       bool isMain = [win isMainWindow];
       if (ToolbarCanBeUnified(nativeWidgetRect, win)) {
-        float unifiedHeight =
-            std::max(float([(ToolbarWindow*)win unifiedToolbarHeight]), nativeWidgetRect.Height());
-        return Some(WidgetInfo::UnifiedToolbar(UnifiedToolbarParams{unifiedHeight, isMain}));
+        // Unified toolbars are drawn similar to vibrancy; we communicate their extents via the
+        // theme geometry mechanism and then place native views under Gecko's rendering. So Gecko
+        // just needs to be transparent in the place where the toolbar should be visible.
+        return Nothing();
       }
       return Some(WidgetInfo::Toolbar(isMain));
     }
 
     case StyleAppearance::MozWindowTitlebar: {
-      NSWindow* win = NativeWindowForFrame(aFrame);
-      bool isMain = [win isMainWindow];
-      float unifiedToolbarHeight = [win isKindOfClass:[ToolbarWindow class]]
-                                       ? [(ToolbarWindow*)win unifiedToolbarHeight]
-                                       : nativeWidgetRect.Height();
-      return Some(WidgetInfo::NativeTitlebar(UnifiedToolbarParams{unifiedToolbarHeight, isMain}));
+      return Nothing();
     }
 
     case StyleAppearance::Statusbar:
@@ -2635,25 +2508,11 @@ Maybe<nsNativeThemeCocoa::WidgetInfo> nsNativeThemeCocoa::ComputeWidgetInfo(
       return Some(WidgetInfo::GroupBox());
 
     case StyleAppearance::Textfield:
-    case StyleAppearance::NumberInput: {
-      // See ShouldUnconditionallyDrawFocusRingIfFocused.
-      bool isFocused = eventState.HasState(NS_EVENT_STATE_FOCUS);
-      // XUL textboxes set the native appearance on the containing box, while
-      // concrete focus is set on the html:input element within it. We can
-      // though, check the focused attribute of xul textboxes in this case.
-      // On Mac, focus rings are always shown for textboxes, so we do not need
-      // to check the window's focus ring state here
-      if (aFrame->GetContent()->IsXULElement() && IsFocused(aFrame)) {
-        isFocused = true;
-      }
-
-      bool isDisabled = IsDisabled(aFrame, eventState) || IsReadOnly(aFrame);
-      return Some(
-          WidgetInfo::TextBox(TextBoxParams{isDisabled, isFocused, /* borderless = */ false}));
-    }
+    case StyleAppearance::NumberInput:
+      return Some(WidgetInfo::TextField(ComputeTextFieldParams(aFrame, eventState)));
 
     case StyleAppearance::Searchfield:
-      return Some(WidgetInfo::SearchField(ComputeSearchFieldParams(aFrame, eventState)));
+      return Some(WidgetInfo::SearchField(ComputeTextFieldParams(aFrame, eventState)));
 
     case StyleAppearance::ProgressBar: {
       if (IsIndeterminateProgress(aFrame, eventState)) {
@@ -2784,7 +2643,7 @@ Maybe<nsNativeThemeCocoa::WidgetInfo> nsNativeThemeCocoa::ComputeWidgetInfo(
 NS_IMETHODIMP
 nsNativeThemeCocoa::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
                                          StyleAppearance aAppearance, const nsRect& aRect,
-                                         const nsRect& aDirtyRect) {
+                                         const nsRect& aDirtyRect, DrawOverflow) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   Maybe<WidgetInfo> widgetInfo = ComputeWidgetInfo(aFrame, aAppearance, aRect);
@@ -2800,7 +2659,9 @@ nsNativeThemeCocoa::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
 
   bool hidpi = IsHiDPIContext(aFrame->PresContext()->DeviceContext());
 
-  RenderWidget(*widgetInfo, *aContext->GetDrawTarget(), nativeWidgetRect,
+  auto colorScheme = LookAndFeel::ColorSchemeForDocument(*aFrame->PresContext()->Document());
+
+  RenderWidget(*widgetInfo, colorScheme, *aContext->GetDrawTarget(), nativeWidgetRect,
                NSRectToRect(aDirtyRect, p2a), hidpi ? 2.0f : 1.0f);
 
   return NS_OK;
@@ -2808,16 +2669,19 @@ nsNativeThemeCocoa::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
   NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
 }
 
-void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo, DrawTarget& aDrawTarget,
+void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo,
+                                      LookAndFeel::ColorScheme aScheme, DrawTarget& aDrawTarget,
                                       const gfx::Rect& aWidgetRect, const gfx::Rect& aDirtyRect,
                                       float aScale) {
-  AutoRestoreTransform autoRestoreTransform(&aDrawTarget);
+  // Some of the drawing below uses NSAppearance.currentAppearance behind the scenes.
+  // Set it to the appearance we want, the same way as nsLookAndFeel::NativeGetColor.
+  NSAppearance.currentAppearance = NSAppearanceForColorScheme(aScheme);
 
-  gfx::Rect dirtyRect = aDirtyRect;
-  gfx::Rect widgetRect = aWidgetRect;
-  dirtyRect.Scale(1.0f / aScale);
-  widgetRect.Scale(1.0f / aScale);
-  aDrawTarget.SetTransform(aDrawTarget.GetTransform().PreScale(aScale, aScale));
+  // Also set the cell draw window's appearance; this is respected by NSTextFieldCell (and its
+  // subclass NSSearchFieldCell).
+  if (mCellDrawWindow) {
+    mCellDrawWindow.appearance = NSAppearance.currentAppearance;
+  }
 
   const Widget widget = aWidgetInfo.Widget();
 
@@ -2825,25 +2689,55 @@ void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo, DrawTarget&
   switch (widget) {
     case Widget::eColorFill: {
       sRGBColor color = aWidgetInfo.Params<sRGBColor>();
-      aDrawTarget.FillRect(widgetRect, ColorPattern(ToDeviceColor(color)));
+      aDrawTarget.FillRect(aWidgetRect, ColorPattern(ToDeviceColor(color)));
       break;
     }
     case Widget::eScrollbarThumb: {
       ScrollbarParams params = aWidgetInfo.Params<ScrollbarParams>();
-      ScrollbarDrawingMac::DrawScrollbarThumb(aDrawTarget, widgetRect, params);
+      auto thumb = ScrollbarDrawingMac::GetThumbRect(aWidgetRect, params, aScale);
+      float cornerRadius = (params.horizontal ? thumb.mRect.Height() : thumb.mRect.Width()) / 2.0f;
+      aDrawTarget.FillRoundedRect(RoundedRect(thumb.mRect, RectCornerRadii(cornerRadius)),
+                                  ColorPattern(ToDeviceColor(thumb.mFillColor)));
+      if (thumb.mStrokeColor) {
+        auto strokeRect = thumb.mRect;
+        strokeRect.Inflate(thumb.mStrokeOutset);
+        float strokeRadius = (params.horizontal ? strokeRect.Height() : strokeRect.Width()) / 2.0f;
+        RefPtr<Path> path =
+            MakePathForRoundedRect(aDrawTarget, strokeRect, RectCornerRadii(strokeRadius));
+        aDrawTarget.Stroke(path, ColorPattern(ToDeviceColor(thumb.mStrokeColor)),
+                           StrokeOptions(thumb.mStrokeWidth));
+      }
       break;
     }
     case Widget::eScrollbarTrack: {
       ScrollbarParams params = aWidgetInfo.Params<ScrollbarParams>();
-      ScrollbarDrawingMac::DrawScrollbarTrack(aDrawTarget, widgetRect, params);
+      ScrollbarDrawingMac::ScrollbarTrackRects rects;
+      if (ScrollbarDrawingMac::GetScrollbarTrackRects(aWidgetRect, params, aScale, rects)) {
+        for (const auto& rect : rects) {
+          aDrawTarget.FillRect(rect.mRect, ColorPattern(ToDeviceColor(rect.mColor)));
+        }
+      }
       break;
     }
     case Widget::eScrollCorner: {
       ScrollbarParams params = aWidgetInfo.Params<ScrollbarParams>();
-      ScrollbarDrawingMac::DrawScrollCorner(aDrawTarget, widgetRect, params);
+      ScrollbarDrawingMac::ScrollCornerRects rects;
+      if (ScrollbarDrawingMac::GetScrollCornerRects(aWidgetRect, params, aScale, rects)) {
+        for (const auto& rect : rects) {
+          aDrawTarget.FillRect(rect.mRect, ColorPattern(ToDeviceColor(rect.mColor)));
+        }
+      }
       break;
     }
     default: {
+      AutoRestoreTransform autoRestoreTransform(&aDrawTarget);
+      gfx::Rect widgetRect = aWidgetRect;
+      gfx::Rect dirtyRect = aDirtyRect;
+
+      dirtyRect.Scale(1.0f / aScale);
+      widgetRect.Scale(1.0f / aScale);
+      aDrawTarget.SetTransform(aDrawTarget.GetTransform().PreScale(aScale, aScale));
+
       // The remaining widgets require a CGContext.
       CGRect macRect =
           CGRectMake(widgetRect.X(), widgetRect.Y(), widgetRect.Width(), widgetRect.Height());
@@ -2934,19 +2828,9 @@ void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo, DrawTarget&
           HIThemeDrawSeparator(&macRect, &sdi, cgContext, HITHEME_ORIENTATION);
           break;
         }
-        case Widget::eUnifiedToolbar: {
-          UnifiedToolbarParams params = aWidgetInfo.Params<UnifiedToolbarParams>();
-          DrawUnifiedToolbar(cgContext, macRect, params);
-          break;
-        }
         case Widget::eToolbar: {
           bool isMain = aWidgetInfo.Params<bool>();
           DrawToolbar(cgContext, macRect, isMain);
-          break;
-        }
-        case Widget::eNativeTitlebar: {
-          UnifiedToolbarParams params = aWidgetInfo.Params<UnifiedToolbarParams>();
-          DrawNativeTitlebar(cgContext, macRect, params);
           break;
         }
         case Widget::eStatusBar: {
@@ -2959,13 +2843,13 @@ void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo, DrawTarget&
           HIThemeDrawGroupBox(&macRect, &gdi, cgContext, HITHEME_ORIENTATION);
           break;
         }
-        case Widget::eTextBox: {
-          TextBoxParams params = aWidgetInfo.Params<TextBoxParams>();
-          DrawTextBox(cgContext, macRect, params);
+        case Widget::eTextField: {
+          TextFieldParams params = aWidgetInfo.Params<TextFieldParams>();
+          DrawTextField(cgContext, macRect, params);
           break;
         }
         case Widget::eSearchField: {
-          SearchFieldParams params = aWidgetInfo.Params<SearchFieldParams>();
+          TextFieldParams params = aWidgetInfo.Params<TextFieldParams>();
           DrawSearchField(cgContext, macRect, params);
           break;
         }
@@ -2995,19 +2879,17 @@ void nsNativeThemeCocoa::RenderWidget(const WidgetInfo& aWidgetInfo, DrawTarget&
           break;
         }
         case Widget::eListBox: {
-          // We have to draw this by hand because kHIThemeFrameListBox drawing
-          // is buggy on 10.5, see bug 579259.
-          SetCGContextFillColor(cgContext, sRGBColor(1.0, 1.0, 1.0, 1.0));
+          // Fill the content with the control color.
+          CGContextSetFillColorWithColor(cgContext, [NSColor.controlColor CGColor]);
           CGContextFillRect(cgContext, macRect);
-
-          float x = macRect.origin.x, y = macRect.origin.y;
-          float w = macRect.size.width, h = macRect.size.height;
-          SetCGContextFillColor(cgContext, kListboxTopBorderColor);
-          CGContextFillRect(cgContext, CGRectMake(x, y, w, 1));
-          SetCGContextFillColor(cgContext, kListBoxSidesAndBottomBorderColor);
-          CGContextFillRect(cgContext, CGRectMake(x, y + 1, 1, h - 1));
-          CGContextFillRect(cgContext, CGRectMake(x + w - 1, y + 1, 1, h - 1));
-          CGContextFillRect(cgContext, CGRectMake(x + 1, y + h - 1, w - 2, 1));
+          // Draw the frame using kCUIWidgetScrollViewFrame. This is what NSScrollView uses in
+          // -[NSScrollView drawRect:] if you give it a borderType of NSBezelBorder.
+          RenderWithCoreUI(
+              macRect, cgContext, @{
+                @"widget" : @"kCUIWidgetScrollViewFrame",
+                @"kCUIIsFlippedKey" : @YES,
+                @"kCUIVariantMetal" : @NO,
+              });
           break;
         }
         case Widget::eActiveSourceListSelection:
@@ -3042,12 +2924,6 @@ bool nsNativeThemeCocoa::CreateWebRenderCommandsForWidget(
     const mozilla::layers::StackingContextHelper& aSc,
     mozilla::layers::RenderRootStateManager* aManager, nsIFrame* aFrame,
     StyleAppearance aAppearance, const nsRect& aRect) {
-  nsPresContext* presContext = aFrame->PresContext();
-  wr::LayoutRect bounds =
-      wr::ToLayoutRect(LayoutDeviceRect::FromAppUnits(aRect, presContext->AppUnitsPerDevPixel()));
-
-  EventStates eventState = GetContentState(aFrame, aAppearance);
-
   // This list needs to stay consistent with the list in DrawWidgetBackground.
   // For every switch case in DrawWidgetBackground, there are three choices:
   //  - If the case in DrawWidgetBackground draws nothing for the given widget
@@ -3112,64 +2988,8 @@ bool nsNativeThemeCocoa::CreateWebRenderCommandsForWidget(
       return false;
     }
 
-    case StyleAppearance::Textarea: {
-      if (eventState.HasState(NS_EVENT_STATE_FOCUS)) {
-        // We can't draw the focus ring using webrender, so fall back to regular
-        // drawing if we're focused.
-        return false;
-      }
-
-      // White background
-      aBuilder.PushRect(bounds, bounds, true,
-                        wr::ToColorF(ToDeviceColor(sRGBColor::OpaqueWhite())));
-
-      wr::BorderSide side[4] = {
-          wr::ToBorderSide(ToDeviceColor(kMultilineTextFieldTopBorderColor),
-                           StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kMultilineTextFieldSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kMultilineTextFieldSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kMultilineTextFieldSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-      };
-
-      wr::BorderRadius borderRadius = wr::EmptyBorderRadius();
-      float borderWidth = presContext->CSSPixelsToDevPixels(1.0f);
-      wr::LayoutSideOffsets borderWidths =
-          wr::ToBorderWidths(borderWidth, borderWidth, borderWidth, borderWidth);
-
-      mozilla::Range<const wr::BorderSide> wrsides(side, 4);
-      aBuilder.PushBorder(bounds, bounds, true, borderWidths, wrsides, borderRadius);
-
-      return true;
-    }
-
-    case StyleAppearance::Listbox: {
-      // White background
-      aBuilder.PushRect(bounds, bounds, true,
-                        wr::ToColorF(ToDeviceColor(sRGBColor::OpaqueWhite())));
-
-      wr::BorderSide side[4] = {
-          wr::ToBorderSide(ToDeviceColor(kListboxTopBorderColor), StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kListBoxSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kListBoxSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-          wr::ToBorderSide(ToDeviceColor(kListBoxSidesAndBottomBorderColor),
-                           StyleBorderStyle::Solid),
-      };
-
-      wr::BorderRadius borderRadius = wr::EmptyBorderRadius();
-      float borderWidth = presContext->CSSPixelsToDevPixels(1.0f);
-      wr::LayoutSideOffsets borderWidths =
-          wr::ToBorderWidths(borderWidth, borderWidth, borderWidth, borderWidth);
-
-      mozilla::Range<const wr::BorderSide> wrsides(side, 4);
-      aBuilder.PushBorder(bounds, bounds, true, borderWidths, wrsides, borderRadius);
-      return true;
-    }
-
+    case StyleAppearance::Textarea:
+    case StyleAppearance::Listbox:
     case StyleAppearance::Tab:
     case StyleAppearance::Tabpanels:
     case StyleAppearance::Resizer:
@@ -3273,7 +3093,7 @@ LayoutDeviceIntMargin nsNativeThemeCocoa::GetWidgetBorder(nsDeviceContext* aCont
     case StyleAppearance::ScrollbartrackHorizontal:
     case StyleAppearance::ScrollbartrackVertical: {
       bool isHorizontal = (aAppearance == StyleAppearance::ScrollbartrackHorizontal);
-      if (nsLookAndFeel::UseOverlayScrollbars()) {
+      if (LookAndFeel::UseOverlayScrollbars()) {
         // Leave a bit of space at the start and the end on all OS X versions.
         if (isHorizontal) {
           result.left = 1;
@@ -3603,8 +3423,6 @@ nsNativeThemeCocoa::WidgetStateChanged(nsIFrame* aFrame, StyleAppearance aAppear
     case StyleAppearance::ProgressBar:
     case StyleAppearance::Meter:
     case StyleAppearance::Meterchunk:
-    case StyleAppearance::MozMacVibrancyLight:
-    case StyleAppearance::MozMacVibrancyDark:
     case StyleAppearance::MozMacVibrantTitlebarLight:
     case StyleAppearance::MozMacVibrantTitlebarDark:
       *aShouldRepaint = false;
@@ -3744,15 +3562,13 @@ bool nsNativeThemeCocoa::ThemeSupportsWidget(nsPresContext* aPresContext, nsIFra
       // overriden, and the custom transparent resizer looks better when
       // scrollbars are not present.
       nsIScrollableFrame* scrollFrame = do_QueryFrame(parentFrame);
-      return (!nsLookAndFeel::UseOverlayScrollbars() && scrollFrame &&
+      return (!LookAndFeel::UseOverlayScrollbars() && scrollFrame &&
               (!scrollFrame->GetScrollbarVisibility().isEmpty()));
     }
 
     case StyleAppearance::FocusOutline:
       return true;
 
-    case StyleAppearance::MozMacVibrancyLight:
-    case StyleAppearance::MozMacVibrancyDark:
     case StyleAppearance::MozMacVibrantTitlebarLight:
     case StyleAppearance::MozMacVibrantTitlebarDark:
       return true;
@@ -3836,16 +3652,6 @@ bool nsNativeThemeCocoa::WidgetAppearanceDependsOnWindowFocus(StyleAppearance aA
   }
 }
 
-bool nsNativeThemeCocoa::IsWindowSheet(nsIFrame* aFrame) {
-  NSWindow* win = NativeWindowForFrame(aFrame);
-  id winDelegate = [win delegate];
-  nsIWidget* widget = [(WindowDelegate*)winDelegate geckoWidget];
-  if (!widget) {
-    return false;
-  }
-  return (widget->WindowType() == eWindowType_sheet);
-}
-
 nsITheme::ThemeGeometryType nsNativeThemeCocoa::ThemeGeometryTypeForWidget(
     nsIFrame* aFrame, StyleAppearance aAppearance) {
   switch (aAppearance) {
@@ -3857,10 +3663,6 @@ nsITheme::ThemeGeometryType nsNativeThemeCocoa::ThemeGeometryTypeForWidget(
       return eThemeGeometryTypeToolbox;
     case StyleAppearance::MozWindowButtonBox:
       return eThemeGeometryTypeWindowButtons;
-    case StyleAppearance::MozMacVibrancyLight:
-      return eThemeGeometryTypeVibrancyLight;
-    case StyleAppearance::MozMacVibrancyDark:
-      return eThemeGeometryTypeVibrancyDark;
     case StyleAppearance::MozMacVibrantTitlebarLight:
       return eThemeGeometryTypeVibrantTitlebarLight;
     case StyleAppearance::MozMacVibrantTitlebarDark:
@@ -3876,8 +3678,6 @@ nsITheme::ThemeGeometryType nsNativeThemeCocoa::ThemeGeometryTypeForWidget(
       bool isSelected = !isDisabled && CheckBooleanAttr(aFrame, nsGkAtoms::menuactive);
       return isSelected ? eThemeGeometryTypeHighlightedMenuItem : eThemeGeometryTypeMenu;
     }
-    case StyleAppearance::Dialog:
-      return IsWindowSheet(aFrame) ? eThemeGeometryTypeSheet : eThemeGeometryTypeUnknown;
     case StyleAppearance::MozMacSourceList:
       return eThemeGeometryTypeSourceList;
     case StyleAppearance::MozMacSourceListSelection:
@@ -3897,13 +3697,14 @@ nsITheme::Transparency nsNativeThemeCocoa::GetWidgetTransparency(nsIFrame* aFram
     case StyleAppearance::Menupopup:
     case StyleAppearance::Tooltip:
     case StyleAppearance::Dialog:
+    case StyleAppearance::Toolbar:
       return eTransparent;
 
     case StyleAppearance::ScrollbarHorizontal:
     case StyleAppearance::ScrollbarVertical:
     case StyleAppearance::Scrollcorner: {
       // We don't use custom scrollbars when using overlay scrollbars.
-      if (nsLookAndFeel::UseOverlayScrollbars()) {
+      if (LookAndFeel::UseOverlayScrollbars()) {
         return eTransparent;
       }
       const nsStyleUI* ui = nsLayoutUtils::StyleForScrollbar(aFrame)->StyleUI();
@@ -3917,9 +3718,6 @@ nsITheme::Transparency nsNativeThemeCocoa::GetWidgetTransparency(nsIFrame* aFram
     case StyleAppearance::Statusbar:
       // Knowing that scrollbars and statusbars are opaque improves
       // performance, because we create layers for them.
-      return eOpaque;
-
-    case StyleAppearance::Toolbar:
       return eOpaque;
 
     default:

@@ -213,7 +213,9 @@ async function toggleCache(toolbox, disabled) {
   // Disable the cache for any toolbox that it is opened from this point on.
   Services.prefs.setBoolPref("devtools.cache.disabled", disabled);
 
-  await toolbox.targetList.updateConfiguration(options);
+  await toolbox.commands.targetConfigurationCommand.updateConfiguration(
+    options
+  );
   await toolbox.target.reload();
 
   await navigationFinished;
@@ -322,9 +324,9 @@ function initNetMonitor(
     const tab = await addTab(url);
     info("Net tab added successfully: " + url);
 
-    const target = await TargetFactory.forTab(tab);
-
-    const toolbox = await gDevTools.showToolbox(target, "netmonitor");
+    const toolbox = await gDevTools.showToolboxForTab(tab, {
+      toolId: "netmonitor",
+    });
     info("Network monitor pane shown successfully.");
 
     const monitor = toolbox.getCurrentPanel();
@@ -763,27 +765,6 @@ function verifyRequestItemTarget(
       ok(target.classList.contains("odd"), "Item should have 'odd' class.");
     }
   }
-}
-
-/**
- * Wait for an action of the provided type to be dispatched on the provided
- * store.
- *
- * @param {Object} store
- *        The redux store (wait-service middleware required).
- * @param {String} type
- *        Type of the action to wait for.
- */
-function waitForDispatch(store, type) {
-  return new Promise(resolve => {
-    store.dispatch({
-      type: "@@service/waitUntil",
-      predicate: action => action.type === type,
-      run: (dispatch, getState, action) => {
-        resolve(action);
-      },
-    });
-  });
 }
 
 /**

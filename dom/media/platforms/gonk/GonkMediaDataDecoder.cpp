@@ -10,6 +10,7 @@
 #include "MediaCodecProxy.h"
 
 #include <media/stagefright/foundation/ADebug.h>
+#include <media/stagefright/foundation/AMessage.h>
 
 #include "mozilla/Logging.h"
 
@@ -46,10 +47,14 @@ using namespace android;
 
 namespace mozilla {
 
-bool GonkDecoderManager::InitLoopers(MediaData::Type aType) {
-  MOZ_ASSERT(mDecodeLooper.get() == nullptr && mTaskLooper.get() == nullptr);
+bool GonkDecoderManager::InitThreads(MediaData::Type aType) {
+  MOZ_ASSERT(!mTaskQueue && !mDecodeLooper && !mTaskLooper);
   MOZ_ASSERT(aType == MediaData::Type::VIDEO_DATA ||
              aType == MediaData::Type::AUDIO_DATA);
+
+  // Use the TaskQueue from GonkMediaDataDecoder.
+  mTaskQueue = static_cast<TaskQueue*>(AbstractThread::GetCurrent());
+  MOZ_ASSERT(mTaskQueue);
 
   const char* suffix =
       (aType == MediaData::Type::VIDEO_DATA ? "video" : "audio");
@@ -64,39 +69,40 @@ bool GonkDecoderManager::InitLoopers(MediaData::Type aType) {
   mTaskLooper->setName(name.c_str());
   mTaskLooper->registerHandler(this);
 
-#ifdef DEBUG
-  sp<AMessage> findThreadId(new AMessage(kNotifyFindLooperId, this));
-  findThreadId->post();
-#endif
-
   return mDecodeLooper->start() == OK && mTaskLooper->start() == OK;
 }
 
 nsresult GonkDecoderManager::Input(MediaRawData* aSample) {
-  RefPtr<MediaRawData> sample;
+  AssertOnTaskQueue();
 
-  if (aSample) {
-    sample = aSample;
-  } else {
-    // It means EOS with empty sample.
-    sample = new MediaRawData();
+  // Multiple drain commands are possible. If we received EOS before, just don't
+  // append the new sample, and treat non-null sample as an error. If mOutputEOS
+  // is true, ProcessToDo() won't resolve drain promise again, so we need to do
+  // it here.
+  if (mInputEOS) {
+    if (mOutputEOS) {
+      mCallback->DrainComplete();
+    } else {
+      ProcessInput();
+    }
+    return aSample ? NS_ERROR_DOM_MEDIA_END_OF_STREAM : NS_OK;
   }
-  {
-    MutexAutoLock lock(mMutex);
-    mQueuedSamples.AppendElement(sample);
-  }
-  sp<AMessage> input = new AMessage(kNotifyProcessInput, this);
+
+  RefPtr<MediaRawData> sample(aSample);
   if (!aSample) {
-    input->setInt32("input-eos", 1);
+    // Append empty sample for EOS case.
+    sample = new MediaRawData();
+    mInputEOS = true;
   }
-  input->post();
+
+  mQueuedSamples.AppendElement(sample);
+  ProcessInput();
   return NS_OK;
 }
 
 int32_t GonkDecoderManager::ProcessQueuedSamples() {
-  MOZ_ASSERT(OnTaskLooper());
+  AssertOnTaskQueue();
 
-  MutexAutoLock lock(mMutex);
   status_t rv;
   while (mQueuedSamples.Length()) {
     RefPtr<MediaRawData> data = mQueuedSamples.ElementAt(0);
@@ -105,9 +111,9 @@ int32_t GonkDecoderManager::ProcessQueuedSamples() {
                          INPUT_TIMEOUT_US);
     if (rv == OK) {
       mQueuedSamples.RemoveElementAt(0);
-      mWaitOutput.AppendElement(
-          WaitOutputInfo(data->mOffset, data->mTime.ToMicroseconds(),
-                         /* eos */ data->Data() == nullptr));
+      mWaitOutput.AppendElement(WaitOutputInfo(data->mOffset,
+                                               data->mTime.ToMicroseconds(),
+                                               /* eos */ !data->Data()));
     } else if (rv == -EAGAIN || rv == -ETIMEDOUT) {
       // In most cases, EAGAIN or ETIMEOUT are safe because OMX can't fill
       // buffer on time.
@@ -120,7 +126,9 @@ int32_t GonkDecoderManager::ProcessQueuedSamples() {
 }
 
 nsresult GonkDecoderManager::Flush() {
-  if (mDecoder == nullptr) {
+  AssertOnTaskQueue();
+
+  if (!mDecoder) {
     GDM_LOGE("Decoder is not initialized");
     return NS_ERROR_UNEXPECTED;
   }
@@ -129,77 +137,76 @@ nsresult GonkDecoderManager::Flush() {
     return NS_OK;
   }
 
-  {
-    MutexAutoLock lock(mMutex);
-    mQueuedSamples.Clear();
-  }
+  FlushInternal();
+  mInputEOS = false;
+  mOutputEOS = false;
+  mLastTime = INT64_MIN;
+  mWaitOutput.Clear();
+  mQueuedSamples.Clear();
 
-  MonitorAutoLock lock(mFlushMonitor);
-  mIsFlushing = true;
-  sp<AMessage> flush = new AMessage(kNotifyProcessFlush, this);
-  flush->post();
-  while (mIsFlushing) {
-    lock.Wait();
+  if (mDecoder->flush() != OK) {
+    GDM_LOGE("flush error");
+    nsresult rv = NS_ERROR_DOM_MEDIA_DECODE_ERR;
+    mCallback->NotifyError(__func__, rv);
+    return rv;
   }
   return NS_OK;
 }
 
 nsresult GonkDecoderManager::Shutdown() {
-  if (mDecoder.get()) {
+  AssertOnTaskQueue();
+
+  mIsShutdown = true;
+
+  if (mDecoder) {
     mDecoder->stop();
     mDecoder->ReleaseMediaResources();
     mDecoder = nullptr;
   }
 
-  mInitPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
+  if (mDecodeLooper) {
+    mDecodeLooper->stop();
+    mDecodeLooper = nullptr;
+  }
 
+  if (mTaskLooper) {
+    mTaskLooper->unregisterHandler(id());
+    mTaskLooper->stop();
+    mTaskLooper = nullptr;
+  }
+
+  // Don't set mTaskQueue to null since other threads may still dispatch tasks
+  // to it. Note that after GonkMediaDataDecoder calls
+  // mTaskQueue->BeginShutdown(), any Dispatch() call will simply return error.
+
+  mCallback = nullptr;
+  ShutdownInternal();
+  mInitPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
   return NS_OK;
 }
 
 size_t GonkDecoderManager::NumQueuedSamples() {
-  MutexAutoLock lock(mMutex);
+  AssertOnTaskQueue();
   return mQueuedSamples.Length();
 }
 
-void GonkDecoderManager::ProcessInput(bool aEndOfStream) {
-  MOZ_ASSERT(OnTaskLooper());
+void GonkDecoderManager::ProcessInput() {
+  AssertOnTaskQueue();
 
   status_t rv = ProcessQueuedSamples();
   if (rv >= 0) {
-    if (!aEndOfStream && rv <= MIN_QUEUED_SAMPLES) {
-      mToGonkMediaDataDecoderCallback->InputExhausted();
+    if (!mInputEOS && rv <= MIN_QUEUED_SAMPLES) {
+      mCallback->InputExhausted();
     }
 
-    if (mToDo.get() == nullptr) {
+    if (!mToDo) {
       mToDo = new AMessage(kNotifyDecoderActivity, this);
-      if (aEndOfStream) {
-        mToDo->setInt32("input-eos", 1);
-      }
       mDecoder->requestActivityNotification(mToDo);
-    } else if (aEndOfStream) {
-      mToDo->setInt32("input-eos", 1);
     }
   } else {
     GDM_LOGE("input processed: error#%d", rv);
-    mToGonkMediaDataDecoderCallback->NotifyError(
-        __func__, MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR, __func__));
+    mCallback->NotifyError(__func__, NS_ERROR_DOM_MEDIA_DECODE_ERR);
   }
-}
-
-void GonkDecoderManager::ProcessFlush() {
-  MOZ_ASSERT(OnTaskLooper());
-
-  mLastTime = INT64_MIN;
-  MonitorAutoLock lock(mFlushMonitor);
-  mWaitOutput.Clear();
-  if (mDecoder->flush() != OK) {
-    GDM_LOGE("flush error");
-    mToGonkMediaDataDecoderCallback->NotifyError(
-        __func__, MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR, __func__));
-  }
-  mToGonkMediaDataDecoderCallback->FlushOutput();
-  mIsFlushing = false;
-  lock.NotifyAll();
 }
 
 // Use output timestamp to determine which output buffer is already returned
@@ -207,7 +214,7 @@ void GonkDecoderManager::ProcessFlush() {
 // This method handles the cases that audio decoder sends multiple output
 // buffers for one input.
 void GonkDecoderManager::UpdateWaitingList(int64_t aForgetUpTo) {
-  MOZ_ASSERT(OnTaskLooper());
+  AssertOnTaskQueue();
 
   size_t i;
   for (i = 0; i < mWaitOutput.Length(); i++) {
@@ -221,15 +228,14 @@ void GonkDecoderManager::UpdateWaitingList(int64_t aForgetUpTo) {
   }
 }
 
-void GonkDecoderManager::ProcessToDo(bool aEndOfStream) {
-  MOZ_ASSERT(OnTaskLooper());
+void GonkDecoderManager::ProcessToDo() {
+  AssertOnTaskQueue();
 
-  MOZ_ASSERT(mToDo.get() != nullptr);
-  mToDo.clear();
+  MOZ_ASSERT(mToDo);
+  mToDo = nullptr;
 
   if (NumQueuedSamples() > 0 && ProcessQueuedSamples() < 0) {
-    mToGonkMediaDataDecoderCallback->NotifyError(
-        __func__, MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR, __func__));
+    mCallback->NotifyError(__func__, NS_ERROR_DOM_MEDIA_DECODE_ERR);
     return;
   }
 
@@ -239,29 +245,29 @@ void GonkDecoderManager::ProcessToDo(bool aEndOfStream) {
     nsresult rv = GetOutput(wait.mOffset, output);
     if (rv == NS_OK) {
       UpdateWaitingList(output[output.Length() - 1]->mTime.ToMicroseconds());
-      mToGonkMediaDataDecoderCallback->Output(output);
-    } else if (rv == NS_ERROR_ABORT) {
+      mCallback->Output(std::move(output));
+    } else if (rv == NS_ERROR_DOM_MEDIA_END_OF_STREAM) {
       // EOS
       MOZ_ASSERT(mQueuedSamples.IsEmpty());
       if (output.Length() > 0) {
         UpdateWaitingList(output[output.Length() - 1]->mTime.ToMicroseconds());
-        mToGonkMediaDataDecoderCallback->Output(output);
+        mCallback->Output(std::move(output));
       }
       MOZ_ASSERT(mWaitOutput.Length() == 1);
       mWaitOutput.RemoveElementAt(0);
-      mToGonkMediaDataDecoderCallback->DrainComplete();
+      mCallback->DrainComplete();
+      mOutputEOS = true;
       return;
     } else if (rv == NS_ERROR_NOT_AVAILABLE) {
       break;
     } else {
-      mToGonkMediaDataDecoderCallback->NotifyError(
-          __func__, MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR, __func__));
+      mCallback->NotifyError(__func__, NS_ERROR_DOM_MEDIA_DECODE_ERR);
       return;
     }
   }
 
-  if (!aEndOfStream && NumQueuedSamples() <= MIN_QUEUED_SAMPLES) {
-    mToGonkMediaDataDecoderCallback->InputExhausted();
+  if (!mInputEOS && NumQueuedSamples() <= MIN_QUEUED_SAMPLES) {
+    mCallback->InputExhausted();
     // No need to shedule todo task this time because InputExhausted() will
     // cause Input() to be invoked and do it for us.
     return;
@@ -269,36 +275,26 @@ void GonkDecoderManager::ProcessToDo(bool aEndOfStream) {
 
   if (NumQueuedSamples() || mWaitOutput.Length() > 0) {
     mToDo = new AMessage(kNotifyDecoderActivity, this);
-    if (aEndOfStream) {
-      mToDo->setInt32("input-eos", 1);
-    }
     mDecoder->requestActivityNotification(mToDo);
   }
 }
 
 void GonkDecoderManager::onMessageReceived(const sp<AMessage>& aMessage) {
   switch (aMessage->what()) {
-    case kNotifyProcessInput: {
-      int32_t eos = 0;
-      ProcessInput(aMessage->findInt32("input-eos", &eos) && eos);
-      break;
-    }
-    case kNotifyProcessFlush: {
-      ProcessFlush();
-      break;
-    }
     case kNotifyDecoderActivity: {
-      int32_t eos = 0;
-      ProcessToDo(aMessage->findInt32("input-eos", &eos) && eos);
+      sp<GonkDecoderManager> self = this;
+      nsresult rv = mTaskQueue->Dispatch(NS_NewRunnableFunction(
+          "GonkDecoderManager::ProcessToDo", [self, this]() {
+            // This task may be run after Shutdown() is called. Don't do
+            // anything in this case.
+            if (!mIsShutdown) {
+              ProcessToDo();
+            }
+          }));
+      MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
+      Unused << rv;
       break;
     }
-#ifdef DEBUG
-    case kNotifyFindLooperId: {
-      mTaskLooperId = androidGetThreadId();
-      MOZ_ASSERT(mTaskLooperId);
-      break;
-    }
-#endif
     default: {
       TRESPASS();
       break;
@@ -306,34 +302,12 @@ void GonkDecoderManager::onMessageReceived(const sp<AMessage>& aMessage) {
   }
 }
 
-#ifdef DEBUG
-bool GonkDecoderManager::OnTaskLooper() {
-  return androidGetThreadId() == mTaskLooperId;
-}
-#endif
-
-AutoReleaseMediaBuffer::AutoReleaseMediaBuffer(android::MediaBuffer* aBuffer,
-                                               android::MediaCodecProxy* aCodec)
-    : mBuffer(aBuffer), mCodec(aCodec) {}
-
-AutoReleaseMediaBuffer::~AutoReleaseMediaBuffer() {
-  MOZ_ASSERT(mCodec.get());
-  if (mBuffer) {
-    mCodec->ReleaseMediaBuffer(mBuffer);
-  }
-}
-
-android::MediaBuffer* AutoReleaseMediaBuffer::forget() {
-  android::MediaBuffer* tmp = mBuffer;
-  mBuffer = nullptr;
-  return tmp;
-}
-
 GonkMediaDataDecoder::GonkMediaDataDecoder(GonkDecoderManager* aManager)
-    : mManager(aManager), mTaskQueue(CreateMediaDecodeTaskQueue("GonkMediaDataDecoder::mTaskQueue")) {
+    : mManager(aManager),
+      mTaskQueue(
+          CreateMediaDecodeTaskQueue("GonkMediaDataDecoder::mTaskQueue")) {
   MOZ_COUNT_CTOR(GonkMediaDataDecoder);
-  mCallback = new DecoderManagerCallback(this);
-  mManager->SetDecodeCallback(mCallback);
+  mManager->SetDecodeCallback(this);
 }
 
 GonkMediaDataDecoder::~GonkMediaDataDecoder() {
@@ -341,86 +315,86 @@ GonkMediaDataDecoder::~GonkMediaDataDecoder() {
 }
 
 RefPtr<MediaDataDecoder::InitPromise> GonkMediaDataDecoder::Init() {
-  return mManager->Init();
+  RefPtr<MediaDataDecoder> self = this;
+  return InvokeAsync(mTaskQueue, __func__,
+                     [self, this]() { return mManager->Init(); });
 }
 
 RefPtr<ShutdownPromise> GonkMediaDataDecoder::Shutdown() {
   RefPtr<MediaDataDecoder> self = this;
   return InvokeAsync(mTaskQueue, __func__, [self, this]() {
-    RefPtr<ShutdownPromise> p = mShutdownPromise.Ensure(__func__);
-
-    mInitPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
-    nsresult rv = mManager->Shutdown();
-    // Because codec allocated runnable and init promise is at reader TaskQueue,
-    // so manager needs to be destroyed at reader TaskQueue to prevent racing.
+    mManager->Shutdown();
+    // Because codec allocated runnable and init promise is at our TaskQueue, so
+    // manager needs to be destroyed at our TaskQueue to prevent racing.
     mManager = nullptr;
-
-    if (rv == NS_OK) {
-      mShutdownPromise.ResolveIfExists(true, __func__);
-    } else {
-      mShutdownPromise.RejectIfExists(false, __func__);
-    }
-    return p;
+    return mTaskQueue->BeginShutdown();
   });
 }
 
 // Inserts data into the decoder's pipeline.
 RefPtr<MediaDataDecoder::DecodePromise> GonkMediaDataDecoder::Decode(
     MediaRawData* aSample) {
-  RefPtr<DecodePromise> p = mDecodePromise.Ensure(__func__);
-  mManager->Input(aSample);
-  return p;
+  RefPtr<MediaDataDecoder> self = this;
+  RefPtr<MediaRawData> sample = aSample;
+  return InvokeAsync(mTaskQueue, __func__, [self, this, sample]() {
+    RefPtr<DecodePromise> p = mDecodePromise.Ensure(__func__);
+    mManager->Input(sample);
+    return p;
+  });
 }
 
 RefPtr<MediaDataDecoder::FlushPromise> GonkMediaDataDecoder::Flush() {
   RefPtr<MediaDataDecoder> self = this;
   return InvokeAsync(mTaskQueue, __func__, [self, this]() {
-    RefPtr<FlushPromise> p = mFlushPromise.Ensure(__func__);
-
-    if (mManager->Flush() == NS_OK) {
-      mFlushPromise.ResolveIfExists(true, __func__);
-    } else {
-      mFlushPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+    // After mManager is flushed, make sure our decoded data is also cleared..
+    nsresult rv = mManager->Flush();
+    mDecodedData = DecodedData();
+    if (NS_FAILED(rv)) {
+      return FlushPromise::CreateAndReject(rv, __func__);
     }
-    return p;
+    return FlushPromise::CreateAndResolve(true, __func__);
   });
 }
 
 RefPtr<MediaDataDecoder::DecodePromise> GonkMediaDataDecoder::Drain() {
-  RefPtr<DecodePromise> p = mDrainPromise.Ensure(__func__);
-  // Send nullpter to GonkDecoderManager will trigger the EOS procedure.
-  mManager->Input(nullptr);
-  return p;
+  RefPtr<MediaDataDecoder> self = this;
+  return InvokeAsync(mTaskQueue, __func__, [self, this]() {
+    RefPtr<DecodePromise> p = mDrainPromise.Ensure(__func__);
+    // Send nullpter to GonkDecoderManager will trigger the EOS procedure.
+    mManager->Input(nullptr);
+    return p;
+  });
 }
 
-void GonkMediaDataDecoder::Output(DecodedData& aDataArray) {
-  for (RefPtr<MediaData> data : aDataArray) {
-    mDecodedData.AppendElement(std::move(data));
-  }
+void GonkMediaDataDecoder::Output(DecodedData&& aDecodedData) {
+  AssertOnTaskQueue();
+  mDecodedData.AppendElements(std::move(aDecodedData));
   ResolveDecodePromise();
 }
 
-void GonkMediaDataDecoder::FlushOutput() { mDecodedData = DecodedData(); }
-
-void GonkMediaDataDecoder::InputExhausted() { ResolveDecodePromise(); }
+void GonkMediaDataDecoder::InputExhausted() {
+  AssertOnTaskQueue();
+  ResolveDecodePromise();
+}
 
 void GonkMediaDataDecoder::DrainComplete() {
+  AssertOnTaskQueue();
   ResolveDecodePromise();
   ResolveDrainPromise();
 }
 
-void GonkMediaDataDecoder::ReleaseMediaResources() {}
-
-void GonkMediaDataDecoder::NotifyError(const char* aLine,
-                                       const MediaResult& aError) {
-  GMDD_LOGE("NotifyError (%s) at %s", aError.ErrorName().get(), aLine);
+void GonkMediaDataDecoder::NotifyError(const char* aCallSite,
+                                       nsresult aResult) {
+  AssertOnTaskQueue();
+  MediaResult result(aResult, aCallSite);
+  GMDD_LOGE("NotifyError (%s) at %s", result.ErrorName().get(), aCallSite);
   mDecodedData = DecodedData();
-  mDecodePromise.RejectIfExists(aError, __func__);
-  mDrainPromise.RejectIfExists(aError, __func__);
-  mFlushPromise.RejectIfExists(aError, __func__);
+  mDecodePromise.RejectIfExists(MediaResult(result), __func__);
+  mDrainPromise.RejectIfExists(MediaResult(result), __func__);
 }
 
 void GonkMediaDataDecoder::ResolveDecodePromise() {
+  AssertOnTaskQueue();
   if (!mDecodePromise.IsEmpty()) {
     mDecodePromise.Resolve(std::move(mDecodedData), __func__);
     mDecodedData = DecodedData();
@@ -428,6 +402,7 @@ void GonkMediaDataDecoder::ResolveDecodePromise() {
 }
 
 void GonkMediaDataDecoder::ResolveDrainPromise() {
+  AssertOnTaskQueue();
   if (!mDrainPromise.IsEmpty()) {
     mDrainPromise.Resolve(std::move(mDecodedData), __func__);
     mDecodedData = DecodedData();

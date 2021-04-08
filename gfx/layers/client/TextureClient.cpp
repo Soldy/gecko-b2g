@@ -90,7 +90,6 @@ struct TextureDeallocParams {
   RefPtr<LayersIPCChannel> allocator;
   bool clientDeallocation;
   bool syncDeallocation;
-  bool workAroundSharedSurfaceOwnershipIssue;
 };
 
 void DeallocateTextureClient(TextureDeallocParams params);
@@ -122,7 +121,6 @@ class TextureChild final : PTextureChild {
         mTextureClient(nullptr),
         mTextureData(nullptr),
         mDestroyed(false),
-        mMainThreadOnly(false),
         mIPCOpen(false),
         mOwnsTextureData(false),
         mOwnerCalledDestroy(false),
@@ -242,7 +240,6 @@ class TextureChild final : PTextureChild {
   TextureClient* mTextureClient;
   TextureData* mTextureData;
   Atomic<bool> mDestroyed;
-  bool mMainThreadOnly;
   bool mIPCOpen;
   bool mOwnsTextureData;
   bool mOwnerCalledDestroy;
@@ -351,11 +348,7 @@ TextureType PreferredCanvasTextureType(KnowsCompositor* aKnowsCompositor) {
 
 static bool ShouldRemoteTextureType(TextureType aTextureType,
                                     BackendSelector aSelector) {
-  if (!XRE_IsContentProcess()) {
-    return false;
-  }
-
-  if (aSelector != BackendSelector::Canvas || !gfxVars::RemoteCanvasEnabled()) {
+  if (aSelector != BackendSelector::Canvas || !gfxPlatform::UseRemoteCanvas()) {
     return false;
   }
 
@@ -451,21 +444,8 @@ bool TextureData::IsRemote(KnowsCompositor* aKnowsCompositor,
 }
 
 static void DestroyTextureData(TextureData* aTextureData,
-                               LayersIPCChannel* aAllocator, bool aDeallocate,
-                               bool aMainThreadOnly) {
+                               LayersIPCChannel* aAllocator, bool aDeallocate) {
   if (!aTextureData) {
-    return;
-  }
-
-  if (aMainThreadOnly && !NS_IsMainThread()) {
-    RefPtr<LayersIPCChannel> allocatorRef = aAllocator;
-    SchedulerGroup::Dispatch(
-        TaskCategory::Other,
-        NS_NewRunnableFunction(
-            "layers::DestroyTextureData",
-            [aTextureData, allocatorRef, aDeallocate]() -> void {
-              DestroyTextureData(aTextureData, allocatorRef, aDeallocate, true);
-            }));
     return;
   }
 
@@ -483,8 +463,7 @@ void TextureChild::ActorDestroy(ActorDestroyReason why) {
   mIPCOpen = false;
 
   if (mTextureData) {
-    DestroyTextureData(mTextureData, GetAllocator(), mOwnsTextureData,
-                       mMainThreadOnly);
+    DestroyTextureData(mTextureData, GetAllocator(), mOwnsTextureData);
     mTextureData = nullptr;
   }
 }
@@ -499,7 +478,7 @@ void TextureChild::Destroy(const TextureDeallocParams& aParams) {
 
   if (!IPCOpen()) {
     DestroyTextureData(aParams.data, aParams.allocator,
-                       aParams.clientDeallocation, mMainThreadOnly);
+                       aParams.clientDeallocation);
     return;
   }
 
@@ -584,13 +563,7 @@ void DeallocateTextureClient(TextureDeallocParams params) {
     // TextureClient before sharing it with the compositor. It means the data
     // cannot be owned by the TextureHost since we never created the
     // TextureHost...
-    // ..except if the lovely mWorkaroundAnnoyingSharedSurfaceOwnershipIssues
-    // member is set to true. In this case we are in a special situation where
-    // this TextureClient is in wrapped into another TextureClient which assumes
-    // it owns our data.
-    bool shouldDeallocate = !params.workAroundSharedSurfaceOwnershipIssue;
-    DestroyTextureData(params.data, params.allocator, shouldDeallocate,
-                       false);  // main-thread deallocation
+    DestroyTextureData(params.data, params.allocator, /* aDeallocate */ true);
     return;
   }
 
@@ -617,22 +590,14 @@ void TextureClient::Destroy() {
   }
 
   TextureData* data = mData;
-  if (!mWorkaroundAnnoyingSharedSurfaceLifetimeIssues) {
-    mData = nullptr;
-  }
+  mData = nullptr;
 
   if (data || actor) {
     TextureDeallocParams params;
     params.actor = actor;
     params.allocator = mAllocator;
     params.clientDeallocation = !!(mFlags & TextureFlags::DEALLOCATE_CLIENT);
-    params.workAroundSharedSurfaceOwnershipIssue =
-        mWorkaroundAnnoyingSharedSurfaceOwnershipIssues;
-    if (mWorkaroundAnnoyingSharedSurfaceLifetimeIssues) {
-      params.data = nullptr;
-    } else {
-      params.data = data;
-    }
+    params.data = data;
     // At the moment we always deallocate synchronously when deallocating on the
     // client side, but having asynchronous deallocate in some of the cases will
     // be a worthwhile optimization.
@@ -1145,7 +1110,6 @@ bool TextureClient::InitIPDLActor(CompositableForwarder* aForwarder) {
   mActor->mCompositableForwarder = aForwarder;
   mActor->mTextureForwarder = aForwarder->GetTextureForwarder();
   mActor->mTextureClient = this;
-  mActor->mMainThreadOnly = !!(mFlags & TextureFlags::DEALLOCATE_MAIN_THREAD);
 
   // If the TextureClient is already locked, we have to lock TextureChild's
   // mutex since it will be unlocked in TextureClient::Unlock.
@@ -1211,7 +1175,6 @@ bool TextureClient::InitIPDLActor(KnowsCompositor* aKnowsCompositor) {
   mActor = static_cast<TextureChild*>(actor);
   mActor->mTextureForwarder = fwd;
   mActor->mTextureClient = this;
-  mActor->mMainThreadOnly = !!(mFlags & TextureFlags::DEALLOCATE_MAIN_THREAD);
 
   // If the TextureClient is already locked, we have to lock TextureChild's
   // mutex since it will be unlocked in TextureClient::Unlock.
@@ -1441,8 +1404,6 @@ TextureClient::TextureClient(TextureData* aData, TextureFlags aFlags,
       mIsReadLocked(false),
       mUpdated(false),
       mAddedToCompositableClient(false),
-      mWorkaroundAnnoyingSharedSurfaceLifetimeIssues(false),
-      mWorkaroundAnnoyingSharedSurfaceOwnershipIssues(false),
       mFwdTransactionId(0),
       mSerial(++sSerialCounter)
 #ifdef GFX_DEBUG_TRACK_CLIENTS_IN_POOL

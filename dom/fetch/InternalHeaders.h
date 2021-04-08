@@ -52,27 +52,37 @@ class InternalHeaders final {
   // iterated.
   bool mListDirty;
 
+  // This boolean is set to true when the caller holds the systemXHR permision, in
+  // which case we don't constrain the header list in no-cors mode.
+  bool mHasSystemXHRPerm;
+
  public:
-  explicit InternalHeaders(HeadersGuardEnum aGuard = HeadersGuardEnum::None)
-      : mGuard(aGuard), mListDirty(false) {}
+  explicit InternalHeaders(HeadersGuardEnum aGuard = HeadersGuardEnum::None,
+                           bool aSystemXHRPerm = false)
+      : mGuard(aGuard), mListDirty(false), mHasSystemXHRPerm(aSystemXHRPerm) {}
 
   explicit InternalHeaders(const InternalHeaders& aOther)
-      : mGuard(HeadersGuardEnum::None), mListDirty(true) {
+      : mGuard(HeadersGuardEnum::None),
+        mListDirty(true),
+        mHasSystemXHRPerm(false) {
     ErrorResult result;
     Fill(aOther, result);
     MOZ_ASSERT(!result.Failed());
     // Note that it's important to set the guard after Fill(), to make sure
     // that Fill() doesn't fail if aOther is immutable.
     mGuard = aOther.mGuard;
+    mHasSystemXHRPerm = aOther.mHasSystemXHRPerm;
   }
 
   explicit InternalHeaders(nsTArray<Entry>&& aHeaders,
-                           HeadersGuardEnum aGuard = HeadersGuardEnum::None);
+                           HeadersGuardEnum aGuard = HeadersGuardEnum::None,
+                           bool aSystemXHRPerm = false);
 
   InternalHeaders(const nsTArray<HeadersEntry>& aHeadersEntryList,
-                  HeadersGuardEnum aGuard);
+                  HeadersGuardEnum aGuard, bool aSystemXHRPerm);
 
-  void ToIPC(nsTArray<HeadersEntry>& aIPCHeaders, HeadersGuardEnum& aGuard);
+  void ToIPC(nsTArray<HeadersEntry>& aIPCHeaders, HeadersGuardEnum& aGuard,
+             bool& aHasSystemXHRPerm);
 
   void Append(const nsACString& aName, const nsACString& aValue,
               ErrorResult& aRv);
@@ -102,6 +112,7 @@ class InternalHeaders final {
 
   HeadersGuardEnum Guard() const { return mGuard; }
   void SetGuard(HeadersGuardEnum aGuard, ErrorResult& aRv);
+  void SetHasSystemXHRPerm(bool aHasSystemXHRPerm);
 
   void Fill(const InternalHeaders& aInit, ErrorResult& aRv);
   void Fill(const Sequence<Sequence<nsCString>>& aInit, ErrorResult& aRv);

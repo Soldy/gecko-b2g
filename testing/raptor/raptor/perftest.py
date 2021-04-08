@@ -6,7 +6,6 @@
 
 from __future__ import absolute_import
 
-import six
 import json
 import os
 import re
@@ -19,11 +18,11 @@ from abc import ABCMeta, abstractmethod
 
 import mozinfo
 import mozprocess
-import mozversion
 import mozproxy.utils as mpu
+import mozversion
+import six
 from mozprofile import create_profile
 from mozproxy import get_playback
-
 
 # need this so raptor imports work both from /raptor and via mach
 here = os.path.abspath(os.path.dirname(__file__))
@@ -36,7 +35,6 @@ for path in paths:
     if not os.path.exists(path):
         raise IOError("%s does not exist. " % path)
     sys.path.insert(0, path)
-
 
 from cmdline import FIREFOX_ANDROID_APPS
 from condprof.client import get_profile, ProfileNotFoundError
@@ -93,10 +91,9 @@ class Perftest(object):
         e10s=True,
         enable_webrender=False,
         results_handler_class=RaptorResultsHandler,
-        no_conditioned_profile=False,
         device_name=None,
         disable_perf_tuning=False,
-        conditioned_profile_scenario="settled",
+        conditioned_profile=None,
         chimera=False,
         extra_prefs={},
         environment={},
@@ -132,11 +129,10 @@ class Perftest(object):
             "enable_control_server_wait": memory_test or cpu_test,
             "e10s": e10s,
             "enable_webrender": enable_webrender,
-            "no_conditioned_profile": no_conditioned_profile,
             "device_name": device_name,
             "enable_fission": extra_prefs.get("fission.autostart", False),
             "disable_perf_tuning": disable_perf_tuning,
-            "conditioned_profile_scenario": conditioned_profile_scenario,
+            "conditioned_profile": conditioned_profile,
             "chimera": chimera,
             "extra_prefs": extra_prefs,
             "environment": environment,
@@ -145,25 +141,19 @@ class Perftest(object):
         }
 
         self.firefox_android_apps = FIREFOX_ANDROID_APPS
+
         # We are deactivating the conditioned profiles for:
         # - win10-aarch64 : no support for geckodriver see 1582757
-        # - fennec_aurora: no conditioned profiles created see 1606199
         # - reference browser: no conditioned profiles created see 1606767
-        self.using_condprof = not (
-            (self.config["platform"] == "win" and self.config["processor"] == "aarch64")
-            or self.config["binary"] == "org.mozilla.fennec_aurora"
-            or self.config["binary"] == "org.mozilla.reference.browser.raptor"
-            or self.config["no_conditioned_profile"]
-        )
-        if self.using_condprof:
+        if (
+            self.config["platform"] == "win" and self.config["processor"] == "aarch64"
+        ) or self.config["binary"] == "org.mozilla.reference.browser.raptor":
+            self.config["conditioned_profile"] = None
+
+        if self.config["conditioned_profile"]:
             LOG.info("Using a conditioned profile.")
         else:
             LOG.info("Using an empty profile.")
-        self.config["using_condprof"] = self.using_condprof
-
-        # We can never use e10s on fennec
-        if self.config["app"] == "fennec":
-            self.config["e10s"] = False
 
         # To differentiate between chrome/firefox failures, we
         # set an app variable in the logger which prefixes messages
@@ -197,7 +187,7 @@ class Perftest(object):
 
         # For the post startup delay, we want to max it to 1s when using the
         # conditioned profiles.
-        if self.using_condprof and not self.run_local:
+        if self.config.get("conditioned_profile") and not self.run_local:
             self.post_startup_delay = min(post_startup_delay, POST_DELAY_CONDPROF)
         else:
             # if running debug-mode reduce the pause after browser startup
@@ -275,7 +265,7 @@ class Perftest(object):
         alternate_repo = "mozilla-central" if repo != "mozilla-central" else "try"
         LOG.info("Getting profile from project %s" % repo)
 
-        profile_scenario = self.config.get("conditioned_profile_scenario", "settled")
+        profile_scenario = self.config.get("conditioned_profile")
         try:
             cond_prof_target_dir = get_profile(
                 temp_download_dir, platform, profile_scenario, repo=repo
@@ -311,11 +301,10 @@ class Perftest(object):
         return self.conditioned_profile_copy
 
     def build_browser_profile(self):
-        if not self.using_condprof or self.config["app"] in [
-            "chrome",
-            "chromium",
-            "chrome-m",
-        ]:
+        if (
+            self.config["app"] in ["chrome", "chromium", "chrome-m"]
+            or self.config.get("conditioned_profile") is None
+        ):
             self.profile = create_profile(self.profile_class)
         else:
             # use mozprofile to create a profile for us, from our conditioned profile's path
@@ -757,7 +746,7 @@ class PerftestDesktop(Perftest):
                     bmeta = proc.output
                     meta_re = re.compile(r"([A-z\s]+)\s+([\w.]*)")
                     if len(bmeta) != 0:
-                        match = meta_re.match(bmeta[0])
+                        match = meta_re.match(bmeta[0].decode("utf-8"))
                         if match:
                             browser_name = self.config["app"]
                             browser_version = match.group(2)
@@ -771,7 +760,7 @@ class PerftestDesktop(Perftest):
                     bmeta = subprocess.check_output(command)
 
                     meta_re = re.compile(r"\s+([\d.a-z]+)\s+")
-                    match = meta_re.findall(bmeta)
+                    match = meta_re.findall(bmeta.decode("utf-8"))
                     if len(match) > 0:
                         browser_name = self.config["app"]
                         browser_version = match[-1]

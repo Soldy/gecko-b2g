@@ -15,6 +15,8 @@ const GONK_MMSSERVICE_CID = Components.ID(
   "{9b069b8c-8697-11e4-a406-474f5190272b}"
 );
 
+var APPEND_TRANSACTION_ID = false;
+
 var DEBUG = false;
 function debug(s) {
   dump("-@- MmsService: " + s + "\n");
@@ -37,6 +39,7 @@ const kDevicePhoneNumberSim1 = "ril.mms.phoneNumber.sim1";
 const kDevicePhoneNumberSim2 = "ril.mms.phoneNumber.sim2";
 
 const kPrefMmsDebuggingEnabled = "mms.debugging.enabled";
+const kPrefMmsAppendTransactionID = "dom.mms.appendTransactionID";
 
 // Data and MMS share the same key - ril.data.defaultServiceId for now.
 // In case of needed, we will merge the different types into single key.
@@ -388,9 +391,13 @@ MmsConnection.prototype = {
       this.hostsToRoute = [];
       this.networkInfo = null;
 
-      this.radioInterface.deactivateDataCallByType(
-        Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_MMS
-      );
+      try {
+        this.radioInterface.deactivateDataCallByType(
+          Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_MMS
+        );
+      } catch (e) {
+        debug("deactivateDataCallByType: error: " + e);
+      }
     };
 
     let promises = this.hostsToRoute.map(aHost => {
@@ -1835,6 +1842,7 @@ function MmsService() {
       this.mmsDefaultServiceId = setting.value;
     });
   this.settingsObserver.addSettingObserver(kSettingsDataDefaultServiceId);
+  this._updateAppendTransactionID();
 
   Services.prefs.addObserver(kPrefMmsDebuggingEnabled, this);
 
@@ -1859,6 +1867,13 @@ MmsService.prototype = {
     } catch (e) {}
   },
 
+  _updateAppendTransactionID() {
+    try {
+      APPEND_TRANSACTION_ID =
+        APPEND_TRANSACTION_ID ||
+        Services.prefs.getBoolPref(kPrefMmsAppendTransactionID);
+    } catch (e) {}
+  },
   /**
    * Calculate Whether or not should we enable X-Mms-Report-Allowed.
    *
@@ -1942,6 +1957,22 @@ MmsService.prototype = {
         default:
           deliveryStatus = DELIVERY_STATUS_NOT_APPLICABLE;
           break;
+      }
+
+      if (APPEND_TRANSACTION_ID === true) {
+        let transactionId = intermediate.headers["x-mms-transaction-id"];
+        let url = intermediate.headers["x-mms-content-location"].uri;
+
+        if (url.charAt(url.length - 1) === "=") {
+          intermediate.headers["x-mms-content-location"].uri =
+            url + transactionId;
+          if (DEBUG) {
+            debug(
+              "append transaction ID to content location " +
+                intermediate.headers["x-mms-content-location"].ur
+            );
+          }
+        }
       }
 
       // |intermediate.deliveryStatus| will be deleted after being stored in db.

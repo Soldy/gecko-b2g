@@ -12,6 +12,7 @@
 #include "GPUParent.h"
 #include "GPUProcessHost.h"
 #include "GPUProcessManager.h"
+#include "gfxGradientCache.h"
 #include "GfxInfoBase.h"
 #include "ProcessUtils.h"
 #include "VRGPUChild.h"
@@ -60,6 +61,7 @@
 #if defined(XP_WIN)
 #  include <dwrite.h>
 #  include <process.h>
+#  include <windows.h>
 
 #  include "gfxWindowsPlatform.h"
 #  include "mozilla/WindowsVersion.h"
@@ -97,6 +99,43 @@ GPUParent::~GPUParent() { sGPUParent = nullptr; }
 GPUParent* GPUParent::GetSingleton() {
   MOZ_DIAGNOSTIC_ASSERT(sGPUParent);
   return sGPUParent;
+}
+
+/* static */ bool GPUParent::MaybeFlushMemory() {
+#if defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)
+  MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+  if (!XRE_IsGPUProcess()) {
+    return false;
+  }
+
+  MEMORYSTATUSEX stat;
+  stat.dwLength = sizeof(stat);
+  if (!GlobalMemoryStatusEx(&stat)) {
+    return false;
+  }
+
+  // We only care about virtual process memory space in the GPU process because
+  // the UI process is already watching total memory usage.
+  static const size_t kLowVirtualMemoryThreshold = 384 * 1024 * 1024;
+  bool lowMemory = stat.ullAvailVirtual < kLowVirtualMemoryThreshold;
+
+  // We suppress more than one low memory notification until we exit the
+  // condition. The UI process goes through more effort, reporting on-going
+  // memory pressure, but rather than try to manage a shared state, we just
+  // send one notification here to try to resolve it.
+  static bool sLowMemory = false;
+  if (lowMemory && !sLowMemory) {
+    NS_DispatchToMainThread(
+        NS_NewRunnableFunction("gfx::GPUParent::FlushMemory", []() -> void {
+          Unused << GPUParent::GetSingleton()->SendFlushMemory(
+              u"low-memory"_ns);
+        }));
+  }
+  sLowMemory = lowMemory;
+  return lowMemory;
+#else
+  return false;
+#endif
 }
 
 bool GPUParent::Init(base::ProcessId aParentPid, const char* aParentBuildID,
@@ -146,6 +185,7 @@ bool GPUParent::Init(base::ProcessId aParentPid, const char* aParentBuildID,
   apz::InitializeGlobalState();
   LayerTreeOwnerTracker::Initialize();
   CompositorBridgeParent::InitializeStatics();
+  gfxGradientCache::Init();
   mozilla::ipc::SetThisProcessName("GPU Process");
 
   return true;
@@ -240,11 +280,11 @@ mozilla::ipc::IPCResult GPUParent::RecvInit(
 #if defined(MOZ_WIDGET_GTK)
   char* display_name = PR_GetEnv("MOZ_GDK_DISPLAY");
   if (!display_name) {
-    bool waylandDisabled = true;
+    bool waylandEnabled = false;
 #  ifdef MOZ_WAYLAND
-    waylandDisabled = IsWaylandDisabled();
+    waylandEnabled = IsWaylandEnabled();
 #  endif
-    if (waylandDisabled) {
+    if (!waylandEnabled) {
       display_name = PR_GetEnv("DISPLAY");
     }
   }

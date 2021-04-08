@@ -148,6 +148,7 @@
 #include "ScreenHelperWin.h"
 #include "mozilla/StaticPrefs_apz.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPrefs_layout.h"
 
 #include "nsIGfxInfo.h"
@@ -217,7 +218,6 @@
 #include "InputData.h"
 
 #include "mozilla/Telemetry.h"
-#include "mozilla/plugins/PluginProcessParent.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/layers/IAPZCTreeManager.h"
 
@@ -737,7 +737,7 @@ void nsWindow::SendAnAPZEvent(InputData& aEvent) {
   if (mAPZC) {
     result = mAPZC->InputBridge()->ReceiveInputEvent(aEvent);
   }
-  if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+  if (result.GetStatus() == nsEventStatus_eConsumeNoDefault) {
     return;
   }
 
@@ -896,15 +896,16 @@ nsresult nsWindow::Create(nsIWidget* aParent, nsNativeWidget aNativeParent,
   if (aInitData->mWindowType == eWindowType_toplevel && !aParent &&
       !sFirstTopLevelWindowCreated) {
     sFirstTopLevelWindowCreated = true;
-    auto skeletonUIResult = ConsumePreXULSkeletonUIHandle();
-    if (skeletonUIResult.isErr()) {
+    mWnd = ConsumePreXULSkeletonUIHandle();
+    auto skeletonUIError = GetPreXULSkeletonUIErrorReason();
+    if (skeletonUIError) {
       nsAutoString errorString(
-          GetPreXULSkeletonUIErrorString(skeletonUIResult.unwrapErr()));
+          GetPreXULSkeletonUIErrorString(skeletonUIError.value()));
       Telemetry::ScalarSet(
           Telemetry::ScalarID::STARTUP_SKELETON_UI_DISABLED_REASON,
           errorString);
-    } else {
-      mWnd = skeletonUIResult.unwrap();
+    }
+    if (mWnd) {
       MOZ_ASSERT(style == kPreXULSkeletonUIWindowStyle,
                  "The skeleton UI window style should match the expected "
                  "style for the first window created");
@@ -1594,8 +1595,7 @@ void nsWindow::Show(bool bState) {
     // Initialize the UI state - this would normally happen below, but since
     // we're actually already showing, we won't hit it in the normal way.
     ::SendMessageW(mWnd, WM_CHANGEUISTATE,
-                   MAKEWPARAM(UIS_INITIALIZE, UISF_HIDEFOCUS | UISF_HIDEACCEL),
-                   0);
+                   MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS | UISF_HIDEACCEL), 0);
   }
 
   if (mWindowType == eWindowType_popup) {
@@ -1700,10 +1700,9 @@ void nsWindow::Show(bool bState) {
 
       if (!wasVisible && (mWindowType == eWindowType_toplevel ||
                           mWindowType == eWindowType_dialog)) {
-        // when a toplevel window or dialog is shown, initialize the UI state
-        ::SendMessageW(
-            mWnd, WM_CHANGEUISTATE,
-            MAKEWPARAM(UIS_INITIALIZE, UISF_HIDEFOCUS | UISF_HIDEACCEL), 0);
+        // When a toplevel window or dialog is shown, initialize the UI state
+        ::SendMessageW(mWnd, WM_CHANGEUISTATE,
+                       MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS | UISF_HIDEACCEL), 0);
       }
     } else {
       // Clear contents to avoid ghosting of old content if we display
@@ -1757,28 +1756,62 @@ bool nsWindow::IsVisible() const { return mIsVisible; }
  *
  **************************************************************/
 
+static bool ShouldHaveRoundedMenuDropShadow(nsWindow* aWindow) {
+  nsView* view = nsView::GetViewFor(aWindow);
+  return view && view->GetFrame() &&
+         view->GetFrame()->StyleUIReset()->mWindowShadow ==
+             StyleWindowShadow::Cliprounded;
+}
+
 // XP and Vista visual styles sometimes require window clipping regions to be
 // applied for proper transparency. These routines are called on size and move
 // operations.
 // XXX this is apparently still needed in Windows 7 and later
 void nsWindow::ClearThemeRegion() {
-  if (!HasGlass() &&
-      (mWindowType == eWindowType_popup && !IsPopupWithTitleBar() &&
-       (mPopupType == ePopupTypeTooltip || mPopupType == ePopupTypePanel))) {
+  if (mWindowType == eWindowType_popup &&
+      (mPopupType == ePopupTypeMenu || mPopupType == ePopupTypePanel) &&
+      ShouldHaveRoundedMenuDropShadow(this)) {
+    SetWindowRgn(mWnd, nullptr, false);
+  } else if (!HasGlass() &&
+             (mWindowType == eWindowType_popup && !IsPopupWithTitleBar() &&
+              (mPopupType == ePopupTypeTooltip ||
+               mPopupType == ePopupTypePanel))) {
     SetWindowRgn(mWnd, nullptr, false);
   }
 }
 
 void nsWindow::SetThemeRegion() {
+  // Clip the window to the rounded rect area of the popup if needed.
+  if (mWindowType == eWindowType_popup &&
+      (mPopupType == ePopupTypeMenu || mPopupType == ePopupTypePanel)) {
+    nsView* view = nsView::GetViewFor(this);
+    if (view) {
+      LayoutDeviceIntSize size =
+          nsLayoutUtils::GetBorderRadiusForMenuDropShadow(view->GetFrame());
+      if (size.width || size.height) {
+        int32_t width =
+            NSToIntRound(size.width * GetDesktopToDeviceScale().scale);
+        int32_t height =
+            NSToIntRound(size.height * GetDesktopToDeviceScale().scale);
+        HRGN region = CreateRoundRectRgn(0, 0, mBounds.Width(),
+                                         mBounds.Height(), width, height);
+        if (!SetWindowRgn(mWnd, region, false)) {
+          DeleteObject(region);  // region setting failed so delete the region.
+        }
+      }
+    }
+  }
+
   // Popup types that have a visual styles region applied (bug 376408). This can
   // be expanded for other window types as needed. The regions are applied
   // generically to the base window so default constants are used for part and
   // state. At some point we might need part and state values from
   // nsNativeThemeWin's GetThemePartAndState, but currently windows that change
   // shape based on state haven't come up.
-  if (!HasGlass() &&
-      (mWindowType == eWindowType_popup && !IsPopupWithTitleBar() &&
-       (mPopupType == ePopupTypeTooltip || mPopupType == ePopupTypePanel))) {
+  else if (!HasGlass() &&
+           (mWindowType == eWindowType_popup && !IsPopupWithTitleBar() &&
+            (mPopupType == ePopupTypeTooltip ||
+             mPopupType == ePopupTypePanel))) {
     HRGN hRgn = nullptr;
     RECT rect = {0, 0, mBounds.Width(), mBounds.Height()};
 
@@ -1996,9 +2029,9 @@ void nsWindow::Move(double aX, double aY) {
       if (WinUtils::LogToPhysFactor(mWnd) != oldScale) {
         ChangedDPI();
       }
-    }
 
-    SetThemeRegion();
+      SetThemeRegion();
+    }
 
     ResizeDirectManipulationViewport();
   }
@@ -2062,9 +2095,9 @@ void nsWindow::Resize(double aWidth, double aHeight, bool aRepaint) {
         ChangedDPI();
       }
       SetThemeRegion();
-
-      ResizeDirectManipulationViewport();
     }
+
+    ResizeDirectManipulationViewport();
   }
 
   if (aRepaint) Invalidate();
@@ -2147,9 +2180,9 @@ void nsWindow::Resize(double aX, double aY, double aWidth, double aHeight,
                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
       }
       SetThemeRegion();
-
-      ResizeDirectManipulationViewport();
     }
+
+    ResizeDirectManipulationViewport();
   }
 
   if (aRepaint) Invalidate();
@@ -3721,36 +3754,12 @@ void* nsWindow::GetNativeData(uint32_t aDataType) {
   return nullptr;
 }
 
-static void SetChildStyleAndParent(HWND aChildWindow, HWND aParentWindow) {
-  // Make sure the window is styled to be a child window.
-  LONG_PTR style = GetWindowLongPtr(aChildWindow, GWL_STYLE);
-  style |= WS_CHILD;
-  style &= ~WS_POPUP;
-  SetWindowLongPtr(aChildWindow, GWL_STYLE, style);
-
-  // Do the reparenting. Note that this call will probably cause a sync native
-  // message to the process that owns the child window.
-  ::SetParent(aChildWindow, aParentWindow);
-}
-
 void nsWindow::SetNativeData(uint32_t aDataType, uintptr_t aVal) {
   switch (aDataType) {
     case NS_NATIVE_CHILD_WINDOW:
     case NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW: {
-      HWND childHwnd = reinterpret_cast<HWND>(aVal);
-      DWORD childProc = 0;
-      GetWindowThreadProcessId(childHwnd, &childProc);
-      if (!PluginProcessParent::IsPluginProcessId(
-              static_cast<base::ProcessId>(childProc))) {
-        MOZ_ASSERT_UNREACHABLE(
-            "SetNativeData window origin was not a plugin process.");
-        break;
-      }
-      HWND parentHwnd = aDataType == NS_NATIVE_CHILD_WINDOW
-                            ? mWnd
-                            : WinUtils::GetTopLevelHWND(mWnd);
-      SetChildStyleAndParent(childHwnd, parentHwnd);
-      RecreateDirectManipulationIfNeeded();
+      MOZ_ASSERT_UNREACHABLE(
+          "SetNativeData window origin was not a plugin process.");
       break;
     }
     default:
@@ -4081,7 +4090,7 @@ LayerManager* nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
         reinterpret_cast<uintptr_t>(static_cast<nsIWidget*>(this)),
         mTransparencyMode, mSizeMode);
     // If we're not using the compositor, the options don't actually matter.
-    CompositorOptions options(false, false);
+    CompositorOptions options(false, false, false);
     mBasicLayersSurface =
         new InProcessWinCompositorWidget(initData, options, this);
     mCompositorWidgetDelegate = mBasicLayersSurface;
@@ -4664,70 +4673,6 @@ bool nsWindow::DispatchMouseEvent(EventMessage aEventMessage, WPARAM wParam,
           ("Msg Time: %d Click Count: %d\n", curMsgTime, event.mClickCount));
 #endif
 
-  NPEvent pluginEvent;
-
-  switch (aEventMessage) {
-    case eMouseDown:
-      switch (aButton) {
-        case MouseButton::ePrimary:
-          pluginEvent.event = WM_LBUTTONDOWN;
-          break;
-        case MouseButton::eMiddle:
-          pluginEvent.event = WM_MBUTTONDOWN;
-          break;
-        case MouseButton::eSecondary:
-          pluginEvent.event = WM_RBUTTONDOWN;
-          break;
-        default:
-          break;
-      }
-      break;
-    case eMouseUp:
-      switch (aButton) {
-        case MouseButton::ePrimary:
-          pluginEvent.event = WM_LBUTTONUP;
-          break;
-        case MouseButton::eMiddle:
-          pluginEvent.event = WM_MBUTTONUP;
-          break;
-        case MouseButton::eSecondary:
-          pluginEvent.event = WM_RBUTTONUP;
-          break;
-        default:
-          break;
-      }
-      break;
-    case eMouseDoubleClick:
-      switch (aButton) {
-        case MouseButton::ePrimary:
-          pluginEvent.event = WM_LBUTTONDBLCLK;
-          break;
-        case MouseButton::eMiddle:
-          pluginEvent.event = WM_MBUTTONDBLCLK;
-          break;
-        case MouseButton::eSecondary:
-          pluginEvent.event = WM_RBUTTONDBLCLK;
-          break;
-        default:
-          break;
-      }
-      break;
-    case eMouseMove:
-      pluginEvent.event = WM_MOUSEMOVE;
-      break;
-    case eMouseExitFromWidget:
-      pluginEvent.event = WM_MOUSELEAVE;
-      break;
-    default:
-      pluginEvent.event = WM_NULL;
-      break;
-  }
-
-  pluginEvent.wParam = wParam;  // plugins NEED raw OS event flags!
-  pluginEvent.lParam = lParam;
-
-  event.mPluginEvent.Copy(pluginEvent);
-
   // call the event callback
   if (mWidgetListener) {
     if (aEventMessage == eMouseMove) {
@@ -5196,22 +5141,30 @@ bool nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
         // Windows won't let us do that. Bug 212316.
         nsCOMPtr<nsIObserverService> obsServ =
             mozilla::services::GetObserverService();
-        const char16_t* context = u"shutdown-persist";
         const char16_t* syncShutdown = u"syncShutdown";
         const char16_t* quitType = GetQuitType();
+
+        AppShutdown::Init(AppShutdownMode::Normal, 0);
 
         obsServ->NotifyObservers(nullptr, "quit-application-granted",
                                  syncShutdown);
         obsServ->NotifyObservers(nullptr, "quit-application-forced", nullptr);
-        obsServ->NotifyObservers(nullptr, "quit-application", quitType);
-        obsServ->NotifyObservers(nullptr, "profile-change-net-teardown",
-                                 context);
-        obsServ->NotifyObservers(nullptr, "profile-change-teardown", context);
-        obsServ->NotifyObservers(nullptr, "profile-before-change", context);
-        obsServ->NotifyObservers(nullptr, "profile-before-change-qm", context);
-        obsServ->NotifyObservers(nullptr, "profile-before-change-telemetry",
-                                 context);
-        mozilla::AppShutdown::DoImmediateExit();
+
+        AppShutdown::OnShutdownConfirmed();
+
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdownConfirmed,
+                                          quitType);
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdownNetTeardown,
+                                          nullptr);
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdownTeardown,
+                                          nullptr);
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdown, nullptr);
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdownQM,
+                                          nullptr);
+        AppShutdown::AdvanceShutdownPhase(ShutdownPhase::AppShutdownTelemetry,
+                                          nullptr);
+
+        AppShutdown::DoImmediateExit();
       }
       sCanQuit = TRI_UNKNOWN;
       result = true;
@@ -5301,6 +5254,21 @@ bool nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
             if (uiUtils) {
               uiUtils->UpdateTabletModeState();
             }
+          }
+        }
+
+        // UserInteractionMode, ConvertibleSlateMode, SystemDockMode may cause
+        // @media(pointer) queries to change, which layout needs to know about
+        //
+        // (WM_SETTINGCHANGE will be sent to all top-level windows, so we
+        //  only respond to the hidden top-level window to avoid hammering
+        //  layout with a bunch of NotifyThemeChanged() calls)
+        //
+        if (mWindowType == eWindowType_invisible) {
+          if (!wcscmp(lParamString, L"UserInteractionMode") ||
+              !wcscmp(lParamString, L"ConvertibleSlateMode") ||
+              !wcscmp(lParamString, L"SystemDockMode")) {
+            NotifyThemeChanged(widget::ThemeChangeKind::MediaQueriesOnly);
           }
         }
       }
@@ -6190,9 +6158,10 @@ bool nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
         if (action == UIS_SET || action == UIS_CLEAR) {
           int32_t flags = HIWORD(wParam);
           UIStateChangeType showFocusRings = UIStateChangeType_NoChange;
-          if (flags & UISF_HIDEFOCUS)
+          if (flags & UISF_HIDEFOCUS) {
             showFocusRings = (action == UIS_SET) ? UIStateChangeType_Clear
                                                  : UIStateChangeType_Set;
+          }
           NotifyUIStateChanged(showFocusRings);
         }
       }
@@ -6604,25 +6573,66 @@ nsresult nsWindow::SynthesizeNativeKeyEvent(
       aUnmodifiedCharacters);
 }
 
-nsresult nsWindow::SynthesizeNativeMouseEvent(LayoutDeviceIntPoint aPoint,
-                                              uint32_t aNativeMessage,
-                                              uint32_t aModifierFlags,
-                                              nsIObserver* aObserver) {
+nsresult nsWindow::SynthesizeNativeMouseEvent(
+    LayoutDeviceIntPoint aPoint, NativeMouseMessage aNativeMessage,
+    MouseButton aButton, nsIWidget::Modifiers aModifierFlags,
+    nsIObserver* aObserver) {
   AutoObserverNotifier notifier(aObserver, "mouseevent");
-
-  if (aNativeMessage == MOUSEEVENTF_MOVE) {
-    // Reset sLastMouseMovePoint so that even if we're moving the mouse
-    // to the position it's already at, we still dispatch a mousemove
-    // event, because the callers of this function expect that.
-    sLastMouseMovePoint = {0};
-  }
-  ::SetCursorPos(aPoint.x, aPoint.y);
 
   INPUT input;
   memset(&input, 0, sizeof(input));
 
+  // TODO (bug 1693240):
+  // Now, we synthesize native mouse events asynchronously since we want to
+  // synthesize the event on the front window at the point. However, Windows
+  // does not provide a way to set modifier only while a mouse message is
+  // being handled, and MOUSEEVENTF_MOVE may be coalesced by Windows.  So, we
+  // need a trick for handling it.
+
+  switch (aNativeMessage) {
+    case NativeMouseMessage::Move:
+      input.mi.dwFlags = MOUSEEVENTF_MOVE;
+      // Reset sLastMouseMovePoint so that even if we're moving the mouse
+      // to the position it's already at, we still dispatch a mousemove
+      // event, because the callers of this function expect that.
+      sLastMouseMovePoint = {0};
+      break;
+    case NativeMouseMessage::ButtonDown:
+    case NativeMouseMessage::ButtonUp: {
+      const bool isDown = aNativeMessage == NativeMouseMessage::ButtonDown;
+      switch (aButton) {
+        case MouseButton::ePrimary:
+          input.mi.dwFlags = isDown ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+          break;
+        case MouseButton::eMiddle:
+          input.mi.dwFlags =
+              isDown ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+          break;
+        case MouseButton::eSecondary:
+          input.mi.dwFlags =
+              isDown ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+          break;
+        case MouseButton::eX1:
+          input.mi.dwFlags = isDown ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+          input.mi.mouseData = XBUTTON1;
+          break;
+        case MouseButton::eX2:
+          input.mi.dwFlags = isDown ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+          input.mi.mouseData = XBUTTON2;
+          break;
+        default:
+          return NS_ERROR_INVALID_ARG;
+      }
+      break;
+    }
+    case NativeMouseMessage::EnterWindow:
+    case NativeMouseMessage::LeaveWindow:
+      MOZ_ASSERT_UNREACHABLE("Non supported mouse event on Windows");
+      return NS_ERROR_INVALID_ARG;
+  }
+
   input.type = INPUT_MOUSE;
-  input.mi.dwFlags = aNativeMessage;
+  ::SetCursorPos(aPoint.x, aPoint.y);
   ::SendInput(1, &input, sizeof(INPUT));
 
   return NS_OK;
@@ -6981,26 +6991,19 @@ nsIntPoint nsWindow::GetTouchCoordinates(WPARAM wParam, LPARAM lParam) {
   return ret;
 }
 
-// Determine if the touch device that originated |aOSEvent| needs to have
-// touch events representing a two-finger gesture converted to pan
-// gesture events.
-// We only do this for touch devices with a specific name and identifiers.
-bool TouchDeviceNeedsPanGestureConversion(PTOUCHINPUT aOSEvent,
-                                          uint32_t aTouchCount) {
-  if (aTouchCount == 0) {
-    return false;
-  }
-  HANDLE source = aOSEvent[0].hSource;
+// Helper function for TouchDeviceNeedsPanGestureConversion(PTOUCHINPUT,
+// uint32_t).
+static bool TouchDeviceNeedsPanGestureConversion(HANDLE aSource) {
   std::string deviceName;
   UINT dataSize = 0;
   // The first call just queries how long the name string will be.
-  GetRawInputDeviceInfoA(source, RIDI_DEVICENAME, nullptr, &dataSize);
+  GetRawInputDeviceInfoA(aSource, RIDI_DEVICENAME, nullptr, &dataSize);
   if (!dataSize || dataSize > 0x10000) {
     return false;
   }
   deviceName.resize(dataSize);
   // The second call actually populates the string.
-  UINT result = GetRawInputDeviceInfoA(source, RIDI_DEVICENAME, &deviceName[0],
+  UINT result = GetRawInputDeviceInfoA(aSource, RIDI_DEVICENAME, &deviceName[0],
                                        &dataSize);
   if (result == UINT_MAX) {
     return false;
@@ -7022,7 +7025,7 @@ bool TouchDeviceNeedsPanGestureConversion(PTOUCHINPUT aOSEvent,
   deviceInfo.cbSize = sizeof(deviceInfo);
   dataSize = sizeof(deviceInfo);
   result =
-      GetRawInputDeviceInfoA(source, RIDI_DEVICEINFO, &deviceInfo, &dataSize);
+      GetRawInputDeviceInfoA(aSource, RIDI_DEVICEINFO, &deviceInfo, &dataSize);
   if (result == UINT_MAX) {
     return false;
   }
@@ -7034,12 +7037,36 @@ bool TouchDeviceNeedsPanGestureConversion(PTOUCHINPUT aOSEvent,
          deviceInfo.hid.usUsagePage == 13 && deviceInfo.hid.usUsage == 4;
 }
 
+// Determine if the touch device that originated |aOSEvent| needs to have
+// touch events representing a two-finger gesture converted to pan
+// gesture events.
+// We only do this for touch devices with a specific name and identifiers.
+static bool TouchDeviceNeedsPanGestureConversion(PTOUCHINPUT aOSEvent,
+                                                 uint32_t aTouchCount) {
+  if (!StaticPrefs::apz_windows_check_for_pan_gesture_conversion()) {
+    return false;
+  }
+  if (aTouchCount == 0) {
+    return false;
+  }
+  HANDLE source = aOSEvent[0].hSource;
+
+  // Cache the result of this computation for each touch device.
+  // Touch devices are identified by the HANDLE stored in the hSource
+  // field of TOUCHINPUT.
+  static std::map<HANDLE, bool> sResultCache;
+  auto [iter, inserted] = sResultCache.emplace(source, false);
+  if (inserted) {
+    iter->second = TouchDeviceNeedsPanGestureConversion(source);
+  }
+  return iter->second;
+}
+
 Maybe<PanGestureInput> nsWindow::ConvertTouchToPanGesture(
     const MultiTouchInput& aTouchInput, PTOUCHINPUT aOSEvent) {
-  // The first time this function is called, perform some checks on the
-  // touch device that originated the touch event, to see if it's a device
+  // Checks if the touch device that originated the touch event is one
   // for which we want to convert the touch events to pang gesture events.
-  static bool shouldConvert = TouchDeviceNeedsPanGestureConversion(
+  bool shouldConvert = TouchDeviceNeedsPanGestureConversion(
       aOSEvent, aTouchInput.mTouches.Length());
   if (!shouldConvert) {
     return Nothing();
@@ -7629,7 +7656,7 @@ TextEventDispatcherListener* nsWindow::GetNativeTextEventDispatcherListener() {
 #    define NS_LOG_WMGETOBJECT(aWnd, aHwnd, aAcc)
 #  endif
 
-a11y::Accessible* nsWindow::GetAccessible() {
+a11y::LocalAccessible* nsWindow::GetAccessible() {
   // If the pref was ePlatformIsDisabled, return null here, disabling a11y.
   if (a11y::PlatformDisabledState() == a11y::ePlatformIsDisabled)
     return nullptr;
@@ -8485,6 +8512,12 @@ void nsWindow::PickerClosed() {
   if (!mPickerDisplayCount && mDestroyCalled) {
     Destroy();
   }
+}
+
+bool nsWindow::WidgetTypePrefersSoftwareWebRender() const {
+  return (mTransparencyMode == eTransparencyTransparent &&
+          StaticPrefs::gfx_webrender_software_unaccelerated_widget_allow()) ||
+         nsBaseWidget::WidgetTypePrefersSoftwareWebRender();
 }
 
 bool nsWindow::WidgetTypeSupportsAcceleration() {

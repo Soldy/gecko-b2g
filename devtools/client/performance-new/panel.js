@@ -21,10 +21,12 @@ class PerformancePanel {
   /**
    * @param {PanelWindow} iframeWindow
    * @param {Toolbox} toolbox
+   * @param {Object} commands
    */
-  constructor(iframeWindow, toolbox) {
+  constructor(iframeWindow, toolbox, commands) {
     this.panelWin = iframeWindow;
     this.toolbox = toolbox;
+    this.commands = commands;
 
     const EventEmitter = require("devtools/shared/event-emitter");
     EventEmitter.decorate(this);
@@ -60,8 +62,6 @@ class PerformancePanel {
 
     const perfFront = await this.target.client.mainRoot.getFront("perf");
 
-    this.isReady = true;
-    this.emit("ready");
     this.panelWin.gInit(perfFront, "devtools");
     return this;
   }

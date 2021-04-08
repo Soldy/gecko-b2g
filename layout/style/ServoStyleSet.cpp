@@ -48,7 +48,6 @@
 #include "nsHTMLStyleSheet.h"
 #include "nsIAnonymousContentCreator.h"
 #include "mozilla/dom/DocumentInlines.h"
-#include "nsMediaFeatures.h"
 #include "nsPrintfCString.h"
 #include "gfxUserFontSet.h"
 #include "nsWindowSizes.h"
@@ -130,8 +129,7 @@ nsPresContext* ServoStyleSet::GetPresContext() {
 template <typename Functor>
 static void EnumerateShadowRoots(const Document& aDoc, const Functor& aCb) {
   const Document::ShadowRootSet& shadowRoots = aDoc.ComposedShadowRoots();
-  for (auto iter = shadowRoots.ConstIter(); !iter.Done(); iter.Next()) {
-    ShadowRoot* root = iter.Get()->GetKey();
+  for (ShadowRoot* root : shadowRoots) {
     MOZ_ASSERT(root);
     MOZ_DIAGNOSTIC_ASSERT(root->IsInComposedDoc());
     aCb(*root);
@@ -340,8 +338,6 @@ void ServoStyleSet::PreTraverseSync() {
   mDocument->FlushUserFontSet();
 
   ResolveMappedAttrDeclarationBlocks();
-
-  nsMediaFeatures::InitSystemMetrics();
 
   LookAndFeel::NativeInit();
 
@@ -1185,6 +1181,7 @@ void ServoStyleSet::UpdateStylist() {
         Servo_AuthorStyles_Flush(authorStyles, mRawSet.get());
       }
     });
+    Servo_StyleSet_RemoveUniqueEntriesFromAuthorStylesCache(mRawSet.get());
   }
 
   mStylistState = StylistState::NotDirty;
@@ -1220,11 +1217,9 @@ bool ServoStyleSet::ShouldTraverseInParallel() const {
   if (!mDocument->GetPresShell()->IsActive()) {
     return false;
   }
-#ifdef MOZ_GECKO_PROFILER
   if (profiler_feature_active(ProfilerFeature::SequentialStyle)) {
     return false;
   }
-#endif
   return true;
 }
 

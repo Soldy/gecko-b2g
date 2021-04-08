@@ -217,11 +217,6 @@ bool IsSuspended(nsSuspendedTypes aSuspend) {
   return aSuspend != nsISuspendedTypes::NONE_SUSPENDED;
 }
 
-nsSuspendedTypes SuspendType(bool aSuspended) {
-  return aSuspended ? nsISuspendedTypes::SUSPENDED_PAUSE
-                    : nsISuspendedTypes::NONE_SUSPENDED;
-}
-
 }  // anonymous namespace
 
 already_AddRefed<Promise> AudioChannelHandler::GetVolume(ErrorResult& aRv) {
@@ -326,16 +321,25 @@ already_AddRefed<Promise> AudioChannelHandler::SetSuspended(bool aSuspended,
     return nullptr;
   }
 
+  nsSuspendedTypes suspendType = nsISuspendedTypes::NONE_SUSPENDED;
+  if (aSuspended) {
+    // If our channel is still playing, pause it. Otherwise reset it to default
+    // suspend type.
+    suspendType = mState == eStateActive
+                      ? nsISuspendedTypes::SUSPENDED_PAUSE
+                      : AudioChannelService::InitialSuspendType();
+  }
+
   if (IsRemoteFrame()) {
     mBrowserParent->SendSetAudioChannelSuspend(
-        static_cast<uint32_t>(mAudioChannel), SuspendType(aSuspended),
+        static_cast<uint32_t>(mAudioChannel), suspendType,
         GetDefaultIpcResolve(promise), GetDefaultIpcReject(promise));
   } else {
     bool success = false;
     RefPtr<AudioChannelService> service = AudioChannelService::GetOrCreate();
     if (service) {
       success = service->SetAudioChannelSuspend(mFrameWindow, mAudioChannel,
-                                                SuspendType(aSuspended));
+                                                suspendType);
     }
     ResolveOrReject(promise, success);
   }

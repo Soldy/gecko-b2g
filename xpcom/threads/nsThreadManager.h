@@ -9,6 +9,7 @@
 
 #include "nsIThreadManager.h"
 #include "nsThread.h"
+#include "mozilla/ShutdownPhase.h"
 
 class nsIRunnable;
 class nsIEventTarget;
@@ -28,8 +29,6 @@ class nsThreadManager : public nsIThreadManager {
   NS_DECL_NSITHREADMANAGER
 
   static nsThreadManager& get();
-
-  static void InitializeShutdownObserver();
 
   nsresult Init();
 
@@ -68,6 +67,14 @@ class nsThreadManager : public nsIThreadManager {
   already_AddRefed<nsISerialEventTarget> CreateBackgroundTaskQueue(
       const char* aName);
 
+  // For each background TaskQueue cancel pending DelayedRunnables, and prohibit
+  // creating future DelayedRunnables for them, since we'll soon be shutting
+  // them down.
+  // Pending DelayedRunnables are canceled on their respective TaskQueue.
+  // We block main thread until they are all done, but spin the eventloop in the
+  // meantime.
+  void CancelBackgroundDelayedRunnables();
+
   ~nsThreadManager();
 
   void EnableMainThreadEventPrioritization();
@@ -82,8 +89,10 @@ class nsThreadManager : public nsIThreadManager {
  private:
   nsThreadManager();
 
-  nsresult SpinEventLoopUntilInternal(nsINestedEventLoopCondition* aCondition,
-                                      bool aCheckingShutdown);
+  nsresult SpinEventLoopUntilInternal(
+      const nsACString& aVeryGoodReasonToDoThis,
+      nsINestedEventLoopCondition* aCondition,
+      mozilla::ShutdownPhase aCheckingShutdownPhase);
 
   static void ReleaseThread(void* aData);
 

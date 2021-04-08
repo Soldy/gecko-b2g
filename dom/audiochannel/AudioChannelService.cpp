@@ -431,7 +431,6 @@ AudioPlaybackConfig AudioChannelService::GetMediaConfig(
       config.mCapturedAudio = winData->mIsAudioCaptured;
     }
 
-    config.mVolume *= window->GetAudioVolume();
     config.mMuted = config.mMuted || window->GetAudioMuted();
     if (window->GetMediaSuspend() != nsISuspendedTypes::NONE_SUSPENDED) {
       config.mSuspend = window->GetMediaSuspend();
@@ -1040,7 +1039,7 @@ void AudioChannelService::NotifyMediaResumedFromBlock(
 nsSuspendedTypes AudioChannelService::InitialSuspendType() {
   CreateServiceIfNeeded();
   return StaticPrefs::dom_audiochannel_mutedByDefault()
-             ? nsISuspendedTypes::SUSPENDED_PAUSE
+             ? nsISuspendedTypes::SUSPENDED_BLOCK
              : nsISuspendedTypes::NONE_SUSPENDED;
 }
 

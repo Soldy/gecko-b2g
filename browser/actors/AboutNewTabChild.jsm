@@ -19,8 +19,7 @@ const { PrivateBrowsingUtils } = ChromeUtils.import(
 );
 
 XPCOMUtils.defineLazyModuleGetters(this, {
-  ExperimentFeature:
-    "resource://messaging-system/experiments/ExperimentAPI.jsm",
+  ExperimentFeature: "resource://nimbus/ExperimentAPI.jsm",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -93,9 +92,7 @@ class AboutNewTabChild extends JSWindowActorChild {
         this.sendAsyncMessage("DefaultBrowserNotification");
 
         // Send an exposure event to record when we have an experiment active
-        newtabExperimentFeature
-          .ready()
-          .then(() => newtabExperimentFeature.recordExposureEvent());
+        newtabExperimentFeature.recordExposureEvent();
       }
     }
   }

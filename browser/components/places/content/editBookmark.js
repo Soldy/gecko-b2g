@@ -307,11 +307,21 @@ var gEditItemOverlay = {
     if (showOrCollapse("keywordRow", isBookmark, "keyword")) {
       this._initKeywordField().catch(Cu.reportError);
       this._keywordField.readOnly = this.readOnly;
+
+      if (!Services.prefs.getBoolPref("browser.proton.modals.enabled", false)) {
+        let keywordFieldCaption = document.getElementById("keyword-field-info");
+        keywordFieldCaption?.remove();
+      }
     }
 
     // Collapse the tag selector if the item does not accept tags.
     if (showOrCollapse("tagsRow", isURI || bulkTagging, "tags")) {
       this._initTagsField();
+
+      if (!Services.prefs.getBoolPref("browser.proton.modals.enabled", false)) {
+        let tagsFieldCaption = document.getElementById("tags-field-info");
+        tagsFieldCaption?.remove();
+      }
     } else if (!this._element("tagsSelectorRow").collapsed) {
       this.toggleTagsSelector().catch(Cu.reportError);
     }
@@ -453,6 +463,10 @@ var gEditItemOverlay = {
     var menupopup = this._folderMenuList.menupopup;
     while (menupopup.children.length > 6) {
       menupopup.removeChild(menupopup.lastElementChild);
+    }
+
+    if (!this.protonDoorhangersEnabled) {
+      this._folderMenuList.classList.add("panel-button");
     }
 
     // Build the static list
@@ -1294,9 +1308,6 @@ var gEditItemOverlay = {
       );
     });
   },
-
-  onBeginUpdateBatch() {},
-  onEndUpdateBatch() {},
 };
 
 XPCOMUtils.defineLazyGetter(gEditItemOverlay, "_folderTree", () => {
@@ -1327,6 +1338,13 @@ XPCOMUtils.defineLazyGetter(gEditItemOverlay, "_folderTree", () => {
   );
   return gEditItemOverlay._element("folderTree");
 });
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  gEditItemOverlay,
+  "protonDoorhangersEnabled",
+  "browser.proton.doorhangers.enabled",
+  false
+);
 
 for (let elt of [
   "folderMenuList",

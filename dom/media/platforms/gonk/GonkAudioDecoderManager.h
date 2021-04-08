@@ -32,7 +32,7 @@ class GonkAudioDecoderManager : public GonkDecoderManager {
   nsresult GetOutput(int64_t aStreamOffset,
                      MediaDataDecoder::DecodedData& aOutput) override;
 
-  void ProcessFlush() override;
+  void FlushInternal() override;
 
   const char* GetDescriptionName() const override {
     return "gonk audio decoder";
@@ -45,7 +45,8 @@ class GonkAudioDecoderManager : public GonkDecoderManager {
  private:
   bool InitMediaCodecProxy();
 
-  nsresult CreateAudioData(MediaBuffer* aBuffer, int64_t aStreamOffset);
+  nsresult CreateAudioData(const sp<SimpleMediaBuffer>& aBuffer,
+                           int64_t aStreamOffset);
 
   uint32_t mAudioChannels;
   uint32_t mAudioRate;

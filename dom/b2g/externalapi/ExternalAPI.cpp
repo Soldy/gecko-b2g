@@ -7,6 +7,7 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerScope.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/Preferences.h"
 #include "nsContentUtils.h"
 #include "nsIGlobalObject.h"

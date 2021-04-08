@@ -37,7 +37,6 @@ const DATACALL_TYPES = [
   Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_ECC,
 ];
 
-const NETWORK_STATE_UNKNOWN = Ci.nsINetworkInfo.NETWORK_STATE_UNKNOWN;
 const NETWORK_STATE_CONNECTED = Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED;
 
 const TOPIC_XPCOM_SHUTDOWN = "xpcom-shutdown";
@@ -182,6 +181,7 @@ DataCallService.prototype = {
       addresses,
       gateways: aNetwork.getGateways(),
       dnses: aNetwork.getDnses(),
+      netId: aNetwork.netId,
     };
 
     return dataCall;
@@ -386,21 +386,13 @@ DataCallService.prototype = {
     }
 
     try {
-      // This indicates there is no network interface for this mobile type.
-      if (ril.getDataCallStateByType(type) == NETWORK_STATE_UNKNOWN) {
-        aTargetCallback({
-          errorMsg: "Network interface not available for type.",
-        });
-        return;
-      }
+      // Call this no matter what for ref counting in RadioInterfaceLayer.
+      ril.setupDataCallByType(type);
     } catch (e) {
-      // Throws when type is not a mobile network type.
-      aTargetCallback({ errorMsg: "Error setting up data call: " + e });
+      // Throws when setup request fail.
+      aTargetCallback({ errorMsg: "Error when setup data call: " + e });
       return;
     }
-
-    // Call this no matter what for ref counting in RadioInterfaceLayer.
-    ril.setupDataCallByType(type);
 
     if (ril.getDataCallStateByType(type) == NETWORK_STATE_CONNECTED) {
       let networkInfo = this._getNetworkInfo(serviceId, type);
@@ -535,7 +527,7 @@ DataCallService.prototype = {
     } catch (e) {
       // Throws when type is not a mobile network type.
       if (aTargetCallback) {
-        aTargetCallback({ errorMsg: "Error deactivating data call: " + e });
+        aTargetCallback({ errorMsg: "Error when deactivate data call: " + e });
       }
       return;
     }

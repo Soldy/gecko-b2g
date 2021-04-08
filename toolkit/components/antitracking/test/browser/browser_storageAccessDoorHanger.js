@@ -39,6 +39,10 @@ async function testDoorHanger(
         "network.cookie.cookieBehavior",
         Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER,
       ],
+      [
+        "network.cookie.cookieBehavior.pbmode",
+        Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER,
+      ],
       ["privacy.trackingprotection.enabled", false],
       ["privacy.trackingprotection.pbmode.enabled", false],
       ["privacy.trackingprotection.annotate_channels", true],
@@ -228,8 +232,8 @@ async function testDoorHanger(
     );
     gPermissionPanel._identityPermissionBox.click();
     await permissionPopupPromise;
-    let permissionItem = document.getElementById(
-      `permission-popup-permission-label-3rdPartyStorage^https://tracking.example.org`
+    let permissionItem = document.querySelector(
+      ".permission-popup-permission-item-3rdPartyStorage"
     );
     ok(permissionItem, "Permission item exists");
     ok(

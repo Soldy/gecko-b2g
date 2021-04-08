@@ -5,10 +5,12 @@
 @namespace url("http://www.w3.org/1999/xhtml");
 
 .videocontrols {
+  display: flex;
+  justify-content: center;
+  align-items: center;
   writing-mode: horizontal-tb;
   width: 100%;
   height: 100%;
-  display: inline-block;
   overflow: hidden;
 
   direction: ltr;
@@ -29,14 +31,17 @@
   --button-size: 30px;
   --timer-size: 40px;
   --timer-long-size: 60px;
-  --track-size: 5px;
-  --thumb-size: 2.4rem;
-  --label-font-size: 1.7rem;
+  --track-size: 6px;
+  --thumb-size: 24px;
+  --label-font-size: 17px;
   --pip-toggle-padding: 5px;
   --pip-toggle-icon-width-height: 16px;
   --pip-toggle-translate-x: calc(
     100% - var(--pip-toggle-icon-width-height) - 2 * var(--pip-toggle-padding)
   );
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .controlsContainer.touch {
   --clickToPlay-size: 64px;
@@ -84,6 +89,10 @@
   display: none;
 }
 
+.duration[hidden] {
+  display: block;
+}
+
 /* We hide the controlBar visually so it doesn't obscure the video. However,
    * we still want to expose it to a11y so users who don't use a mouse can access
    * it.
@@ -102,27 +111,34 @@
   cursor: none;
 }
 
-.controlsContainer,
 .progressContainer {
   position: relative;
-  /* height: 100%; */
+}
+
+.controlsContainer {
+  width: 100%;
 }
 
 .stackItem {
-  position: absolute;
-  left: 0;
-  bottom: 0;
   width: 100%;
   height: 100%;
 }
 
 .statusOverlay {
+  z-index: 500;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: rgb(80, 80, 80, 0.85);
+  background-color: #272730;
   color: #fff;
+  border-radius: 20px;
+  margin: 0 10px;
+  width: calc(100% - 20px);
+  height: auto;
+  min-height: 220px;
+  position: fixed;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.5);
 }
 
 .controlsOverlay {
@@ -135,35 +151,38 @@
 .controlsSpacerStack {
   display: flex;
   flex-direction: column;
-  flex-grow: 1;
   justify-content: center;
   align-items: center;
 }
 
 .controlBar {
+  height: 100%;
+  max-height: 138px;
   position: relative;
   display: flex;
   flex-wrap: wrap;
   box-sizing: border-box;
-  justify-content: center;
+  justify-content: space-around;
   align-items: center;
   overflow: hidden;
-  height: 100%;
-  padding: 0 9px;
+  padding: 20px 0;
   background-color: rgba(0, 0, 0, 0.7);
   color: #fff;
-  margin: 0 1rem;
+  margin: 0 10px;
   border-radius: 20px;
 }
 
 #fullscreenButton {
   order: 1;
+  visibility: hidden;
 }
 #playButton {
   order: 2;
+  visibility: hidden;
 }
 #muteButton {
   order: 3;
+  visibility: hidden;
 }
 #scrubberStack {
   order: 4;
@@ -176,25 +195,58 @@
   height: 52px;
 }
 
+#fullscreenButton:after,
+#fullscreenButton[fullscreened]:after,
+#playButton:after,
+#playButton[paused]:after,
+#muteButton:after,
+#muteButton[muted]:after {
+  visibility: visible;
+  display: inline-flex;
+  height: 42px;
+  width: 42px;
+}
+
+#fullscreenButton:after {
+  content: url(chrome://b2g/content/images/fullscreenEnterButton.svg);
+}
+
+#fullscreenButton[fullscreened]:after {
+  content: url(chrome://b2g/content/images/fullscreenExitButton.svg);
+}
+
+#playButton:after {
+  content: url(chrome://b2g/content/images/pauseButton.svg);
+}
+
+#playButton[paused]:after {
+  content: url(chrome://b2g/content/images/playButton.svg);
+}
+
+#muteButton:after {
+  content: url(chrome://b2g/content/images/audioUnmutedButton.svg);
+}
+
+#muteButton[muted]:after {
+  content: url(chrome://b2g/content/images/audioMutedButton.svg);
+}
+
 .controlBar > .button {
-  margin: 2rem 1.15rem 1.2rem;
-  height: 4.2rem;
-  width: 4.2rem;
   background-size: cover;
   min-width: var(--button-size);
   min-height: var(--button-size);
-  padding: 1px;
-  border: 0;
+  border: none;
   background-color: transparent;
   background-repeat: no-repeat;
   background-position: center;
-  background-origin: content-box;
-  background-clip: content-box;
+  background-origin: border-box;
+  background-clip: border-box;
   -moz-context-properties: fill;
   fill: currentColor;
   color: inherit;
   /* We don't suppress ::-moz-focus-inner, so that does for a focus indicator */
   outline: none;
+  flex-grow: 1;
 }
 
 .touch .controlBar > .button {
@@ -209,19 +261,6 @@
   fill: #2d89e6;
 }
 
-.playButton {
-  background-image: url(chrome://b2g/content/images/pauseButton.svg);
-}
-.playButton[paused] {
-  background-image: url(chrome://b2g/content/images/playButton.svg);
-}
-
-.muteButton {
-  background-image: url(chrome://b2g/content/images/audioUnmutedButton.svg);
-}
-.muteButton[muted] {
-  background-image: url(chrome://b2g/content/images/audioMutedButton.svg);
-}
 .muteButton[noAudio] {
   background-image: url(chrome://b2g/content/images/audioNoAudioButton.svg);
 }
@@ -239,20 +278,10 @@
 
 .closedCaptionButton {
   background-image: url(chrome://b2g/content/images/closedCaptionButton-cc-off.svg);
+  display: none;
 }
 .closedCaptionButton[enabled] {
   background-image: url(chrome://b2g/content/images/closedCaptionButton-cc-on.svg);
-}
-
-.fullscreenButton {
-  background-image: url(chrome://b2g/content/images/fullscreenEnterButton.svg);
-}
-.fullscreenButton[fullscreened] {
-  background-image: url(chrome://b2g/content/images/fullscreenExitButton.svg);
-}
-
-.controlBarSpacer {
-  flex-grow: 1;
 }
 
 .scrubber::-moz-range-thumb {
@@ -286,8 +315,12 @@
   flex-basis: calc(var(--scrubberStack-width) - 18px);
   /* break to a new row */
   flex-basis: 100%;
-  height: 3rem;
-  margin: 0 1.5rem;
+  height: 30px;
+  margin: 12px 15px 0 15px;
+}
+
+.scrubberStack[hidden] {
+  display: block;
 }
 
 .bufferBar,
@@ -400,27 +433,28 @@
 }
 
 .positionDurationBox {
-  padding-inline-start: 1px;
-  padding-inline-end: 9px;
   white-space: nowrap;
   font: message-box;
   font-size: var(--label-font-size);
   font-size-adjust: 0.55;
   font-variant-numeric: tabular-nums;
   font-weight: bold;
-  margin-bottom: 0.9rem;
+  margin-bottom: 20px;
+  flex-grow: 1;
+  margin-left: 15px;
+  font-family: 'Open Sans';
 }
 
 .duration {
-  display: inline-block;
   white-space: pre;
-  color: #929292;
+  float: right;
+  margin-right: 15px;
 }
 
 .statusIcon {
-  width: 36px;
-  height: 36px;
-  margin-bottom: 20px;
+  width: 96px;
+  height: 96px;
+  margin-top: 28px;
 }
 
 /* Not showing the throbber on mobile because of conflict with m.youtube.com (see bug 1289412) */
@@ -440,9 +474,9 @@
 }
 
 .statusIcon[type="error"] {
-  min-width: 70px;
-  min-height: 60px;
-  background-image: url(chrome://global/skin/media/error.png);
+  width: 96px;
+  height: 96px;
+  background-image: url(chrome://b2g/content/images/videoError.png);
 }
 
 .statusIcon[type="pictureInPicture"] {
@@ -555,6 +589,11 @@
   display: none;
 }
 
+.controlBar .fullscreenButton[masking] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .statusOverlay[fadeout],
 .statusOverlay[error] + .controlsOverlay > .controlsSpacerStack {
   opacity: 0;
@@ -572,10 +611,11 @@
 
 /* Status description formatting */
 .statusLabel {
-  padding: 0 10px;
+  margin: 0 10px 27px 10px;
   text-align: center;
   font: message-box;
-  font-size: 14px;
+  font-size: 17px;
+  font-family: 'Open Sans';
 }
 
 .statusLabel {

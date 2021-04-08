@@ -41,8 +41,8 @@ void NetIdManager::acquire(const nsString& aInterfaceName,
   addType(aNetIdInfo->mTypes, aType);
 
   // Update hash and return.
-  mInterfaceToNetIdHash.Put(aInterfaceName, *aNetIdInfo);
-  mNetIdToNetIdInfoHash.Put(uint32_t(aNetIdInfo->mNetId), *aNetIdInfo);
+  mInterfaceToNetIdHash.InsertOrUpdate(aInterfaceName, *aNetIdInfo);
+  mNetIdToNetIdInfoHash.InsertOrUpdate(uint32_t(aNetIdInfo->mNetId), *aNetIdInfo);
 
   return;
 }
@@ -63,7 +63,7 @@ bool NetIdManager::release(const nsString& aInterfaceName,
 
   // Update the hash if still be referenced.
   if (aNetIdInfo->mTypes != 0) {
-    mInterfaceToNetIdHash.Put(aInterfaceName, *aNetIdInfo);
+    mInterfaceToNetIdHash.InsertOrUpdate(aInterfaceName, *aNetIdInfo);
 
     return true;
   }
@@ -100,7 +100,7 @@ void NetIdManager::addInterfaceToNetwork(const nsString& aInterfaceName,
       aNetIdInfo->mNetId);
 
   // Update hash and return.
-  mInterfaceToNetIdHash.Put(aInterfaceName, *aNetIdInfo);
+  mInterfaceToNetIdHash.InsertOrUpdate(aInterfaceName, *aNetIdInfo);
 
   return;
 }

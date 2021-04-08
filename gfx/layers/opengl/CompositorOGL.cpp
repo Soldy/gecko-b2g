@@ -242,7 +242,7 @@ already_AddRefed<mozilla::gl::GLContext> CompositorOGL::CreateContext() {
   if (gfxEnv::LayersPreferEGL()) {
     printf_stderr("Trying GL layers...\n");
     context = gl::GLContextProviderEGL::CreateForCompositorWidget(
-        mWidget, /* aWebRender */ false, /* aForceAccelerated */ false);
+        mWidget, /* aHardwareWebRender */ false, /* aForceAccelerated */ false);
   }
 #endif
 
@@ -259,7 +259,7 @@ already_AddRefed<mozilla::gl::GLContext> CompositorOGL::CreateContext() {
   if (!context) {
     context = gl::GLContextProvider::CreateForCompositorWidget(
         mWidget,
-        /* aWebRender */ false,
+        /* aHardwareWebRender */ false,
         gfxVars::RequiresAcceleratedGLContextForCompositorOGL());
   }
 
@@ -307,19 +307,14 @@ void CompositorOGL::CleanupResources() {
     mTriangleVBO = 0;
     mPreviousFrameDoneSync = nullptr;
     mThisFrameDoneSync = nullptr;
+    mProgramsHolder = nullptr;
     mGLContext = nullptr;
-    mPrograms.clear();
     mNativeLayersReferenceRT = nullptr;
     mFullWindowRenderTarget = nullptr;
     return;
   }
 
-  for (std::map<ShaderConfigOGL, ShaderProgramOGL*>::iterator iter =
-           mPrograms.begin();
-       iter != mPrograms.end(); iter++) {
-    delete iter->second;
-  }
-  mPrograms.clear();
+  mProgramsHolder = nullptr;
   mNativeLayersReferenceRT = nullptr;
   mFullWindowRenderTarget = nullptr;
 
@@ -359,23 +354,42 @@ void CompositorOGL::CleanupResources() {
 
   mBlitTextureImageHelper = nullptr;
 
-  // On the main thread the Widget will be destroyed soon and calling
-  // MakeCurrent after that could cause a crash (at least with GLX, see bug
-  // 1059793), unless context is marked as destroyed. There may be some textures
-  // still alive that will try to call MakeCurrent on the context so let's make
-  // sure it is marked destroyed now.
-  mGLContext->MarkDestroyed();
+  if (mOwnsGLContext) {
+    // On the main thread the Widget will be destroyed soon and calling
+    // MakeCurrent after that could cause a crash (at least with GLX, see bug
+    // 1059793), unless context is marked as destroyed. There may be some
+    // textures still alive that will try to call MakeCurrent on the context so
+    // let's make sure it is marked destroyed now.
+    mGLContext->MarkDestroyed();
+  }
 
   mGLContext = nullptr;
+}
+
+bool CompositorOGL::Initialize(GLContext* aGLContext,
+                               RefPtr<ShaderProgramOGLsHolder> aProgramsHolder,
+                               nsCString* const out_failureReason) {
+  MOZ_ASSERT(!mDestroyed);
+  MOZ_ASSERT(!mGLContext);
+
+  mGLContext = aGLContext;
+  mProgramsHolder = aProgramsHolder;
+  mOwnsGLContext = false;
+
+  return Initialize(out_failureReason);
 }
 
 bool CompositorOGL::Initialize(nsCString* const out_failureReason) {
   ScopedGfxFeatureReporter reporter("GL Layers");
 
   // Do not allow double initialization
-  MOZ_ASSERT(mGLContext == nullptr, "Don't reinitialize CompositorOGL");
+  MOZ_ASSERT(mGLContext == nullptr || !mOwnsGLContext,
+             "Don't reinitialize CompositorOGL");
 
-  mGLContext = CreateContext();
+  if (!mGLContext) {
+    MOZ_ASSERT(mOwnsGLContext);
+    mGLContext = CreateContext();
+  }
 
 #ifdef MOZ_WIDGET_ANDROID
   if (!mGLContext) {
@@ -387,6 +401,10 @@ bool CompositorOGL::Initialize(nsCString* const out_failureReason) {
   if (!mGLContext) {
     *out_failureReason = "FEATURE_FAILURE_OPENGL_CREATE_CONTEXT";
     return false;
+  }
+
+  if (!mProgramsHolder) {
+    mProgramsHolder = new ShaderProgramOGLsHolder(mGLContext);
   }
 
   MakeCurrent();
@@ -1028,6 +1046,28 @@ Maybe<IntRect> CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
   SetRenderTarget(rt);
   mWindowRenderTarget = mCurrentRenderTarget;
 
+  for (auto iter = aInvalidRegion.RectIter(); !iter.Done(); iter.Next()) {
+    const IntRect& r = iter.Get();
+    mCurrentFrameInvalidRegion.OrWith(
+        IntRect(r.X(), FlipY(r.YMost()), r.Width(), r.Height()));
+  }
+  // Check to see if there is any transparent dirty region that would require
+  // clearing. If not, just invalidate the framebuffer if supported.
+  // TODO: Currently we initialize the clear region to the widget bounds as
+  // SwapBuffers will update the entire framebuffer. On platforms that support
+  // damage regions, we could initialize this to mCurrentFrameInvalidRegion.
+  IntRegion regionToClear(rect);
+  regionToClear.SubOut(aOpaqueRegion);
+  GLbitfield clearBits = LOCAL_GL_DEPTH_BUFFER_BIT;
+  if (regionToClear.IsEmpty() &&
+      mGLContext->IsSupported(GLFeature::invalidate_framebuffer)) {
+    GLenum attachments[] = {LOCAL_GL_COLOR};
+    mGLContext->fInvalidateFramebuffer(
+        LOCAL_GL_FRAMEBUFFER, MOZ_ARRAY_LENGTH(attachments), attachments);
+  } else {
+    clearBits |= LOCAL_GL_COLOR_BUFFER_BIT;
+  }
+
 #if defined(MOZ_WIDGET_ANDROID)
   if ((mSurfaceOrigin.x > 0) || (mSurfaceOrigin.y > 0)) {
     mGLContext->fClearColor(
@@ -1043,13 +1083,7 @@ Maybe<IntRect> CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
   mGLContext->fClearColor(mClearColor.r, mClearColor.g, mClearColor.b,
                           mClearColor.a);
 #endif  // defined(MOZ_WIDGET_ANDROID)
-  mGLContext->fClear(LOCAL_GL_COLOR_BUFFER_BIT | LOCAL_GL_DEPTH_BUFFER_BIT);
-
-  for (auto iter = aInvalidRegion.RectIter(); !iter.Done(); iter.Next()) {
-    const IntRect& r = iter.Get();
-    mCurrentFrameInvalidRegion.OrWith(
-        IntRect(r.X(), FlipY(r.YMost()), r.Width(), r.Height()));
-  }
+  mGLContext->fClear(clearBits);
 
   return Some(rect);
 }
@@ -1297,22 +1331,7 @@ ShaderConfigOGL CompositorOGL::GetShaderConfigFor(Effect* aEffect,
 
 ShaderProgramOGL* CompositorOGL::GetShaderProgramFor(
     const ShaderConfigOGL& aConfig) {
-  std::map<ShaderConfigOGL, ShaderProgramOGL*>::iterator iter =
-      mPrograms.find(aConfig);
-  if (iter != mPrograms.end()) return iter->second;
-
-  ProgramProfileOGL profile = ProgramProfileOGL::GetProfileFor(aConfig);
-  ShaderProgramOGL* shader = new ShaderProgramOGL(gl(), profile);
-  if (!shader->Initialize()) {
-    gfxCriticalError() << "Shader compilation failure, cfg:"
-                       << " features: " << gfx::hexa(aConfig.mFeatures)
-                       << " multiplier: " << aConfig.mMultiplier
-                       << " op: " << aConfig.mCompositionOp;
-    delete shader;
-    return nullptr;
-  }
-
-  mPrograms[aConfig] = shader;
+  ShaderProgramOGL* shader = mProgramsHolder->GetShaderProgramFor(aConfig);
   return shader;
 }
 
@@ -2273,14 +2292,14 @@ void CompositorOGL::TryUnlockTextures() {
       if (actor) {
         base::ProcessId pid = actor->OtherPid();
         nsTArray<uint64_t>* textureIds =
-            texturesIdsToUnlockByPid.LookupOrAdd(pid);
+            texturesIdsToUnlockByPid.GetOrInsertNew(pid);
         textureIds->AppendElement(TextureHost::GetTextureSerial(actor));
       }
     }
   }
   mMaybeUnlockBeforeNextComposition.Clear();
-  for (auto it = texturesIdsToUnlockByPid.ConstIter(); !it.Done(); it.Next()) {
-    TextureSync::SetTexturesUnlocked(it.Key(), *it.UserData());
+  for (const auto& entry : texturesIdsToUnlockByPid) {
+    TextureSync::SetTexturesUnlocked(entry.GetKey(), *entry.GetWeak());
   }
 }
 #endif

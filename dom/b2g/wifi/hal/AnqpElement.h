@@ -5,7 +5,7 @@
 #ifndef AnqpElement_H
 #define AnqpElement_H
 
-#include "nsDataHashtable.h"
+#include "nsTHashMap.h"
 #include "WifiCommon.h"
 
 BEGIN_WIFI_NAMESPACE
@@ -92,7 +92,7 @@ constexpr static uint32_t R2_ANQP_SET[] = {
 
 typedef std::vector<uint8_t> VecByte;
 
-typedef nsDataHashtable<nsUint32HashKey, VecByte> AnqpResponseMap;
+typedef nsTHashMap<nsUint32HashKey, VecByte> AnqpResponseMap;
 
 /**
  * Define parser function for each ANQP response items.

@@ -15,29 +15,31 @@
 namespace mozilla {
 namespace dom {
 
-B2G::B2G(nsIGlobalObject* aGlobal) : mOwner(aGlobal) {
+B2G::B2G(nsIGlobalObject* aGlobal)
+    : DOMEventTargetHelper(aGlobal), mOwner(aGlobal) {
+  // Warning: The constructor and destructor are called on both MAIN and WORKER
+  // threads, see Navigator::B2g() in WorkerNavigator::B2g().
+  // For main thread's initialization and cleaup, use MainThreadInit() and
+  // MainThreadShutdown().
   MOZ_ASSERT(aGlobal);
 }
 
-B2G::~B2G() {}
-
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(B2G)
-  NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
-  NS_INTERFACE_MAP_ENTRY(nsISupports)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozWakeLockListener)
-NS_INTERFACE_MAP_END
+  NS_INTERFACE_MAP_ENTRY(nsIObserver)
+NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(B2G)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(B2G)
+NS_IMPL_ADDREF_INHERITED(B2G, DOMEventTargetHelper)
+NS_IMPL_RELEASE_INHERITED(B2G, DOMEventTargetHelper)
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(B2G)
 
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(B2G)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(B2G, DOMEventTargetHelper)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(B2G)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(B2G, DOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mActivityUtils)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mAlarmManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDeviceStorageAreaListener)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFlashlightManager)
@@ -83,9 +85,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(B2G)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPowerSupplyManager)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(B2G)
-
-void B2G::Shutdown() {
+void B2G::MainThreadShutdown() {
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
 
   if (mFlashlightManager) {
@@ -130,6 +130,17 @@ void B2G::Shutdown() {
 
   if (mDeviceStorageAreaListener) {
     mDeviceStorageAreaListener = nullptr;
+  }
+
+  RefPtr<power::PowerManagerService> pmService =
+      power::PowerManagerService::GetInstance();
+  if (pmService) {
+    pmService->RemoveWakeLockListener(this);
+  }
+
+  nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
+  if (obs) {
+    obs->RemoveObserver(this, "b2g-disk-storage-state");
   }
 }
 
@@ -213,6 +224,28 @@ bool B2G::CheckPermissionOnWorkerThread(const nsACString& aType) {
   return r->mIsAllowed;
 }
 
+ActivityUtils* B2G::GetActivityUtils(ErrorResult& aRv) {
+  if (!mActivityUtils) {
+    if (!mOwner) {
+      aRv.Throw(NS_ERROR_UNEXPECTED);
+      return nullptr;
+    }
+    mActivityUtils = ConstructJSImplementation<ActivityUtils>(
+        "@mozilla.org/activity-utils;1", GetParentObject(), aRv);
+    if (aRv.Failed()) {
+      return nullptr;
+    }
+  }
+  return mActivityUtils;
+}
+
+/* static */
+bool B2G::HasWebAppsManagePermission(JSContext* /* unused */,
+                                     JSObject* aGlobal) {
+  nsCOMPtr<nsPIDOMWindowInner> innerWindow = xpc::WindowOrNull(aGlobal);
+  return B2G::CheckPermission("webapps-manage"_ns, innerWindow);
+}
+
 AlarmManager* B2G::GetAlarmManager(ErrorResult& aRv) {
   if (!mAlarmManager) {
     if (!mOwner) {
@@ -284,10 +317,26 @@ already_AddRefed<Promise> B2G::GetFlipManager(ErrorResult& aRv) {
   return p.forget();
 }
 
+/* static */
+bool B2G::HasInputPermission(JSContext* /* unused */, JSObject* aGlobal) {
+  nsCOMPtr<nsPIDOMWindowInner> innerWindow = xpc::WindowOrNull(aGlobal);
+  return B2G::CheckPermission("input"_ns, innerWindow);
+}
+
 InputMethod* B2G::GetInputMethod(ErrorResult& aRv) {
   if (!mInputMethod) {
     if (!mOwner) {
       aRv.Throw(NS_ERROR_UNEXPECTED);
+      return nullptr;
+    }
+    nsPIDOMWindowInner* innerWindow = mOwner->AsInnerWindow();
+    if (!innerWindow) {
+      aRv.Throw(NS_ERROR_UNEXPECTED);
+      return nullptr;
+    }
+
+    if (!CheckPermission("input"_ns, innerWindow)) {
+      aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
       return nullptr;
     }
     mInputMethod = new InputMethod(GetParentObject());
@@ -1030,19 +1079,40 @@ void B2G::SetDispatchKeyToContentFirst(bool aEnable) {
   EventStateManager::SetDispatchKeyToContentFirst(aEnable);
 }
 
-nsresult B2G::Init() {
+NS_IMETHODIMP B2G::Observe(nsISupports* aSubject, const char* aTopic,
+                           const char16_t* aData) {
+  if (!strcmp(aTopic, "b2g-disk-storage-state")) {
+    if (u"full"_ns.Equals(aData)) {
+      return DispatchTrustedEvent(u"storagefull"_ns);
+    } else if (u"free"_ns.Equals(aData)) {
+      return DispatchTrustedEvent(u"storagefree"_ns);
+    }
+  }
+
+  return NS_OK;
+}
+
+nsresult B2G::MainThreadInit() {
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
+  nsresult rv = NS_OK;
 
   RefPtr<power::PowerManagerService> pmService =
       power::PowerManagerService::GetInstance();
 
-  if (!pmService) {
-    return NS_ERROR_FAILURE;
+  if (pmService) {
+    pmService->AddWakeLockListener(this);
+  } else {
+    rv = NS_ERROR_FAILURE;
   }
 
-  pmService->AddWakeLockListener(this);
+  nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
+  if (obs) {
+    obs->AddObserver(this, "b2g-disk-storage-state", false);
+  } else {
+    rv = NS_ERROR_FAILURE;
+  }
 
-  return NS_OK;
+  return rv;
 }
 
 }  // namespace dom

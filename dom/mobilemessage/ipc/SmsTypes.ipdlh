@@ -12,6 +12,7 @@ using MessageClass from "mozilla/dom/mobilemessage/Types.h";
 using ReadStatus from "mozilla/dom/mobilemessage/Types.h";
 using ReadState from "mozilla/dom/mobilemessage/Types.h";
 using MessageType from "mozilla/dom/mobilemessage/Types.h";
+using AttachmentStatus from "mozilla/dom/mobilemessage/Types.h";
 
 namespace mozilla {
 namespace dom {
@@ -100,6 +101,7 @@ struct ThreadData
   uint64_t    unreadCount;
   MessageType lastMessageType;
   bool        isGroup;
+  AttachmentStatus lastMessageAttachmentStatus;
 };
 
 struct MobileMessageArrayData

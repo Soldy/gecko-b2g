@@ -44,8 +44,12 @@ var gTests = [
       );
       checkDeviceSelectors(false, false, true);
       let notification = PopupNotifications.panel.firstElementChild;
-      let iconclass = notification.getAttribute("iconclass");
-      ok(iconclass.includes("screen-icon"), "panel using screen icon");
+
+      // With Proton enabled, the icon does not appear in the panel.
+      if (!gProtonDoorhangers) {
+        let iconclass = notification.getAttribute("iconclass");
+        ok(iconclass.includes("screen-icon"), "panel using screen icon");
+      }
 
       let menulist = document.getElementById("webRTC-selectWindow-menulist");
       let count = menulist.itemCount;
@@ -131,7 +135,7 @@ var gTests = [
         "the preview area is visible"
       );
       ok(
-        !document.getElementById("webRTC-previewWarning").hidden,
+        !document.getElementById("webRTC-previewWarningBox").hidden,
         "the scary warning is visible"
       );
       ok(!notification.button.disabled, "Allow button is enabled");
@@ -214,8 +218,12 @@ var gTests = [
       );
       checkDeviceSelectors(false, false, true);
       let notification = PopupNotifications.panel.firstElementChild;
-      let iconclass = notification.getAttribute("iconclass");
-      ok(iconclass.includes("screen-icon"), "panel using screen icon");
+
+      // With Proton enabled, the icon does not appear in the panel.
+      if (!gProtonDoorhangers) {
+        let iconclass = notification.getAttribute("iconclass");
+        ok(iconclass.includes("screen-icon"), "panel using screen icon");
+      }
 
       let menulist = document.getElementById("webRTC-selectWindow-menulist");
       let count = menulist.itemCount;
@@ -331,7 +339,7 @@ var gTests = [
           "the preview area is visible"
         );
         ok(
-          !document.getElementById("webRTC-previewWarning").hidden,
+          !document.getElementById("webRTC-previewWarningBox").hidden,
           "the scary warning is visible"
         );
         // Select the 'Select Window' item again, the preview should be hidden.
@@ -366,7 +374,7 @@ var gTests = [
           "the preview area is visible"
         );
         ok(
-          document.getElementById("webRTC-previewWarning").hidden,
+          document.getElementById("webRTC-previewWarningBox").hidden,
           "the scary warning is hidden"
         );
       } else {
@@ -423,10 +431,14 @@ var gTests = [
         "anchored to device icon"
       );
       checkDeviceSelectors(true, false, true);
-      let iconclass = PopupNotifications.panel.firstElementChild.getAttribute(
-        "iconclass"
-      );
-      ok(iconclass.includes("screen-icon"), "panel using screen icon");
+
+      // With Proton enabled, the icon does not appear in the panel.
+      if (!gProtonDoorhangers) {
+        let iconclass = PopupNotifications.panel.firstElementChild.getAttribute(
+          "iconclass"
+        );
+        ok(iconclass.includes("screen-icon"), "panel using screen icon");
+      }
 
       let menulist = document.getElementById("webRTC-selectWindow-menulist");
       let count = menulist.itemCount;
@@ -452,7 +464,7 @@ var gTests = [
         "the preview area is visible"
       );
       ok(
-        !document.getElementById("webRTC-previewWarning").hidden,
+        !document.getElementById("webRTC-previewWarningBox").hidden,
         "the scary warning is visible"
       );
 
@@ -843,12 +855,11 @@ var gTests = [
         ok(!notification.button.disabled, "Allow button is not disabled");
       } else {
         ok(notification.button.disabled, "Allow button is disabled");
+        ok(
+          !notification.hasAttribute("warninghidden"),
+          "warning message is shown"
+        );
       }
-
-      ok(
-        !notification.hasAttribute("warninghidden"),
-        "warning message is shown"
-      );
 
       menulist.getItemAtIndex(3).doCommand();
       ok(checkbox.checked, "checkbox still checked");
@@ -859,12 +870,11 @@ var gTests = [
         ok(!notification.button.disabled, "Allow button remains not disabled");
       } else {
         ok(notification.button.disabled, "Allow button remains disabled");
+        ok(
+          !notification.hasAttribute("warninghidden"),
+          "warning message is still shown"
+        );
       }
-
-      ok(
-        !notification.hasAttribute("warninghidden"),
-        "warning message is still shown"
-      );
 
       await disableObserverVerification();
 

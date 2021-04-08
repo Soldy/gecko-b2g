@@ -207,9 +207,8 @@ void CompositorBridgeChild::Destroy() {
   }
 
   const ManagedContainer<PTextureChild>& textures = ManagedPTextureChild();
-  for (auto iter = textures.ConstIter(); !iter.Done(); iter.Next()) {
-    RefPtr<TextureClient> texture =
-        TextureClient::AsTextureClient(iter.Get()->GetKey());
+  for (const auto& key : textures) {
+    RefPtr<TextureClient> texture = TextureClient::AsTextureClient(key);
 
     if (texture) {
       texture->Destroy();
@@ -418,7 +417,7 @@ mozilla::ipc::IPCResult CompositorBridgeChild::RecvSharedCompositorFrameMetrics(
   auto data =
       MakeUnique<SharedFrameMetricsData>(metrics, handle, aLayersId, aAPZCId);
   const auto& viewID = data->GetViewID();
-  mFrameMetricsTable.Put(viewID, std::move(data));
+  mFrameMetricsTable.InsertOrUpdate(viewID, std::move(data));
   return IPC_OK();
 }
 

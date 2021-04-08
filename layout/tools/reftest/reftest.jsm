@@ -8,7 +8,6 @@
 var EXPORTED_SYMBOLS = [
     "OnRefTestLoad",
     "OnRefTestUnload",
-    "getTestPlugin"
 ];
 
 Cu.import("resource://gre/modules/FileUtils.jsm");
@@ -70,7 +69,7 @@ function isWebRenderOnAndroidDevice() {
   // more correct detection of this case.
   return xr.OS == "Android" &&
       g.browserIsRemote &&
-      g.windowUtils.layerManagerType == "WebRender";
+      g.windowUtils.layerManagerType.startsWith("WebRender");
 }
 
 function FlushTestBuffer()
@@ -132,20 +131,6 @@ function IDForEventTarget(event)
     }
 }
 
-function getTestPlugin(aName) {
-  var ph = Cc["@mozilla.org/plugin/host;1"].getService(Ci.nsIPluginHost);
-  var tags = ph.getPluginTags();
-
-  // Find the test plugin
-  for (var i = 0; i < tags.length; i++) {
-    if (tags[i].name == aName)
-      return tags[i];
-  }
-
-  logger.warning("Failed to find the test-plugin.");
-  return null;
-}
-
 function OnRefTestLoad(win)
 {
     g.crashDumpDir = Cc[NS_DIRECTORY_SERVICE_CONTRACTID]
@@ -201,20 +186,8 @@ function OnRefTestLoad(win)
       // TODO Bug 1156817: reftests don't have most of GeckoView infra so we
       // can't register this actor
       ChromeUtils.unregisterWindowActor("LoadURIDelegate");
-      ChromeUtils.unregisterWindowActor("WebBrowserChrome");
     } else {
       document.getElementById("reftest-window").appendChild(g.browser);
-    }
-
-    // reftests should have the test plugins enabled, not click-to-play
-    let plugin1 = getTestPlugin("Test Plug-in");
-    let plugin2 = getTestPlugin("Second Test Plug-in");
-    if (plugin1 && plugin2) {
-      g.testPluginEnabledStates = [plugin1.enabledState, plugin2.enabledState];
-      plugin1.enabledState = Ci.nsIPluginTag.STATE_ENABLED;
-      plugin2.enabledState = Ci.nsIPluginTag.STATE_ENABLED;
-    } else {
-      logger.warning("Could not get test plugin tags.");
     }
 
     g.browserMessageManager = g.browser.frameLoader.messageManager;
@@ -403,8 +376,26 @@ function ReadTests() {
             manifests = JSON.parse(manifests);
             g.urlsFilterRegex = manifests[null];
 
-            var globalFilter = manifests.hasOwnProperty("") ? new RegExp(manifests[""]) : null;
-            delete manifests[""];
+            var globalFilter = null;
+            if (manifests.hasOwnProperty("")) {
+                let filterAndId = manifests[""];
+                if (!Array.isArray(filterAndId)) {
+                    logger.error(`manifest[""] should be an array`);
+                    DoneTests();
+                }
+                if (filterAndId.length === 0) {
+                    logger.error(`manifest[""] should contain a filter pattern in the 1st item`);
+                    DoneTests();
+                }
+                let filter = filterAndId[0];
+                if (typeof filter !== "string") {
+                    logger.error(`The first item of manifest[""] should be a string`);
+                    DoneTests();
+                }
+                globalFilter = new RegExp(filter);
+                delete manifests[""];
+            }
+
             var manifestURLs = Object.keys(manifests);
 
             // Ensure we read manifests from higher up the directory tree first so that we
@@ -561,14 +552,6 @@ function StartTests()
 
 function OnRefTestUnload()
 {
-  let plugin1 = getTestPlugin("Test Plug-in");
-  let plugin2 = getTestPlugin("Second Test Plug-in");
-  if (plugin1 && plugin2) {
-    plugin1.enabledState = g.testPluginEnabledStates[0];
-    plugin2.enabledState = g.testPluginEnabledStates[1];
-  } else {
-    logger.warning("Failed to get test plugin tags.");
-  }
 }
 
 function AddURIUseCount(uri)

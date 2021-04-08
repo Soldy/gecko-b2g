@@ -11,8 +11,7 @@ import platform
 from mozlog.commandline import add_logging_group
 
 (FIREFOX, CHROME, CHROMIUM) = DESKTOP_APPS = ["firefox", "chrome", "chromium"]
-(FENNEC, GECKOVIEW, REFBROW, FENIX, CHROME_ANDROID) = FIREFOX_ANDROID_APPS = [
-    "fennec",
+(GECKOVIEW, REFBROW, FENIX, CHROME_ANDROID) = FIREFOX_ANDROID_APPS = [
     "geckoview",
     "refbrow",
     "fenix",
@@ -24,7 +23,6 @@ APPS = {
     FIREFOX: {"long_name": "Firefox Desktop"},
     CHROME: {"long_name": "Google Chrome Desktop"},
     CHROMIUM: {"long_name": "Google Chromium Desktop"},
-    FENNEC: {"long_name": "Firefox Fennec on Android"},
     GECKOVIEW: {
         "long_name": "Firefox GeckoView on Android",
         "default_activity": "org.mozilla.geckoview_example.GeckoViewActivity",
@@ -122,7 +120,7 @@ def create_parser(mach_interface=False):
         dest="power_test",
         action="store_true",
         help="Use Raptor to measure power usage on Android browsers (Geckoview Example, "
-        "Fenix, Refbrow, and Fennec) as well as on Intel-based MacOS machines that have "
+        "Fenix, and Refbrow) as well as on Intel-based MacOS machines that have "
         "Intel Power Gadget installed.",
     )
     add_arg(
@@ -273,13 +271,6 @@ def create_parser(mach_interface=False):
         help="Enable the WebRender compositor in Gecko.",
     )
     add_arg(
-        "--no-conditioned-profile",
-        dest="no_conditioned_profile",
-        action="store_true",
-        default=False,
-        help="Run Raptor tests without a conditioned profile.",
-    )
-    add_arg(
         "--device-name",
         dest="device_name",
         default=None,
@@ -345,11 +336,11 @@ def create_parser(mach_interface=False):
         help="Disable performance tuning on android.",
     )
     add_arg(
-        "--conditioned-profile-scenario",
-        dest="conditioned_profile_scenario",
-        default="settled",
+        "--conditioned-profile",
+        dest="conditioned_profile",
+        default=None,
         type=str,
-        help="Name of profile scenario.",
+        help="Name of conditioned profile to use.",
     )
 
     # for browsertime jobs, cold page load is determined by a '--cold' cmd line argument
@@ -476,7 +467,7 @@ def verify_options(parser, args):
         parser.error("Gecko profiling is not supported on Chrome/Chromium!")
 
     if args.power_test:
-        if args.app not in ["fennec", "geckoview", "refbrow", "fenix"]:
+        if args.app not in ["geckoview", "refbrow", "fenix"]:
             if platform.system().lower() not in ("darwin",):
                 parser.error(
                     "Power tests are only available on MacOS desktop machines or "
@@ -485,14 +476,14 @@ def verify_options(parser, args):
                 )
 
     if args.cpu_test:
-        if args.app not in ["fennec", "geckoview", "refbrow", "fenix"]:
+        if args.app not in ["geckoview", "refbrow", "fenix"]:
             parser.error(
                 "CPU test is only supported when running Raptor on Firefox Android "
                 "browsers!"
             )
 
     if args.memory_test:
-        if args.app not in ["fennec", "geckoview", "refbrow", "fenix"]:
+        if args.app not in ["geckoview", "refbrow", "fenix"]:
             parser.error(
                 "Memory test is only supported when running Raptor on Firefox Android "
                 "browsers!"

@@ -40,7 +40,7 @@ already_AddRefed<ChildDNSService> ChildDNSService::GetSingleton() {
                 XRE_IsContentProcess() || XRE_IsSocketProcess());
 
   if (!gChildDNSService) {
-    if (!NS_IsMainThread()) {
+    if (NS_WARN_IF(!NS_IsMainThread())) {
       return nullptr;
     }
     gChildDNSService = new ChildDNSService();
@@ -53,8 +53,7 @@ already_AddRefed<ChildDNSService> ChildDNSService::GetSingleton() {
 
 NS_IMPL_ISUPPORTS(ChildDNSService, nsIDNSService, nsPIDNSService, nsIObserver)
 
-ChildDNSService::ChildDNSService()
-    : mPendingRequestsLock("DNSPendingRequestsLock") {
+ChildDNSService::ChildDNSService() {
   MOZ_ASSERT_IF(nsIOService::UseSocketProcess(),
                 XRE_IsContentProcess() || XRE_IsParentProcess());
   MOZ_ASSERT_IF(!nsIOService::UseSocketProcess(),
@@ -135,12 +134,7 @@ nsresult ChildDNSService::AsyncResolveInternal(
     nsCString key;
     GetDNSRecordHashKey(hostname, DNSResolverInfo::URL(aResolver), type,
                         aOriginAttributes, flags, originalListenerAddr, key);
-    mPendingRequests.WithEntryHandle(key, [&](auto&& entry) {
-      entry
-          .OrInsertWith(
-              [] { return MakeUnique<nsTArray<RefPtr<DNSRequestSender>>>(); })
-          ->AppendElement(sender);
-    });
+    mPendingRequests.GetOrInsertNew(key)->AppendElement(sender);
   }
 
   sender->StartRequest();
@@ -314,6 +308,11 @@ ChildDNSService::GetCurrentTrrMode(nsIDNSService::ResolverMode* aMode) {
 
   *aMode = mTRRServiceParent->Mode();
   return NS_OK;
+}
+
+NS_IMETHODIMP
+ChildDNSService::GetCurrentTrrConfirmationState(uint32_t* aConfirmationState) {
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP

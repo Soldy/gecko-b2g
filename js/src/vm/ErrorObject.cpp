@@ -45,7 +45,6 @@
 #include "vm/JSFunction.h"
 #include "vm/JSObject.h"
 #include "vm/NativeObject.h"
-#include "vm/ObjectGroup.h"
 #include "vm/ObjectOperations.h"
 #include "vm/SavedStacks.h"
 #include "vm/SelfHosting.h"
@@ -154,15 +153,24 @@ const ClassSpec ErrorObject::classSpecs[JSEXN_ERROR_LIMIT] = {
     IMPLEMENT_NONGLOBAL_ERROR_SPEC(LinkError),
     IMPLEMENT_NONGLOBAL_ERROR_SPEC(RuntimeError)};
 
-#define IMPLEMENT_ERROR_CLASS(name)                                   \
-  {                                                                   \
-#    name,                                                            \
-        JSCLASS_HAS_CACHED_PROTO(JSProto_##name) |                    \
-            JSCLASS_HAS_RESERVED_SLOTS(ErrorObject::RESERVED_SLOTS) | \
-            JSCLASS_BACKGROUND_FINALIZE,                              \
-        &ErrorObjectClassOps,                                         \
-        &ErrorObject::classSpecs[JSProto_##name - JSProto_Error]      \
+#define IMPLEMENT_ERROR_CLASS_CORE(name, reserved_slots)         \
+  {                                                              \
+#    name,                                                       \
+        JSCLASS_HAS_CACHED_PROTO(JSProto_##name) |               \
+            JSCLASS_HAS_RESERVED_SLOTS(reserved_slots) |         \
+            JSCLASS_BACKGROUND_FINALIZE,                         \
+        &ErrorObjectClassOps,                                    \
+        &ErrorObject::classSpecs[JSProto_##name - JSProto_Error] \
   }
+
+#define IMPLEMENT_ERROR_CLASS(name) \
+  IMPLEMENT_ERROR_CLASS_CORE(name, ErrorObject::RESERVED_SLOTS)
+
+// Only used for classes that could be a Wasm trap. Classes that use this
+// macro should be kept in sync with the exception types that mightBeWasmTrap()
+// will return true for.
+#define IMPLEMENT_ERROR_CLASS_MAYBE_WASM_TRAP(name) \
+  IMPLEMENT_ERROR_CLASS_CORE(name, ErrorObject::RESERVED_SLOTS_MAYBE_WASM_TRAP)
 
 static void exn_finalize(JSFreeOp* fop, JSObject* obj);
 
@@ -181,7 +189,8 @@ static const JSClassOps ErrorObjectClassOps = {
 };
 
 const JSClass ErrorObject::classes[JSEXN_ERROR_LIMIT] = {
-    IMPLEMENT_ERROR_CLASS(Error), IMPLEMENT_ERROR_CLASS(InternalError),
+    IMPLEMENT_ERROR_CLASS(Error),
+    IMPLEMENT_ERROR_CLASS_MAYBE_WASM_TRAP(InternalError),
     IMPLEMENT_ERROR_CLASS(AggregateError), IMPLEMENT_ERROR_CLASS(EvalError),
     IMPLEMENT_ERROR_CLASS(RangeError), IMPLEMENT_ERROR_CLASS(ReferenceError),
     IMPLEMENT_ERROR_CLASS(SyntaxError), IMPLEMENT_ERROR_CLASS(TypeError),
@@ -189,7 +198,7 @@ const JSClass ErrorObject::classes[JSEXN_ERROR_LIMIT] = {
     // These Error subclasses are not accessible via the global object:
     IMPLEMENT_ERROR_CLASS(DebuggeeWouldRun),
     IMPLEMENT_ERROR_CLASS(CompileError), IMPLEMENT_ERROR_CLASS(LinkError),
-    IMPLEMENT_ERROR_CLASS(RuntimeError)};
+    IMPLEMENT_ERROR_CLASS_MAYBE_WASM_TRAP(RuntimeError)};
 
 static void exn_finalize(JSFreeOp* fop, JSObject* obj) {
   MOZ_ASSERT(fop->maybeOnHelperThread());
@@ -420,16 +429,16 @@ Shape* js::ErrorObject::assignInitialShape(JSContext* cx,
                                            Handle<ErrorObject*> obj) {
   MOZ_ASSERT(obj->empty());
 
-  if (!NativeObject::addDataProperty(cx, obj, cx->names().fileName,
-                                     FILENAME_SLOT, 0)) {
+  if (!NativeObject::addProperty(cx, obj, cx->names().fileName, FILENAME_SLOT,
+                                 0)) {
     return nullptr;
   }
-  if (!NativeObject::addDataProperty(cx, obj, cx->names().lineNumber,
-                                     LINENUMBER_SLOT, 0)) {
+  if (!NativeObject::addProperty(cx, obj, cx->names().lineNumber,
+                                 LINENUMBER_SLOT, 0)) {
     return nullptr;
   }
-  return NativeObject::addDataProperty(cx, obj, cx->names().columnNumber,
-                                       COLUMNNUMBER_SLOT, 0);
+  return NativeObject::addProperty(cx, obj, cx->names().columnNumber,
+                                   COLUMNNUMBER_SLOT, 0);
 }
 
 /* static */
@@ -453,7 +462,7 @@ bool js::ErrorObject::init(JSContext* cx, Handle<ErrorObject*> obj,
   // |new Error("")| -- but not in others -- |new Error(undefined)|,
   // |new Error()|.
   if (message) {
-    Shape* messageShape = NativeObject::addDataProperty(
+    Shape* messageShape = NativeObject::addProperty(
         cx, obj, cx->names().message, MESSAGE_SLOT, 0);
     if (!messageShape) {
       return false;
@@ -484,7 +493,10 @@ bool js::ErrorObject::init(JSContext* cx, Handle<ErrorObject*> obj,
     obj->initSlot(MESSAGE_SLOT, StringValue(message));
   }
   obj->initReservedSlot(SOURCEID_SLOT, Int32Value(sourceId));
-  obj->initReservedSlot(WASM_TRAP_SLOT, BooleanValue(false));
+  if (obj->mightBeWasmTrap()) {
+    MOZ_ASSERT(JSCLASS_RESERVED_SLOTS(obj->getClass()) > WASM_TRAP_SLOT);
+    obj->initReservedSlot(WASM_TRAP_SLOT, BooleanValue(false));
+  }
 
   return true;
 }
@@ -692,6 +704,8 @@ bool js::ErrorObject::setStack_impl(JSContext* cx, const CallArgs& args) {
 }
 
 void js::ErrorObject::setFromWasmTrap() {
+  MOZ_ASSERT(mightBeWasmTrap());
+  MOZ_ASSERT(JSCLASS_RESERVED_SLOTS(getClass()) > WASM_TRAP_SLOT);
   setReservedSlot(WASM_TRAP_SLOT, BooleanValue(true));
 }
 

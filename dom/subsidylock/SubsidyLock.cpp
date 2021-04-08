@@ -8,8 +8,9 @@
 
 #include "SubsidyLockCallback.h"
 #include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/dom/DOMRequest.h"
+#include "mozilla/DOMEventTargetHelper.h"
+#include "mozilla/ErrorResult.h"
 #include "nsIPermissionManager.h"
 #include "nsIVariant.h"
 #include "nsJSUtils.h"

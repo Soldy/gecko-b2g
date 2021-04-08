@@ -173,6 +173,7 @@ class nsMenuPopupFrame final : public nsBoxFrame,
   NS_DECL_FRAMEARENA_HELPERS(nsMenuPopupFrame)
 
   explicit nsMenuPopupFrame(ComputedStyle* aStyle, nsPresContext* aPresContext);
+  ~nsMenuPopupFrame();
 
   // nsMenuParent interface
   virtual nsMenuFrame* GetCurrentMenuItem() override;
@@ -285,6 +286,7 @@ class nsMenuPopupFrame final : public nsBoxFrame,
   bool IsVisible() {
     return mPopupState == ePopupVisible || mPopupState == ePopupShown;
   }
+  bool IsNativeMenu() { return mIsNativeMenu; }
 
   // Return true if the popup is for a menulist.
   bool IsMenuList();
@@ -293,6 +295,7 @@ class nsMenuPopupFrame final : public nsBoxFrame,
 
   static nsIContent* GetTriggerContent(nsMenuPopupFrame* aMenuPopupFrame);
   void ClearTriggerContent() { mTriggerContent = nullptr; }
+  void ClearTriggerContentIncludingDocument();
 
   // returns true if the popup is in a content shell, or false for a popup in
   // a chrome shell
@@ -316,6 +319,10 @@ class nsMenuPopupFrame final : public nsBoxFrame,
    */
   void InitializePopupAtScreen(nsIContent* aTriggerContent, int32_t aXPos,
                                int32_t aYPos, bool aIsContextMenu);
+
+  // Called if this popup should be displayed as an OS-native context menu.
+  void InitializePopupAsNativeContextMenu(nsIContent* aTriggerContent,
+                                          int32_t aXPos, int32_t aYPos);
 
   // indicate that the popup should be opened
   void ShowPopup(bool aIsContextMenu);
@@ -662,6 +669,10 @@ class nsMenuPopupFrame final : public nsBoxFrame,
   // the flip modes that were used when the popup was opened
   bool mHFlip;
   bool mVFlip;
+
+  // Whether the most recent initialization of this menupopup happened via
+  // InitializePopupAsNativeContextMenu.
+  bool mIsNativeMenu = false;
 
   // Whether we have a pending `popuppositioned` event.
   bool mPendingPositionedEvent = false;

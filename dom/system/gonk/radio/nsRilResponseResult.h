@@ -144,7 +144,7 @@ class nsRilResponseResult final : public nsRilResult,
   nsTArray<RefPtr<nsSetupDataCallResult>> mDcLists;
   nsTArray<RefPtr<nsRilCellInfo>> mCellInfoLists;
   nsString mIMSI;
-  RefPtr<nsIIccIoResult> mIccIoResult;
+  RefPtr<nsIccIoResult> mIccIoResult;
   int32_t mCLIR_N;
   int32_t mCLIR_M;
   nsTArray<RefPtr<nsCallForwardInfo>> mCallForwardInfoLists;

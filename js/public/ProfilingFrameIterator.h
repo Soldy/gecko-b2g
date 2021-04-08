@@ -7,12 +7,14 @@
 #ifndef js_ProfilingFrameIterator_h
 #define js_ProfilingFrameIterator_h
 
+#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
 
-#include "js/GCAPI.h"
+#include "jstypes.h"
+
+#include "js/GCAnnotations.h"
 #include "js/TypeDecls.h"
-#include "js/Utility.h"
 
 namespace js {
 class Activation;
@@ -139,6 +141,11 @@ class MOZ_NON_PARAM JS_PUBLIC_API ProfilingFrameIterator {
   uint32_t extractStack(Frame* frames, uint32_t offset, uint32_t end) const;
 
   mozilla::Maybe<Frame> getPhysicalFrameWithoutLabel() const;
+
+  // Return the registers from the native caller frame.
+  // Nothing{} if this iterator is NOT pointing at a native-to-JIT entry frame,
+  // or if the information is not accessible/implemented on this platform.
+  mozilla::Maybe<RegisterState> getCppEntryRegisters() const;
 
  private:
   mozilla::Maybe<Frame> getPhysicalFrameAndEntry(

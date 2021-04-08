@@ -23,6 +23,7 @@
 #include "mozilla/StateWatching.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/dom/AudioChannelBinding.h"
+#include "mozilla/dom/DecoderDoctorNotificationBinding.h"
 #include "mozilla/dom/HTMLMediaElementBinding.h"
 #include "mozilla/dom/MediaDebugInfoBinding.h"
 #include "mozilla/dom/MediaKeys.h"
@@ -545,7 +546,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   bool HasVideo() const { return mMediaInfo.HasVideo(); }
 
-  bool IsEncrypted() const { return mIsEncrypted; }
+  bool IsEncrypted() const override { return mIsEncrypted; }
 
   bool Paused() const { return mPaused; }
 
@@ -654,6 +655,12 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   double TotalPlayTime() const;
   double InvisiblePlayTime() const;
   double VideoDecodeSuspendedTime() const;
+
+  // Test methods for decoder doctor.
+  void SetFormatDiagnosticsReportForMimeType(const nsAString& aMimeType,
+                                             DecoderDoctorReportType aType);
+  void SetDecodeError(const nsAString& aError, ErrorResult& aRv);
+  void SetAudioSinkFailedStartup();
 
   // Synchronously, return the next video frame and mark the element unable to
   // participate in decode suspending.
@@ -883,6 +890,12 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   void CreateAudioWakeLockIfNeeded();
   void ReleaseAudioWakeLockIfExists();
   RefPtr<WakeLock> mWakeLock;
+
+#ifdef MOZ_B2G
+  void ReleaseAudioWakeLockWithDelay();
+  static void AudioWakeLockTimerCallback(nsITimer* aTimer, void* aClosure);
+  nsCOMPtr<nsITimer> mWakeLockTimer;
+#endif
 
   /**
    * Logs a warning message to the web console to report various failures.
@@ -1841,6 +1854,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
    */
   void AfterMaybeChangeAttr(int32_t aNamespaceID, nsAtom* aName, bool aNotify);
 
+  bool CanDecoderStartPlaying() const;
+
   // True if Init() has been called after construction
   bool mInitialized = false;
 
@@ -1896,11 +1911,9 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // playing in that shell.
   bool ShouldBeSuspendedByInactiveDocShell() const;
 
-  void SetSuspendedByAudioChannel(bool aSuspended);
-
-  bool mSuspendedByAudioChannel = false;
-
   void NotifySuspendConditionChanged();
+
+  void NotifyAudioChannelBlockingChanged();
 
   // For debugging bug 1407148.
   void AssertReadyStateIsNothing();

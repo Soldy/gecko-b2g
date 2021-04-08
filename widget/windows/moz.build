@@ -86,6 +86,8 @@ UNIFIED_SOURCES += [
     "nsWindowDbg.cpp",
     "nsWindowGfx.cpp",
     "nsWinGesture.cpp",
+    "OSKTabTipManager.cpp",
+    "OSKVRManager.cpp",
     "RemoteBackbuffer.cpp",
     "ScreenHelperWin.cpp",
     "ScrollbarUtil.cpp",

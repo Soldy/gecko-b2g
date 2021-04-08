@@ -45,6 +45,8 @@ class Screen final : public nsIScreen {
   uint32_t mColorDepth;
   DesktopToLayoutDeviceScale mContentsScale;
   CSSToLayoutDeviceScale mDefaultCssScale;
+  uint32_t mScreenRotation;
+  LayoutDeviceIntRect mNaturalBounds;
   float mDPI;
 };
 

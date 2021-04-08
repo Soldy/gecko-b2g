@@ -29,9 +29,9 @@ from mozbuild.base import MachCommandConditions as Conditions
 HERE = os.path.dirname(os.path.realpath(__file__))
 
 BENCHMARK_REPOSITORY = "https://github.com/mozilla/perf-automation"
-BENCHMARK_REVISION = "e19a0865c946ae2f9a64dd25614b1c275a3996b2"
+BENCHMARK_REVISION = "54c3c3d9d3f651f0d8ebb809d25232f72b5b06f2"
 
-ANDROID_BROWSERS = ["fennec", "geckoview", "refbrow", "fenix", "chrome-m"]
+ANDROID_BROWSERS = ["geckoview", "refbrow", "fenix", "chrome-m"]
 
 
 class RaptorRunner(MozbuildObject):
@@ -63,9 +63,10 @@ class RaptorRunner(MozbuildObject):
         self.cpu_test = kwargs["cpu_test"]
         self.live_sites = kwargs["live_sites"]
         self.disable_perf_tuning = kwargs["disable_perf_tuning"]
-        self.conditioned_profile_scenario = kwargs["conditioned_profile_scenario"]
+        self.conditioned_profile = kwargs["conditioned_profile"]
         self.device_name = kwargs["device_name"]
         self.enable_marionette_trace = kwargs["enable_marionette_trace"]
+        self.browsertime_visualmetrics = kwargs["browsertime_visualmetrics"]
 
         if Conditions.is_android(self) or kwargs["app"] in ANDROID_BROWSERS:
             self.binary_path = None
@@ -94,7 +95,6 @@ class RaptorRunner(MozbuildObject):
         external_repo_path = os.path.join(get_state_dir(), "performance-tests")
 
         print("Updating external benchmarks from {}".format(BENCHMARK_REPOSITORY))
-        print("Cloning the benchmarks to {}".format(external_repo_path))
 
         try:
             subprocess.check_output(["git", "--version"])
@@ -106,6 +106,7 @@ class RaptorRunner(MozbuildObject):
             raise ex
 
         if not os.path.isdir(external_repo_path):
+            print("Cloning the benchmarks to {}".format(external_repo_path))
             subprocess.check_call(
                 ["git", "clone", BENCHMARK_REPOSITORY, external_repo_path]
             )
@@ -172,10 +173,11 @@ class RaptorRunner(MozbuildObject):
             "cpu_test": self.cpu_test,
             "live_sites": self.live_sites,
             "disable_perf_tuning": self.disable_perf_tuning,
-            "conditioned_profile_scenario": self.conditioned_profile_scenario,
+            "conditioned_profile": self.conditioned_profile,
             "is_release_build": self.is_release_build,
             "device_name": self.device_name,
             "enable_marionette_trace": self.enable_marionette_trace,
+            "browsertime_visualmetrics": self.browsertime_visualmetrics,
         }
 
         sys.path.insert(0, os.path.join(self.topsrcdir, "tools", "browsertime"))

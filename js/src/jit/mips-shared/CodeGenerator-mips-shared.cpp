@@ -118,7 +118,7 @@ void CodeGenerator::visitCompare(LCompare* comp) {
       mir->compareType() == MCompare::Compare_Symbol ||
       mir->compareType() == MCompare::Compare_UIntPtr) {
     if (right->isConstant()) {
-      MOZ_ASSERT(type == MCompare::Compare_UIntPtr);
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
       masm.cmpPtrSet(cond, ToRegister(left), Imm32(ToInt32(right)),
                      ToRegister(def));
     } else if (right->isGeneralReg()) {
@@ -150,7 +150,7 @@ void CodeGenerator::visitCompareAndBranch(LCompareAndBranch* comp) {
       mir->compareType() == MCompare::Compare_Symbol ||
       mir->compareType() == MCompare::Compare_UIntPtr) {
     if (comp->right()->isConstant()) {
-      MOZ_ASSERT(type == MCompare::Compare_UIntPtr);
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
       emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
                  comp->ifTrue(), comp->ifFalse());
     } else if (comp->right()->isGeneralReg()) {
@@ -273,11 +273,11 @@ void CodeGenerator::visitAddI(LAddI* ins) {
 
   Label overflow;
   if (rhs->isConstant()) {
-    masm.ma_addTestOverflow(ToRegister(dest), ToRegister(lhs),
-                            Imm32(ToInt32(rhs)), &overflow);
+    masm.ma_add32TestOverflow(ToRegister(dest), ToRegister(lhs),
+                              Imm32(ToInt32(rhs)), &overflow);
   } else {
-    masm.ma_addTestOverflow(ToRegister(dest), ToRegister(lhs), ToRegister(rhs),
-                            &overflow);
+    masm.ma_add32TestOverflow(ToRegister(dest), ToRegister(lhs),
+                              ToRegister(rhs), &overflow);
   }
 
   bailoutFrom(&overflow, ins->snapshot());
@@ -316,11 +316,11 @@ void CodeGenerator::visitSubI(LSubI* ins) {
 
   Label overflow;
   if (rhs->isConstant()) {
-    masm.ma_subTestOverflow(ToRegister(dest), ToRegister(lhs),
-                            Imm32(ToInt32(rhs)), &overflow);
+    masm.ma_sub32TestOverflow(ToRegister(dest), ToRegister(lhs),
+                              Imm32(ToInt32(rhs)), &overflow);
   } else {
-    masm.ma_subTestOverflow(ToRegister(dest), ToRegister(lhs), ToRegister(rhs),
-                            &overflow);
+    masm.ma_sub32TestOverflow(ToRegister(dest), ToRegister(lhs),
+                              ToRegister(rhs), &overflow);
   }
 
   bailoutFrom(&overflow, ins->snapshot());
@@ -378,7 +378,7 @@ void CodeGenerator::visitMulI(LMulI* ins) {
       case 2:
         if (mul->canOverflow()) {
           Label mulTwoOverflow;
-          masm.ma_addTestOverflow(dest, src, src, &mulTwoOverflow);
+          masm.ma_add32TestOverflow(dest, src, src, &mulTwoOverflow);
 
           bailoutFrom(&mulTwoOverflow, ins->snapshot());
         } else {
@@ -432,8 +432,8 @@ void CodeGenerator::visitMulI(LMulI* ins) {
 
         if (mul->canOverflow()) {
           Label mulConstOverflow;
-          masm.ma_mul_branch_overflow(dest, ToRegister(lhs),
-                                      Imm32(ToInt32(rhs)), &mulConstOverflow);
+          masm.ma_mul32TestOverflow(dest, ToRegister(lhs), Imm32(ToInt32(rhs)),
+                                    &mulConstOverflow);
 
           bailoutFrom(&mulConstOverflow, ins->snapshot());
         } else {
@@ -445,8 +445,8 @@ void CodeGenerator::visitMulI(LMulI* ins) {
     Label multRegOverflow;
 
     if (mul->canOverflow()) {
-      masm.ma_mul_branch_overflow(dest, ToRegister(lhs), ToRegister(rhs),
-                                  &multRegOverflow);
+      masm.ma_mul32TestOverflow(dest, ToRegister(lhs), ToRegister(rhs),
+                                &multRegOverflow);
       bailoutFrom(&multRegOverflow, ins->snapshot());
     } else {
       masm.as_mul(dest, ToRegister(lhs), ToRegister(rhs));
@@ -2056,8 +2056,8 @@ void CodeGenerator::visitWasmAddOffset(LWasmAddOffset* lir) {
   Register out = ToRegister(lir->output());
 
   Label ok;
-  masm.ma_addTestCarry(Assembler::CarryClear, out, base, Imm32(mir->offset()),
-                       &ok);
+  masm.ma_add32TestCarry(Assembler::CarryClear, out, base, Imm32(mir->offset()),
+                         &ok);
   masm.wasmTrap(wasm::Trap::OutOfBounds, mir->bytecodeOffset());
   masm.bind(&ok);
 }
@@ -2168,30 +2168,113 @@ void CodeGenerator::visitAtomicExchangeTypedArrayElement(
   }
 }
 
-void CodeGenerator::visitAtomicLoad64(LAtomicLoad64* lir) { MOZ_CRASH("NYI"); }
-
-void CodeGenerator::visitAtomicStore64(LAtomicStore64* lir) {
-  MOZ_CRASH("NYI");
-}
-
 void CodeGenerator::visitCompareExchangeTypedArrayElement64(
     LCompareExchangeTypedArrayElement64* lir) {
-  MOZ_CRASH("NYI");
+  Register elements = ToRegister(lir->elements());
+  Register oldval = ToRegister(lir->oldval());
+  Register newval = ToRegister(lir->newval());
+  Register64 temp1 = ToRegister64(lir->temp1());
+  Register64 temp2 = ToRegister64(lir->temp2());
+  Register out = ToRegister(lir->output());
+  Register64 tempOut(out);
+
+  Scalar::Type arrayType = lir->mir()->arrayType();
+
+  masm.loadBigInt64(oldval, temp1);
+  masm.loadBigInt64(newval, tempOut);
+
+  if (lir->index()->isConstant()) {
+    Address dest = ToAddress(elements, lir->index(), arrayType);
+    masm.compareExchange64(Synchronization::Full(), dest, temp1, tempOut,
+                           temp2);
+  } else {
+    BaseIndex dest(elements, ToRegister(lir->index()),
+                   ScaleFromScalarType(arrayType));
+    masm.compareExchange64(Synchronization::Full(), dest, temp1, tempOut,
+                           temp2);
+  }
+
+  emitCreateBigInt(lir, arrayType, temp2, out, temp1.scratchReg());
 }
 
 void CodeGenerator::visitAtomicExchangeTypedArrayElement64(
     LAtomicExchangeTypedArrayElement64* lir) {
-  MOZ_CRASH("NYI");
+  Register elements = ToRegister(lir->elements());
+  Register value = ToRegister(lir->value());
+  Register64 temp1 = ToRegister64(lir->temp1());
+  Register64 temp2 = Register64(ToRegister(lir->temp2()));
+  Register out = ToRegister(lir->output());
+
+  Scalar::Type arrayType = lir->mir()->arrayType();
+
+  masm.loadBigInt64(value, temp1);
+
+  if (lir->index()->isConstant()) {
+    Address dest = ToAddress(elements, lir->index(), arrayType);
+    masm.atomicExchange64(Synchronization::Full(), dest, temp1, temp2);
+  } else {
+    BaseIndex dest(elements, ToRegister(lir->index()),
+                   ScaleFromScalarType(arrayType));
+    masm.atomicExchange64(Synchronization::Full(), dest, temp1, temp2);
+  }
+
+  emitCreateBigInt(lir, arrayType, temp2, out, temp1.scratchReg());
 }
 
 void CodeGenerator::visitAtomicTypedArrayElementBinop64(
     LAtomicTypedArrayElementBinop64* lir) {
-  MOZ_CRASH("NYI");
+  MOZ_ASSERT(lir->mir()->hasUses());
+
+  Register elements = ToRegister(lir->elements());
+  Register value = ToRegister(lir->value());
+  Register64 temp1 = ToRegister64(lir->temp1());
+  Register64 temp2 = ToRegister64(lir->temp2());
+  Register out = ToRegister(lir->output());
+  Register64 tempOut = Register64(out);
+
+  Scalar::Type arrayType = lir->mir()->arrayType();
+  AtomicOp atomicOp = lir->mir()->operation();
+
+  masm.loadBigInt64(value, temp1);
+
+  if (lir->index()->isConstant()) {
+    Address dest = ToAddress(elements, lir->index(), arrayType);
+    masm.atomicFetchOp64(Synchronization::Full(), atomicOp, temp1, dest,
+                         tempOut, temp2);
+  } else {
+    BaseIndex dest(elements, ToRegister(lir->index()),
+                   ScaleFromScalarType(arrayType));
+    masm.atomicFetchOp64(Synchronization::Full(), atomicOp, temp1, dest,
+                         tempOut, temp2);
+  }
+
+  emitCreateBigInt(lir, arrayType, temp2, out, temp1.scratchReg());
 }
 
 void CodeGenerator::visitAtomicTypedArrayElementBinopForEffect64(
     LAtomicTypedArrayElementBinopForEffect64* lir) {
-  MOZ_CRASH("NYI");
+  MOZ_ASSERT(!lir->mir()->hasUses());
+
+  Register elements = ToRegister(lir->elements());
+  Register value = ToRegister(lir->value());
+  Register64 temp1 = ToRegister64(lir->temp1());
+  Register64 temp2 = ToRegister64(lir->temp2());
+
+  Scalar::Type arrayType = lir->mir()->arrayType();
+  AtomicOp atomicOp = lir->mir()->operation();
+
+  masm.loadBigInt64(value, temp1);
+
+  if (lir->index()->isConstant()) {
+    Address dest = ToAddress(elements, lir->index(), arrayType);
+    masm.atomicEffectOp64(Synchronization::Full(), atomicOp, temp1, dest,
+                          temp2);
+  } else {
+    BaseIndex dest(elements, ToRegister(lir->index()),
+                   ScaleFromScalarType(arrayType));
+    masm.atomicEffectOp64(Synchronization::Full(), atomicOp, temp1, dest,
+                          temp2);
+  }
 }
 
 void CodeGenerator::visitWasmCompareExchangeI64(LWasmCompareExchangeI64* lir) {
@@ -2302,5 +2385,13 @@ void CodeGenerator::visitWasmReduceAndBranchSimd128(
 
 void CodeGenerator::visitWasmReduceSimd128ToInt64(
     LWasmReduceSimd128ToInt64* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmLoadLaneSimd128(LWasmLoadLaneSimd128* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmStoreLaneSimd128(LWasmStoreLaneSimd128* ins) {
   MOZ_CRASH("No SIMD");
 }

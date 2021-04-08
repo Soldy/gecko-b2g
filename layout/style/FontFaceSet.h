@@ -72,7 +72,7 @@ class FontFaceSet final : public DOMEventTargetHelper,
         nsTArray<nsCOMPtr<nsIRunnable>>& aViolations) override;
 
     virtual nsresult StartLoad(gfxUserFontEntry* aUserFontEntry,
-                               const gfxFontFaceSrc* aFontFaceSrc) override;
+                               uint32_t aSrcIndex) override;
 
     void RecordFontLoadDone(uint32_t aFontSize, TimeStamp aDoneTime) override;
 
@@ -87,7 +87,7 @@ class FontFaceSet final : public DOMEventTargetHelper,
                                       uint8_t*& aBuffer,
                                       uint32_t& aBufferLength) override;
     virtual nsresult LogMessage(gfxUserFontEntry* aUserFontEntry,
-                                const char* aMessage,
+                                uint32_t aSrcIndex, const char* aMessage,
                                 uint32_t aFlags = nsIScriptError::errorFlag,
                                 nsresult aStatus = NS_OK) override;
     virtual void DoRebuildUserFontSet() override;
@@ -97,7 +97,9 @@ class FontFaceSet final : public DOMEventTargetHelper,
         const nsTArray<gfxFontFeature>& aFeatureSettings,
         const nsTArray<gfxFontVariation>& aVariationSettings,
         uint32_t aLanguageOverride, gfxCharacterMap* aUnicodeRanges,
-        StyleFontDisplay aFontDisplay, RangeFlags aRangeFlags) override;
+        StyleFontDisplay aFontDisplay, RangeFlags aRangeFlags,
+        float aAscentOverride, float aDescentOverride, float aLineGapOverride,
+        float aSizeAdjust) override;
 
    private:
     RefPtr<FontFaceSet> mFontFaceSet;
@@ -264,8 +266,7 @@ class FontFaceSet final : public DOMEventTargetHelper,
   RawServoFontFaceRule* FindRuleForUserFontEntry(
       gfxUserFontEntry* aUserFontEntry);
 
-  nsresult StartLoad(gfxUserFontEntry* aUserFontEntry,
-                     const gfxFontFaceSrc* aFontFaceSrc);
+  nsresult StartLoad(gfxUserFontEntry* aUserFontEntry, uint32_t aSrcIndex);
   gfxFontSrcPrincipal* GetStandardFontLoadPrincipal();
   nsresult CheckFontLoad(const gfxFontFaceSrc* aFontFaceSrc,
                          gfxFontSrcPrincipal** aPrincipal, bool* aBypassCache);
@@ -275,8 +276,8 @@ class FontFaceSet final : public DOMEventTargetHelper,
   nsresult SyncLoadFontData(gfxUserFontEntry* aFontToLoad,
                             const gfxFontFaceSrc* aFontFaceSrc,
                             uint8_t*& aBuffer, uint32_t& aBufferLength);
-  nsresult LogMessage(gfxUserFontEntry* aUserFontEntry, const char* aMessage,
-                      uint32_t aFlags, nsresult aStatus);
+  nsresult LogMessage(gfxUserFontEntry* aUserFontEntry, uint32_t aSrcIndex,
+                      const char* aMessage, uint32_t aFlags, nsresult aStatus);
 
   void InsertRuleFontFace(FontFace* aFontFace, StyleOrigin aOrigin,
                           nsTArray<FontFaceRecord>& aOldRecords,
@@ -360,7 +361,7 @@ class FontFaceSet final : public DOMEventTargetHelper,
   //
   // We could use just the pointer and use this as a hash set, but then we'd
   // have no way to verify that we've checked all the loads we should.
-  nsDataHashtable<nsPtrHashKey<const gfxFontFaceSrc>, bool> mAllowedFontLoads;
+  nsTHashMap<nsPtrHashKey<const gfxFontFaceSrc>, bool> mAllowedFontLoads;
 
   // Whether mNonRuleFaces has changed since last time UpdateRules ran.
   bool mNonRuleFacesDirty;

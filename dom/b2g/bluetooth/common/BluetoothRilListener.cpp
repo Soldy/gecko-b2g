@@ -180,6 +180,7 @@ nsresult TelephonyListener::HandleCallInfo(nsITelephonyCallInfo* aInfo,
   BluetoothHfpManager* hfp = BluetoothHfpManager::Get();
   NS_ENSURE_TRUE(hfp, NS_ERROR_FAILURE);
 
+  static uint16_t prevCallState = nsITelephonyService::CALL_STATE_UNKNOWN;
   uint32_t callIndex;
   uint16_t callState;
   nsAutoString number;
@@ -199,8 +200,19 @@ nsresult TelephonyListener::HandleCallInfo(nsITelephonyCallInfo* aInfo,
   MOZ_ASSERT((callState != nsITelephonyService::CALL_STATE_DISCONNECTED ||
               !disconnectedReason.IsEmpty()),
              "disconnectedReason of an disconnected call must be nonempty.");
+
+  // IMS call may directly send ALERTING without DIALING and fail several PTS
+  // test cases. Therefore, fake a DIALING state if it's missing.
+  if (isOutgoing && callState == nsITelephonyService::CALL_STATE_ALERTING &&
+      prevCallState != nsITelephonyService::CALL_STATE_DIALING) {
+    BT_LOGD("Send a dummy CALL_STATE_DIALING to HF device");
+    hfp->HandleCallStateChanged(
+        callIndex, nsITelephonyService::CALL_STATE_DIALING, disconnectedReason,
+        number, isOutgoing, isConference, aSend);
+  }
   hfp->HandleCallStateChanged(callIndex, callState, disconnectedReason, number,
                               isOutgoing, isConference, aSend);
+  prevCallState = callState;
   return NS_OK;
 }
 
@@ -282,7 +294,6 @@ TelephonyListener::NotifyRttMessageReceived(uint32_t aClientId,
                                             const nsAString& aMessage) {
   return NS_OK;
 }
-
 
 NS_IMETHODIMP
 TelephonyListener::NotifySrvccState(uint32_t clientId, int32_t state) {

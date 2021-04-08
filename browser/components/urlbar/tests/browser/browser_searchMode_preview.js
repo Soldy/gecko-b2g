@@ -8,19 +8,14 @@
 "use strict";
 
 const TEST_ENGINE_NAME = "Test";
-const TEST_ENGINE_DOMAIN = "example.com";
 
 add_task(async function setup() {
-  let testEngine = await Services.search.addEngineWithDetails(
-    TEST_ENGINE_NAME,
-    {
-      alias: "@test",
-      template: `http://${TEST_ENGINE_DOMAIN}/?search={searchTerms}`,
-    }
-  );
+  await SearchTestUtils.installSearchExtension({
+    name: TEST_ENGINE_NAME,
+    keyword: "@test",
+  });
 
   registerCleanupFunction(async () => {
-    await Services.search.removeEngine(testEngine);
     await PlacesUtils.history.clear();
   });
 });
@@ -40,7 +35,8 @@ function getExpectedSearchMode(button, isPreview = true) {
   };
   if (button.engine) {
     expectedSearchMode.engineName = button.engine.name;
-    if (UrlbarUtils.WEB_ENGINE_NAMES.has(button.engine.name)) {
+    let engine = Services.search.getEngineByName(button.engine.name);
+    if (engine.isGeneralPurposeEngine) {
       expectedSearchMode.source = UrlbarUtils.RESULT_SOURCE.SEARCH;
     }
   } else {
@@ -67,7 +63,8 @@ add_task(async function tokenAlias() {
       isPreview: true,
       entry: "keywordoffer",
     };
-    if (UrlbarUtils.WEB_ENGINE_NAMES.has(result.searchParams.engine)) {
+    let engine = Services.search.getEngineByName(result.searchParams.engine);
+    if (engine.isGeneralPurposeEngine) {
       expectedSearchMode.source = UrlbarUtils.RESULT_SOURCE.SEARCH;
     }
     await UrlbarTestUtils.assertSearchMode(window, expectedSearchMode);
@@ -244,13 +241,13 @@ add_task(async function oneOff_alt_downArrow() {
   // Add some visits to a URL so we have multiple Top Sites.
   await PlacesUtils.history.clear();
   for (let i = 0; i < 5; i++) {
-    await PlacesTestUtils.addVisits("http://example.com/");
+    await PlacesTestUtils.addVisits("https://example.com/");
   }
   await updateTopSites(
     sites =>
       sites &&
       sites[0]?.searchTopSite &&
-      sites[1]?.url == "http://example.com/",
+      sites[1]?.url == "https://example.com/",
     true
   );
 
@@ -419,9 +416,9 @@ add_task(async function fullSearchMode_oneOff_restore_on_down() {
   info("Add a few visits to top sites");
   for (let i = 0; i < 5; i++) {
     await PlacesTestUtils.addVisits([
-      "http://1.example.com/",
-      "http://2.example.com/",
-      "http://3.example.com/",
+      "https://1.example.com/",
+      "https://2.example.com/",
+      "https://3.example.com/",
     ]);
   }
   await updateTopSites(sites => sites?.length > 2, false);

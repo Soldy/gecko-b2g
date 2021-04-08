@@ -170,8 +170,8 @@ ALL_PROCESSES += [
     # AhnLab Internet Security, bug 1311969
     DllBlocklistEntry("nzbrcom.dll", ALL_VERSIONS),
 
-    # K7TotalSecurity, bug 1339083.
-    DllBlocklistEntry("k7pswsen.dll", (15, 2, 2, 95)),
+    # K7TotalSecurity, bug 1339083 and bug 1694489.
+    DllBlocklistEntry("k7pswsen.dll", (15, 2, 2, 102)),
 
     # smci*.dll - goobzo crashware (bug 1339908),
     DllBlocklistEntry("smci32.dll", ALL_VERSIONS),
@@ -236,6 +236,10 @@ ALL_PROCESSES += [
 
     # Old version of Panda Security, bug 1637984
     DllBlocklistEntry("PavLspHook64.dll", (9, 2, 2, 1), BLOCK_WIN7_AND_OLDER),
+
+    # Webroot SecureAnywhere causes crashes, bug 1700281
+    DllBlocklistEntry("WRDll.x64.dll", (1, 1, 0, 227)),
+    DllBlocklistEntry("WRDll.x86.dll", (1, 1, 0, 227)),
 ]
 
 ALL_PROCESSES_TESTS += [
@@ -275,6 +279,9 @@ BROWSER_PROCESS += [
     # bug 1634090
     DllBlocklistEntry("fcagff.dll", (11, 6, 0xffff, 0xffff)),
     DllBlocklistEntry("fcagff64.dll", (11, 6, 0xffff, 0xffff)),
+
+    # AVerMedia's virtual camera module causes crashes (bug 1692908)
+    DllBlocklistEntry("avmvirtualsource.ax", (1, 0, 0, 3)),
 ]
 
 CHILD_PROCESSES += [

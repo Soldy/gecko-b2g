@@ -154,6 +154,13 @@ option(
 def sandboxgpunode(value):
     return "GPU_NODE_%s" % value[0]
 
+option("--with-api-daemon-port", nargs=1, help="api daemon port number", default="80")
+@depends("--with-api-daemon-port")
+def api_daemon_port(value):
+    return value[0]
+
+set_config("API_DAEMON_PORT", api_daemon_port)
+set_define("API_DAEMON_PORT", api_daemon_port)
 
 set_define("GPU_NODE_adreno", 1)
 set_define("GPU_NODE_imagination", 2)

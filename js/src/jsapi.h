@@ -1502,13 +1502,6 @@ extern JS_PUBLIC_API bool Construct(JSContext* cx, JS::HandleValue fun,
 
 } /* namespace JS */
 
-/**
- * Invoke a constructor, like the JS expression `new ctor(...args)`. Returns
- * the new object, or null on error.
- */
-extern JS_PUBLIC_API JSObject* JS_New(JSContext* cx, JS::HandleObject ctor,
-                                      const JS::HandleValueArray& args);
-
 /*** Other property-defining functions **************************************/
 
 extern JS_PUBLIC_API JSObject* JS_DefineObject(JSContext* cx,
@@ -2639,6 +2632,7 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(JIT_TRUSTEDPRINCIPALS_ENABLE, "jit_trustedprincipals.enable") \
   Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis") \
   Register(ION_FREQUENT_BAILOUT_THRESHOLD, "ion.frequent-bailout-threshold") \
+  Register(INLINING_BYTECODE_MAX_LENGTH, "inlining.bytecode-max-length") \
   Register(BASELINE_INTERPRETER_ENABLE, "blinterp.enable") \
   Register(BASELINE_ENABLE, "baseline.enable") \
   Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable")  \
@@ -2647,11 +2641,10 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(NATIVE_REGEXP_ENABLE, "native_regexp.enable") \
   Register(SIMULATOR_ALWAYS_INTERRUPT, "simulator.always-interrupt")      \
   Register(SPECTRE_INDEX_MASKING, "spectre.index-masking") \
-  Register(SPECTRE_OBJECT_MITIGATIONS_BARRIERS, "spectre.object-mitigations.barriers") \
-  Register(SPECTRE_OBJECT_MITIGATIONS_MISC, "spectre.object-mitigations.misc") \
+  Register(SPECTRE_OBJECT_MITIGATIONS, "spectre.object-mitigations") \
   Register(SPECTRE_STRING_MITIGATIONS, "spectre.string-mitigations") \
   Register(SPECTRE_VALUE_MASKING, "spectre.value-masking") \
-  Register(SPECTRE_JIT_TO_CXX_CALLS, "spectre.jit-to-C++-calls") \
+  Register(SPECTRE_JIT_TO_CXX_CALLS, "spectre.jit-to-cxx-calls") \
   Register(WASM_FOLD_OFFSETS, "wasm.fold-offsets") \
   Register(WASM_DELAY_TIER2, "wasm.delay-tier2") \
   Register(WASM_JIT_BASELINE, "wasm.baseline") \

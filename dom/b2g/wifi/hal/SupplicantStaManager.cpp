@@ -7,7 +7,6 @@
 #define LOG_TAG "SupplicantStaManager"
 
 #include "SupplicantStaManager.h"
-#include "SupplicantCallback.h"
 #include <cutils/properties.h>
 #include <utils/Log.h>
 #include <string.h>
@@ -41,6 +40,7 @@ SupplicantStaManager::SupplicantStaManager()
     : mServiceManager(nullptr),
       mSupplicant(nullptr),
       mSupplicantStaIface(nullptr),
+      mSupplicantStaIfaceCallback(nullptr),
       mServiceManagerDeathRecipient(nullptr),
       mSupplicantDeathRecipient(nullptr),
       mDeathEventHandler(nullptr),
@@ -58,7 +58,7 @@ SupplicantStaManager* SupplicantStaManager::Get() {
 
 void SupplicantStaManager::CleanUp() {
   if (sSupplicantManager != nullptr) {
-    SupplicantStaManager::Get()->DeinitInterface();
+    sSupplicantManager->DeinitInterface();
   }
 }
 
@@ -199,7 +199,7 @@ Result_t SupplicantStaManager::TearDownInterface() {
 
   // Should remove wireless interface from supplicant since version 1.1.
   if (IsSupplicantV1_1()) {
-    if (mSupplicantStaIface.get()) {
+    if (mSupplicantStaIface) {
       SupplicantStatus response;
       ISupplicant::IfaceInfo info;
       info.name = mInterfaceName;
@@ -219,12 +219,18 @@ Result_t SupplicantStaManager::TearDownInterface() {
   mCurrentNetwork.clear();
   mSupplicant = nullptr;
   mSupplicantStaIface = nullptr;
+  mSupplicantStaIfaceCallback = nullptr;
   mServiceManager = nullptr;
 
   return nsIWifiResult::SUCCESS;
 }
 
 Result_t SupplicantStaManager::GetMacAddress(nsAString& aMacAddress) {
+  MutexAutoLock lock(sLock);
+  if (!mSupplicantStaIface) {
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
+
   SupplicantStatus response;
   mSupplicantStaIface->getMacAddress(
       [&](const SupplicantStatus& status,
@@ -241,13 +247,14 @@ Result_t SupplicantStaManager::GetMacAddress(nsAString& aMacAddress) {
 
 Result_t SupplicantStaManager::GetSupportedFeatures(
     uint32_t& aSupportedFeatures) {
+  MutexAutoLock lock(sLock);
   uint32_t capabilities = 0;
 
   SupplicantStatus response;
   if (IsSupplicantV1_2()) {
     android::sp<ISupplicantStaIfaceV1_2> supplicantV1_2 =
         GetSupplicantStaIfaceV1_2();
-    if (!supplicantV1_2.get()) {
+    if (!supplicantV1_2) {
       return nsIWifiResult::ERROR_INVALID_INTERFACE;
     }
 
@@ -282,7 +289,8 @@ Result_t SupplicantStaManager::GetSupportedFeatures(
 }
 
 Result_t SupplicantStaManager::GetSupplicantDebugLevel(uint32_t& aLevel) {
-  if (mSupplicant == nullptr) {
+  MutexAutoLock lock(sLock);
+  if (!mSupplicant) {
     return nsIWifiResult::ERROR_INVALID_INTERFACE;
   }
   aLevel = (uint32_t)ISupplicant::DebugLevel(mSupplicant->getDebugLevel());
@@ -291,6 +299,10 @@ Result_t SupplicantStaManager::GetSupplicantDebugLevel(uint32_t& aLevel) {
 
 Result_t SupplicantStaManager::SetSupplicantDebugLevel(
     SupplicantDebugLevelOptions* aLevel) {
+  MutexAutoLock lock(sLock);
+  if (!mSupplicant) {
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
   mSupplicant->setDebugParams(
       static_cast<ISupplicant::DebugLevel>(aLevel->mLogLevel),
       aLevel->mShowTimeStamp, aLevel->mShowKeys,
@@ -303,6 +315,7 @@ Result_t SupplicantStaManager::SetSupplicantDebugLevel(
 }
 
 Result_t SupplicantStaManager::SetConcurrencyPriority(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantNameSpaceV1_0::IfaceType type =
       (aEnable ? SupplicantNameSpaceV1_0::IfaceType::STA
                : SupplicantNameSpaceV1_0::IfaceType::P2P);
@@ -314,6 +327,7 @@ Result_t SupplicantStaManager::SetConcurrencyPriority(bool aEnable) {
 }
 
 Result_t SupplicantStaManager::SetPowerSave(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setPowerSave, SupplicantStatus, response,
            aEnable);
@@ -321,6 +335,7 @@ Result_t SupplicantStaManager::SetPowerSave(bool aEnable) {
 }
 
 Result_t SupplicantStaManager::SetSuspendMode(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setSuspendModeEnabled, SupplicantStatus,
            response, aEnable);
@@ -328,6 +343,7 @@ Result_t SupplicantStaManager::SetSuspendMode(bool aEnable) {
 }
 
 Result_t SupplicantStaManager::SetExternalSim(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setExternalSim, SupplicantStatus, response,
            aEnable);
@@ -335,6 +351,7 @@ Result_t SupplicantStaManager::SetExternalSim(bool aEnable) {
 }
 
 Result_t SupplicantStaManager::SetAutoReconnect(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, enableAutoReconnect, SupplicantStatus, response,
            aEnable);
@@ -342,6 +359,7 @@ Result_t SupplicantStaManager::SetAutoReconnect(bool aEnable) {
 }
 
 Result_t SupplicantStaManager::SetCountryCode(const std::string& aCountryCode) {
+  MutexAutoLock lock(sLock);
   if (aCountryCode.length() != 2) {
     WIFI_LOGE(LOG_TAG, "Invalid country code: %s", aCountryCode.c_str());
     return nsIWifiResult::ERROR_INVALID_ARGS;
@@ -357,6 +375,7 @@ Result_t SupplicantStaManager::SetCountryCode(const std::string& aCountryCode) {
 }
 
 Result_t SupplicantStaManager::SetBtCoexistenceMode(uint8_t aMode) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setBtCoexistenceMode, SupplicantStatus,
            response, (ISupplicantStaIface::BtCoexistenceMode)aMode);
@@ -364,6 +383,7 @@ Result_t SupplicantStaManager::SetBtCoexistenceMode(uint8_t aMode) {
 }
 
 Result_t SupplicantStaManager::SetBtCoexistenceScanMode(bool aEnable) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setBtCoexistenceScanModeEnabled,
            SupplicantStatus, response, aEnable);
@@ -401,9 +421,10 @@ Result_t SupplicantStaManager::FindIfaceOfType(
 
 Result_t SupplicantStaManager::SetupStaInterface(
     const std::string& aInterfaceName) {
+  MutexAutoLock lock(sLock);
   mInterfaceName = aInterfaceName;
 
-  if (!mSupplicantStaIface.get()) {
+  if (!mSupplicantStaIface) {
     // Since hal version 1.1, hidl client can add or remove wireless interface
     // in supplicant dynamically.
     if (IsSupplicantV1_1()) {
@@ -413,7 +434,7 @@ Result_t SupplicantStaManager::SetupStaInterface(
     }
   }
 
-  if (!mSupplicantStaIface.get()) {
+  if (!mSupplicantStaIface) {
     WIFI_LOGE(LOG_TAG, "Failed to create STA interface in supplicant");
     return nsIWifiResult::ERROR_COMMAND_FAILED;
   }
@@ -432,15 +453,18 @@ Result_t SupplicantStaManager::SetupStaInterface(
                                            supplicantCallbackV1_1);
     HIDL_SET(GetSupplicantStaIfaceV1_2(), registerCallback_1_2,
              SupplicantStatus, response, supplicantCallbackV1_2);
+    mSupplicantStaIfaceCallback = supplicantCallbackV1_2;
   } else if (IsSupplicantV1_1()) {
     android::sp<SupplicantStaIfaceCallbackV1_1> supplicantCallbackV1_1 =
         new SupplicantStaIfaceCallbackV1_1(mInterfaceName, mCallback,
                                            supplicantCallback);
     HIDL_SET(GetSupplicantStaIfaceV1_1(), registerCallback_1_1,
              SupplicantStatus, response, supplicantCallbackV1_1);
+    mSupplicantStaIfaceCallback = supplicantCallbackV1_1;
   } else {
     HIDL_SET(mSupplicantStaIface, registerCallback, SupplicantStatus, response,
              supplicantCallback);
+    mSupplicantStaIfaceCallback = supplicantCallback;
   }
 
   if (response.code != SupplicantStatusCode::SUCCESS) {
@@ -448,7 +472,8 @@ Result_t SupplicantStaManager::SetupStaInterface(
     return nsIWifiResult::ERROR_COMMAND_FAILED;
   }
 
-  return CHECK_SUCCESS(mSupplicantStaIface != nullptr);
+  return CHECK_SUCCESS(mSupplicantStaIface != nullptr &&
+                       mSupplicantStaIfaceCallback != nullptr);
 }
 
 android::sp<ISupplicantStaIface> SupplicantStaManager::GetSupplicantStaIface() {
@@ -474,6 +499,7 @@ android::sp<ISupplicantStaIface> SupplicantStaManager::GetSupplicantStaIface() {
       });
 
   if (response.code != SupplicantStatusCode::SUCCESS) {
+    WIFI_LOGE(LOG_TAG, "Get supplicant STA iface failed: %u", response.code);
     return nullptr;
   }
   return staIface;
@@ -486,17 +512,6 @@ android::sp<ISupplicantStaIface> SupplicantStaManager::AddSupplicantStaIface() {
 
   SupplicantStatus response;
   ISupplicant::IfaceInfo info;
-  if (FindIfaceOfType(SupplicantNameSpaceV1_0::IfaceType::STA, &info) ==
-      nsIWifiResult::SUCCESS) {
-    // STA interface already exist, remove it to add a new one
-    GetSupplicantV1_1()->removeInterface(
-        info, [&](const SupplicantStatus& status) { response = status; });
-
-    if (response.code != SupplicantStatusCode::SUCCESS) {
-      WIFI_LOGE(LOG_TAG, "Failed to remove exist STA interface");
-    }
-  }
-
   info.name = mInterfaceName;
   info.type = SupplicantNameSpaceV1_0::IfaceType::STA;
   android::sp<ISupplicantStaIface> staIface;
@@ -505,18 +520,21 @@ android::sp<ISupplicantStaIface> SupplicantStaManager::AddSupplicantStaIface() {
       info, [&](const SupplicantStatus& status,
                 const android::sp<ISupplicantIface>& iface) {
         response = status;
-        if (response.code == SupplicantStatusCode::SUCCESS) {
+        if (response.code == SupplicantStatusCode::SUCCESS ||
+            response.code == SupplicantStatusCode::FAILURE_IFACE_EXISTS) {
           staIface = ISupplicantStaIface::castFrom(iface);
         }
       });
 
-  if (response.code != SupplicantStatusCode::SUCCESS) {
+  if (!staIface) {
+    WIFI_LOGE(LOG_TAG, "Add supplicant STA iface failed: %u", response.code);
     return nullptr;
   }
   return staIface;
 }
 
 android::sp<SupplicantStaNetwork> SupplicantStaManager::CreateStaNetwork() {
+  MutexAutoLock lock(sLock);
   if (mSupplicantStaIface == nullptr) {
     return nullptr;
   }
@@ -639,7 +657,7 @@ Result_t SupplicantStaManager::ConnectToNetwork(ConfigurationOptions* aConfig) {
 
     // create network in supplicant and set configuration
     staNetwork = CreateStaNetwork();
-    if (!staNetwork.get()) {
+    if (!staNetwork) {
       WIFI_LOGE(LOG_TAG, "Failed to create STA network");
       return nsIWifiResult::ERROR_INVALID_INTERFACE;
     }
@@ -662,18 +680,21 @@ Result_t SupplicantStaManager::ConnectToNetwork(ConfigurationOptions* aConfig) {
 }
 
 Result_t SupplicantStaManager::Reconnect() {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_CALL(mSupplicantStaIface, reconnect, SupplicantStatus, response);
   return CHECK_SUCCESS(response.code == SupplicantStatusCode::SUCCESS);
 }
 
 Result_t SupplicantStaManager::Reassociate() {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_CALL(mSupplicantStaIface, reassociate, SupplicantStatus, response);
   return CHECK_SUCCESS(response.code == SupplicantStatusCode::SUCCESS);
 }
 
 Result_t SupplicantStaManager::Disconnect() {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_CALL(mSupplicantStaIface, disconnect, SupplicantStatus, response);
   return CHECK_SUCCESS(response.code == SupplicantStatusCode::SUCCESS);
@@ -700,6 +721,11 @@ Result_t SupplicantStaManager::DisableNetwork() {
 }
 
 Result_t SupplicantStaManager::GetNetwork(nsWifiResult* aResult) {
+  MutexAutoLock lock(sLock);
+  if (!mSupplicantStaIface) {
+    return nsIWifiResult::ERROR_INVALID_INTERFACE;
+  }
+
   SupplicantStatus response;
   std::vector<uint32_t> netIds;
   mSupplicantStaIface->listNetworks(
@@ -741,6 +767,7 @@ Result_t SupplicantStaManager::GetNetwork(nsWifiResult* aResult) {
 }
 
 Result_t SupplicantStaManager::RemoveNetworks() {
+  MutexAutoLock lock(sLock);
   if (!mSupplicantStaIface) {
     return nsIWifiResult::ERROR_INVALID_INTERFACE;
   }
@@ -795,7 +822,7 @@ Result_t SupplicantStaManager::RoamToNetwork(ConfigurationOptions* aConfig) {
   android::sp<SupplicantStaNetwork> network =
       mCurrentNetwork.at(mInterfaceName);
 
-  Result_t result = network->SetConfiguration(config);
+  Result_t result = network->SetRoamingBssid(config.mBssid);
 
   WIFI_LOGD(LOG_TAG, "Trying to roam to network %s[%s]", config.mSsid.c_str(),
             config.mBssid.c_str());
@@ -870,6 +897,7 @@ Result_t SupplicantStaManager::SendAnqpRequest(
     const std::array<uint8_t, 6>& aBssid,
     const std::vector<uint32_t>& aInfoElements,
     const std::vector<uint32_t>& aHs20SubTypes) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, initiateAnqpQuery, SupplicantStatus, response,
            aBssid, (std::vector<AnqpInfoId>&)aInfoElements,
@@ -927,6 +955,7 @@ Result_t SupplicantStaManager::InitWpsDetail() {
 
 Result_t SupplicantStaManager::StartWpsRegistrar(const std::string& aBssid,
                                                  const std::string& aPinCode) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   std::array<uint8_t, 6> bssid;
 
@@ -942,6 +971,7 @@ Result_t SupplicantStaManager::StartWpsRegistrar(const std::string& aBssid,
 }
 
 Result_t SupplicantStaManager::StartWpsPbc(const std::string& aBssid) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   std::array<uint8_t, 6> bssid;
 
@@ -956,6 +986,7 @@ Result_t SupplicantStaManager::StartWpsPbc(const std::string& aBssid) {
 }
 
 Result_t SupplicantStaManager::StartWpsPinKeypad(const std::string& aPinCode) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, startWpsPinKeypad, SupplicantStatus, response,
            aPinCode);
@@ -964,6 +995,7 @@ Result_t SupplicantStaManager::StartWpsPinKeypad(const std::string& aPinCode) {
 
 Result_t SupplicantStaManager::StartWpsPinDisplay(const std::string& aBssid,
                                                   nsAString& aGeneratedPin) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   std::array<uint8_t, 6> bssid;
 
@@ -987,6 +1019,7 @@ Result_t SupplicantStaManager::StartWpsPinDisplay(const std::string& aBssid,
 }
 
 Result_t SupplicantStaManager::CancelWps() {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_CALL(mSupplicantStaIface, cancelWps, SupplicantStatus, response);
   return CHECK_SUCCESS(response.code == SupplicantStatusCode::SUCCESS);
@@ -994,6 +1027,7 @@ Result_t SupplicantStaManager::CancelWps() {
 
 Result_t SupplicantStaManager::SetWpsDeviceName(
     const std::string& aDeviceName) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setWpsDeviceName, SupplicantStatus, response,
            aDeviceName);
@@ -1002,6 +1036,7 @@ Result_t SupplicantStaManager::SetWpsDeviceName(
 
 Result_t SupplicantStaManager::SetWpsDeviceType(
     const std::string& aDeviceType) {
+  MutexAutoLock lock(sLock);
   std::vector<std::string> tokens;
   std::string token;
   std::stringstream stream(aDeviceType);
@@ -1036,6 +1071,7 @@ Result_t SupplicantStaManager::SetWpsDeviceType(
 
 Result_t SupplicantStaManager::SetWpsManufacturer(
     const std::string& aManufacturer) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setWpsManufacturer, SupplicantStatus, response,
            aManufacturer);
@@ -1043,6 +1079,7 @@ Result_t SupplicantStaManager::SetWpsManufacturer(
 }
 
 Result_t SupplicantStaManager::SetWpsModelName(const std::string& aModelName) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setWpsModelName, SupplicantStatus, response,
            aModelName);
@@ -1051,6 +1088,7 @@ Result_t SupplicantStaManager::SetWpsModelName(const std::string& aModelName) {
 
 Result_t SupplicantStaManager::SetWpsModelNumber(
     const std::string& aModelNumber) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setWpsModelNumber, SupplicantStatus, response,
            aModelNumber);
@@ -1059,6 +1097,7 @@ Result_t SupplicantStaManager::SetWpsModelNumber(
 
 Result_t SupplicantStaManager::SetWpsSerialNumber(
     const std::string& aSerialNumber) {
+  MutexAutoLock lock(sLock);
   SupplicantStatus response;
   HIDL_SET(mSupplicantStaIface, setWpsSerialNumber, SupplicantStatus, response,
            aSerialNumber);
@@ -1067,6 +1106,7 @@ Result_t SupplicantStaManager::SetWpsSerialNumber(
 
 Result_t SupplicantStaManager::SetWpsConfigMethods(
     const std::string& aConfigMethods) {
+  MutexAutoLock lock(sLock);
   int16_t configMethodMask = ConvertToWpsConfigMethod(aConfigMethods);
 
   SupplicantStatus response;
@@ -1147,8 +1187,9 @@ android::sp<ISupplicantP2pIface> SupplicantStaManager::GetSupplicantP2pIface() {
 }
 
 Result_t SupplicantStaManager::SetupP2pInterface() {
+  MutexAutoLock lock(sLock);
   android::sp<ISupplicantP2pIface> p2p_iface = GetSupplicantP2pIface();
-  if (!p2p_iface.get()) {
+  if (!p2p_iface) {
     return nsIWifiResult::ERROR_INVALID_INTERFACE;
   }
 
@@ -1197,12 +1238,11 @@ bool SupplicantStaManager::CompareConfiguration(
  * Hal wrapper functions
  */
 android::sp<IServiceManager> SupplicantStaManager::GetServiceManager() {
-  return mServiceManager.get() ? mServiceManager
-                               : IServiceManager::getService();
+  return mServiceManager ? mServiceManager : IServiceManager::getService();
 }
 
 android::sp<ISupplicant> SupplicantStaManager::GetSupplicant() {
-  return mSupplicant.get() ? mSupplicant : ISupplicant::getService();
+  return mSupplicant ? mSupplicant : ISupplicant::getService();
 }
 
 android::sp<ISupplicantV1_1> SupplicantStaManager::GetSupplicantV1_1() {
@@ -1232,7 +1272,7 @@ bool SupplicantStaManager::IsSupplicantV1_2() {
 }
 
 bool SupplicantStaManager::SupplicantVersionSupported(const std::string& name) {
-  if (!mServiceManager.get()) {
+  if (!mServiceManager) {
     return false;
   }
 

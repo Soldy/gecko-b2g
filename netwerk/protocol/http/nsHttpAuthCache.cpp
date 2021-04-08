@@ -129,7 +129,7 @@ nsresult nsHttpAuthCache::SetAuthEntry(const char* scheme, const char* host,
       return rv;
     }
 
-    mDB.Put(key, std::move(node));
+    mDB.InsertOrUpdate(key, std::move(node));
     return NS_OK;
   }
 
@@ -208,9 +208,7 @@ void nsHttpAuthCache::ClearOriginData(OriginAttributesPattern const& pattern) {
 }
 
 void nsHttpAuthCache::CollectKeys(nsTArray<nsCString>& aValue) {
-  for (auto iter = mDB.Iter(); !iter.Done(); iter.Next()) {
-    aValue.AppendElement(iter.Key());
-  }
+  AppendToArray(aValue, mDB.Keys());
 }
 
 //-----------------------------------------------------------------------------

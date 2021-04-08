@@ -207,13 +207,14 @@ class WebRTCChild extends JSWindowActorChild {
 }
 
 function getActorForWindow(window) {
-  let windowGlobal = window.windowGlobalChild;
   try {
+    let windowGlobal = window.windowGlobalChild;
     if (windowGlobal) {
       return windowGlobal.getActor("WebRTC");
     }
   } catch (ex) {
-    // There might not be an actor for a parent process chrome URL.
+    // There might not be an actor for a parent process chrome URL,
+    // and we may not even be allowed to access its windowGlobalChild.
   }
 
   return null;
@@ -270,7 +271,6 @@ function handleGUMRequest(aSubject, aTopic, aData) {
   let contentWindow = Services.wm.getOuterWindowWithId(aSubject.windowID);
 
   contentWindow.navigator.mozGetUserMediaDevices(
-    constraints,
     function(devices) {
       // If the window has been closed while we were waiting for the list of
       // devices, there's nothing to do in the callback anymore.

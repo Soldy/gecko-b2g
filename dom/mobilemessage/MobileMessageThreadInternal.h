@@ -30,13 +30,12 @@ class MobileMessageThreadInternal final : public nsIMobileMessageThread {
   NS_DECL_ISUPPORTS
   NS_DECL_NSIMOBILEMESSAGETHREAD
 
-  MobileMessageThreadInternal(uint64_t aId,
-                              const nsTArray<nsString>& aParticipants,
-                              uint64_t aTimestamp,
-                              const nsString& aLastMessageSubject,
-                              const nsString& aBody, uint64_t aUnreadCount,
-                              mobilemessage::MessageType aLastMessageType,
-                              bool aIsGroup);
+  MobileMessageThreadInternal(
+      uint64_t aId, const nsTArray<nsString>& aParticipants,
+      uint64_t aTimestamp, const nsString& aLastMessageSubject,
+      const nsString& aBody, uint64_t aUnreadCount,
+      mobilemessage::MessageType aLastMessageType, bool aIsGroup,
+      mobilemessage::AttachmentStatus aLastMessageAttachmentStatus);
 
   explicit MobileMessageThreadInternal(const ThreadData& aData);
 
@@ -45,6 +44,7 @@ class MobileMessageThreadInternal final : public nsIMobileMessageThread {
                          const nsAString& aLastMessageSubject,
                          const nsAString& aBody, uint64_t aUnreadCount,
                          const nsAString& aLastMessageType, bool aIsGroup,
+                         const nsAString& aLastMessageAttachmentStatus,
                          JSContext* aCx, nsIMobileMessageThread** aThread);
 
   const ThreadData& GetData() const { return mData; }

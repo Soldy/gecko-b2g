@@ -42,6 +42,7 @@ enum class LayoutFrameType : uint8_t;
 struct StyleSizeOverrides {
   Maybe<StyleSize> mStyleISize;
   Maybe<StyleSize> mStyleBSize;
+  Maybe<AspectRatio> mAspectRatio;
 
   bool HasAnyOverrides() const { return mStyleISize || mStyleBSize; }
   bool HasAnyLengthOverrides() const {
@@ -58,6 +59,15 @@ struct StyleSizeOverrides {
   // overrides to the inner table frame directly, without any modification,
   // which is useful for flex container to override the inner table frame's
   // preferred main size with 'flex-basis'.
+  //
+  // Note: if mStyleISize is a LengthPercentage, the inner table frame will
+  // comply with the inline-size override without enforcing its min-content
+  // inline-size in nsTableFrame::ComputeSize(). This is necessary so that small
+  // flex-basis values like 'flex-basis:1%' can be resolved correctly; the
+  // flexbox layout algorithm does still explicitly clamp to min-sizes *at a
+  // later step*, after the flex-basis has been resolved -- so this flag won't
+  // actually produce any user-visible tables whose final inline size is smaller
+  // than their min-content inline size.
   bool mApplyOverridesVerbatim = false;
 };
 }  // namespace mozilla
@@ -397,8 +407,6 @@ struct ReflowInput : public SizeComputationInput {
   const nsStylePadding* mStylePadding = nullptr;
   const nsStyleText* mStyleText = nullptr;
 
-  bool IsFloating() const;
-
   // a frame (e.g. nsTableCellFrame) which may need to generate a special
   // reflow for percent bsize calculations
   nsIPercentBSizeObserver* mPercentBSizeObserver = nullptr;
@@ -473,10 +481,6 @@ struct ReflowInput : public SizeComputationInput {
     // nsColumnSetFrame to determine whether to give up balancing and create
     // overflow columns.
     bool mColumnSetWrapperHasNoBSizeLeft : 1;
-
-    // nsFlexContainerFrame is reflowing this child to measure its intrinsic
-    // BSize.
-    bool mIsFlexContainerMeasuringBSize : 1;
 
     // If this flag is set, the BSize of this frame should be considered
     // indefinite for the purposes of percent resolution on child frames (we
@@ -849,6 +853,26 @@ struct ReflowInput : public SizeComputationInput {
                              aContainerSize);
   }
 
+  // Resolve any block-axis 'auto' margins (if any) for an absolutely positioned
+  // frame. aMargin and aOffsets are both outparams (though we only touch
+  // aOffsets if the position is overconstrained)
+  static void ComputeAbsPosBlockAutoMargin(nscoord aAvailMarginSpace,
+                                           WritingMode aContainingBlockWM,
+                                           bool aIsMarginBStartAuto,
+                                           bool aIsMarginBEndAuto,
+                                           LogicalMargin& aMargin,
+                                           LogicalMargin& aOffsets);
+
+  // Resolve any inline-axis 'auto' margins (if any) for an absolutely
+  // positioned frame. aMargin and aOffsets are both outparams (though we only
+  // touch aOffsets if the position is overconstrained)
+  static void ComputeAbsPosInlineAutoMargin(nscoord aAvailMarginSpace,
+                                            WritingMode aContainingBlockWM,
+                                            bool aIsMarginIStartAuto,
+                                            bool aIsMarginIEndAuto,
+                                            LogicalMargin& aMargin,
+                                            LogicalMargin& aOffsets);
+
 #ifdef DEBUG
   // Reflow trace methods.  Defined in nsFrame.cpp so they have access
   // to the display-reflow infrastructure.
@@ -907,8 +931,7 @@ struct ReflowInput : public SizeComputationInput {
   // This calculates the size by using the resolved auto block size (from
   // non-auto block insets), according to the writing mode of current block.
   LogicalSize CalculateAbsoluteSizeWithResolvedAutoBlockSize(
-      nscoord aAutoBSize, bool aNeedsComputeInlineSizeByAspectRatio,
-      const LogicalSize& aTentativeComputedSize);
+      nscoord aAutoBSize, const LogicalSize& aTentativeComputedSize);
 
   void InitAbsoluteConstraints(nsPresContext* aPresContext,
                                const ReflowInput* aCBReflowInput,

@@ -1169,15 +1169,15 @@ nsresult NS_GetURLSpecFromDir(nsIFile* file, nsACString& url,
 void NS_GetReferrerFromChannel(nsIChannel* channel, nsIURI** referrer) {
   *referrer = nullptr;
 
-  nsCOMPtr<nsIPropertyBag2> props(do_QueryInterface(channel));
-  if (props) {
+  if (nsCOMPtr<nsIPropertyBag2> props = do_QueryInterface(channel)) {
     // We have to check for a property on a property bag because the
     // referrer may be empty for security reasons (for example, when loading
     // an http page with an https referrer).
-    nsresult rv = props->GetPropertyAsInterface(
-        u"docshell.internalReferrer"_ns, NS_GET_IID(nsIURI),
-        reinterpret_cast<void**>(referrer));
+    nsresult rv;
+    nsCOMPtr<nsIURI> uri(
+        do_GetProperty(props, u"docshell.internalReferrer"_ns, &rv));
     if (NS_SUCCEEDED(rv)) {
+      uri.forget(referrer);
       return;
     }
   }
@@ -2764,6 +2764,8 @@ void NS_SniffContent(const char* aSnifferType, nsIRequest* aRequest,
   typedef nsCategoryCache<nsIContentSniffer> ContentSnifferCache;
   extern ContentSnifferCache* gNetSniffers;
   extern ContentSnifferCache* gDataSniffers;
+  extern ContentSnifferCache* gORBSniffers;
+  extern ContentSnifferCache* gNetAndORBSniffers;
   ContentSnifferCache* cache = nullptr;
   if (!strcmp(aSnifferType, NS_CONTENT_SNIFFER_CATEGORY)) {
     if (!gNetSniffers) {
@@ -2775,6 +2777,17 @@ void NS_SniffContent(const char* aSnifferType, nsIRequest* aRequest,
       gDataSniffers = new ContentSnifferCache(NS_DATA_SNIFFER_CATEGORY);
     }
     cache = gDataSniffers;
+  } else if (!strcmp(aSnifferType, NS_ORB_SNIFFER_CATEGORY)) {
+    if (!gORBSniffers) {
+      gORBSniffers = new ContentSnifferCache(NS_ORB_SNIFFER_CATEGORY);
+    }
+    cache = gORBSniffers;
+  } else if (!strcmp(aSnifferType, NS_CONTENT_AND_ORB_SNIFFER_CATEGORY)) {
+    if (!gNetAndORBSniffers) {
+      gNetAndORBSniffers =
+          new ContentSnifferCache(NS_CONTENT_AND_ORB_SNIFFER_CATEGORY);
+    }
+    cache = gNetAndORBSniffers;
   } else {
     // Invalid content sniffer type was requested
     MOZ_ASSERT(false);

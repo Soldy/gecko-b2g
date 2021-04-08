@@ -116,9 +116,12 @@ mozilla::ipc::IPCResult SpeechSynthesisRequestParent::RecvSetAudioOutputVolume(
 // SpeechTaskParent
 
 nsresult SpeechTaskParent::DispatchStartImpl(const nsAString& aUri) {
-  MOZ_ASSERT(mActor);
-  if (NS_WARN_IF(!(mActor->SendOnStart(nsString(aUri))))) {
-    return NS_ERROR_FAILURE;
+  if (mState != TASK_STATE_CANCEL && mActor) {
+    mState = TASK_STATE_SPEAK;
+    MOZ_ASSERT(mActor);
+    if (NS_WARN_IF(!(mActor->SendOnStart(nsString(aUri))))) {
+      return NS_ERROR_FAILURE;
+    }
   }
 
   return NS_OK;
@@ -129,8 +132,11 @@ nsresult SpeechTaskParent::DispatchEndImpl(float aElapsedTime,
   if (!mActor) {
     // Child is already gone.
     return NS_OK;
+  } else if (mState == TASK_STATE_CANCEL) {
+    return NS_OK;
   }
 
+  mState = TASK_STATE_CANCEL;
   if (NS_WARN_IF(!(mActor->SendOnEnd(false, aElapsedTime, aCharIndex)))) {
     return NS_ERROR_FAILURE;
   }
@@ -141,6 +147,7 @@ nsresult SpeechTaskParent::DispatchEndImpl(float aElapsedTime,
 nsresult SpeechTaskParent::DispatchPauseImpl(float aElapsedTime,
                                              uint32_t aCharIndex) {
   MOZ_ASSERT(mActor);
+  mState = TASK_STATE_PAUSE;
   if (NS_WARN_IF(!(mActor->SendOnPause(aElapsedTime, aCharIndex)))) {
     return NS_ERROR_FAILURE;
   }
@@ -151,6 +158,7 @@ nsresult SpeechTaskParent::DispatchPauseImpl(float aElapsedTime,
 nsresult SpeechTaskParent::DispatchResumeImpl(float aElapsedTime,
                                               uint32_t aCharIndex) {
   MOZ_ASSERT(mActor);
+  mState = TASK_STATE_SPEAK;
   if (NS_WARN_IF(!(mActor->SendOnResume(aElapsedTime, aCharIndex)))) {
     return NS_ERROR_FAILURE;
   }

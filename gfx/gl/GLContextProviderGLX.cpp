@@ -445,21 +445,23 @@ static int GLXErrorHandler(Display* display, XErrorEvent* ev) {
   return 0;
 }
 
-void GLXLibrary::BeforeGLXCall() const {
-  if (mDebug) {
+GLXLibrary::WrapperScope::WrapperScope(const GLXLibrary& glx,
+                                       const char* const funcName)
+    : mGlx(glx), mFuncName(funcName) {
+  if (mGlx.mDebug) {
     sOldErrorHandler = XSetErrorHandler(GLXErrorHandler);
   }
 }
 
-void GLXLibrary::AfterGLXCall() const {
-  if (mDebug) {
+GLXLibrary::WrapperScope::~WrapperScope() {
+  if (mGlx.mDebug) {
     FinishX(DefaultXDisplay());
     if (sErrorEvent.mError.error_code) {
-      char buffer[2048];
+      char buffer[100] = {};
       XGetErrorText(DefaultXDisplay(), sErrorEvent.mError.error_code, buffer,
                     sizeof(buffer));
-      printf_stderr("X ERROR: %s (%i) - Request: %i.%i, Serial: %lu", buffer,
-                    sErrorEvent.mError.error_code,
+      printf_stderr("X ERROR after %s: %s (%i) - Request: %i.%i, Serial: %lu",
+                    mFuncName, buffer, sErrorEvent.mError.error_code,
                     sErrorEvent.mError.request_code,
                     sErrorEvent.mError.minor_code, sErrorEvent.mError.serial);
       MOZ_ASSERT_UNREACHABLE("AfterGLXCall sErrorEvent");
@@ -473,83 +475,115 @@ already_AddRefed<GLContextGLX> GLContextGLX::CreateGLContext(
     GLXFBConfig cfg, bool deleteDrawable, gfxXlibSurface* pixmap) {
   GLXLibrary& glx = sGLXLibrary;
 
-  int db = 0;
-  int err = glx.fGetFBConfigAttrib(display, cfg, LOCAL_GLX_DOUBLEBUFFER, &db);
+  int isDoubleBuffered = 0;
+  int err = glx.fGetFBConfigAttrib(display, cfg, LOCAL_GLX_DOUBLEBUFFER,
+                                   &isDoubleBuffered);
   if (LOCAL_GLX_BAD_ATTRIBUTE != err) {
     if (ShouldSpew()) {
-      printf("[GLX] FBConfig is %sdouble-buffered\n", db ? "" : "not ");
+      printf("[GLX] FBConfig is %sdouble-buffered\n",
+             isDoubleBuffered ? "" : "not ");
     }
   }
 
-  GLXContext context;
+  if (!glx.HasCreateContextAttribs()) {
+    NS_WARNING("Cannot create GLContextGLX without glxCreateContextAttribs");
+    return nullptr;
+  }
+
+  // -
+
+  const auto CreateWithAttribs =
+      [&](const std::vector<int>& attribs) -> RefPtr<GLContextGLX> {
+    OffMainThreadScopedXErrorHandler handler;
+
+    auto terminated = attribs;
+    terminated.push_back(0);
+
+    // X Errors can happen even if this context creation returns non-null, and
+    // we should not try to use such contexts. (Errors may come from the
+    // distant server, or something)
+    const auto glxContext = glx.fCreateContextAttribs(
+        display, cfg, nullptr, X11True, terminated.data());
+    if (!glxContext) return nullptr;
+    const RefPtr<GLContextGLX> ret =
+        new GLContextGLX(desc, display, drawable, glxContext, deleteDrawable,
+                         isDoubleBuffered, pixmap);
+    if (handler.SyncAndGetError(display)) return nullptr;
+
+    if (!ret->Init()) return nullptr;
+    if (handler.SyncAndGetError(display)) return nullptr;
+
+    return ret;
+  };
+
+  // -
+
   RefPtr<GLContextGLX> glContext;
-  bool error;
 
-  OffMainThreadScopedXErrorHandler xErrorHandler;
+  std::vector<int> attribs;
+  attribs.insert(attribs.end(), {
+                                    LOCAL_GLX_RENDER_TYPE,
+                                    LOCAL_GLX_RGBA_TYPE,
+                                });
+  if (glx.HasVideoMemoryPurge()) {
+    attribs.insert(attribs.end(),
+                   {
+                       LOCAL_GLX_GENERATE_RESET_ON_VIDEO_MEMORY_PURGE_NV,
+                       LOCAL_GL_TRUE,
+                   });
+  }
+  const bool useCore =
+      !(desc.flags & CreateContextFlags::REQUIRE_COMPAT_PROFILE);
+  if (useCore) {
+    attribs.insert(attribs.end(), {
+                                      LOCAL_GLX_CONTEXT_MAJOR_VERSION_ARB,
+                                      3,
+                                      LOCAL_GLX_CONTEXT_MINOR_VERSION_ARB,
+                                      2,
+                                      LOCAL_GLX_CONTEXT_PROFILE_MASK_ARB,
+                                      LOCAL_GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+                                  });
+  }
 
-  do {
-    error = false;
+  if (glx.HasRobustness()) {
+    auto withRobustness = attribs;
+    withRobustness.insert(withRobustness.end(),
+                          {
+                              LOCAL_GLX_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB,
+                              LOCAL_GLX_LOSE_CONTEXT_ON_RESET_ARB,
+                          });
 
-    if (glx.HasCreateContextAttribs()) {
-      AutoTArray<int, 13> attrib_list;
-      if (glx.HasRobustness()) {
-        const int robust_attribs[] = {
-            LOCAL_GLX_CONTEXT_FLAGS_ARB,
-            LOCAL_GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB,
-            LOCAL_GLX_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB,
-            LOCAL_GLX_LOSE_CONTEXT_ON_RESET_ARB,
-        };
-        attrib_list.AppendElements(robust_attribs,
-                                   MOZ_ARRAY_LENGTH(robust_attribs));
+    {
+      auto withRBAB = withRobustness;
+      withRBAB.insert(withRBAB.end(),
+                      {
+                          LOCAL_GLX_CONTEXT_FLAGS_ARB,
+                          LOCAL_GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB,
+                      });
+      if (!glContext) {
+        glContext = CreateWithAttribs(withRBAB);
+        if (!glContext) {
+          NS_WARNING("Failed to create+init GLContextGLX with RBAB");
+        }
       }
-      if (glx.HasVideoMemoryPurge()) {
-        const int memory_purge_attribs[] = {
-            LOCAL_GLX_GENERATE_RESET_ON_VIDEO_MEMORY_PURGE_NV,
-            LOCAL_GL_TRUE,
-        };
-        attrib_list.AppendElements(memory_purge_attribs,
-                                   MOZ_ARRAY_LENGTH(memory_purge_attribs));
+    }
+
+    if (!glContext) {
+      glContext = CreateWithAttribs(withRobustness);
+      if (!glContext) {
+        NS_WARNING("Failed to create+init GLContextGLX with Robustness");
       }
-      if (!(desc.flags & CreateContextFlags::REQUIRE_COMPAT_PROFILE)) {
-        int core_attribs[] = {
-            LOCAL_GLX_CONTEXT_MAJOR_VERSION_ARB,
-            3,
-            LOCAL_GLX_CONTEXT_MINOR_VERSION_ARB,
-            2,
-            LOCAL_GLX_CONTEXT_PROFILE_MASK_ARB,
-            LOCAL_GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
-        };
-        attrib_list.AppendElements(core_attribs,
-                                   MOZ_ARRAY_LENGTH(core_attribs));
-      };
-      attrib_list.AppendElement(0);
-
-      context = glx.fCreateContextAttribs(display, cfg, nullptr, X11True,
-                                          attrib_list.Elements());
-    } else {
-      context = glx.fCreateNewContext(display, cfg, LOCAL_GLX_RGBA_TYPE,
-                                      nullptr, X11True);
     }
+  }
 
-    if (context) {
-      glContext = new GLContextGLX(desc, display, drawable, context,
-                                   deleteDrawable, db, pixmap);
-      if (!glContext->Init()) error = true;
-    } else {
-      error = true;
+  if (!glContext) {
+    glContext = CreateWithAttribs(attribs);
+    if (!glContext) {
+      NS_WARNING("Failed to create+init GLContextGLX with required attribs");
     }
+  }
 
-    error |= xErrorHandler.SyncAndGetError(display);
-
-    if (error) {
-      NS_WARNING("Failed to create GLXContext!");
-      glContext = nullptr;  // note: this must be done while the graceful X
-                            // error handler is set, because glxMakeCurrent can
-                            // give a GLXBadDrawable error
-    }
-
-    return glContext.forget();
-  } while (true);
+  return glContext.forget();
 }
 
 GLContextGLX::~GLContextGLX() {
@@ -701,7 +735,7 @@ static bool AreCompatibleVisuals(Visual* one, Visual* two) {
 }
 
 already_AddRefed<GLContext> CreateForWidget(Display* aXDisplay, Window aXWindow,
-                                            bool aWebRender,
+                                            bool aHardwareWebRender,
                                             bool aForceAccelerated) {
   if (!sGLXLibrary.EnsureInitialized()) {
     return nullptr;
@@ -725,12 +759,13 @@ already_AddRefed<GLContext> CreateForWidget(Display* aXDisplay, Window aXWindow,
   GLXFBConfig config;
   int visid;
   if (!GLContextGLX::FindFBConfigForWindow(aXDisplay, xscreen, aXWindow, &cfgs,
-                                           &config, &visid, aWebRender)) {
+                                           &config, &visid,
+                                           aHardwareWebRender)) {
     return nullptr;
   }
 
   CreateContextFlags flags;
-  if (aWebRender) {
+  if (aHardwareWebRender) {
     flags = CreateContextFlags::NONE;  // WR needs GL3.2+
   } else {
     flags = CreateContextFlags::REQUIRE_COMPAT_PROFILE;
@@ -740,7 +775,7 @@ already_AddRefed<GLContext> CreateForWidget(Display* aXDisplay, Window aXWindow,
 }
 
 already_AddRefed<GLContext> GLContextProviderGLX::CreateForCompositorWidget(
-    CompositorWidget* aCompositorWidget, bool aWebRender,
+    CompositorWidget* aCompositorWidget, bool aHardwareWebRender,
     bool aForceAccelerated) {
   if (!aCompositorWidget) {
     MOZ_ASSERT(false);
@@ -750,7 +785,7 @@ already_AddRefed<GLContext> GLContextProviderGLX::CreateForCompositorWidget(
   MOZ_ASSERT(compWidget);
 
   return CreateForWidget(compWidget->XDisplay(), compWidget->XWindow(),
-                         aWebRender, aForceAccelerated);
+                         aHardwareWebRender, aForceAccelerated);
 }
 
 static bool ChooseConfig(GLXLibrary* glx, Display* display, int screen,
@@ -758,23 +793,27 @@ static bool ChooseConfig(GLXLibrary* glx, Display* display, int screen,
                          GLXFBConfig* const out_config, int* const out_visid) {
   ScopedXFree<GLXFBConfig>& scopedConfigArr = *out_scopedConfigArr;
 
-  int attribs[] = {LOCAL_GLX_DRAWABLE_TYPE,
-                   LOCAL_GLX_PIXMAP_BIT,
-                   LOCAL_GLX_X_RENDERABLE,
-                   X11True,
-                   LOCAL_GLX_RED_SIZE,
-                   8,
-                   LOCAL_GLX_GREEN_SIZE,
-                   8,
-                   LOCAL_GLX_BLUE_SIZE,
-                   8,
-                   LOCAL_GLX_ALPHA_SIZE,
-                   8,
-                   LOCAL_GLX_DEPTH_SIZE,
-                   0,
-                   LOCAL_GLX_STENCIL_SIZE,
-                   0,
-                   0};
+  const int attribs[] = {
+      LOCAL_GLX_RENDER_TYPE,
+      LOCAL_GLX_RGBA_BIT,
+      LOCAL_GLX_DRAWABLE_TYPE,
+      LOCAL_GLX_PIXMAP_BIT,
+      LOCAL_GLX_X_RENDERABLE,
+      X11True,
+      LOCAL_GLX_RED_SIZE,
+      8,
+      LOCAL_GLX_GREEN_SIZE,
+      8,
+      LOCAL_GLX_BLUE_SIZE,
+      8,
+      LOCAL_GLX_ALPHA_SIZE,
+      8,
+      LOCAL_GLX_DEPTH_SIZE,
+      0,
+      LOCAL_GLX_STENCIL_SIZE,
+      0,
+      0,
+  };
 
   int numConfigs = 0;
   scopedConfigArr = glx->fChooseFBConfig(display, screen, attribs, &numConfigs);

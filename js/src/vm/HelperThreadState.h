@@ -20,7 +20,7 @@
 #include "jsapi.h"
 
 #include "ds/Fifo.h"
-#include "frontend/CompilationStencil.h"  // CompilationStencil, CompilationGCOutput
+#include "frontend/CompilationStencil.h"  // CompilationStencil, ExtensibleCompilationStencil, CompilationGCOutput
 #include "js/CompileOptions.h"
 #include "js/TypeDecls.h"
 #include "threading/ConditionVariable.h"
@@ -369,6 +369,9 @@ class GlobalHelperThreadState {
                                     MutableHandle<ScriptVector> scripts);
   JSObject* finishModuleParseTask(JSContext* cx, JS::OffThreadToken* token);
 
+  frontend::CompilationStencil* finishStencilParseTask(
+      JSContext* cx, JS::OffThreadToken* token);
+
   bool hasActiveThreads(const AutoLockHelperThreadState&);
   bool hasQueuedTasks(const AutoLockHelperThreadState& locked);
   void waitForAllThreads();
@@ -519,13 +522,16 @@ struct ParseTask : public mozilla::LinkedListElement<ParseTask>,
   // Holds the ScriptSourceObjects generated for the script compilation.
   GCVector<ScriptSourceObject*, 1, SystemAllocPolicy> sourceObjects;
 
-  // Holds the CompilationStencil generated for the script compilation or
-  // decoding task.
+  // The input of the compilation.
   UniquePtr<frontend::CompilationInput> stencilInput_;
+
+  // The output of the decode task.
   UniquePtr<frontend::CompilationStencil> stencil_;
 
+  // The output of the script/module compilation task.
+  UniquePtr<frontend::ExtensibleCompilationStencil> extensibleStencil_;
+
   frontend::CompilationGCOutput gcOutput_;
-  frontend::CompilationGCOutput gcOutputForDelazification_;
 
   // Any errors or warnings produced during compilation. These are reported
   // when finishing the script.
@@ -609,7 +615,9 @@ class SourceCompressionTask : public HelperThreadTask {
  public:
   // The majorGCNumber is used for scheduling tasks.
   SourceCompressionTask(JSRuntime* rt, ScriptSource* source)
-      : runtime_(rt), majorGCNumber_(rt->gc.majorGCCount()), source_(source) {}
+      : runtime_(rt), majorGCNumber_(rt->gc.majorGCCount()), source_(source) {
+    source->noteSourceCompressionTask();
+  }
   virtual ~SourceCompressionTask() = default;
 
   bool runtimeMatches(JSRuntime* runtime) const { return runtime == runtime_; }

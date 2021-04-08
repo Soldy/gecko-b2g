@@ -367,7 +367,9 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow,
   // Let's take the current cookie behavior and current cookie permission
   // for the documents' loadInfo. Note that for any other loadInfos,
   // cookieBehavior will be BEHAVIOR_REJECT for security reasons.
-  mCookieJarSettings = CookieJarSettings::Create();
+  bool isPrivate = mOriginAttributes.mPrivateBrowsingId > 0;
+  mCookieJarSettings = CookieJarSettings::Create(
+      isPrivate ? CookieJarSettings::ePrivate : CookieJarSettings::eRegular);
 }
 
 LoadInfo::LoadInfo(dom::CanonicalBrowsingContext* aBrowsingContext,
@@ -406,7 +408,9 @@ LoadInfo::LoadInfo(dom::CanonicalBrowsingContext* aBrowsingContext,
   // Let's take the current cookie behavior and current cookie permission
   // for the documents' loadInfo. Note that for any other loadInfos,
   // cookieBehavior will be BEHAVIOR_REJECT for security reasons.
-  mCookieJarSettings = CookieJarSettings::Create();
+  bool isPrivate = mOriginAttributes.mPrivateBrowsingId > 0;
+  mCookieJarSettings = CookieJarSettings::Create(
+      isPrivate ? CookieJarSettings::ePrivate : CookieJarSettings::eRegular);
 }
 
 LoadInfo::LoadInfo(dom::WindowGlobalParent* aParentWGP,
@@ -578,6 +582,8 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
       mDocumentHasUserInteracted(rhs.mDocumentHasUserInteracted),
       mAllowListFutureDocumentsCreatedFromThisRedirectChain(
           rhs.mAllowListFutureDocumentsCreatedFromThisRedirectChain),
+      mNeedForCheckingAntiTrackingHeuristic(
+          rhs.mNeedForCheckingAntiTrackingHeuristic),
       mCspNonce(rhs.mCspNonce),
       mSkipContentSniffing(rhs.mSkipContentSniffing),
       mHttpsOnlyStatus(rhs.mHttpsOnlyStatus),
@@ -586,7 +592,10 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
       mIsInDevToolsContext(rhs.mIsInDevToolsContext),
       mParserCreatedScript(rhs.mParserCreatedScript),
       mHasStoragePermission(rhs.mHasStoragePermission),
+      mIsMetaRefresh(rhs.mIsMetaRefresh),
       mIsFromProcessingFrameAttributes(rhs.mIsFromProcessingFrameAttributes),
+      mIsMediaRequest(rhs.mIsMediaRequest),
+      mIsMediaInitialRequest(rhs.mIsMediaInitialRequest),
       mLoadingEmbedderPolicy(rhs.mLoadingEmbedderPolicy) {}
 
 LoadInfo::LoadInfo(
@@ -621,10 +630,11 @@ LoadInfo::LoadInfo(
     bool aIsPreflight, bool aLoadTriggeredFromExternal,
     bool aServiceWorkerTaintingSynthesized, bool aDocumentHasUserInteracted,
     bool aAllowListFutureDocumentsCreatedFromThisRedirectChain,
-    const nsAString& aCspNonce, bool aSkipContentSniffing,
-    uint32_t aHttpsOnlyStatus, bool aHasValidUserGestureActivation,
-    bool aAllowDeprecatedSystemRequests, bool aIsInDevToolsContext,
-    bool aParserCreatedScript, bool aHasStoragePermission,
+    bool aNeedForCheckingAntiTrackingHeuristic, const nsAString& aCspNonce,
+    bool aSkipContentSniffing, uint32_t aHttpsOnlyStatus,
+    bool aHasValidUserGestureActivation, bool aAllowDeprecatedSystemRequests,
+    bool aIsInDevToolsContext, bool aParserCreatedScript,
+    bool aHasStoragePermission, bool aIsMetaRefresh,
     uint32_t aRequestBlockingReason, nsINode* aLoadingContext,
     nsILoadInfo::CrossOriginEmbedderPolicy aLoadingEmbedderPolicy)
     : mLoadingPrincipal(aLoadingPrincipal),
@@ -681,6 +691,8 @@ LoadInfo::LoadInfo(
       mDocumentHasUserInteracted(aDocumentHasUserInteracted),
       mAllowListFutureDocumentsCreatedFromThisRedirectChain(
           aAllowListFutureDocumentsCreatedFromThisRedirectChain),
+      mNeedForCheckingAntiTrackingHeuristic(
+          aNeedForCheckingAntiTrackingHeuristic),
       mCspNonce(aCspNonce),
       mSkipContentSniffing(aSkipContentSniffing),
       mHttpsOnlyStatus(aHttpsOnlyStatus),
@@ -689,7 +701,10 @@ LoadInfo::LoadInfo(
       mIsInDevToolsContext(aIsInDevToolsContext),
       mParserCreatedScript(aParserCreatedScript),
       mHasStoragePermission(aHasStoragePermission),
+      mIsMetaRefresh(aIsMetaRefresh),
       mIsFromProcessingFrameAttributes(false),
+      mIsMediaRequest(false),
+      mIsMediaInitialRequest(false),
       mLoadingEmbedderPolicy(aLoadingEmbedderPolicy) {
   // Only top level TYPE_DOCUMENT loads can have a null loadingPrincipal
   MOZ_ASSERT(mLoadingPrincipal ||
@@ -966,9 +981,10 @@ LoadInfo::GetCookiePolicy(uint32_t* aResult) {
 namespace {
 
 already_AddRefed<nsICookieJarSettings> CreateCookieJarSettings(
-    nsContentPolicyType aContentPolicyType) {
+    nsContentPolicyType aContentPolicyType, bool aIsPrivate) {
   if (StaticPrefs::network_cookieJarSettings_unblocked_for_testing()) {
-    return CookieJarSettings::Create();
+    return aIsPrivate ? CookieJarSettings::Create(CookieJarSettings::ePrivate)
+                      : CookieJarSettings::Create(CookieJarSettings::eRegular);
   }
 
   // These contentPolictTypes require a real CookieJarSettings because favicon
@@ -976,7 +992,8 @@ already_AddRefed<nsICookieJarSettings> CreateCookieJarSettings(
   // send/receive cookies.
   if (aContentPolicyType == nsIContentPolicy::TYPE_INTERNAL_IMAGE_FAVICON ||
       aContentPolicyType == nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD) {
-    return CookieJarSettings::Create();
+    return aIsPrivate ? CookieJarSettings::Create(CookieJarSettings::ePrivate)
+                      : CookieJarSettings::Create(CookieJarSettings::eRegular);
   }
 
   return CookieJarSettings::GetBlockingAll();
@@ -987,7 +1004,9 @@ already_AddRefed<nsICookieJarSettings> CreateCookieJarSettings(
 NS_IMETHODIMP
 LoadInfo::GetCookieJarSettings(nsICookieJarSettings** aCookieJarSettings) {
   if (!mCookieJarSettings) {
-    mCookieJarSettings = CreateCookieJarSettings(mInternalContentPolicyType);
+    bool isPrivate = mOriginAttributes.mPrivateBrowsingId > 0;
+    mCookieJarSettings =
+        CreateCookieJarSettings(mInternalContentPolicyType, isPrivate);
   }
 
   nsCOMPtr<nsICookieJarSettings> cookieJarSettings = mCookieJarSettings;
@@ -1012,6 +1031,18 @@ LoadInfo::GetHasStoragePermission(bool* aHasStoragePermission) {
 NS_IMETHODIMP
 LoadInfo::SetHasStoragePermission(bool aHasStoragePermission) {
   mHasStoragePermission = aHasStoragePermission;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetIsMetaRefresh(bool* aIsMetaRefresh) {
+  *aIsMetaRefresh = mIsMetaRefresh;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::SetIsMetaRefresh(bool aIsMetaRefresh) {
+  mIsMetaRefresh = aIsMetaRefresh;
   return NS_OK;
 }
 
@@ -1529,6 +1560,19 @@ LoadInfo::SetAllowListFutureDocumentsCreatedFromThisRedirectChain(bool aValue) {
 }
 
 NS_IMETHODIMP
+LoadInfo::GetNeedForCheckingAntiTrackingHeuristic(bool* aValue) {
+  MOZ_ASSERT(aValue);
+  *aValue = mNeedForCheckingAntiTrackingHeuristic;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::SetNeedForCheckingAntiTrackingHeuristic(bool aValue) {
+  mNeedForCheckingAntiTrackingHeuristic = aValue;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 LoadInfo::GetCspNonce(nsAString& aCspNonce) {
   aCspNonce = mCspNonce;
   return NS_OK;
@@ -1635,6 +1679,32 @@ LoadInfo::GetIsFromProcessingFrameAttributes(
     bool* aIsFromProcessingFrameAttributes) {
   MOZ_ASSERT(aIsFromProcessingFrameAttributes);
   *aIsFromProcessingFrameAttributes = mIsFromProcessingFrameAttributes;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::SetIsMediaRequest(bool aIsMediaRequest) {
+  mIsMediaRequest = aIsMediaRequest;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetIsMediaRequest(bool* aIsMediaRequest) {
+  MOZ_ASSERT(aIsMediaRequest);
+  *aIsMediaRequest = mIsMediaRequest;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::SetIsMediaInitialRequest(bool aIsMediaInitialRequest) {
+  mIsMediaInitialRequest = aIsMediaInitialRequest;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetIsMediaInitialRequest(bool* aIsMediaInitialRequest) {
+  MOZ_ASSERT(aIsMediaInitialRequest);
+  *aIsMediaInitialRequest = mIsMediaInitialRequest;
   return NS_OK;
 }
 

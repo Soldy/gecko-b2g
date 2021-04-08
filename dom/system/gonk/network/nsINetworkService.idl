@@ -196,6 +196,20 @@ interface nsIStartClatdCallback : nsISupports
   void startClatdResult(in boolean success, in AString clatdAddress);
 };
 
+[scriptable, function, uuid(e381a45b-34b6-4512-bd1b-170dbb52a433)]
+interface nsIGetTetherStatsCallback : nsISupports
+{
+  /**
+   * Callback function used to return the list of tethering statistics.
+   *
+   * @param success
+   *        Boolean to indicate the operation is successful or not.
+   * @param tetherStats
+   *        An array of tethering statistics structure.
+   */
+  void getTetherStatsResult(in boolean success, in jsval tetherStats);
+};
+
 /**
  * Provide network services.
  */
@@ -244,16 +258,17 @@ interface nsINetworkService : nsISupports
 
 
   /**
-   * Retrieve network interface stats.
+   * Retrieve network interfaces stats.
    *
-   * @param networkName
-   *        Select the Network interface to request estats.
+   * @param interfaces
+   *        Select the Network interfaces to request estats.
    *
    * @param callback
    *        Callback to notify result and provide stats, connectionType
    *        and the date when stats are retrieved
    */
-  void getNetworkInterfaceStats(in AString networkName, in nsINetworkStatsCallback callback);
+  void getNetworkInterfaceStats(in Array<ACString> interfaces,
+                                in nsINetworkStatsCallback callback);
 
   /**
    * Set Alarm of usage per interface
@@ -312,11 +327,6 @@ interface nsINetworkService : nsISupports
    *        Number of elements in dnses.
    * @param dnses
    *        Dnses to set.
-   * @param gatewaysCount
-   *        Number of elements in gateways.
-   * @param gateways
-   *        Gateways for the dnses, the most suitable, usually the one with the
-   *        same address family, will be selected for each dns.
    *
    * @param callback
    *        Callback to notify the result of setting DNS server.
@@ -593,6 +603,21 @@ interface nsINetworkService : nsISupports
   jsval getNetId(in AString interfaceName);
 
   /**
+   * Enable/Disable ipv6 abilities for a network interface.
+   *
+   * @param interfaceName
+   *        The name of the network interface that we want to set ipv6 abilities.
+   *
+   * @param enable
+   *        Boolean to indicate we want enable or disable ipv6 abilities.
+   *
+   * @param callback
+   *        Callback to notify the result of setting ipv6 abilities.
+   */
+  void setIpv6Status(in AString interfaceName, in boolean enable,
+                     in nsINativeCommandCallback callback);
+
+  /**
    * Set ipv6 privacy extensions for a network interface.
    *
    * @param interfaceName
@@ -676,4 +701,11 @@ interface nsINetworkService : nsISupports
   void setTcpBufferSize(in AString tcpBufferSizes,
               in nsINativeCommandCallback callback);
 
+  /*
+   * Obtain tethering througput statistics.
+   *
+   * @param callback
+   *        Callback function to return the result.
+   */
+  void getTetherStats(in nsIGetTetherStatsCallback callback);
 };

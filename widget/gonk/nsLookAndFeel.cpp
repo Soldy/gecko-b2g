@@ -20,14 +20,16 @@
 #include "gfxFontConstants.h"
 #include "mozilla/gfx/2D.h"
 #include "cutils/properties.h"
+#include "nsITheme.h"
 
 static const char16_t UNICODE_BULLET = 0x2022;
 
-nsLookAndFeel::nsLookAndFeel(const LookAndFeelCache* aCache) {}
+nsLookAndFeel::nsLookAndFeel() = default;
 
 nsLookAndFeel::~nsLookAndFeel() {}
 
-nsresult nsLookAndFeel::NativeGetColor(ColorID aID, nscolor& aColor) {
+nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme,
+                                       nscolor& aColor) {
   nsresult rv = NS_OK;
 
 #define BASE_ACTIVE_COLOR NS_RGB(0xaa, 0xaa, 0xaa)
@@ -342,10 +344,6 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
 
     case IntID::ScrollSliderStyle:
       aResult = eScrollThumbStyle_Proportional;
-      break;
-
-    case IntID::TouchEnabled:
-      aResult = 1;
       break;
 
     case IntID::WindowsDefaultTheme:

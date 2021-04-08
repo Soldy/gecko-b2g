@@ -285,7 +285,6 @@ const browsingContextTargetPrototype = {
 
     // A map of actor names to actor instances provided by extensions.
     this._extraActors = {};
-    this._exited = false;
     this._sourcesManager = null;
 
     // Map of DOM stylesheets to StyleSheetActors
@@ -341,10 +340,6 @@ const browsingContextTargetPrototype = {
     return true;
   },
 
-  get exited() {
-    return this._exited;
-  },
-
   get attached() {
     return !!this._attached;
   },
@@ -363,7 +358,7 @@ const browsingContextTargetPrototype = {
    * Try to locate the console actor if it exists.
    */
   get _consoleActor() {
-    if (this.exited || this.isDestroyed()) {
+    if (this.isDestroyed()) {
       return null;
     }
     const form = this.form();
@@ -546,12 +541,18 @@ const browsingContextTargetPrototype = {
   },
 
   form() {
-    assert(!this.exited, "form() shouldn't be called on exited browser actor.");
+    assert(
+      !this.isDestroyed(),
+      "form() shouldn't be called on destroyed browser actor."
+    );
     assert(this.actorID, "Actor should have an actorID.");
 
     const response = {
       actor: this.actorID,
       browsingContextID: this.browsingContextID,
+      // True for targets created by JSWindowActors, see constructor JSDoc.
+      followWindowGlobalLifeCycle: this.followWindowGlobalLifeCycle,
+      isTopLevelTarget: this.isTopLevelTarget,
       traits: {
         // @backward-compat { version 64 } Exposes a new trait to help identify
         // BrowsingContextActor's inherited actors from the client side.
@@ -559,6 +560,14 @@ const browsingContextTargetPrototype = {
         // @backward-compat { version 87 } Print & color scheme simulations
         // should now be set using reconfigure.
         reconfigureSupportsSimulationFeatures: true,
+        // @backward-compat { version 88 } Browsing context targets can compute
+        // the isTopLevelTarget flag on the server. Note that not all targets
+        // support this, so we might keep this trait until all top level targets
+        // can provide this flag consistently from the server.
+        supportsTopLevelTargetFlag: true,
+        // @backward-compat { version 88 } Added in version 88, will not be
+        // available on targets from older servers.
+        supportsFollowWindowGlobalLifeCycleFlag: true,
       },
     };
 
@@ -589,20 +598,9 @@ const browsingContextTargetPrototype = {
    * Called when the actor is removed from the connection.
    */
   destroy() {
-    this.exit();
-    Actor.prototype.destroy.call(this);
-    TargetActorRegistry.unregisterTargetActor(this);
-    Resources.unwatchAllTargetResources(this);
-  },
-
-  /**
-   * Called by the root actor when the underlying browsing context is closed.
-   */
-  exit() {
-    if (this.exited) {
+    if (this.isDestroyed()) {
       return;
     }
-
     // Tell the thread actor that the browsing context is closed, so that it may terminate
     // instead of resuming the debuggee script.
     if (this._attached) {
@@ -611,12 +609,12 @@ const browsingContextTargetPrototype = {
     }
 
     this._detach();
-
     this.docShell = null;
-
     this._extraActors = null;
 
-    this._exited = true;
+    Actor.prototype.destroy.call(this);
+    TargetActorRegistry.unregisterTargetActor(this);
+    Resources.unwatchAllTargetResources(this);
   },
 
   /**
@@ -674,7 +672,7 @@ const browsingContextTargetPrototype = {
   _watchDocshells() {
     // If for some unexpected reason, the actor is immediately destroyed,
     // avoid registering leaking observer listener.
-    if (this.exited) {
+    if (this.isDestroyed()) {
       return;
     }
 
@@ -881,7 +879,7 @@ const browsingContextTargetPrototype = {
         // document is destroyed, and there is no other top level docshell,
         // we detach the actor to unregister all listeners and prevent any
         // exception.
-        this.exit();
+        this.destroy();
       }
       return;
     }
@@ -1076,9 +1074,9 @@ const browsingContextTargetPrototype = {
   // Protocol Request Handlers
 
   attach(request) {
-    if (this.exited) {
+    if (this.isDestroyed()) {
       throw {
-        error: "exited",
+        error: "destroyed",
       };
     }
 
@@ -1277,17 +1275,6 @@ const browsingContextTargetPrototype = {
     ) {
       this._setPaintFlashingEnabled(options.paintFlashing);
     }
-    if (typeof options.colorSchemeSimulation !== "undefined") {
-      this._setColorSchemeSimulation(options.colorSchemeSimulation);
-    }
-    if (typeof options.printSimulationEnabled !== "undefined") {
-      this._setPrintSimulationEnabled(options.printSimulationEnabled);
-    }
-    if (typeof options.serviceWorkersTestingEnabled !== "undefined") {
-      this._setServiceWorkersTestingEnabled(
-        options.serviceWorkersTestingEnabled
-      );
-    }
     if (typeof options.restoreFocus == "boolean") {
       this._restoreFocus = options.restoreFocus;
     }
@@ -1304,10 +1291,7 @@ const browsingContextTargetPrototype = {
   _restoreTargetConfiguration() {
     this._restoreJavascript();
     this._setCacheDisabled(false);
-    this._setServiceWorkersTestingEnabled(false);
     this._setPaintFlashingEnabled(false);
-    this._setPrintSimulationEnabled(false);
-    this._setColorSchemeSimulation(null);
 
     if (this._restoreFocus && this.browsingContext?.isActive) {
       this.window.focus();
@@ -1355,35 +1339,6 @@ const browsingContextTargetPrototype = {
     }
 
     return this.docShell.allowJavascript;
-  },
-
-  /**
-   * Disable or enable the service workers testing features.
-   */
-  _setServiceWorkersTestingEnabled(enabled) {
-    if (this.browsingContext.serviceWorkersTestingEnabled != enabled) {
-      this.browsingContext.serviceWorkersTestingEnabled = enabled;
-    }
-  },
-
-  /**
-   * Disable or enable the print simulation.
-   */
-  _setPrintSimulationEnabled(enabled) {
-    const value = enabled ? "print" : "";
-    if (this.browsingContext.mediumOverride != value) {
-      this.browsingContext.mediumOverride = value;
-    }
-  },
-
-  /**
-   * Disable or enable the color-scheme simulation.
-   */
-  _setColorSchemeSimulation(override) {
-    const value = override || "none";
-    if (this.browsingContext.prefersColorSchemeOverride != value) {
-      this.browsingContext.prefersColorSchemeOverride = value;
-    }
   },
 
   /**
@@ -1619,7 +1574,10 @@ const browsingContextTargetPrototype = {
    *
    */
   createStyleSheetActor(styleSheet) {
-    assert(!this.exited, "Target must not be exited to create a sheet actor.");
+    assert(
+      !this.isDestroyed(),
+      "Target must not be destroyed to create a sheet actor."
+    );
     if (this._styleSheetActors.has(styleSheet)) {
       return this._styleSheetActors.get(styleSheet);
     }

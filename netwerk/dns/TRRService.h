@@ -14,6 +14,7 @@
 #include "ODoHService.h"
 #include "TRRServiceBase.h"
 #include "nsICaptivePortalService.h"
+#include "nsTHashSet.h"
 
 class nsDNSService;
 class nsIPrefBranch;
@@ -40,7 +41,8 @@ class TRRService : public TRRServiceBase,
   nsresult Init();
   nsresult Start();
   bool Enabled(nsIRequest::TRRMode aRequestMode = nsIRequest::TRR_DEFAULT_MODE);
-  bool IsConfirmed() { return mConfirmation.mState == CONFIRM_OK; }
+  bool IsConfirmed() { return mConfirmation.State() == CONFIRM_OK; }
+  uint32_t ConfirmationState() { return mConfirmation.State(); }
 
   bool DisableIPv6() { return mDisableIPv6; }
   nsresult GetURI(nsACString& result);
@@ -49,7 +51,7 @@ class TRRService : public TRRServiceBase,
 
   LookupStatus CompleteLookup(nsHostRecord*, nsresult, mozilla::net::AddrInfo*,
                               bool pb, const nsACString& aOriginSuffix,
-                              nsHostRecord::TRRSkippedReason aReason,
+                              TRRSkippedReason aReason,
                               TRR* aTrrRequest) override;
   LookupStatus CompleteLookupByType(nsHostRecord*, nsresult,
                                     mozilla::net::TypeRecordResultType&,
@@ -62,8 +64,7 @@ class TRRService : public TRRServiceBase,
   bool IsExcludedFromTRR(const nsACString& aHost);
 
   bool MaybeBootstrap(const nsACString& possible, nsACString& result);
-  enum TrrOkay { OKAY_NORMAL = 0, OKAY_TIMEOUT = 1, OKAY_BAD = 2 };
-  void TRRIsOkay(enum TrrOkay aReason);
+  void TRRIsOkay(nsresult aChannelStatus);
   bool ParentalControlEnabled() const { return mParentalControlEnabled; }
 
   nsresult DispatchTRRRequest(TRR* aTrrRequest);
@@ -71,7 +72,10 @@ class TRRService : public TRRServiceBase,
   bool IsOnTRRThread();
 
   bool IsUsingAutoDetectedURL() { return mURISetByDetection; }
-  static const nsCString& AutoDetectedKey();
+
+  // Returns a reference to a static string identifying the current DoH server
+  // If the DoH server is not one of the built-in ones it will return "(other)"
+  static const nsCString& ProviderKey();
 
  private:
   virtual ~TRRService();
@@ -87,8 +91,6 @@ class TRRService : public TRRServiceBase,
 
   nsresult ReadPrefs(const char* name);
   void GetPrefBranch(nsIPrefBranch** result);
-  void MaybeConfirm(const char* aReason);
-  void MaybeConfirm_locked(const char* aReason);
   friend class ::nsDNSService;
   void SetDetectedTrrURI(const nsACString& aURI);
 
@@ -111,47 +113,100 @@ class TRRService : public TRRServiceBase,
   virtual void ReadEtcHostsFile() override;
   void AddEtcHosts(const nsTArray<nsCString>&);
 
-  bool mInitialized;
-  Atomic<uint32_t, Relaxed> mBlocklistDurationSeconds;
+  void CompleteConfirmation(nsresult aStatus, TRR* aTrrRequest);
 
-  Mutex mLock;
+  bool mInitialized{false};
+  Atomic<uint32_t, Relaxed> mBlocklistDurationSeconds{60};
+
+  Mutex mLock{"TRRService"};
 
   nsCString mPrivateCred;  // main thread only
-  nsCString mConfirmationNS;
+  nsCString mConfirmationNS{"example.com"_ns};
   nsCString mBootstrapAddr;
 
-  Atomic<bool, Relaxed>
-      mCaptiveIsPassed;  // set when captive portal check is passed
+  Atomic<bool, Relaxed> mCaptiveIsPassed{
+      false};  // set when captive portal check is passed
   Atomic<bool, Relaxed> mDisableIPv6;  // don't even try
 
   // TRR Blocklist storage
   // mTRRBLStorage is only modified on the main thread, but we query whether it
   // is initialized or not off the main thread as well. Therefore we need to
   // lock while creating it and while accessing it off the main thread.
-  DataMutex<nsDataHashtable<nsCStringHashKey, int32_t>> mTRRBLStorage;
+  DataMutex<nsTHashMap<nsCStringHashKey, int32_t>> mTRRBLStorage{
+      "DataMutex::TRRBlocklist"};
 
   // A set of domains that we should not use TRR for.
-  nsTHashtable<nsCStringHashKey> mExcludedDomains;
-  nsTHashtable<nsCStringHashKey> mDNSSuffixDomains;
-  nsTHashtable<nsCStringHashKey> mEtcHostsDomains;
+  nsTHashSet<nsCString> mExcludedDomains;
+  nsTHashSet<nsCString> mDNSSuffixDomains;
+  nsTHashSet<nsCString> mEtcHostsDomains;
 
+  enum class ConfirmationEvent {
+    Init,
+    PrefChange,
+    Retry,
+    FailedLookups,
+    URIChange,
+    CaptivePortalConnectivity,
+    NetworkUp,
+    ConfirmOK,
+    ConfirmFail,
+  };
+
+  void HandleConfirmationEvent(ConfirmationEvent aEvent);
+  void HandleConfirmationEvent(ConfirmationEvent aEvent, const MutexAutoLock&);
+
+  //                                 (FailedLookups/URIChange/NetworkUp)
+  //                                    +-------------------------+
+  // +-----------+                      |                         |
+  // |   (Init)  |               +------v---------+             +-+--+
+  // |           | TRR turned on |                | (ConfirmOK) |    |
+  // |    OFF    +--------------->     TRY-OK     +-------------> OK |
+  // |           |  (PrefChange) |                |             |    |
+  // +-----^-----+               +^-^----+--------+             +-^--+
+  //       |    (PrefChange/CP)   | |    |                        |
+  //   TRR +   +------------------+ |    |                        |
+  //   off |   |               +----+    |(ConfirmFail)           |(ConfirmOK)
+  // (Pref)|   |               |         |                        |
+  // +---------+-+             |         |                        |
+  // |           |    (CPConn) | +-------v--------+         +-----+-----+
+  // | ANY-STATE |  (NetworkUp)| |                |  timer  |           |
+  // |           |  (URIChange)+-+      FAIL      +--------->  TRY-FAIL |
+  // +-----+-----+               |                | (Retry) |           |
+  //       |                     +------^---------+         +------+----+
+  //       | (PrefChange)               |                         |
+  //       | TRR_ONLY mode or           +-------------------------+
+  //       | confirmationNS = skip                (ConfirmFail)
+  // +-----v-----+
+  // |           |
+  // |  DISABLED |
+  // |           |
+  // +-----------+
+  //
   enum ConfirmationState {
-    CONFIRM_INIT = 0,
-    CONFIRM_TRYING = 1,
+    CONFIRM_OFF = 0,
+    CONFIRM_TRYING_OK = 1,
     CONFIRM_OK = 2,
-    CONFIRM_FAILED = 3
+    CONFIRM_FAILED = 3,
+    CONFIRM_TRYING_FAILED = 4,
+    CONFIRM_DISABLED = 5,
   };
 
   class ConfirmationContext {
-    static const size_t RESULTS_SIZE = 32;
+    friend void TRRService::HandleConfirmationEvent(ConfirmationEvent,
+                                                    const MutexAutoLock&);
 
    public:
-    Atomic<ConfirmationState, Relaxed> mState;
+    static const size_t RESULTS_SIZE = 32;
+
     RefPtr<TRR> mTask;
     nsCOMPtr<nsITimer> mTimer;
     uint32_t mRetryInterval = 125;  // milliseconds until retry
     // The number of TRR requests that failed in a row.
-    Atomic<uint32_t, Relaxed> mTRRFailures;
+    Atomic<uint32_t, Relaxed> mTRRFailures{0};
+
+    // This buffer holds consecutive TRR failures reported by calling
+    // TRRIsOkay(). It is only meant for reporting event telemetry.
+    char mFailureReasons[RESULTS_SIZE] = {0};
 
     // The number of confirmation retries.
     uint32_t mAttemptCount = 0;
@@ -174,6 +229,10 @@ class TRRService : public TRRServiceBase,
     // What triggered the confirmation
     nsCString mTrigger;
 
+    // String representation of consecutive failed lookups that triggered
+    // confirmation.
+    nsCString mFailedLookups;
+
     // Called when a confirmation completes successfully or when the
     // confirmation context changes.
     void RecordEvent(const char* aReason);
@@ -181,11 +240,16 @@ class TRRService : public TRRServiceBase,
     // Called when a confirmation request is completed. The status is recorded
     // in the results.
     void RequestCompleted(nsresult aLookupStatus, nsresult aChannelStatus);
+
+    enum ConfirmationState State() { return mState; }
+
+   private:
+    Atomic<enum ConfirmationState, Relaxed> mState{CONFIRM_OFF};
   };
 
   ConfirmationContext mConfirmation;
 
-  bool mParentalControlEnabled;
+  bool mParentalControlEnabled{false};
   RefPtr<ODoHService> mODoHService;
   nsCOMPtr<nsINetworkLinkService> mLinkService;
 };

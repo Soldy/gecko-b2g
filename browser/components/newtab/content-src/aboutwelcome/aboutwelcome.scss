@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 @import '../styles/normalize';
-@import '../styles/OnboardingImages';
 
 $break-point-medium: 610px;
 $break-point-large: 866px;
@@ -16,7 +15,6 @@ html {
 
 body {
   // sass-lint:disable no-color-literals
-  --grey-subtitle: #4A4A4F;
   --grey-subtitle-1: #696977;
   --newtab-background-color: #EDEDF0;
   --newtab-background-color-1: #F9F9FA;
@@ -27,13 +25,8 @@ body {
   --newtab-card-background-color: #FFF;
   --newtab-card-shadow: 0 1px 4px 0 rgba(12, 12, 13, 0.4);
   --tiles-theme-section-border-width: 1px;
-  --welcome-header-text-color: #2B2156;
   --welcome-header-text-color-1: #20133A;
-  --welcome-card-button-background-color: rgba(12, 12, 13, 0.1);
-  --welcome-card-button-background-hover-color: rgba(12, 12, 13, 0.2);
-  --welcome-card-button-background-active-color: rgba(12, 12, 13, 0.3);
   --welcome-button-box-shadow-color: #0A84FF;
-  --welcome-button-box-shadow-inset-color: rgba(10, 132, 255, 0.3);
   --welcome-button-text-color: #FFF;
   --welcome-button-background-hover-color: #003EAA;
   --welcome-button-background-active-color: #002275;
@@ -58,193 +51,11 @@ body {
     --newtab-button-secondary-color: #FFF;
     --newtab-card-background-color: #38383D;
     --newtab-card-shadow: 0 1px 8px 0 rgba(12, 12, 13, 0.4);
-    --welcome-header-text-color: rgba(255, 255, 255, 0.6);
     --welcome-header-text-color-1: #7542E5;
-    --welcome-card-button-background-color: rgba(12, 12, 13, 0.3);
-    --welcome-card-button-background-hover-color: rgba(12, 12, 13, 0.5);
-    --welcome-card-button-background-active-color: rgba(12, 12, 13, 0.7);
     --welcome-button-box-shadow-color: #0A84FF;
     --about-welcome-media-fade: linear-gradient(transparent, transparent 35%, #1D1133, #1D1133);
   }
 }
-
-.welcomeCardGrid {
-  margin: 0;
-  margin-top: 32px;
-  display: grid;
-  grid-gap: 32px;
-  transition: opacity 0.4s;
-  transition-delay: 0.1s;
-  grid-auto-rows: 1fr;
-
-  @media (min-width: $break-point-medium) {
-    grid-template-columns: repeat(auto-fit, 224px);
-  }
-
-  @media (min-width: $break-point-widest) {
-    grid-template-columns: repeat(auto-fit, 309px);
-  }
-}
-
-.welcomeContainer {
-  text-align: center;
-
-  @media (min-width: $break-point-medium) {
-    max-height: 1000px;
-  }
-
-  h1 {
-    font-size: 36px;
-    font-weight: 200;
-    margin: 0 0 40px;
-    color: var(--welcome-header-text-color);
-  }
-
-  .welcome-title {
-    margin-bottom: 5px;
-    line-height: 52px;
-  }
-
-  .welcome-subtitle {
-    font-size: 28px;
-    font-weight: 200;
-    margin: 6px 0 0;
-    color: var(--grey-subtitle);
-    line-height: 42px;
-  }
-}
-
-.welcomeContainerInner {
-  margin: auto;
-  padding: 40px 25px;
-
-  @media (min-width: $break-point-medium) {
-    width: 530px;
-  }
-
-  @media (min-width: $break-point-large) {
-    width: 786px;
-  }
-
-  @media (min-width: $break-point-widest) {
-    width: 1042px;
-  }
-}
-
-.welcomeCard {
-  position: relative;
-  background: var(--newtab-card-background-color);
-  border-radius: 4px;
-  box-shadow: var(--newtab-card-shadow);
-  font-size: 13px;
-  padding: 20px 20px 60px;
-
-  @media (max-width: $break-point-large) {
-    padding: 20px;
-  }
-
-  @media (min-width: $break-point-widest) {
-    font-size: 15px;
-  }
-}
-
-.welcomeCard .onboardingTitle {
-  font-weight: normal;
-  color: var(--newtab-text-primary-color);
-  margin: 10px 0 4px;
-  font-size: 15px;
-
-  @media (min-width: $break-point-widest) {
-    font-size: 18px;
-  }
-}
-
-.welcomeCard .onboardingText {
-  margin: 0 0 60px;
-  color: var(--newtab-text-conditional-color);
-  line-height: 1.5;
-  font-weight: 200;
-}
-
-.welcomeCard .onboardingButton {
-  color: var(--newtab-text-conditional-color);
-  background: var(--welcome-card-button-background-color);
-  border: 0;
-  border-radius: 4px;
-  margin: 14px;
-  min-width: 70%;
-  padding: 6px 14px;
-  white-space: pre-wrap;
-  cursor: pointer;
-
-  &:focus,
-  &:hover {
-    box-shadow: none;
-    background: var(--welcome-card-button-background-hover-color);
-  }
-
-  &:focus {
-    outline: dotted 1px;
-  }
-
-  &:active {
-    background: var(--welcome-card-button-background-active-color);
-  }
-}
-
-.welcomeCard .onboardingButtonContainer {
-  position: absolute;
-  bottom: 16px;
-  left: 0;
-  width: 100%;
-  text-align: center;
-}
-
-.onboardingMessageImage {
-  height: 112px;
-  width: 180px;
-  background-size: auto 140px;
-  background-position: center center;
-  background-repeat: no-repeat;
-  display: inline-block;
-
-  @media (max-width: $break-point-large) {
-    height: 75px;
-    min-width: 80px;
-    background-size: 140px;
-  }
-}
-
-.start-button {
-  border: 0;
-  font-size: 15px;
-  font-family: inherit;
-  font-weight: 200;
-  margin-inline-start: 12px;
-  margin: 30px 0 25px;
-  padding: 8px 16px;
-  white-space: nowrap;
-  background-color: var(--newtab-button-primary-color);
-  color: var(--welcome-button-text-color);
-  cursor: pointer;
-  border-radius: 2px;
-
-  &:focus {
-    background: var(--welcome-button-background-hover-color);
-    box-shadow: 0 0 0 1px var(--welcome-button-box-shadow-inset-color) inset,
-    0 0 0 1px var(--welcome-button-box-shadow-inset-color),
-    0 0 0 4px var(--welcome-button-box-shadow-color);
-  }
-
-  &:hover {
-    background: var(--welcome-button-background-hover-color);
-  }
-
-  &:active {
-    background: var(--welcome-button-background-active-color);
-  }
-}
-
 
 .onboardingContainer {
   text-align: center;
@@ -298,8 +109,6 @@ body {
         background-image:  url('chrome://activity-stream/content/data/content/assets/long-zap.svg');
       }
     }
-
-
   }
 
   .welcome-text {
@@ -395,12 +204,14 @@ body {
       box-shadow: 0 1px 4px 0 rgba(12, 12, 13, 0.4);
       border-radius: 4px;
       cursor: pointer;
+      z-index: 0;
 
       .icon {
         background-size: cover;
         border-top-left-radius: 4px;
         border-top-right-radius: 4px;
         height: 91px;
+        z-index: -1;
 
         &:dir(rtl) {
           transform: scaleX(-1);
@@ -556,6 +367,14 @@ body {
     }
   }
 
+  .tiles-delayed {
+    animation: fadein 0.4s;
+  }
+
+  @keyframes fadein {
+    from { opacity: 0; }
+  }
+
   button {
     font-family: inherit;
     cursor: pointer;
@@ -640,6 +459,25 @@ body {
       align-self: center;
       max-width: 40%;
     }
+
+    span {
+      padding-inline-end: 4px;
+    }
+  }
+
+  .helptext-img {
+    height: 1.5em;
+    width: 1.5em;
+    margin-inline-end: 4px;
+    vertical-align: middle;
+
+    &.end {
+      margin: 4px;
+    }
+
+    &.footer {
+      vertical-align: bottom;
+    }
   }
 
   .steps {
@@ -667,6 +505,250 @@ body {
 
       &.current {
         opacity: 1;
+      }
+    }
+  }
+
+  // Styles specific to Proton multistage welcome UI
+  &.proton {
+    background: url('chrome://activity-stream/content/data/content/assets/proton-bkg.avif') center / cover no-repeat fixed;
+
+    .screen {
+      flex-flow: row nowrap;
+    }
+
+    .section-main {
+      background-color: var(--newtab-card-background-color);
+      border-radius: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .welcome-text {
+      h1,
+      h2 {
+        width: 376px;
+      }
+
+      h1 {
+        color: var(--newtab-text-primary-color);
+        font-size: 24px;
+        line-height: 36px;
+        font-weight: normal;
+      }
+
+      h2 {
+        font-size: 16px;
+        line-height: 24px;
+      }
+    }
+
+    .brand-logo {
+      background: url('chrome://branding/content/about-logo.svg') top
+      center / 80px no-repeat;
+      padding: 80px 0 10px;
+    }
+
+    .primary,
+    .secondary {
+      font-size: 13px;
+      line-height: 16px;
+    }
+
+    .steps {
+      padding-bottom: 44px;
+
+      .indicator {
+        width: 6px;
+        height: 6px;
+        background: #E0E0E6;
+
+        &.current {
+          background: #0090ED;
+        }
+      }
+    }
+
+    .tiles-theme-section {
+      border: var(--tiles-theme-section-border-width)
+      solid
+      var(--newtab-card-background-color);
+    }
+
+    .theme {
+      align-items: center;
+      width: auto;
+      min-width: 80px;
+      height: initial;
+      background-color: var(--newtab-card-background-color);
+      box-shadow: none;
+
+      &:focus,
+      &:active {
+        outline: initial;
+        outline-offset: initial;
+      }
+
+      .text {
+        font-weight: normal;
+        line-height: 20px;
+      }
+
+      .icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 40px;
+        margin-inline-start: 12px;
+
+        &.selected {
+          outline: 4px solid #0090ED;
+          outline-offset: -4px;
+        }
+
+        &:focus,
+        &:active {
+          outline: 4px solid #0090ED;
+          outline-offset: -4px;
+        }
+
+        &.light {
+          background-image: none;
+          background-color: #F0F0F4;
+          border: 1px solid #BFBFC9;
+        }
+
+        &.dark {
+          background-image: none;
+          background-color: #15141A;
+          border: 1px solid #8F8F9D;
+        }
+
+        &.alpenglow {
+          background-image: none;
+          background: linear-gradient(51.22deg, #9059FF 8.75%, #FF4AA2 56.28%, #FFBD4F 100.01%);
+        }
+
+        &.automatic {
+          background-image: none;
+          background-color: rgba(21, 20, 26, 0.4);
+          border: 1px solid #BFBFC9;
+        }
+      }
+    }
+
+
+    .screen-0 {
+      /**
+       * Proton welcome content is above white background noodle on first screen even when
+       * using the RTL UI direction; below rule enforce that ordering.
+       */
+      direction: ltr;
+      @media (max-width: $break-point-large) {
+        width: 800px;
+      }
+
+      @media (max-width: $break-point-medium) {
+        width: 700px;
+      }
+
+      .section-left {
+        width: 50%;
+        display: flex;
+        flex-direction: column;
+        margin: 0 0 0 101px;
+
+        @media (max-width: $break-point-widest) {
+          margin: 0 0 0 71px;
+        }
+
+        .message-text {
+          flex-grow: 1;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+
+          h1 {
+            color: #FFF;
+            font-weight: bold;
+            font-size: 64px;
+            line-height: 72px;
+            margin: 0 6px;
+            width: 517px;
+            text-align: initial;
+
+            @media (max-width: $break-point-widest) {
+              width: 300px;
+              font-size: 48px;
+              line-height: 56px;
+            }
+
+            @media (max-width: $break-point-large) {
+              width: 284px;
+              font-size: 48px;
+              line-height: 56px;
+            }
+
+            @media (max-width: $break-point-medium) {
+              width: 208px;
+              font-size: 48px;
+              line-height: 56px;
+            }
+          }
+        }
+
+        .attrib-text {
+          height: 18px;
+          width: 517px;
+          margin-bottom: 25px;
+          text-align: left;
+          font-size: 12px;
+          line-height: 18px;
+          color: #F9F9FB;
+          text-shadow: 0 0 7px rgba(0, 0, 0, 0.6);
+        }
+      }
+
+      // TBD: Update below section to show up above solid
+      // background noodle
+      .section-main {
+        z-index: 1;
+        height: 350px;
+        position: sticky;
+        top: 60%;
+        left: 80%;
+
+        .brand-logo {
+          margin-top: 0;
+        }
+
+        .welcome-text {
+          margin-bottom: 5px;
+
+          h1 {
+            width: 283px;
+          }
+        }
+      }
+    }
+
+    .screen-1,
+    .screen-2 {
+
+      .section-main {
+        width: 504px;
+        height: 503px;
+        margin: auto;
+
+        @media (max-width: $break-point-large) {
+          width: 450px;
+          height: auto;
+        }
+
+        @media (max-width: $break-point-medium) {
+          width: 420px;
+          height: auto;
+        }
       }
     }
   }

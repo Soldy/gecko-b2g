@@ -287,10 +287,7 @@ void EventListenerManager::AddEventListenerInternal(
     mMayHaveMutationListeners = true;
     // Go from our target to the nearest enclosing DOM window.
     if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
-      nsCOMPtr<Document> doc = window->GetExtantDoc();
-      if (doc &&
-          !(aFlags.mInSystemGroup &&
-            doc->DontWarnAboutMutationEventsAndAllowSlowDOMMutations())) {
+      if (Document* doc = window->GetExtantDoc()) {
         doc->WarnOnceAbout(DeprecatedOperations::eMutationEvent);
       }
       // If aEventMessage is eLegacySubtreeModified, we need to listen all
@@ -304,9 +301,8 @@ void EventListenerManager::AddEventListenerInternal(
     EnableDevice(eDeviceOrientation);
   } else if (aTypeAtom == nsGkAtoms::onabsolutedeviceorientation) {
     EnableDevice(eAbsoluteDeviceOrientation);
-  } else if (aTypeAtom == nsGkAtoms::ondeviceproximity ||
-             aTypeAtom == nsGkAtoms::onuserproximity) {
-    EnableDevice(eDeviceProximity);
+  } else if (aTypeAtom == nsGkAtoms::onuserproximity) {
+    EnableDevice(eUserProximity);
   } else if (aTypeAtom == nsGkAtoms::ondevicelight) {
     EnableDevice(eDeviceLight);
   } else if (aTypeAtom == nsGkAtoms::ondevicemotion) {
@@ -417,6 +413,18 @@ void EventListenerManager::AddEventListenerInternal(
         doc->SetUseCounter(eUseCounter_custom_onunderflow);
       }
     }
+  } else if (aTypeAtom == nsGkAtoms::onDOMMouseScroll) {
+    if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
+      if (Document* doc = window->GetExtantDoc()) {
+        doc->SetUseCounter(eUseCounter_custom_ondommousescroll);
+      }
+    }
+  } else if (aTypeAtom == nsGkAtoms::onMozMousePixelScroll) {
+    if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
+      if (Document* doc = window->GetExtantDoc()) {
+        doc->SetUseCounter(eUseCounter_custom_onmozmousepixelscroll);
+      }
+    }
   }
 
   if (IsApzAwareListener(listener)) {
@@ -482,7 +490,6 @@ bool EventListenerManager::IsDeviceType(EventMessage aEventMessage) {
     case eAbsoluteDeviceOrientation:
     case eDeviceMotion:
     case eDeviceLight:
-    case eDeviceProximity:
     case eUserProximity:
 #ifdef MOZ_B2G
     case eAtmPressure:
@@ -522,7 +529,6 @@ void EventListenerManager::EnableDevice(EventMessage aEventMessage) {
       window->EnableDeviceSensor(SENSOR_ORIENTATION);
 #endif
       break;
-    case eDeviceProximity:
     case eUserProximity:
       window->EnableDeviceSensor(SENSOR_PROXIMITY);
       break;
@@ -576,7 +582,6 @@ void EventListenerManager::DisableDevice(EventMessage aEventMessage) {
       window->DisableDeviceSensor(SENSOR_LINEAR_ACCELERATION);
       window->DisableDeviceSensor(SENSOR_GYROSCOPE);
       break;
-    case eDeviceProximity:
     case eUserProximity:
       window->DisableDeviceSensor(SENSOR_PROXIMITY);
       break;
@@ -1048,7 +1053,7 @@ nsresult EventListenerManager::CompileEventHandlerInternal(
 
   RefPtr<ScriptFetchOptions> fetchOptions = new ScriptFetchOptions(
       CORS_NONE, aElement->OwnerDoc()->GetReferrerPolicy(), aElement,
-      aElement->OwnerDoc()->NodePrincipal());
+      aElement->OwnerDoc()->NodePrincipal(), nullptr);
 
   RefPtr<EventScript> eventScript = new EventScript(fetchOptions, uri);
 

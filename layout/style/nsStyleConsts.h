@@ -561,12 +561,6 @@ enum class StyleRubyAlign : uint8_t {
   SpaceAround,
 };
 
-// ruby-position, see nsStyleText
-enum class StyleRubyPosition : uint8_t {
-  Over,
-  Under,
-};
-
 // See nsStyleText
 enum class StyleTextSizeAdjust : uint8_t {
   None,
@@ -646,6 +640,7 @@ enum class StyleWindowShadow : uint8_t {
   Menu,
   Tooltip,
   Sheet,
+  Cliprounded,  // clip border to popup border-radius
 };
 
 // dominant-baseline

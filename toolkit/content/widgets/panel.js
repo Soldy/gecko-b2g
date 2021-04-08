@@ -202,6 +202,13 @@
       if (this.isArrowPanel && event.target == this) {
         this.removeAttribute("animating");
         this.setAttribute("panelopen", "true");
+
+        if (this.isAnchored && this.anchorNode) {
+          let anchorRoot =
+            this.anchorNode.closest("toolbarbutton, .anchor-root") ||
+            this.anchorNode;
+          anchorRoot.setAttribute("open", "true");
+        }
       }
 
       // Fire event for accessibility APIs
@@ -221,6 +228,13 @@
           }
         } else if (animate) {
           this.setAttribute("animate", "cancel");
+        }
+
+        if (this.isAnchored && this.anchorNode) {
+          let anchorRoot =
+            this.anchorNode.closest("toolbarbutton, .anchor-root") ||
+            this.anchorNode;
+          anchorRoot.removeAttribute("open");
         }
       }
 

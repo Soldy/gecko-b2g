@@ -157,8 +157,6 @@ var whitelist = [
   },
 
   // Files from upstream library
-  { file: "resource://pdf.js/build/pdf.sandbox.external.js" },
-  { file: "resource://pdf.js/build/pdf.scripting.js" },
   { file: "resource://pdf.js/web/debugger.js" },
 
   // resource://app/modules/translation/TranslationContentHandler.jsm
@@ -218,14 +216,23 @@ var whitelist = [
   // Bug 1559554
   { file: "chrome://browser/content/aboutlogins/aboutLoginsUtils.js" },
 
-  // Referenced from the screenshots webextension
-  { file: "resource://app/localization/en-US/browser/screenshots.ftl" },
+  // Bug 1559554
+  {
+    file:
+      "chrome://browser/content/aboutlogins/components/import-details-row.js",
+  },
 
   // services/fxaccounts/RustFxAccount.js
   { file: "resource://gre/modules/RustFxAccount.js" },
 
   // dom/media/mediacontrol/MediaControlService.cpp
   { file: "resource://gre/localization/en-US/dom/media.ftl" },
+
+  // tookit/mozapps/update/BackgroundUpdate.jsm
+  {
+    file:
+      "resource://gre/localization/en-US/toolkit/updates/backgroundupdate.ftl",
+  },
 ];
 
 if (AppConstants.NIGHTLY_BUILD && AppConstants.platform != "win") {
@@ -241,6 +248,20 @@ if (AppConstants.platform == "android") {
   // Referenced by aboutGlean.html
   whitelist.push({
     file: "resource://gre/localization/en-US/toolkit/about/aboutGlean.ftl",
+  });
+}
+
+if (AppConstants.MOZ_BACKGROUNDTASKS && !AppConstants.MOZ_UPDATE_AGENT) {
+  // These utilities are for background tasks, not regular headed browsing.
+  whitelist.push({
+    file: "resource://gre/modules/BackgroundTasksUtils.jsm",
+  });
+}
+
+if (AppConstants.MOZ_UPDATE_AGENT && !AppConstants.MOZ_BACKGROUNDTASKS) {
+  // Task scheduling is only used for background updates right now.
+  whitelist.push({
+    file: "resource://gre/modules/TaskScheduler.jsm",
   });
 }
 

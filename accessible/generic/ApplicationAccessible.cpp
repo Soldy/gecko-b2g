@@ -73,13 +73,13 @@ ApplicationAccessible::NativeAttributes() {
 
 GroupPos ApplicationAccessible::GroupPosition() { return GroupPos(); }
 
-Accessible* ApplicationAccessible::ChildAtPoint(
+LocalAccessible* ApplicationAccessible::LocalChildAtPoint(
     int32_t aX, int32_t aY, EWhichChildAtPoint aWhichChild) {
   return nullptr;
 }
 
-Accessible* ApplicationAccessible::FocusedChild() {
-  Accessible* focus = FocusMgr()->FocusedAccessible();
+LocalAccessible* ApplicationAccessible::FocusedChild() {
+  LocalAccessible* focus = FocusMgr()->FocusedAccessible();
   if (focus && focus->LocalParent() == this) {
     return focus;
   }
@@ -97,7 +97,7 @@ nsIntRect ApplicationAccessible::Bounds() const { return nsIntRect(); }
 nsRect ApplicationAccessible::BoundsInAppUnits() const { return nsRect(); }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Accessible public methods
+// LocalAccessible public methods
 
 void ApplicationAccessible::Shutdown() { mAppInfo = nullptr; }
 
@@ -123,8 +123,7 @@ void ApplicationAccessible::Init() {
     return;
   }
 
-  for (auto iter = windowsById->Iter(); !iter.Done(); iter.Next()) {
-    nsGlobalWindowOuter* window = iter.Data();
+  for (const auto& window : windowsById->Values()) {
     if (window->GetDocShell() && window->IsRootOuterWindow()) {
       if (RefPtr<dom::Document> docNode = window->GetExtantDoc()) {
         GetAccService()->GetDocAccessible(docNode);  // ensure creation
@@ -133,8 +132,8 @@ void ApplicationAccessible::Init() {
   }
 }
 
-Accessible* ApplicationAccessible::GetSiblingAtOffset(int32_t aOffset,
-                                                      nsresult* aError) const {
+LocalAccessible* ApplicationAccessible::GetSiblingAtOffset(
+    int32_t aOffset, nsresult* aError) const {
   if (aError) *aError = NS_OK;  // fail peacefully
 
   return nullptr;

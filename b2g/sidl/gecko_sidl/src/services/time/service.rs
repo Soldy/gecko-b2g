@@ -16,7 +16,7 @@ use crate::services::time::messages::*;
 use crate::services::time::observer::*;
 use log::{debug, error};
 use moz_task::{TaskRunnable, ThreadPtrHandle, ThreadPtrHolder};
-use nserror::{nsresult, NS_OK};
+use nserror::{nsresult, NS_ERROR_INVALID_ARG, NS_OK};
 use nsstring::*;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -476,11 +476,14 @@ impl TimeXpcom {
         let callback =
             ThreadPtrHolder::new(cstr!("nsISidlDefaultResponse"), RefPtr::new(callback)).unwrap();
         let t = std::time::UNIX_EPOCH;
-        let to_systime = SystemTime(
-            t.checked_add(std::time::Duration::from_millis(time))
-                .unwrap(),
-        );
-        let task = (SidlCallTask::new(callback), to_systime);
+        let duration = t.checked_add(std::time::Duration::from_millis(time));
+
+        if std::option::Option::is_none(&duration) {
+            error!("invalid time!!!");
+            return Err(NS_ERROR_INVALID_ARG);
+        }
+
+        let task = (SidlCallTask::new(callback), SystemTime(duration.unwrap()));
 
         if !self.ensure_service() {
             self.queue_task(TimeTask::SetTime(task));

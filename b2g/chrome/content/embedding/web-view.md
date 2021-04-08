@@ -15,6 +15,7 @@ The <web-view> element supports the following attributes:
 - `cleanup() : void` : releases resources before removing the <web-view> from the DOM. The <web-view> is not usable after this call.
 - `deactivateKeyForwarding() : void` : disable key forwarding.
 - `disableCursor() : void` : disables the virtual cursor.
+- `download(uri) : init download.
 - `enableCursor() : void` : enables the virtual cursor.
 - `focus() : void` : focuses the browser.
 - `getBackgroundColor() : Promise<String>`: returns the CSS value of the page's background color.
@@ -71,7 +72,7 @@ Each event type is prefixed with `mozbrowser` for historical compatibility reaso
       - `origin` : string type, the origin of the permission requester.
       - `granted` : bool type, granted or not.
       - `remember` : bool type, remember the decision or not.
-      - `choice` : an object with keys of permission types, such as `{"video-capture": "back"}`.
+      - `choices` : an object with keys of permission types, such as `{"video-capture": "back"}`.
 - `recordingstatus` : `{ audio: boolean, video: boolean }`
   - dispatched when the recording status of this page is updated. `detail.audio` is true when the page is capturing audio through `MediaDevices.getUserMedia()` or recording audio through camera API. Same goes for `detail.video`.
 - `resize` : `{ width: int, height: int}`

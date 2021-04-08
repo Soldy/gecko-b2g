@@ -291,6 +291,7 @@ class NetworkUtils final {
   CommandResult setDefaultNetwork(NetworkParams& aOptions);
   CommandResult addInterfaceToNetwork(NetworkParams& aOptions);
   CommandResult removeInterfaceToNetwork(NetworkParams& aOptions);
+  CommandResult setIpv6Status(NetworkParams& aOptions);
   CommandResult setIpv6PrivacyExtensions(NetworkParams& aOptions);
   CommandResult dhcpRequest(NetworkParams& aOptions);
   CommandResult stopDhcp(NetworkParams& aOptions);
@@ -307,6 +308,7 @@ class NetworkUtils final {
   CommandResult removeTetheringAlarm(NetworkParams& aOptions);
   CommandResult setDhcpServer(NetworkParams& aOptions);
   CommandResult getTetheringStatus(NetworkParams& aOptions);
+  CommandResult getTetherStats(NetworkParams& aOptions);
   CommandResult setUSBTethering(NetworkParams& aOptions);
   CommandResult setWifiTethering(NetworkParams& aOptions);
   CommandResult updateUpStream(NetworkParams& aOptions);
@@ -335,9 +337,11 @@ class NetworkUtils final {
   static void clearAddrForInterface(PARAMS);
   static void createNetwork(PARAMS);
   static void destroyNetwork(PARAMS);
-  static void setIpv6Enabled(PARAMS, bool aEnabled);
+  static void setIpv6Enabled(PARAMS);
   static void enableIpv6(PARAMS);
   static void disableIpv6(PARAMS);
+  static void wakeupAddInterface(PARAMS);
+  static void wakeupDelInterface(PARAMS);
   static void addInterfaceToNetwork(PARAMS);
   static void removeInterfaceToNetwork(PARAMS);
   static void addDefaultRouteToNetwork(PARAMS);

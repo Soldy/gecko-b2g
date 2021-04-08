@@ -77,6 +77,7 @@
 #include "mozilla/TimelineConsumers.h"
 #include "mozilla/TimelineMarker.h"
 #include "mozilla/Unused.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/DOMJSClass.h"
 #include "mozilla/dom/JSExecutionManager.h"
 #include "mozilla/dom/ProfileTimelineMarkerBinding.h"
@@ -395,9 +396,6 @@ struct TraversalTracer : public JS::CallbackTracer {
 };
 
 void TraversalTracer::onChild(const JS::GCCellPtr& aThing) {
-  // Allow re-use of this tracer inside trace callback.
-  JS::AutoClearTracingContext actc(this);
-
   // Checking strings and symbols for being gray is rather slow, and we don't
   // need either of them for the cycle collector.
   if (aThing.is<JSString>() || aThing.is<JS::Symbol>()) {
@@ -423,15 +421,16 @@ void TraversalTracer::onChild(const JS::GCCellPtr& aThing) {
       mCb.NoteNextEdgeName(buffer);
     }
     mCb.NoteJSChild(aThing);
-  } else if (aThing.is<js::Shape>()) {
+    return;
+  }
+
+  // Allow re-use of this tracer inside trace callback.
+  JS::AutoClearTracingContext actc(this);
+
+  if (aThing.is<js::Shape>()) {
     // The maximum depth of traversal when tracing a Shape is unbounded, due to
     // the parent pointers on the shape.
     JS_TraceShapeCycleCollectorChildren(this, aThing);
-  } else if (aThing.is<js::ObjectGroup>()) {
-    // The maximum depth of traversal when tracing an ObjectGroup is unbounded,
-    // due to information attached to the groups which can lead other groups to
-    // be traced.
-    JS_TraceObjectGroupCycleCollectorChildren(this, aThing);
   } else {
     JS::TraceChildren(this, aThing);
   }
@@ -560,7 +559,7 @@ inline nsScriptObjectTracer* JSHolderMap::Get(void* aHolder) const {
   return entry->mTracer;
 }
 
-inline nsScriptObjectTracer* JSHolderMap::GetAndRemove(void* aHolder) {
+inline nsScriptObjectTracer* JSHolderMap::Extract(void* aHolder) {
   MOZ_ASSERT(aHolder);
 
   auto ptr = mJSHolderMap.lookup(aHolder);
@@ -1014,6 +1013,11 @@ void CycleCollectedJSRuntime::GCSliceCallback(JSContext* aContext,
           using MS = mozilla::MarkerSchema;
           MS schema{MS::Location::markerChart, MS::Location::markerTable,
                     MS::Location::timelineMemory};
+          schema.AddStaticLabelValue(
+              "Description",
+              "Summary data for an entire major GC, encompassing a set of "
+              "incremental slices. The main thread is not blocked for the "
+              "entire major GC interval, only for the individual slices.");
           // No display instructions here, there is special handling in the
           // front-end.
           return schema;
@@ -1044,6 +1048,10 @@ void CycleCollectedJSRuntime::GCSliceCallback(JSContext* aContext,
           using MS = mozilla::MarkerSchema;
           MS schema{MS::Location::markerChart, MS::Location::markerTable,
                     MS::Location::timelineMemory};
+          schema.AddStaticLabelValue(
+              "Description",
+              "One slice of an incremental garbage collection (GC). The main "
+              "thread is blocked during this time.");
           // No display instructions here, there is special handling in the
           // front-end.
           return schema;
@@ -1151,6 +1159,11 @@ void CycleCollectedJSRuntime::GCNurseryCollectionCallback(
         using MS = mozilla::MarkerSchema;
         MS schema{MS::Location::markerChart, MS::Location::markerTable,
                   MS::Location::timelineMemory};
+        schema.AddStaticLabelValue(
+            "Description",
+            "A minor GC (aka nursery collection) to clear out the buffer used "
+            "for recent allocations and move surviving data to the tenured "
+            "(long-lived) heap.");
         // No display instructions here, there is special handling in the
         // front-end.
         return schema;
@@ -1431,7 +1444,7 @@ struct ClearJSHolder : public TraceCallbacks {
 };
 
 void CycleCollectedJSRuntime::RemoveJSHolder(void* aHolder) {
-  nsScriptObjectTracer* tracer = mJSHolders.GetAndRemove(aHolder);
+  nsScriptObjectTracer* tracer = mJSHolders.Extract(aHolder);
   if (tracer) {
     // Bug 1531951: The analysis can't see through the virtual call but we know
     // that the ClearJSHolder tracer will never GC.
@@ -1806,8 +1819,8 @@ void CycleCollectedJSRuntime::PrepareWaitingZonesForGC() {
   if (mZonesWaitingForGC.Count() == 0) {
     JS::PrepareForFullGC(cx);
   } else {
-    for (auto iter = mZonesWaitingForGC.Iter(); !iter.Done(); iter.Next()) {
-      JS::PrepareZoneForGC(cx, iter.Get()->GetKey());
+    for (const auto& key : mZonesWaitingForGC) {
+      JS::PrepareZoneForGC(cx, key);
     }
     mZonesWaitingForGC.Clear();
   }
@@ -1819,7 +1832,7 @@ void CycleCollectedJSRuntime::OnZoneDestroyed(JSFreeOp* aFop, JS::Zone* aZone) {
   // happen if a zone is added to the set during an incremental GC in which it
   // is later destroyed.
   CycleCollectedJSRuntime* runtime = Get();
-  runtime->mZonesWaitingForGC.RemoveEntry(aZone);
+  runtime->mZonesWaitingForGC.Remove(aZone);
 }
 
 void CycleCollectedJSRuntime::EnvironmentPreparer::invoke(

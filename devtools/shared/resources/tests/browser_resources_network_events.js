@@ -2,7 +2,6 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 "use strict";
-
 // Test the ResourceWatcher API around NETWORK_EVENT
 
 const {
@@ -16,6 +15,7 @@ add_task(async function() {
   info("Test network events");
   await testNetworkEventResourcesWithExistingResources();
   await testNetworkEventResourcesWithoutExistingResources();
+  await testNetworkEventResourcesFromTheContentProcess();
 });
 
 async function testNetworkEventResourcesWithExistingResources() {
@@ -240,6 +240,143 @@ async function testNetworkEventResources(options) {
       onUpdated: onResourceUpdated,
     }
   );
+  targetList.destroy();
+  await client.close();
+  BrowserTestUtils.removeTab(tab);
+}
+
+async function testNetworkEventResourcesFromTheContentProcess() {
+  info(`Tests for network event resources from the content process`);
+
+  const CSP_URL =
+    EXAMPLE_DOMAIN +
+    "browser/devtools/client/netmonitor/test/html_csp-test-page.html";
+  const JS_CSP_URL =
+    EXAMPLE_DOMAIN +
+    "browser/devtools/client/netmonitor/test/js_websocket-worker-test.js";
+  const CSS_CSP_URL =
+    EXAMPLE_DOMAIN +
+    "browser/devtools/client/netmonitor/test/internal-loaded.css";
+
+  const CSP_BLOCKED_REASON_CODE = 4000;
+
+  const allResourcesOnAvailable = [];
+  const allResourcesOnUpdate = [];
+
+  const tab = await addTab(CSP_URL);
+  const { client, resourceWatcher, targetList } = await initResourceWatcher(
+    tab
+  );
+
+  let onAvailable = () => {};
+  let onUpdated = () => {};
+
+  await new Promise(resolve => {
+    onAvailable = resources => {
+      for (const resource of resources) {
+        allResourcesOnAvailable.push(resource);
+      }
+    };
+    onUpdated = updates => {
+      for (const { resource } of updates) {
+        allResourcesOnUpdate.push(resource);
+      }
+      // Make sure we get 3 updates for the 3 requests sent
+      if (allResourcesOnUpdate.length == 3) {
+        resolve();
+      }
+    };
+
+    resourceWatcher
+      .watchResources([ResourceWatcher.TYPES.NETWORK_EVENT], {
+        onAvailable,
+        onUpdated,
+      })
+      .then(() => tab.linkedBrowser.reload());
+  });
+
+  is(
+    allResourcesOnAvailable.length,
+    3,
+    "Got three network events fired on available"
+  );
+  is(
+    allResourcesOnUpdate.length,
+    3,
+    "Got three network events fired on update"
+  );
+
+  // Find the Blocked CSP JS resource
+  const availableJSResource = allResourcesOnAvailable.find(
+    resource => resource.url === JS_CSP_URL
+  );
+  const updateJSResource = allResourcesOnUpdate.find(
+    update => update.url === JS_CSP_URL
+  );
+
+  // Assert the data for the CSP blocked JS script file
+  is(
+    availableJSResource.resourceType,
+    ResourceWatcher.TYPES.NETWORK_EVENT,
+    "This is a network event resource"
+  );
+  is(
+    availableJSResource.blockedReason,
+    CSP_BLOCKED_REASON_CODE,
+    "The js resource is blocked by CSP"
+  );
+
+  is(
+    updateJSResource.resourceType,
+    ResourceWatcher.TYPES.NETWORK_EVENT,
+    "This is a network event resource"
+  );
+  is(
+    updateJSResource.blockedReason,
+    CSP_BLOCKED_REASON_CODE,
+    "The js resource is blocked by CSP"
+  );
+
+  // Find the Blocked CSP CSS resource
+  const availableCSSResource = allResourcesOnAvailable.find(
+    resource => resource.url === CSS_CSP_URL
+  );
+
+  const updateCSSResource = allResourcesOnUpdate.find(
+    update => update.url === CSS_CSP_URL
+  );
+
+  // Assert the data for the CSP blocked CSS file
+  is(
+    availableCSSResource.resourceType,
+    ResourceWatcher.TYPES.NETWORK_EVENT,
+    "This is a network event resource"
+  );
+  is(
+    availableCSSResource.blockedReason,
+    CSP_BLOCKED_REASON_CODE,
+    "The css resource is blocked by CSP"
+  );
+
+  is(
+    updateCSSResource.resourceType,
+    ResourceWatcher.TYPES.NETWORK_EVENT,
+    "This is a network event resource"
+  );
+  is(
+    updateCSSResource.blockedReason,
+    CSP_BLOCKED_REASON_CODE,
+    "The css resource is blocked by CSP"
+  );
+
+  await resourceWatcher.unwatchResources(
+    [ResourceWatcher.TYPES.NETWORK_EVENT],
+    {
+      onAvailable,
+      onUpdated,
+    }
+  );
+
   targetList.destroy();
   await client.close();
   BrowserTestUtils.removeTab(tab);

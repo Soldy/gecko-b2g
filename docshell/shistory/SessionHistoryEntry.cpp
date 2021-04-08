@@ -8,13 +8,17 @@
 #include "ipc/IPCMessageUtilsSpecializations.h"
 #include "nsDocShell.h"
 #include "nsDocShellLoadState.h"
+#include "nsFrameLoader.h"
 #include "nsIHttpChannel.h"
+#include "nsIXULRuntime.h"
 #include "nsSHEntryShared.h"
 #include "nsSHistory.h"
 #include "nsStructuredCloneContainer.h"
 #include "nsXULAppAPI.h"
 #include "mozilla/PresState.h"
+#include "mozilla/StaticPrefs_fission.h"
 #include "mozilla/Tuple.h"
+#include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/CSPMessageUtils.h"
@@ -196,6 +200,12 @@ bool SessionHistoryInfo::IsSubFrame() const {
   return mSharedState.Get()->mIsFrameNavigation;
 }
 
+void SessionHistoryInfo::SetSaveLayoutStateFlag(bool aSaveLayoutStateFlag) {
+  MOZ_ASSERT(XRE_IsParentProcess());
+  static_cast<SHEntrySharedParentState*>(mSharedState.Get())->mSaveLayoutState =
+      aSaveLayoutStateFlag;
+}
+
 void SessionHistoryInfo::FillLoadInfo(nsDocShellLoadState& aLoadState) const {
   aLoadState.SetOriginalURI(mOriginalURI);
   aLoadState.SetMaybeResultPrincipalURI(Some(mResultPrincipalURI));
@@ -323,7 +333,7 @@ void SessionHistoryInfo::SharedState::Init(
 
 static uint64_t gLoadingSessionHistoryInfoLoadId = 0;
 
-nsDataHashtable<nsUint64HashKey, SessionHistoryEntry*>*
+nsTHashMap<nsUint64HashKey, SessionHistoryEntry*>*
     SessionHistoryEntry::sLoadIdToEntry = nullptr;
 
 LoadingSessionHistoryInfo::LoadingSessionHistoryInfo(
@@ -365,14 +375,13 @@ SessionHistoryEntry* SessionHistoryEntry::GetByLoadId(uint64_t aLoadId) {
 void SessionHistoryEntry::SetByLoadId(uint64_t aLoadId,
                                       SessionHistoryEntry* aEntry) {
   if (!sLoadIdToEntry) {
-    sLoadIdToEntry =
-        new nsDataHashtable<nsUint64HashKey, SessionHistoryEntry*>();
+    sLoadIdToEntry = new nsTHashMap<nsUint64HashKey, SessionHistoryEntry*>();
   }
 
   MOZ_LOG(
       gSHLog, LogLevel::Verbose,
       ("SessionHistoryEntry::SetByLoadId(%" PRIu64 " - %p)", aLoadId, aEntry));
-  sLoadIdToEntry->Put(aLoadId, aEntry);
+  sLoadIdToEntry->InsertOrUpdate(aLoadId, aEntry);
 }
 
 void SessionHistoryEntry::RemoveLoadId(uint64_t aLoadId) {
@@ -387,20 +396,28 @@ void SessionHistoryEntry::RemoveLoadId(uint64_t aLoadId) {
 }
 
 SessionHistoryEntry::SessionHistoryEntry()
-    : mInfo(new SessionHistoryInfo()), mID(++gEntryID) {}
+    : mInfo(new SessionHistoryInfo()), mID(++gEntryID) {
+  MOZ_ASSERT(mozilla::SessionHistoryInParent());
+}
 
 SessionHistoryEntry::SessionHistoryEntry(nsDocShellLoadState* aLoadState,
                                          nsIChannel* aChannel)
-    : mInfo(new SessionHistoryInfo(aLoadState, aChannel)), mID(++gEntryID) {}
+    : mInfo(new SessionHistoryInfo(aLoadState, aChannel)), mID(++gEntryID) {
+  MOZ_ASSERT(mozilla::SessionHistoryInParent());
+}
 
 SessionHistoryEntry::SessionHistoryEntry(SessionHistoryInfo* aInfo)
-    : mInfo(MakeUnique<SessionHistoryInfo>(*aInfo)), mID(++gEntryID) {}
+    : mInfo(MakeUnique<SessionHistoryInfo>(*aInfo)), mID(++gEntryID) {
+  MOZ_ASSERT(mozilla::SessionHistoryInParent());
+}
 
 SessionHistoryEntry::SessionHistoryEntry(const SessionHistoryEntry& aEntry)
     : mInfo(MakeUnique<SessionHistoryInfo>(*aEntry.mInfo)),
       mParent(aEntry.mParent),
       mID(aEntry.mID),
-      mBCHistoryLength(aEntry.mBCHistoryLength) {}
+      mBCHistoryLength(aEntry.mBCHistoryLength) {
+  MOZ_ASSERT(mozilla::SessionHistoryInParent());
+}
 
 SessionHistoryEntry::~SessionHistoryEntry() {
   // Null out the mParent pointers on all our kids.
@@ -550,7 +567,6 @@ SessionHistoryEntry::SetReferrerInfo(nsIReferrerInfo* aReferrerInfo) {
 
 NS_IMETHODIMP
 SessionHistoryEntry::GetContentViewer(nsIContentViewer** aContentViewer) {
-  NS_WARNING("This lives in the child process");
   *aContentViewer = nullptr;
   return NS_OK;
 }
@@ -1025,9 +1041,8 @@ SessionHistoryEntry::HasDynamicallyAddedChild(bool* aHasDynamicallyAddedChild) {
 }
 
 NS_IMETHODIMP_(bool)
-SessionHistoryEntry::HasBFCacheEntry(nsIBFCacheEntry* aEntry) {
-  MOZ_CRASH("This lives in the child process");
-  return false;
+SessionHistoryEntry::HasBFCacheEntry(SHEntrySharedParentState* aEntry) {
+  return SharedInfo() == aEntry;
 }
 
 NS_IMETHODIMP
@@ -1334,6 +1349,33 @@ void SessionHistoryEntry::ReplaceWith(const SessionHistoryEntry& aSource) {
 
 SHEntrySharedParentState* SessionHistoryEntry::SharedInfo() const {
   return static_cast<SHEntrySharedParentState*>(mInfo->mSharedState.Get());
+}
+
+void SessionHistoryEntry::SetFrameLoader(nsFrameLoader* aFrameLoader) {
+  MOZ_ASSERT_IF(aFrameLoader, !SharedInfo()->mFrameLoader);
+  // If the pref is disabled, we still allow evicting the existing entries.
+  MOZ_RELEASE_ASSERT(!aFrameLoader || mozilla::BFCacheInParent());
+  SharedInfo()->SetFrameLoader(aFrameLoader);
+  if (aFrameLoader) {
+    if (BrowserParent* bp = aFrameLoader->GetBrowserParent()) {
+      bp->Deactivated();
+    }
+
+    // When a new frameloader is stored, try to evict some older
+    // frameloaders. Non-SHIP session history has a similar call in
+    // nsDocumentViewer::Show.
+    nsCOMPtr<nsISHistory> shistory;
+    GetShistory(getter_AddRefs(shistory));
+    if (shistory) {
+      int32_t index = 0;
+      shistory->GetIndex(&index);
+      shistory->EvictOutOfRangeContentViewers(index);
+    }
+  }
+}
+
+nsFrameLoader* SessionHistoryEntry::GetFrameLoader() {
+  return SharedInfo()->mFrameLoader;
 }
 
 void SessionHistoryEntry::SetInfo(SessionHistoryInfo* aInfo) {

@@ -28,10 +28,9 @@ use crate::prim_store::picture::Picture;
 use crate::prim_store::text_run::TextRun;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::SceneView;
-use crate::renderer::{PipelineInfo, SceneBuilderHooks};
+use crate::renderer::{FullFrameStats, PipelineInfo, SceneBuilderHooks};
 use crate::scene::{Scene, BuiltScene, SceneStats};
 use std::iter;
-use std::mem::replace;
 use time::precise_time_ns;
 use crate::util::drain_filter;
 use std::thread;
@@ -73,6 +72,7 @@ pub struct BuiltTransaction {
     pub invalidate_rendered_frame: bool,
     pub discard_frame_state_for_pipelines: Vec<PipelineId>,
     pub profile: TransactionProfile,
+    pub frame_stats: FullFrameStats,
 }
 
 #[cfg(feature = "replay")]
@@ -115,8 +115,6 @@ pub enum SceneBuilderRequest {
 // Message from scene builder to render backend.
 pub enum SceneBuilderResult {
     Transactions(Vec<Box<BuiltTransaction>>, Option<Sender<SceneSwapResult>>),
-    #[cfg(feature = "capture")]
-    CapturedTransactions(Vec<Box<BuiltTransaction>>, CaptureConfig, Option<Sender<SceneSwapResult>>),
     ExternalEvent(ExternalEvent),
     FlushComplete(Sender<()>),
     DeleteDocument(DocumentId),
@@ -124,7 +122,18 @@ pub enum SceneBuilderResult {
     GetGlyphDimensions(GlyphDimensionRequest),
     GetGlyphIndices(GlyphIndexRequest),
     ShutDown(Option<Sender<()>>),
-    DocumentsForDebugger(String)
+    DocumentsForDebugger(String),
+
+    #[cfg(feature = "capture")]
+    /// The same as `Transactions`, but also supplies a `CaptureConfig` that the
+    /// render backend should use for sequence capture, until the next
+    /// `CapturedTransactions` or `StopCaptureSequence` result.
+    CapturedTransactions(Vec<Box<BuiltTransaction>>, CaptureConfig, Option<Sender<SceneSwapResult>>),
+
+    #[cfg(feature = "capture")]
+    /// The scene builder has stopped sequence capture, so the render backend
+    /// should do the same.
+    StopCaptureSequence,
 }
 
 // Message from render backend to scene builder to indicate the
@@ -302,9 +311,9 @@ impl SceneBuilderThread {
                 Ok(SceneBuilderRequest::Flush(tx)) => {
                     self.send(SceneBuilderResult::FlushComplete(tx));
                 }
-                Ok(SceneBuilderRequest::Transactions(mut txns)) => {
-                    let built_txns : Vec<Box<BuiltTransaction>> = txns.iter_mut()
-                        .map(|txn| self.process_transaction(txn))
+                Ok(SceneBuilderRequest::Transactions(txns)) => {
+                    let built_txns : Vec<Box<BuiltTransaction>> = txns.into_iter()
+                        .map(|txn| self.process_transaction(*txn))
                         .collect();
                     #[cfg(feature = "capture")]
                     match built_txns.iter().any(|txn| txn.built_scene.is_some()) {
@@ -368,6 +377,7 @@ impl SceneBuilderThread {
                     // FIXME(aosmond): clear config for frames and resource cache without scene
                     // rebuild?
                     self.capture_config = None;
+                    self.send(SceneBuilderResult::StopCaptureSequence);
                 }
                 Ok(SceneBuilderRequest::DocumentsForDebugger) => {
                     let json = self.get_docs_for_debugger();
@@ -452,6 +462,7 @@ impl SceneBuilderThread {
                 notifications: Vec::new(),
                 interner_updates,
                 profile: TransactionProfile::new(),
+                frame_stats: FullFrameStats::default(),
             })];
 
             self.forward_built_transactions(txns);
@@ -551,7 +562,7 @@ impl SceneBuilderThread {
     }
 
     /// Do the bulk of the work of the scene builder thread.
-    fn process_transaction(&mut self, txn: &mut TransactionMsg) -> Box<BuiltTransaction> {
+    fn process_transaction(&mut self, mut txn: TransactionMsg) -> Box<BuiltTransaction> {
         profile_scope!("process_transaction");
 
         if let Some(ref hooks) = self.hooks {
@@ -563,11 +574,12 @@ impl SceneBuilderThread {
 
         let mut profile = txn.profile.take();
 
-        profile.start_time(profiler::SCENE_BUILD_TIME);
-
+        let scene_build_start = precise_time_ns();
         let mut discard_frame_state_for_pipelines = Vec::new();
         let mut removed_pipelines = Vec::new();
         let mut rebuild_scene = false;
+        let mut frame_stats = FullFrameStats::default();
+
         for message in txn.scene_ops.drain(..) {
             match message {
                 SceneMsg::UpdateEpoch(pipeline_id, epoch) => {
@@ -591,14 +603,17 @@ impl SceneBuilderThread {
                     display_list,
                     preserve_frame_state,
                 } => {
-                    let (builder_start_time_ns, builder_end_time_ns, send_time_ns) =
-                        display_list.times();
+                    let (gecko_display_list_time, builder_start_time_ns,
+                         builder_end_time_ns, send_time_ns) = display_list.times();
 
                     let content_send_time = profiler::ns_to_ms(precise_time_ns() - send_time_ns);
                     let dl_build_time = profiler::ns_to_ms(builder_end_time_ns - builder_start_time_ns);
                     profile.set(profiler::CONTENT_SEND_TIME, content_send_time);
                     profile.set(profiler::DISPLAY_LIST_BUILD_TIME, dl_build_time);
                     profile.set(profiler::DISPLAY_LIST_MEM, profiler::bytes_to_mb(display_list.data().len()));
+
+                    frame_stats.gecko_display_list_time += gecko_display_list_time;
+                    frame_stats.wr_display_list_time += dl_build_time;
 
                     if self.removed_pipelines.contains(&pipeline_id) {
                         continue;
@@ -661,14 +676,17 @@ impl SceneBuilderThread {
             built_scene = Some(built);
         }
 
-        profile.end_time(profiler::SCENE_BUILD_TIME);
+        let scene_build_time_ms =
+            profiler::ns_to_ms(precise_time_ns() - scene_build_start);
+        profile.set(profiler::SCENE_BUILD_TIME, scene_build_time_ms);
 
+        frame_stats.scene_build_time += scene_build_time_ms;
 
         if !txn.blob_requests.is_empty() {
             profile.start_time(profiler::BLOB_RASTERIZATION_TIME);
 
             let is_low_priority = false;
-            rasterize_blobs(txn, is_low_priority);
+            rasterize_blobs(&mut txn, is_low_priority);
 
             profile.end_time(profiler::BLOB_RASTERIZATION_TIME);
         }
@@ -689,15 +707,16 @@ impl SceneBuilderThread {
             invalidate_rendered_frame: txn.invalidate_rendered_frame,
             built_scene,
             view: doc.view,
-            rasterized_blobs: replace(&mut txn.rasterized_blobs, Vec::new()),
-            resource_updates: replace(&mut txn.resource_updates, Vec::new()),
-            blob_rasterizer: replace(&mut txn.blob_rasterizer, None),
-            frame_ops: replace(&mut txn.frame_ops, Vec::new()),
+            rasterized_blobs: txn.rasterized_blobs,
+            resource_updates: txn.resource_updates,
+            blob_rasterizer: txn.blob_rasterizer,
+            frame_ops: txn.frame_ops,
             removed_pipelines,
             discard_frame_state_for_pipelines,
-            notifications: replace(&mut txn.notifications, Vec::new()),
+            notifications: txn.notifications,
             interner_updates,
             profile,
+            frame_stats,
         })
     }
 

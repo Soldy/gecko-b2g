@@ -14,7 +14,6 @@
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
 #include "nsClassHashtable.h"
-#include "nsDataHashtable.h"
 #include "mozilla/ReentrantMonitor.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Attributes.h"
@@ -120,8 +119,8 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   // NOTE: relatively expensive to call, there are two hashtable lookups.
   bool IsConnEntryUnderPressure(nsHttpConnectionInfo*);
 
-  uint64_t CurrentTopLevelOuterContentWindowId() {
-    return mCurrentTopLevelOuterContentWindowId;
+  uint64_t CurrentTopBrowsingContextId() {
+    return mCurrentTopBrowsingContextId;
   }
 
   void DoSpeculativeConnection(SpeculativeTransaction* aTrans,
@@ -176,6 +175,9 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   static nsAHttpConnection* MakeConnectionHandle(HttpConnectionBase* aWrapped);
   void RegisterOriginCoalescingKey(HttpConnectionBase*, const nsACString& host,
                                    int32_t port);
+  // A test if be-conservative should be used when proxy is setup for the
+  // connection
+  bool BeConservativeIfProxied(nsIProxyInfo* proxy);
 
  protected:
   friend class ConnectionEntry;
@@ -312,7 +314,7 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   void OnMsgUpdateRequestTokenBucket(int32_t, ARefBase*);
   void OnMsgVerifyTraffic(int32_t, ARefBase*);
   void OnMsgPruneNoTraffic(int32_t, ARefBase*);
-  void OnMsgUpdateCurrentTopLevelOuterContentWindowId(int32_t, ARefBase*);
+  void OnMsgUpdateCurrentTopBrowsingContextId(int32_t, ARefBase*);
   void OnMsgClearConnectionHistory(int32_t, ARefBase*);
 
   // Total number of active connections in all of the ConnectionEntry objects
@@ -359,7 +361,7 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   void OnMsgPrintDiagnostics(int32_t, ARefBase*);
 
   nsCString mLogData;
-  uint64_t mCurrentTopLevelOuterContentWindowId;
+  uint64_t mCurrentTopBrowsingContextId;
 
   // Called on a pref change
   void SetThrottlingEnabled(bool aEnable);
@@ -435,15 +437,11 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   void LogActiveTransactions(char);
 
   // When current active tab is changed, this function uses
-  // |previousWindowId| to select background transactions and
-  // mCurrentTopLevelOuterContentWindowId| to select foreground transactions.
+  // |previousId| to select background transactions and
+  // |mCurrentTopBrowsingContextId| to select foreground transactions.
   // Then, it notifies selected transactions' connection of the new active tab
   // id.
-  void NotifyConnectionOfWindowIdChange(uint64_t previousWindowId);
-
-  // A test if be-conservative should be used when proxy is setup for the
-  // connection
-  bool BeConservativeIfProxied(nsIProxyInfo* proxy);
+  void NotifyConnectionOfBrowsingContextIdChange(uint64_t previousId);
 };
 
 }  // namespace net

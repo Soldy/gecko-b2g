@@ -81,4 +81,3 @@ navigator.b2g.downloadManager.addEventListener(
 ## Notes
 1. Currently only core apps with `downloads` permission are allowed to use Download API.
 2. For allowing normal pages to see and access download objects for which it is the referrer, see follow-up bug 112699.
-3. In Gecko48, user can click on the `Download` option from context menu on an image, to download that image. This is not supported yet.

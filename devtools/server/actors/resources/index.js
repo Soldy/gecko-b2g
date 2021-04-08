@@ -12,14 +12,19 @@ const TYPES = {
   CSS_MESSAGE: "css-message",
   DOCUMENT_EVENT: "document-event",
   ERROR_MESSAGE: "error-message",
-  LOCAL_STORAGE: "local-storage",
   PLATFORM_MESSAGE: "platform-message",
   NETWORK_EVENT: "network-event",
-  SESSION_STORAGE: "session-storage",
   STYLESHEET: "stylesheet",
   NETWORK_EVENT_STACKTRACE: "network-event-stacktrace",
   SOURCE: "source",
   THREAD_STATE: "thread-state",
+  SERVER_SENT_EVENT: "server-sent-event",
+  WEBSOCKET: "websocket",
+  // storage types
+  CACHE_STORAGE: "Cache",
+  COOKIE: "cookies",
+  LOCAL_STORAGE: "local-storage",
+  SESSION_STORAGE: "session-storage",
 };
 exports.TYPES = TYPES;
 
@@ -33,6 +38,9 @@ exports.TYPES = TYPES;
 //    Each module exports a Resource Watcher class.
 // These lists are specific for the parent process and each target type.
 const FrameTargetResources = augmentResourceDictionary({
+  [TYPES.CACHE_STORAGE]: {
+    path: "devtools/server/actors/resources/storage-cache",
+  },
   [TYPES.CONSOLE_MESSAGE]: {
     path: "devtools/server/actors/resources/console-messages",
   },
@@ -60,6 +68,9 @@ const FrameTargetResources = augmentResourceDictionary({
   [TYPES.STYLESHEET]: {
     path: "devtools/server/actors/resources/stylesheets",
   },
+  [TYPES.NETWORK_EVENT]: {
+    path: "devtools/server/actors/resources/network-events-content",
+  },
   [TYPES.NETWORK_EVENT_STACKTRACE]: {
     path: "devtools/server/actors/resources/network-events-stacktraces",
   },
@@ -69,13 +80,16 @@ const FrameTargetResources = augmentResourceDictionary({
   [TYPES.THREAD_STATE]: {
     path: "devtools/server/actors/resources/thread-states",
   },
+  [TYPES.SERVER_SENT_EVENT]: {
+    path: "devtools/server/actors/resources/server-sent-events",
+  },
+  [TYPES.WEBSOCKET]: {
+    path: "devtools/server/actors/resources/websockets",
+  },
 });
 const ProcessTargetResources = augmentResourceDictionary({
   [TYPES.CONSOLE_MESSAGE]: {
     path: "devtools/server/actors/resources/console-messages",
-  },
-  [TYPES.CSS_MESSAGE]: {
-    path: "devtools/server/actors/resources/css-messages",
   },
   [TYPES.ERROR_MESSAGE]: {
     path: "devtools/server/actors/resources/error-messages",
@@ -110,6 +124,9 @@ const WorkerTargetResources = augmentResourceDictionary({
 const ParentProcessResources = augmentResourceDictionary({
   [TYPES.NETWORK_EVENT]: {
     path: "devtools/server/actors/resources/network-events",
+  },
+  [TYPES.COOKIE]: {
+    path: "devtools/server/actors/resources/storage-cookie",
   },
 });
 

@@ -18,6 +18,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   PlacesTestUtils: "resource://testing-common/PlacesTestUtils.jsm",
   PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
   PromiseUtils: "resource://gre/modules/PromiseUtils.jsm",
+  SearchTestUtils: "resource://testing-common/SearchTestUtils.jsm",
   Services: "resource://gre/modules/Services.jsm",
   TestUtils: "resource://testing-common/TestUtils.jsm",
   UrlbarController: "resource:///modules/UrlbarController.jsm",
@@ -31,6 +32,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 });
 const { sinon } = ChromeUtils.import("resource://testing-common/Sinon.jsm");
 
+SearchTestUtils.init(this);
 AddonTestUtils.init(this, false);
 AddonTestUtils.createAppInfo(
   "xpcshell@tests.mozilla.org",
@@ -38,6 +40,9 @@ AddonTestUtils.createAppInfo(
   "42",
   "42"
 );
+
+const SUGGESTIONS_ENGINE_NAME = "Suggestions";
+const TAIL_SUGGESTIONS_ENGINE_NAME = "Tail Suggestions";
 
 add_task(async function initXPCShellDependencies() {
   await UrlbarTestUtils.initXPCShellDependencies();
@@ -200,46 +205,6 @@ function makeTestServer(port = -1) {
 }
 
 /**
- * Adds a search engine to the Search Service.
- *
- * @param {string} basename
- *        Basename for the engine.
- * @param {object} httpServer [optional] HTTP Server to use.
- * @returns {Promise} Resolved once the addition is complete.
- */
-async function addTestEngine(basename, httpServer = undefined) {
-  httpServer = httpServer || makeTestServer();
-  httpServer.registerDirectory("/", do_get_cwd());
-  let dataUrl =
-    "http://localhost:" + httpServer.identity.primaryPort + "/data/";
-
-  // Before initializing the search service, set the geo IP url pref to a dummy
-  // string.  When the search service is initialized, it contacts the URI named
-  // in this pref, causing unnecessary error logs.
-  let geoPref = "browser.search.geoip.url";
-  Services.prefs.setCharPref(geoPref, "");
-  registerCleanupFunction(() => Services.prefs.clearUserPref(geoPref));
-
-  info("Adding engine: " + basename);
-  return new Promise(resolve => {
-    Services.obs.addObserver(function obs(subject, topic, data) {
-      let engine = subject.QueryInterface(Ci.nsISearchEngine);
-      info("Observed " + data + " for " + engine.name);
-      if (data != "engine-added" || engine.name != basename) {
-        return;
-      }
-
-      Services.obs.removeObserver(obs, "browser-search-engine-modified");
-      registerCleanupFunction(() => Services.search.removeEngine(engine));
-      resolve(engine);
-    }, "browser-search-engine-modified");
-
-    info("Adding engine from URL: " + dataUrl + basename);
-    Services.search.addOpenSearchEngine(dataUrl + basename, null);
-  });
-}
-
-/**
  * Sets up a search engine that provides some suggestions by appending strings
  * onto the search query.
  *
@@ -250,11 +215,10 @@ async function addTestEngine(basename, httpServer = undefined) {
  */
 async function addTestSuggestionsEngine(suggestionsFn = null) {
   // This port number should match the number in engine-suggestions.xml.
-  let server = makeTestServer(9000);
+  let server = makeTestServer();
   server.registerPathHandler("/suggest", (req, resp) => {
-    // URL query params are x-www-form-urlencoded, which converts spaces into
-    // plus signs, so un-convert any plus signs back to spaces.
-    let searchStr = decodeURIComponent(req.queryString.replace(/\+/g, " "));
+    let params = new URLSearchParams(req.queryString);
+    let searchStr = params.get("q");
     let suggestions = suggestionsFn
       ? suggestionsFn(searchStr)
       : [searchStr].concat(["foo", "bar"].map(s => searchStr + " " + s));
@@ -262,7 +226,15 @@ async function addTestSuggestionsEngine(suggestionsFn = null) {
     resp.setHeader("Content-Type", "application/json", false);
     resp.write(JSON.stringify(data));
   });
-  let engine = await addTestEngine("engine-suggestions.xml", server);
+  await SearchTestUtils.installSearchExtension({
+    name: SUGGESTIONS_ENGINE_NAME,
+    search_url: `http://localhost:${server.identity.primaryPort}/search`,
+    suggest_url: `http://localhost:${server.identity.primaryPort}/suggest`,
+    suggest_url_get_params: "?q={searchTerms}",
+    // test_search_suggestions_aliases.js uses the search form.
+    search_form: `http://localhost:${server.identity.primaryPort}/search?q={searchTerms}`,
+  });
+  let engine = Services.search.getEngineByName("Suggestions");
   return engine;
 }
 
@@ -279,11 +251,10 @@ async function addTestSuggestionsEngine(suggestionsFn = null) {
  */
 async function addTestTailSuggestionsEngine(suggestionsFn = null) {
   // This port number should match the number in engine-tail-suggestions.xml.
-  let server = makeTestServer(9001);
+  let server = makeTestServer();
   server.registerPathHandler("/suggest", (req, resp) => {
-    // URL query params are x-www-form-urlencoded, which converts spaces into
-    // plus signs, so un-convert any plus signs back to spaces.
-    let searchStr = decodeURIComponent(req.queryString.replace(/\+/g, " "));
+    let params = new URLSearchParams(req.queryString);
+    let searchStr = params.get("q");
     let suggestions = suggestionsFn
       ? suggestionsFn(searchStr)
       : [
@@ -312,7 +283,13 @@ async function addTestTailSuggestionsEngine(suggestionsFn = null) {
     resp.setHeader("Content-Type", "application/json", false);
     resp.write(stringOfUtf8Bytes);
   });
-  let engine = await addTestEngine("engine-tail-suggestions.xml", server);
+  await SearchTestUtils.installSearchExtension({
+    name: TAIL_SUGGESTIONS_ENGINE_NAME,
+    search_url: `http://localhost:${server.identity.primaryPort}/search`,
+    suggest_url: `http://localhost:${server.identity.primaryPort}/suggest`,
+    suggest_url_get_params: "?q={searchTerms}",
+  });
+  let engine = Services.search.getEngineByName("Tail Suggestions");
   return engine;
 }
 
@@ -645,6 +622,7 @@ function makeSearchResult(
     if (payload.url.startsWith("www.")) {
       payload.url = payload.url.substring(4);
     }
+    payload.isGeneralPurposeEngine = false;
   }
 
   let result = new UrlbarResult(

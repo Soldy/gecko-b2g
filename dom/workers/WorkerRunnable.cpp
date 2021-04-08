@@ -715,9 +715,6 @@ bool WorkerDebuggeeRunnable::PreDispatch(WorkerPrivate* aWorkerPrivate) {
     }
 
     mSender = new ThreadSafeWorkerRef(strongRef);
-    if (!mSender) {
-      return false;
-    }
   }
 
   return WorkerRunnable::PreDispatch(aWorkerPrivate);

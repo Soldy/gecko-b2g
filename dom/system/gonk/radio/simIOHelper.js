@@ -3214,7 +3214,7 @@ GsmPDUHelperObject.prototype = {
       let thirdByte = this.readHexOctet();
       wacLat = wacLat | (thirdByte >> 2);
       let wacLng =
-        ((thirdByte & 0xc0) << 20) |
+        ((thirdByte & 0x03) << 20) |
         (this.readHexOctet() << 12) |
         (this.readHexOctet() << 4) |
         this.readHexNibble();
@@ -4581,7 +4581,7 @@ SimRecordHelperObject.prototype = {
         // No one knew how to handle this particular file, so to be safe just
         // fetch all records.
         if (DEBUG) this.context.debug("SIM Refresh for all.");
-        fetchSimRecords();
+        this.fetchSimRecords();
         break;
     }
   },
@@ -6142,7 +6142,7 @@ ISimRecordHelperObject.prototype = {
         // No one knew how to handle this particular file, so to be safe just
         // fetch all records.
         if (DEBUG) this.context.debug("ISIM Refresh for all.");
-        fetchISimRecords();
+        this.fetchISimRecords();
         break;
     }
   },

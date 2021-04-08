@@ -1271,12 +1271,14 @@ bool LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion,
   }
 
   // Allow widget to render a custom foreground.
-  gfx::IntSize surfaceSize =
-    (static_cast<CompositorOGL *>(mCompositor.get()))->
-      GetDestinationSurfaceSize();
-  gfx::IntRect actualBounds(0, 0, surfaceSize.width, surfaceSize.height);
-  mCompositor->GetWidget()->RealWidget()->DrawWindowOverlay(
-    this, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
+  if (mCompositor->AsCompositorOGL()) {
+    gfx::IntSize surfaceSize =
+      (static_cast<CompositorOGL *>(mCompositor.get()))->
+        GetDestinationSurfaceSize();
+    gfx::IntRect actualBounds(0, 0, surfaceSize.width, surfaceSize.height);
+    mCompositor->GetWidget()->RealWidget()->DrawWindowOverlay(
+      this, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
+  }
 
   if (usingNativeLayers) {
     UpdateDebugOverlayNativeLayers();
@@ -1369,6 +1371,10 @@ void LayerManagerComposite::RenderToPresentationSurface() {
     return;
   }
 
+  if (!widget->AsAndroid()) {
+    return;
+  }
+
   ANativeWindow* window = widget->AsAndroid()->GetPresentationANativeWindow();
 
   if (!window) {
@@ -1376,6 +1382,9 @@ void LayerManagerComposite::RenderToPresentationSurface() {
   }
 
   CompositorOGL* compositor = mCompositor->AsCompositorOGL();
+  if (!compositor) {
+    return;
+  }
   GLContext* gl = compositor->gl();
   GLContextEGL* egl = GLContextEGL::Cast(gl);
 

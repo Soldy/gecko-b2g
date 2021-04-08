@@ -144,13 +144,6 @@ interface MobileConnection : EventTarget
 
   /**
    * Array of network types that are supported by this radio.
-   *
-   * Plan to deprecated.
-   */
-  [Cached, Pure, Func="B2G::HasMobileConnectionSupport"] readonly attribute sequence<MobileNetworkType> supportedNetworkTypes;
-
-  /**
-   * Array of network types that are supported by this radio.
    */
   [Throws, Func="B2G::HasMobileConnectionSupport"]
   Promise<sequence<MobileNetworkType>> getSupportedNetworkTypes();

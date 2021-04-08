@@ -753,12 +753,13 @@ NS_IMETHODIMP nsRilWorker::SetCallForwardStatus(int32_t serial, int32_t action,
                                                 int32_t cfReason,
                                                 int32_t serviceClass,
                                                 const nsAString& number,
-                                                int32_t toaNumber) {
+                                                int32_t toaNumber,
+                                                int32_t timeSeconds) {
   DEBUG(
       "nsRilWorker: [%d] > RIL_REQUEST_SET_CALL_FORWARD action = %d, cfReason "
-      "= %d , serviceClass = %d, number = %s",
+      "= %d , serviceClass = %d, number = %s, timeSeconds = %d",
       serial, action, cfReason, serviceClass,
-      NS_ConvertUTF16toUTF8(number).get());
+      NS_ConvertUTF16toUTF8(number).get(), timeSeconds);
   GetRadioProxy();
   if (mRadioProxy == nullptr) {
     ERROR_NS_OK("No Radio HAL exist");
@@ -770,7 +771,7 @@ NS_IMETHODIMP nsRilWorker::SetCallForwardStatus(int32_t serial, int32_t action,
   cfInfo.serviceClass = serviceClass;
   cfInfo.toa = toaNumber;
   cfInfo.number = NS_ConvertUTF16toUTF8(number).get();
-  cfInfo.timeSeconds = 0;
+  cfInfo.timeSeconds = timeSeconds;
 
   mRadioProxy->setCallForward(serial, cfInfo);
 

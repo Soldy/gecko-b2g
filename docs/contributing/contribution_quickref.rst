@@ -84,6 +84,7 @@ To run it:
 
 :ref:`More information about Linux <Building Firefox On Linux>` / :ref:`More information about MacOS <Building Firefox On MacOS>`
 
+.. _write_a_patch:
 
 To write a patch
 ----------------
@@ -234,6 +235,18 @@ Run:
    $ git commit --amend
 
 After amending the patch, you will need to submit it using moz-phab again.
+
+.. warning::
+
+    Don't use ``hg commit --amend -m`` or ``git commit --amend -m``.
+
+    Phabricator tracks revision by editing the commit message when a
+    revision is created to add a special ``Differential Revision:
+    <url>`` line.
+
+    When ``--amend -m`` is used, that line will be lost, leading to
+    the creation of a new revision when re-submitted, which isn't
+    the desired outcome.
 
 If you wrote many changes, you can squash or edit commits with the
 command:

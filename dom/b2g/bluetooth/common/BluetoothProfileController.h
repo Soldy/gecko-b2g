@@ -41,6 +41,9 @@ BEGIN_BLUETOOTH_NAMESPACE
 // Rendering: Major service class = 0x20 (Bit 18 is set)
 #define HAS_RENDERING(cod) ((cod)&0x40000)
 
+// Audio/Video: Major device class = 0x4
+#define IS_AUDIO_VIDEO(cod) (GET_MAJOR_DEVICE_CLASS(cod) == 0x4)
+
 // Peripheral: Major device class = 0x5
 #define IS_PERIPHERAL(cod) (GET_MAJOR_DEVICE_CLASS(cod) == 0x5)
 
@@ -49,6 +52,18 @@ BEGIN_BLUETOOTH_NAMESPACE
 
 // Keyboard: sub-field of minor device class (Bit 6)
 #define IS_KEYBOARD(cod) ((GET_MINOR_DEVICE_CLASS(cod) & 0x10) >> 4)
+
+// Loudspeaker: sub-field of minor device class, Bit 7 ~ Bit 2 = 0x5
+#define IS_LOUDSPEAKER(cod) (GET_MINOR_DEVICE_CLASS(cod) == 0x5)
+
+// Headphone: sub-field of minor device class, Bit 7 ~ Bit 2 = 0x6
+#define IS_HEADPHONE(cod) (GET_MINOR_DEVICE_CLASS(cod) == 0x6)
+
+// Car Audio: sub-field of minor device class, Bit 7 ~ Bit 2 = 0x8
+#define IS_CAR_AUDIO(cod) (GET_MINOR_DEVICE_CLASS(cod) == 0x8)
+
+// HiFi Audio: sub-field of minor device class, Bit 7 ~ Bit 2 = 0xa
+#define IS_HiFi_AUDIO(cod) (GET_MINOR_DEVICE_CLASS(cod) == 0xa)
 
 // Pointing device: sub-field of minor device class (Bit 7)
 #define IS_POINTING_DEVICE(cod) ((GET_MINOR_DEVICE_CLASS(cod) & 0x20) >> 5)

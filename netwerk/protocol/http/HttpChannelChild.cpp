@@ -11,6 +11,7 @@
 #include "nsHttp.h"
 #include "nsICacheEntry.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/PerfStats.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/DocGroup.h"
@@ -451,6 +452,7 @@ void HttpChannelChild::OnStartRequest(
   SetApplyConversion(aArgs.applyConversion());
 
   StoreAfterOnStartRequestBegun(true);
+  StoreHasHTTPSRR(aArgs.hasHTTPSRR());
 
   AutoEventEnqueuer ensureSerialDispatch(mEventQ);
 
@@ -909,6 +911,15 @@ void HttpChannelChild::OnStopRequest(
         std::move(mSource), Some(nsDependentCString(contentType.get())));
   }
 #endif
+
+  if (mIsFromCache) {
+    PerfStats::RecordMeasurement(PerfStats::Metric::HttpChannelCompletion_Cache,
+                                 TimeStamp::Now() - mAsyncOpenTime);
+  } else {
+    PerfStats::RecordMeasurement(
+        PerfStats::Metric::HttpChannelCompletion_Network,
+        TimeStamp::Now() - mAsyncOpenTime);
+  }
 
   mResponseTrailers = MakeUnique<nsHttpHeaderArray>(aResponseTrailers);
 
@@ -1609,6 +1620,13 @@ HttpChannelChild::ConnectParent(uint32_t registrarId) {
   // target.
   SetEventTarget();
 
+  if (browserChild) {
+    MOZ_ASSERT(browserChild->WebNavigation());
+    if (BrowsingContext* bc = browserChild->GetBrowsingContext()) {
+      mTopBrowsingContextId = bc->Top()->Id();
+    }
+  }
+
   HttpChannelConnectArgs connectArgs(registrarId);
   if (!gNeckoChild->SendPHttpChannelConstructor(
           this, browserChild, IPC::SerializedLoadContext(this), connectArgs)) {
@@ -2154,7 +2172,9 @@ nsresult HttpChannelChild::ContinueAsyncOpen() {
         navigationStartTimeStamp =
             navigationTiming->GetNavigationStartTimeStamp();
       }
-      mTopLevelOuterContentWindowId = document->OuterWindowID();
+    }
+    if (BrowsingContext* bc = browserChild->GetBrowsingContext()) {
+      mTopBrowsingContextId = bc->Top()->Id();
     }
   }
   SetTopLevelContentWindowId(contentWindowId);
@@ -2230,11 +2250,11 @@ nsresult HttpChannelChild::ContinueAsyncOpen() {
   openArgs.integrityMetadata() = mIntegrityMetadata;
 
   openArgs.contentWindowId() = contentWindowId;
-  openArgs.topLevelOuterContentWindowId() = mTopLevelOuterContentWindowId;
+  openArgs.topBrowsingContextId() = mTopBrowsingContextId;
 
   LOG(("HttpChannelChild::ContinueAsyncOpen this=%p gid=%" PRIu64
-       " topwinid=%" PRIx64,
-       this, mChannelId, mTopLevelOuterContentWindowId));
+       " top bid=%" PRIx64,
+       this, mChannelId, mTopBrowsingContextId));
 
   if (browserChild && !browserChild->IPCOpen()) {
     return NS_ERROR_FAILURE;

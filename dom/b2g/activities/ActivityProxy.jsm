@@ -7,7 +7,7 @@
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 function debug(aMsg) {
-  dump(`ActivityProxy: ${aMsg}\n`);
+  //dump(`ActivityProxy: ${aMsg}\n`);
 }
 
 /*
@@ -38,7 +38,6 @@ ActivityProxy.prototype = {
       owner: owner ? owner : {},
       options,
       origin,
-      childID: Services.appinfo.uniqueProcessID,
     });
 
     debug(`${id} create activity`);
@@ -58,7 +57,6 @@ ActivityProxy.prototype = {
       id,
       options: activity.options,
       origin: activity.origin,
-      childID: activity.childID,
     });
   },
 

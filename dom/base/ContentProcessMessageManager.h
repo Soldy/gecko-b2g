@@ -66,6 +66,7 @@ class ContentProcessMessageManager : public nsIMessageSender,
   using MessageManagerGlobal::AddWeakMessageListener;
   using MessageManagerGlobal::RemoveMessageListener;
   using MessageManagerGlobal::RemoveWeakMessageListener;
+  using MessageManagerGlobal::RemoveMessageListenerHashEntry;
 
   // ContentProcessMessageManager
   void GetInitialProcessData(JSContext* aCx,

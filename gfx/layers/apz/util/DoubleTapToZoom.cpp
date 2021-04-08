@@ -64,7 +64,11 @@ static already_AddRefed<dom::Element> ElementFromPoint(
 
 static bool ShouldZoomToElement(const nsCOMPtr<dom::Element>& aElement) {
   if (nsIFrame* frame = aElement->GetPrimaryFrame()) {
-    if (frame->StyleDisplay()->IsInlineFlow()) {
+    if (frame->StyleDisplay()->IsInlineFlow() &&
+        // Replaced elements are suitable zoom targets because they act like
+        // inline-blocks instead of inline. (textarea's are the specific reason
+        // we do this)
+        !frame->IsFrameOfType(nsIFrame::eReplaced)) {
       return false;
     }
   }
@@ -166,22 +170,8 @@ CSSRect CalculateRectToZoomTo(const RefPtr<dom::Document>& aRootContentDocument,
     return zoomOut;
   }
 
-  CSSRect rounded(rect);
-  rounded.Round();
-
-  // If the block we're zooming to is really tall, and the user double-tapped
-  // more than a screenful of height from the top of it, then adjust the
-  // y-coordinate so that we center the actual point the user double-tapped
-  // upon. This prevents flying to the top of the page when double-tapping
-  // to zoom in (bug 761721). The 1.2 multiplier is just a little fuzz to
-  // compensate for 'rect' including horizontal margins but not vertical ones.
-  CSSCoord cssTapY = visualScrollOffset.y + aPoint.y;
-  if ((rect.Height() > rounded.Height()) &&
-      (cssTapY > rounded.Y() + (rounded.Height() * 1.2))) {
-    rounded.MoveToY(cssTapY - (rounded.Height() / 2));
-  }
-
-  return rounded;
+  rect.Round();
+  return rect;
 }
 
 }  // namespace layers

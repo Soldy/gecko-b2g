@@ -54,6 +54,7 @@ class CursorSimulator final : public nsIDOMEventListener,
   void Enable();
   void Disable();
   bool isEnabled() { return mEnabled; }
+  void UpdateScreenSize(int32_t aWidth, int32_t aHeight);
   void UpdateChromeOffset(const LayoutDeviceIntPoint& aChromeOffset);
   void UpdatePos();
   void CenterizeCursorIfNecessary();
@@ -117,6 +118,8 @@ class CursorSimulator final : public nsIDOMEventListener,
 
   LayoutDeviceIntPoint mDevCursorPos;
   LayoutDeviceIntPoint mChromeOffset;
+  int32_t mScreenWidth;
+  int32_t mScreenHeight;
 
   CursorDirection mDirection;
 

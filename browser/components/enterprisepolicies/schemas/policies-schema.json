@@ -17,6 +17,10 @@
       }
     },
 
+    "AllowedDomainsForApps": {
+      "type": "string"
+    },
+
     "AppAutoUpdate": {
       "type": "boolean"
     },
@@ -77,6 +81,10 @@
           "type": "boolean"
         }
       }
+    },
+
+    "BackgroundAppUpdate": {
+      "type": "boolean"
     },
 
     "BlockAboutAddons": {
@@ -477,6 +485,9 @@
             },
             "blocked_install_message": {
               "type": "string"
+            },
+            "updates_disabled": {
+              "type": "boolean"
             }
           }
         }
@@ -1143,6 +1154,10 @@
       "patternProperties": {
         "^.*$": { "type": "string" }
       }
+    },
+
+    "ShowHomeButton": {
+      "type": "boolean"
     },
 
     "SSLVersionMax": {

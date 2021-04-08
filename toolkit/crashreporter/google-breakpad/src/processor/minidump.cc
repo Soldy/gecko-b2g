@@ -1572,6 +1572,66 @@ MinidumpMemoryRegion* MinidumpThread::GetMemory() {
   return memory_;
 }
 
+uint32_t MinidumpThread::GetLastError() {
+  if (!valid_) {
+    BPLOG(ERROR) << "Cannot retrieve GetLastError() from an invalid thread";
+    return 0;
+  }
+
+  if (!thread_.teb) {
+    BPLOG(ERROR) << "Cannot retrieve GetLastError() without a valid TEB pointer";
+    return 0;
+  }
+
+  auto memory = minidump_->GetMemoryList();
+  if (!memory) {
+    BPLOG(ERROR) << "Cannot retrieve GetLastError() without a valid memory list";
+    return 0;
+  }
+
+  auto context = GetContext();
+  if (!context) {
+    BPLOG(ERROR) << "Cannot retrieve GetLastError()'s without a valid context";
+    return 0;
+  }
+
+  uint64_t pointer_width = 0;
+  switch (context_->GetContextCPU()) {
+    case MD_CONTEXT_X86:
+      pointer_width = 4;
+      break;
+    case MD_CONTEXT_AMD64:
+    case MD_CONTEXT_ARM64:
+      pointer_width = 8;
+      break;
+    default:
+      BPLOG(ERROR) << "GetLastError() isn't implemented for this CPU type yet";
+      return 0;
+  }
+
+  auto region = memory->GetMemoryRegionForAddress(thread_.teb);
+  if (!region) {
+    BPLOG(ERROR) << "GetLastError()'s memory isn't mapped in this minidump";
+    return 0;
+  }
+
+  // The TEB is opaque but we know the value we want lives at this offset
+  // from reverse engineering.
+  uint64_t offset = pointer_width * 13;
+  uint32_t error = 0;
+  if (!region->GetMemoryAtAddress(thread_.teb + offset, &error)) {
+    BPLOG(ERROR) << "GetLastError()'s memory isn't mapped in this minidump";
+    return 0;
+  }
+
+  if (minidump_->swap()) {
+    Swap(&error);
+  }
+
+  return error;
+}
+
+
 
 MinidumpContext* MinidumpThread::GetContext() {
   if (!valid_) {
@@ -3672,6 +3732,36 @@ MinidumpUnloadedModule::~MinidumpUnloadedModule() {
   delete name_;
 }
 
+void MinidumpUnloadedModule::Print() {
+  if (!valid_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule cannot print invalid data";
+    return;
+  }
+
+  printf("MDRawUnloadedModule\n");
+  printf("  base_of_image                   = 0x%" PRIx64 "\n",
+         unloaded_module_.base_of_image);
+  printf("  size_of_image                   = 0x%x\n",
+         unloaded_module_.size_of_image);
+  printf("  checksum                        = 0x%x\n",
+         unloaded_module_.checksum);
+  printf("  time_date_stamp                 = 0x%x %s\n",
+         unloaded_module_.time_date_stamp,
+         TimeTToUTCString(unloaded_module_.time_date_stamp).c_str());
+  printf("  module_name_rva                 = 0x%x\n",
+         unloaded_module_.module_name_rva);
+
+  printf("  (code_file)                     = \"%s\"\n", code_file().c_str());
+  printf("  (code_identifier)               = \"%s\"\n",
+         code_identifier().c_str());
+
+  printf("  (debug_file)                    = \"%s\"\n", debug_file().c_str());
+  printf("  (debug_identifier)              = \"%s\"\n",
+         debug_identifier().c_str());
+  printf("  (version)                       = \"%s\"\n", version().c_str());
+  printf("\n");
+}
+
 string MinidumpUnloadedModule::code_file() const {
   if (!valid_) {
     BPLOG(ERROR) << "Invalid MinidumpUnloadedModule for code_file";
@@ -3856,6 +3946,24 @@ MinidumpUnloadedModuleList::~MinidumpUnloadedModuleList() {
   delete unloaded_modules_;
 }
 
+void MinidumpUnloadedModuleList::Print() {
+  if (!valid_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList cannot print invalid data";
+    return;
+  }
+
+  printf("MinidumpUnloadedModuleList\n");
+  printf("  module_count = %d\n", module_count_);
+  printf("\n");
+
+  for (unsigned int module_index = 0;
+       module_index < module_count_;
+       ++module_index) {
+    printf("module[%d]\n", module_index);
+
+    (*unloaded_modules_)[module_index].Print();
+  }
+}
 
 bool MinidumpUnloadedModuleList::Read(uint32_t expected_size) {
   range_map_->Clear();

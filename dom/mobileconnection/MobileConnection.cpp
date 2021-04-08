@@ -480,28 +480,6 @@ Nullable<MobileRadioState> MobileConnection::GetRadioState() const {
   return retVal;
 }
 
-void MobileConnection::GetSupportedNetworkTypes(
-    nsTArray<MobileNetworkType>& aTypes) const {
-  if (!mMobileConnection) {
-    return;
-  }
-
-  int32_t* types = nullptr;
-  uint32_t length = 0;
-
-  nsresult rv = mMobileConnection->GetSupportedNetworkTypes(&types, &length);
-  NS_ENSURE_SUCCESS_VOID(rv);
-
-  for (uint32_t i = 0; i < length; ++i) {
-    int32_t type = types[i];
-
-    MOZ_ASSERT(type < static_cast<int32_t>(MobileNetworkType::EndGuard_));
-    aTypes.AppendElement(static_cast<MobileNetworkType>(type));
-  }
-
-  free(types);
-}
-
 already_AddRefed<Promise> MobileConnection::GetSupportedNetworkTypes(
     ErrorResult& aRv) {
   nsTArray<MobileNetworkType> result;

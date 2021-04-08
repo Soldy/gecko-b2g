@@ -118,9 +118,14 @@ bool WebGLFBAttachPoint::IsComplete(WebGLContext* webgl,
         return attachedMipLevel < tex->ImmutableLevelCount();
       }
 
+      // Base level must be complete.
       if (!texCompleteness->levels) return false;
 
-      const auto baseLevel = tex->BaseMipmapLevel();
+      const auto baseLevel = tex->Es3_level_base();
+      if (attachedMipLevel == baseLevel) return true;
+
+      // If not base level, must be mip-complete and within mips.
+      if (!texCompleteness->mipmapComplete) return false;
       const auto maxLevel = baseLevel + texCompleteness->levels - 1;
       return baseLevel <= attachedMipLevel && attachedMipLevel <= maxLevel;
     }();
@@ -1067,6 +1072,7 @@ void WebGLFramebuffer::RefreshDrawBuffers() const {
     }
   }
 
+  gl->fBindFramebuffer(LOCAL_GL_DRAW_FRAMEBUFFER, mGLName);
   gl->fDrawBuffers(driverBuffers.size(), driverBuffers.data());
 }
 
@@ -1083,6 +1089,7 @@ void WebGLFramebuffer::RefreshReadBuffer() const {
     driverBuffer = mColorReadBuffer->mAttachmentPoint;
   }
 
+  gl->fBindFramebuffer(LOCAL_GL_READ_FRAMEBUFFER, mGLName);
   gl->fReadBuffer(driverBuffer);
 }
 

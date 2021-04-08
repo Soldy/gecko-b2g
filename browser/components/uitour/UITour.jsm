@@ -120,16 +120,34 @@ var UITour = {
       "accountStatus",
       {
         query: aDocument => {
-          // Use the sync setup icon.
-          let statusButton = aDocument.getElementById("appMenu-fxa-label");
-          return statusButton.icon;
+          let id = UITour.protonEnabled
+            ? "appMenu-fxa-label2"
+            : "appMenu-fxa-label";
+          let statusButton = PanelMultiView.getViewNode(aDocument, id);
+          if (!UITour.protonEnabled) {
+            // Use the sync setup icon.
+            return statusButton.querySelector(".toolbarbutton-icon");
+          }
+          return statusButton;
         },
         // This is a fake widgetName starting with the "appMenu-" prefix so we know
         // to automatically open the appMenu when annotating this target.
         widgetName: "appMenu-fxa-label",
       },
     ],
-    ["addons", { query: "#appMenu-addons-button" }],
+    [
+      "addons",
+      {
+        query: aDocument => {
+          return UITour.protonEnabled
+            ? UITour.getNodeFromDocument(
+                aDocument,
+                "#appMenu-extensions-themes-button"
+              )
+            : UITour.getNodeFromDocument(aDocument, "#appMenu-addons-button");
+        },
+      },
+    ],
     [
       "appMenu",
       {
@@ -146,13 +164,6 @@ var UITour = {
     ],
     ["backForward", { query: "#back-button" }],
     ["bookmarks", { query: "#bookmarks-menu-button" }],
-    [
-      "customize",
-      {
-        query: "#appMenu-customize-button",
-        widgetName: "appMenu-customize-button",
-      },
-    ],
     [
       "devtools",
       {
@@ -171,25 +182,49 @@ var UITour = {
     ["help", { query: "#appMenu-help-button" }],
     ["home", { query: "#home-button" }],
     ["library", { query: "#appMenu-library-button" }],
-    ["logins", { query: "#appMenu-logins-button" }],
+    [
+      "logins",
+      {
+        query: aDocument => {
+          return UITour.protonEnabled
+            ? UITour.getNodeFromDocument(aDocument, "#appMenu-passwords-button")
+            : UITour.getNodeFromDocument(aDocument, "#appMenu-logins-button");
+        },
+      },
+    ],
     [
       "pocket",
       {
         allowAdd: true,
+        query: "#save-to-pocket-button",
+      },
+    ],
+    [
+      "privateWindow",
+      {
         query: aDocument => {
-          // The pocket's urlbar page action button is pre-defined in the DOM.
-          // It would be hidden if toggled off from the urlbar.
-          let node = aDocument.getElementById("pocket-button");
-          if (node && !node.hidden) {
-            return node;
-          }
-          aDocument.ownerGlobal.BrowserPageActions.placeLazyActionsInPanel();
-          return aDocument.getElementById("pageAction-panel-pocket");
+          return UITour.protonEnabled
+            ? UITour.getNodeFromDocument(
+                aDocument,
+                "#appMenu-new-private-window-button2"
+              )
+            : UITour.getNodeFromDocument(
+                aDocument,
+                "#appMenu-private-window-button"
+              );
         },
       },
     ],
-    ["privateWindow", { query: "#appMenu-private-window-button" }],
-    ["quit", { query: "#appMenu-quit-button" }],
+    [
+      "quit",
+      {
+        query: aDocument => {
+          return UITour.protonEnabled
+            ? UITour.getNodeFromDocument(aDocument, "#appMenu-quit-button2")
+            : UITour.getNodeFromDocument(aDocument, "#appMenu-quit-button");
+        },
+      },
+    ],
     ["readerMode-urlBar", { query: "#reader-mode-button" }],
     [
       "search",
@@ -231,12 +266,6 @@ var UITour = {
       },
     ],
     [
-      "pageActionButton",
-      {
-        query: "#pageActionButton",
-      },
-    ],
-    [
       "pageAction-bookmark",
       {
         query: aDocument => {
@@ -251,6 +280,9 @@ var UITour = {
         },
       },
     ],
+  ]),
+
+  nonProtonURLBarTargets: [
     [
       "pageAction-copyURL",
       {
@@ -299,7 +331,7 @@ var UITour = {
         },
       },
     ],
-  ]),
+  ],
 
   init() {
     log.debug("Initializing UITour");
@@ -309,6 +341,20 @@ var UITour = {
     XPCOMUtils.defineLazyGetter(this, "url", function() {
       return Services.urlFormatter.formatURLPref("browser.uitour.url");
     });
+
+    XPCOMUtils.defineLazyPreferenceGetter(
+      this,
+      "protonEnabled",
+      "browser.proton.enabled",
+      false
+    );
+
+    // Add non-proton targets if necessary.
+    if (!Services.prefs.getBoolPref("browser.proton.urlbar.enabled", false)) {
+      for (let [id, target] of this.nonProtonURLBarTargets) {
+        this.targets.set(id, target);
+      }
+    }
 
     // Clear the availableTargetsCache on widget changes.
     let listenerMethods = [
@@ -323,6 +369,14 @@ var UITour = {
         listener[method] = () => this.clearAvailableTargetsCache();
         return listener;
       }, {})
+    );
+  },
+
+  getNodeFromDocument(aDocument, aQuery) {
+    let viewCacheTemplate = aDocument.getElementById("appMenu-viewCache");
+    return (
+      aDocument.querySelector(aQuery) ||
+      viewCacheTemplate.content.querySelector(aQuery)
     );
   },
 
@@ -372,7 +426,7 @@ var UITour = {
       }
 
       case "showHighlight": {
-        if (data.target.startsWith("pageAction-")) {
+        if (!UITour.protonEnabled && data.target.startsWith("pageAction-")) {
           // The page action panel is lazily loaded, so we will need to initialize it
           // and place actions in the panel before showing the highlight for a panel
           // node.
@@ -1021,12 +1075,7 @@ var UITour = {
               node = null;
             }
           } else {
-            let viewCacheTemplate = aWindow.document.getElementById(
-              "appMenu-viewCache"
-            );
-            node =
-              aWindow.document.querySelector(targetQuery) ||
-              viewCacheTemplate.content.querySelector(targetQuery);
+            node = this.getNodeFromDocument(aWindow.document, targetQuery);
           }
 
           resolve({

@@ -3,18 +3,23 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 %include ../../shared/customizableui/panelUI.inc.css
+%include ../../shared/customizableui/panelUI-custom-colors.inc.css
 
 .restoreallitem > .toolbarbutton-icon {
   display: none;
 }
 
-@supports not -moz-bool-pref("browser.proton.appmenu.enabled") {
+@media not (-moz-proton) {
 .subviewbutton {
   padding-inline-start: 18px;
 }
 
 .subviewbutton.download {
   padding-inline-start: 14px;
+}
+
+.PanelUI-subView menuseparator {
+  padding: 0 !important;
 }
 } /** END not Proton **/
 
@@ -59,11 +64,6 @@ panelmultiview .toolbaritem-combined-buttons > spacer.before-label {
 menu.subviewbutton > .menu-right {
   margin-inline-end: -4px;
   appearance: none;
-}
-
-.PanelUI-subView menuseparator,
-.cui-widget-panelview menuseparator {
-  padding: 0 !important;
 }
 
 .PanelUI-remotetabs-clientcontainer > label[itemtype="client"] {

@@ -8,6 +8,11 @@ const TEST_PATH = getRootDirectory(gTestPath).replace(
   "https://example.com"
 );
 
+const TEST_PATH_SITE = getRootDirectory(gTestPath).replace(
+  "chrome://mochitests/content",
+  "https://test1.example.com"
+);
+
 add_task(async function test_print_blocks() {
   // window.print() only shows print preview when print.tab_modal.enabled is
   // true.
@@ -150,6 +155,64 @@ add_task(async function test_print_on_sandboxed_frame() {
   );
 });
 
+add_task(async function test_print_another_iframe_and_remove() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["print.tab_modal.enabled", true]],
+  });
+
+  is(
+    document.querySelector(".printPreviewBrowser"),
+    null,
+    "There shouldn't be any print preview browser"
+  );
+
+  await BrowserTestUtils.withNewTab(
+    `${TEST_PATH}file_window_print_another_iframe_and_remove.html`,
+    async function(browser) {
+      let firstFrame = browser.browsingContext.children[0];
+      info("Clicking on the button in the first iframe");
+      BrowserTestUtils.synthesizeMouse("button", 0, 0, {}, firstFrame);
+
+      info("Waiting for dialog");
+      await BrowserTestUtils.waitForCondition(
+        () => !!document.querySelector(".printPreviewBrowser")
+      );
+
+      isnot(
+        document.querySelector(".printPreviewBrowser"),
+        null,
+        "Should open the print preview correctly"
+      );
+      gBrowser.getTabDialogBox(browser).abortAllDialogs();
+    }
+  );
+});
+
+add_task(async function test_window_print_coop_site() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["print.tab_modal.enabled", true]],
+  });
+
+  for (const base of [TEST_PATH, TEST_PATH_SITE]) {
+    const url = `${base}file_coop_header2.html`;
+    is(
+      document.querySelector(".printPreviewBrowser"),
+      null,
+      "There shouldn't be any print preview browser"
+    );
+    await BrowserTestUtils.withNewTab(url, async function(browser) {
+      info("Waiting for dialog");
+      await BrowserTestUtils.waitForCondition(
+        () => !!document.querySelector(".printPreviewBrowser")
+      );
+
+      ok(true, "Shouldn't crash");
+      gBrowser.getTabDialogBox(browser).abortAllDialogs();
+    });
+  }
+});
+
+// FIXME(emilio): This test doesn't use window.print(), why is it on this file?
 add_task(async function test_focused_browsing_context() {
   await SpecialPowers.pushPrefEnv({
     set: [["print.tab_modal.enabled", true]],
@@ -169,7 +232,12 @@ add_task(async function test_focused_browsing_context() {
   let menuButton = document.getElementById("PanelUI-menu-button");
   menuButton.click();
   await BrowserTestUtils.waitForEvent(window.PanelUI.mainView, "ViewShown");
-  document.getElementById("appMenu-print-button").click();
+
+  let printButtonID = PanelUI.protonAppMenuEnabled
+    ? "appMenu-print-button2"
+    : "appMenu-print-button";
+
+  document.getElementById(printButtonID).click();
 
   let dialog = await TestUtils.waitForCondition(
     () =>

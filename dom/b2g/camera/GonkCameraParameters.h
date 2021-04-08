@@ -93,34 +93,34 @@ class GonkCameraParameters {
       return NS_ERROR_ILLEGAL_VALUE;
     }
     nsDependentCString key(aKey);
-    mParams.Put(key, MakeUnique<nsCString>(aValue));
+    mParams.InsertOrUpdate(key, MakeUnique<nsCString>(aValue));
     return NS_OK;
   }
 
   nsresult SetImpl(const char* aKey, int aValue) {
     nsDependentCString key(aKey);
-    nsCString* value = mParams.Put(key, MakeUnique<nsCString>()).get();
+    nsCString* value = mParams.InsertOrUpdate(key, MakeUnique<nsCString>()).get();
     value->AppendInt(aValue);
     return NS_OK;
   }
 
   nsresult SetImpl(const char* aKey, double aValue) {
     nsDependentCString key(aKey);
-    nsCString* value = mParams.Put(key, MakeUnique<nsCString>()).get();
+    nsCString* value = mParams.InsertOrUpdate(key, MakeUnique<nsCString>()).get();
     value->AppendFloat(aValue);
     return NS_OK;
   }
 
   nsresult SetImpl(const char* aKey, float aValue) {
     nsDependentCString key(aKey);
-    nsCString* value = mParams.Put(key, MakeUnique<nsCString>()).get();
+    nsCString* value = mParams.InsertOrUpdate(key, MakeUnique<nsCString>()).get();
     value->AppendFloat(aValue);
     return NS_OK;
   }
 
   nsresult SetImpl(const char* aKey, bool aValue) {
     nsDependentCString key(aKey);
-    mParams.Put(key, MakeUnique<nsCString>(aValue ? "true" : "false"));
+    mParams.InsertOrUpdate(key, MakeUnique<nsCString>(aValue ? "true" : "false"));
     return NS_OK;
   }
 

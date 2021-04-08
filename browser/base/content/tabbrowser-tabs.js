@@ -70,6 +70,16 @@
       var tab = this.allTabs[0];
       tab.label = this.emptyTabTitle;
 
+      // Hide the secondary text for locales where it is unsupported due to size constraints.
+      const language = Services.locale.appLocaleAsBCP47;
+      const unsupportedLocales = Services.prefs.getCharPref(
+        "browser.tabs.secondaryTextUnsupportedLocales"
+      );
+      this.toggleAttribute(
+        "secondarytext-unsupported",
+        unsupportedLocales.split(",").includes(language.split("-")[0])
+      );
+
       this.newTabButton.setAttribute(
         "aria-label",
         GetDynamicShortcutTooltipText("tabs-newtab-button")
@@ -245,6 +255,7 @@
             animate: true,
             byMouse: event.mozInputSource == MouseEvent.MOZ_SOURCE_MOUSE,
           });
+          event.preventDefault();
         } else if (event.originalTarget.localName == "scrollbox") {
           // The user middleclicked on the tabstrip. Check whether the click
           // was dispatched on the open space of it.
@@ -1110,16 +1121,18 @@
         }
       }
 
-      if (this._firstTab) {
-        this._firstTab.removeAttribute("first-visible-tab");
-      }
+      this._firstTab?.removeAttribute("first-visible-tab");
       this._firstTab = visibleTabs[0];
       this._firstTab.setAttribute("first-visible-tab", "true");
-      if (this._lastTab) {
-        this._lastTab.removeAttribute("last-visible-tab");
-      }
+      this._lastTab?.removeAttribute("last-visible-tab");
       this._lastTab = visibleTabs[visibleTabs.length - 1];
       this._lastTab.setAttribute("last-visible-tab", "true");
+      this._firstUnpinnedTab?.removeAttribute("first-visible-unpinned-tab");
+      this._firstUnpinnedTab = visibleTabs.find(t => !t.pinned);
+      this._firstUnpinnedTab?.setAttribute(
+        "first-visible-unpinned-tab",
+        "true"
+      );
 
       let hoveredTab = this._hoveredTab;
       if (hoveredTab) {
@@ -1315,11 +1328,13 @@
 
     _positionPinnedTabs() {
       let tabs = this._getVisibleTabs();
-      let numPinned = tabs.filter(t => t.pinned).length;
+      let numPinned = gBrowser._numPinnedTabs;
       let doPosition =
         this.getAttribute("overflow") == "true" &&
         tabs.length > numPinned &&
         numPinned > 0;
+
+      this.toggleAttribute("haspinnedtabs", !!numPinned);
 
       if (doPosition) {
         this.setAttribute("positionpinnedtabs", "true");
@@ -1328,23 +1343,15 @@
         let uiDensity = document.documentElement.getAttribute("uidensity");
         if (!layoutData || layoutData.uiDensity != uiDensity) {
           let arrowScrollbox = this.arrowScrollbox;
-          let firstTab = tabs[0];
-          let firstTabCS = getComputedStyle(firstTab);
-          let scrollbox = this.arrowScrollbox.shadowRoot.querySelector(
-            `[part="scrollbox"]`
-          );
-          let scrollboxCS = getComputedStyle(scrollbox);
           layoutData = this._pinnedTabsLayoutCache = {
             uiDensity,
-            scrollboxPadding: parseFloat(scrollboxCS.paddingInlineStart),
-            pinnedTabWidth:
-              firstTab.getBoundingClientRect().width +
-              /* Re-use the first tabs margin-inline-end because we remove
-                 the margin-inline-start from the first tab. All tabs
-                 (excluding first and last) should have equal start and end margins. */
-              2 * parseFloat(firstTabCS.marginInlineEnd),
-            scrollButtonWidth: arrowScrollbox._scrollButtonDown.getBoundingClientRect()
-              .width,
+            pinnedTabWidth: tabs[0].getBoundingClientRect().width,
+            scrollStartOffset:
+              arrowScrollbox.scrollbox.getBoundingClientRect().left -
+              arrowScrollbox.getBoundingClientRect().left +
+              parseFloat(
+                getComputedStyle(arrowScrollbox.scrollbox).paddingInlineStart
+              ),
           };
         }
 
@@ -1354,11 +1361,7 @@
           width += layoutData.pinnedTabWidth;
           tab.style.setProperty(
             "margin-inline-start",
-            -(
-              width +
-              layoutData.scrollButtonWidth +
-              layoutData.scrollboxPadding
-            ) + "px",
+            -(width + layoutData.scrollStartOffset) + "px",
             "important"
           );
           tab._pinnedUnscrollable = true;

@@ -4,16 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-[GenerateConversionToJS]
+[GenerateConversionToJS, GenerateInit]
 dictionary WebActivityOptions {
-  DOMString name = "";
-  any data = null;
+  required DOMString name;
+           any data = null;
 };
 
 [Exposed=(Window,Worker)]
 interface WebActivity {
   [Throws]
-  constructor(optional WebActivityOptions options = {});
+  constructor(DOMString name, optional any data = null);
 
   [Throws]
   Promise<any> start();

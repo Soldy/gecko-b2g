@@ -194,7 +194,7 @@ class VolumeCurves {
     for (uint32_t i = 0; i <= MaxIndex(); i++) {
       curve.AppendElement(ComputeVolume(i, aDevice));
     }
-    mCurves.Put(aDevice, std::move(curve));
+    mCurves.InsertOrUpdate(aDevice, std::move(curve));
   }
 
   float GetVolume(uint32_t aIndex, uint32_t aDevice) {
@@ -202,8 +202,7 @@ class VolumeCurves {
       aIndex = MaxIndex();
     }
 
-    nsTArray<float>* curve;
-    if (curve = mCurves.GetValue(aDevice)) {
+    if (auto curve = mCurves.Lookup(aDevice)) {
       MOZ_ASSERT(curve->Length() == MaxIndex() + 1);
       return curve->ElementAt(aIndex);
     }
@@ -220,7 +219,7 @@ class VolumeCurves {
     return exp(decibel * 0.115129f);
   }
 
-  nsDataHashtable<nsUint32HashKey, nsTArray<float>> mCurves;
+  nsTHashMap<nsUint32HashKey, nsTArray<float>> mCurves;
   const int32_t mStreamType;
 };
 
@@ -608,7 +607,7 @@ void AudioManager::UpdateDeviceConnectionState(
   }
 
   if (aIsConnected) {
-    mConnectedDevices.Put(aDevice, aDeviceAddress);
+    mConnectedDevices.InsertOrUpdate(aDevice, aDeviceAddress);
   } else {
     mConnectedDevices.Remove(aDevice);
   }
@@ -645,18 +644,9 @@ void AudioManager::HandleBluetoothStatusChanged(nsISupports* aSubject,
       int btSampleRate =
           hfp->IsWbsEnabled() ? kBtWideBandSampleRate : kBtSampleRate;
       SetParameters("bt_samplerate=%d", btSampleRate);
-      SetParameters("BT_SCO=on");
-      SetForceForUse(nsIAudioManager::USE_COMMUNICATION,
-                     nsIAudioManager::FORCE_BT_SCO);
-    } else {
-      SetParameters("BT_SCO=off");
-      int32_t force;
-      GetForceForUse(nsIAudioManager::USE_COMMUNICATION, &force);
-      if (force == nsIAudioManager::FORCE_BT_SCO) {
-        SetForceForUse(nsIAudioManager::USE_COMMUNICATION,
-                       nsIAudioManager::FORCE_NONE);
-      }
     }
+    mBluetoothScoEnabled = isConnected;
+    UpdateBluetoothScoRouting();
   } else if (!strcmp(aTopic, BLUETOOTH_A2DP_STATUS_CHANGED_ID)) {
     if (!isConnected && mA2dpSwitchDone) {
       RefPtr<AudioManager> self = this;
@@ -681,17 +671,16 @@ void AudioManager::HandleBluetoothStatusChanged(nsISupports* aSubject,
       SetParameters("bluetooth_enabled=true");
       SetParameters("A2dpSuspended=false");
       mA2dpSwitchDone = true;
-      if (AudioSystem::getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) ==
-          AUDIO_POLICY_FORCE_NO_BT_A2DP) {
-        SetForceForUse(AUDIO_POLICY_FORCE_FOR_MEDIA, AUDIO_POLICY_FORCE_NONE);
-      }
     }
     mBluetoothA2dpEnabled = isConnected;
+    mAllowBluetoothA2dp = true;
+    UpdateBluetoothA2dpRouting();
   } else if (!strcmp(aTopic, BLUETOOTH_HFP_STATUS_CHANGED_ID)) {
     UpdateDeviceConnectionState(
         isConnected, AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET, aAddress);
     UpdateDeviceConnectionState(
         isConnected, AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, aAddress);
+    mAllowBluetoothSco = true;
   } else if (!strcmp(aTopic, BLUETOOTH_HFP_NREC_STATUS_CHANGED_ID)) {
     BluetoothHfpManagerBase* hfp =
         static_cast<BluetoothHfpManagerBase*>(aSubject);
@@ -776,6 +765,37 @@ class HeadphoneSwitchObserver : public hal::SwitchObserver {
   }
 };
 
+#ifdef MOZ_B2G_BT
+void AudioManager::UpdateBluetoothA2dpRouting() {
+  bool forceNoA2dp = mBluetoothA2dpEnabled && !mAllowBluetoothA2dp;
+  auto forceUse = AudioSystem::getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA);
+
+  if (forceUse == AUDIO_POLICY_FORCE_NONE && forceNoA2dp) {
+    AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA,
+                             AUDIO_POLICY_FORCE_NO_BT_A2DP);
+  } else if (forceUse == AUDIO_POLICY_FORCE_NO_BT_A2DP && !forceNoA2dp) {
+    AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA,
+                             AUDIO_POLICY_FORCE_NONE);
+  }
+}
+
+void AudioManager::UpdateBluetoothScoRouting() {
+  bool forceSco = mBluetoothScoEnabled && mAllowBluetoothSco;
+  auto forceUse =
+      AudioSystem::getForceUse(AUDIO_POLICY_FORCE_FOR_COMMUNICATION);
+
+  if (forceUse == AUDIO_POLICY_FORCE_NONE && forceSco) {
+    SetParameters("BT_SCO=on");
+    AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_COMMUNICATION,
+                             AUDIO_POLICY_FORCE_BT_SCO);
+  } else if (forceUse == AUDIO_POLICY_FORCE_BT_SCO && !forceSco) {
+    SetParameters("BT_SCO=off");
+    AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_COMMUNICATION,
+                             AUDIO_POLICY_FORCE_NONE);
+  }
+}
+#endif
+
 void AudioManager::HandleHeadphoneSwitchEvent(const hal::SwitchEvent& aEvent) {
   // For more information, see bug 29237.
   // Holds the wakelock for making sure that gecko can do all the needed things
@@ -789,9 +809,11 @@ void AudioManager::HandleHeadphoneSwitchEvent(const hal::SwitchEvent& aEvent) {
   CreateWakeLock();
 
   NotifyHeadphonesStatus(aEvent.status());
+  bool isConnected = aEvent.status() != hal::SWITCH_STATE_OFF;
+
   // When user pulled out the headset, a delay of routing here can avoid the
   // leakage of audio from speaker.
-  if (aEvent.status() == hal::SWITCH_STATE_OFF && mSwitchDone) {
+  if (!isConnected && mSwitchDone) {
     // When system is in sleep mode and user unplugs the headphone, we need to
     // hold the wakelock here, or the delayed task will not be executed.
     RefPtr<AudioManager> self = this;
@@ -807,19 +829,20 @@ void AudioManager::HandleHeadphoneSwitchEvent(const hal::SwitchEvent& aEvent) {
         });
     MessageLoop::current()->PostDelayedTask(runnable.forget(), 1000);
     mSwitchDone = false;
-  } else if (aEvent.status() != hal::SWITCH_STATE_OFF) {
+  } else if (isConnected) {
     UpdateHeadsetConnectionState(aEvent.status());
     mSwitchDone = true;
   }
-  // Handle the coexistence of a2dp / headset device, latest one wins.
-  int32_t forceUse = 0;
-  GetForceForUse(AUDIO_POLICY_FORCE_FOR_MEDIA, &forceUse);
-  if (aEvent.status() != hal::SWITCH_STATE_OFF && mBluetoothA2dpEnabled) {
-    SetForceForUse(AUDIO_POLICY_FORCE_FOR_MEDIA, AUDIO_POLICY_FORCE_NO_BT_A2DP);
-  } else if (forceUse == AUDIO_POLICY_FORCE_NO_BT_A2DP) {
-    SetForceForUse(AUDIO_POLICY_FORCE_FOR_MEDIA, AUDIO_POLICY_FORCE_NONE);
-  }
-  if (aEvent.status() != hal::SWITCH_STATE_OFF) {
+
+#ifdef MOZ_B2G_BT
+  // Handle the coexistence of bluetooth / headset device, latest one wins.
+  mAllowBluetoothA2dp = !isConnected;
+  mAllowBluetoothSco = !isConnected;
+  UpdateBluetoothA2dpRouting();
+  UpdateBluetoothScoRouting();
+#endif
+
+  if (isConnected) {
     ReleaseWakeLock();
   }
 }
@@ -858,14 +881,52 @@ AudioManager::AudioManager()
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(!sAudioManager);
 
-  AudioSystem::setErrorCallback(BinderDeadCallback);
-  AudioSystem::addAudioPortCallback(mAudioPortCallbackHolder->Callback());
+#ifdef PRODUCT_MANUFACTURER_QUALCOMM
+  mFmVolumeCurves = MakeUnique<VolumeCurves>(AUDIO_STREAM_MUSIC);
+#endif
 
   // Create VolumeStreamStates
   for (int32_t streamType = 0; streamType < AUDIO_STREAM_CNT; ++streamType) {
     auto streamState = MakeUnique<VolumeStreamState>(*this, streamType);
     mStreamStates.AppendElement(std::move(streamState));
   }
+
+  Init();
+}
+
+void AudioManager::Init() {
+  // Register AudioSystem callbacks.
+  AudioSystem::setErrorCallback(BinderDeadCallback);
+  AudioSystem::addAudioPortCallback(mAudioPortCallbackHolder->Callback());
+
+  // Gecko only control stream volume not master so set to default value
+  // directly.
+  AudioSystem::setMasterVolume(1.0);
+
+  // Android 10 introduces new rules for sharing audio input. This call can
+  // prevent AudioPolicyService from treating us as assistant app and
+  // incorrectly muting our audio input because we don't meet some criteria of
+  // assistant app.
+  AudioSystem::setAssistantUid(AUDIO_UID_INVALID);
+
+  // If this is not set, AUDIO_STREAM_ENFORCED_AUDIBLE will be mapped to
+  // AUDIO_STREAM_MUSIC inside AudioPolicyManager.
+  AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM,
+                           AUDIO_POLICY_FORCE_SYSTEM_ENFORCED);
+
+  // Initialize mStreamStates, which calls AudioSystem::initStreamVolume().
+  for (auto& streamState : mStreamStates) {
+    streamState->InitStreamVolume();
+  }
+
+#ifdef PRODUCT_MANUFACTURER_QUALCOMM
+  // Build FM volume curves from music stream. The curves can only be computed
+  // after AudioSystem::initStreamVolume() is called.
+  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_SPEAKER);
+  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_WIRED_HEADSET);
+  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_WIRED_HEADPHONE);
+#endif
+
   // Initialize stream volumes with default values
   for (int32_t streamType = 0; streamType < AUDIO_STREAM_CNT; streamType++) {
     uint32_t volIndex = sDefaultStreamVolumeTbl[streamType];
@@ -886,10 +947,7 @@ AudioManager::AudioManager()
   // Get the initial volume index from settings DB during boot up.
   InitVolumeFromDatabase();
 
-  // Gecko only control stream volume not master so set to default value
-  // directly.
-  AudioSystem::setMasterVolume(1.0);
-
+  // Register to observer service.
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE_VOID(obs);
   if (NS_FAILED(
@@ -912,6 +970,11 @@ AudioManager::AudioManager()
           obs->AddObserver(this, BLUETOOTH_HFP_WBS_STATUS_CHANGED_ID, false))) {
     NS_WARNING("Failed to add bluetooth hfp WBS status changed observer!");
   }
+#ifdef PRODUCT_MANUFACTURER_MTK
+  if (NS_FAILED(obs->AddObserver(this, SCREEN_STATE_CHANGED, false))) {
+    NS_WARNING("Failed to add screen-state-changed observer!");
+  }
+#endif
 
   // Add volume change observer.
   nsCOMPtr<nsISettingsManager> settingsManager =
@@ -932,20 +995,6 @@ AudioManager::AudioManager()
     LOGE("Failed to Get SETTINGS MANAGER to AddObserver!");
   }
 
-#ifdef PRODUCT_MANUFACTURER_QUALCOMM
-  // Build FM volume curves from music stream.
-  mFmVolumeCurves = MakeUnique<VolumeCurves>(AUDIO_STREAM_MUSIC);
-  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_SPEAKER);
-  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_WIRED_HEADSET);
-  mFmVolumeCurves->Build(AUDIO_DEVICE_OUT_WIRED_HEADPHONE);
-#endif
-
-#ifdef PRODUCT_MANUFACTURER_MTK
-  if (NS_FAILED(obs->AddObserver(this, SCREEN_STATE_CHANGED, false))) {
-    NS_WARNING("Failed to add screen-state-changed observer!");
-  }
-#endif
-
 #ifdef MOZ_B2G_RIL
   char value[PROPERTY_VALUE_MAX];
   property_get("ro.moz.mute.call.to_ril", value, "false");
@@ -953,17 +1002,6 @@ AudioManager::AudioManager()
     mMuteCallToRIL = true;
   }
 #endif
-
-  // Android 10 introduces new rules for sharing audio input. This call can
-  // prevent AudioPolicyService from treating us as assistant app and
-  // incorrectly muting our audio input because we don't meet some criteria of
-  // assistant app.
-  AudioSystem::setAssistantUid(AUDIO_UID_INVALID);
-
-  // If this is not set, AUDIO_STREAM_ENFORCED_AUDIBLE will be mapped to
-  // AUDIO_STREAM_MUSIC inside AudioPolicyManager.
-  AudioSystem::setForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM,
-                           AUDIO_POLICY_FORCE_SYSTEM_ENFORCED);
 }
 
 AudioManager::~AudioManager() {
@@ -1555,8 +1593,6 @@ AudioManager::VolumeStreamState::VolumeStreamState(AudioManager& aManager,
     default:
       break;
   }
-
-  InitStreamVolume();
 }
 
 bool AudioManager::VolumeStreamState::IsDevicesChanged() {
@@ -1686,7 +1722,7 @@ nsresult AudioManager::VolumeStreamState::SetVolumeIndex(uint32_t aIndex,
                                                          bool aUpdateCache) {
   android::status_t rv;
   if (aUpdateCache) {
-    mVolumeIndexes.Put(aDevice, aIndex);
+    mVolumeIndexes.InsertOrUpdate(aDevice, aIndex);
     mDevicesWithVolumeChange |= aDevice;
   }
 

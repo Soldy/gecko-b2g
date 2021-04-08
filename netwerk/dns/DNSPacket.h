@@ -7,9 +7,10 @@
 
 #include "mozilla/Maybe.h"
 #include "mozilla/Result.h"
-#include "nsHostResolver.h"
 #include "pk11pub.h"
 #include "ScopedNSSTypes.h"
+#include "nsClassHashtable.h"
+#include "nsIDNSService.h"
 
 namespace mozilla {
 namespace net {
@@ -105,7 +106,7 @@ class ODoHDNSPacket final : public DNSPacket {
   ODoHDNSPacket() = default;
   virtual ~ODoHDNSPacket();
 
-  static bool ParseODoHConfigs(const nsCString& aRawODoHConfig,
+  static bool ParseODoHConfigs(Span<const uint8_t> aData,
                                nsTArray<ObliviousDoHConfig>& aOut);
 
   virtual nsresult EncodeRequest(nsCString& aBody, const nsACString& aHost,

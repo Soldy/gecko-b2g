@@ -30,6 +30,7 @@ koost/koost.js
 dom/cellbroadcast/gonk/GonkCellBroadcastConfigService.jsm
 dom/mobilemessage/gonk/MmsPduHelper.jsm
 dom/system/gonk/radio/simIOHelper.js
+dom/system/gonk/BinderServices.jsm
 # Tests to fix:
 dom/cellbroadcast/tests/
 
@@ -72,7 +73,6 @@ browser/extensions/formautofill/phonenumberutils/PhoneNumberMetaData.jsm
 # See https://github.com/firefox-devtools/debugger/blob/master/package.json#L24
 devtools/client/debugger/configs/
 devtools/client/debugger/dist/
-devtools/client/debugger/flow-typed/
 devtools/client/debugger/images/
 devtools/client/debugger/test/
 devtools/client/debugger/index.html
@@ -148,7 +148,6 @@ js/public/
 js/xpconnect/
 js/src/devtools/
 js/src/jit-test/
-js/src/jsapi-tests/binast/
 js/src/tests/
 js/src/Y.js
 
@@ -173,7 +172,7 @@ python/
 
 # These are (mainly) imported code that we don't want to lint to make imports easier.
 remote/cdp/Protocol.jsm
-remote/test/browser/chrome-remote-interface.js
+remote/cdp/test/browser/chrome-remote-interface.js
 
 # services/ exclusions
 

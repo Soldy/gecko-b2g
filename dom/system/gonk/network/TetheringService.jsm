@@ -497,15 +497,19 @@ TetheringService.prototype = {
     if (data && data.state === "registered") {
       let ril = gRil.getRadioInterface(this._dataDefaultServiceId);
 
-      this.dunRetryTimes = 0;
-      ril.setupDataCallByType(Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN);
-      this.dunConnectTimer.cancel();
-      this.dunConnectTimer.initWithCallback(
-        this.onDunConnectTimerTimeout.bind(this),
-        MOBILE_DUN_CONNECT_TIMEOUT,
-        Ci.nsITimer.TYPE_ONE_SHOT
-      );
-      return;
+      try {
+        this.dunConnectTimer.cancel();
+        ril.setupDataCallByType(Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN);
+        this.dunRetryTimes = 0;
+        this.dunConnectTimer.initWithCallback(
+          this.onDunConnectTimerTimeout.bind(this),
+          MOBILE_DUN_CONNECT_TIMEOUT,
+          Ci.nsITimer.TYPE_ONE_SHOT
+        );
+        return;
+      } catch (e) {
+        debug("setupDunConnection: error: " + e);
+      }
     }
 
     if (this.dunRetryTimes++ >= MOBILE_DUN_MAX_RETRIES) {
@@ -547,9 +551,15 @@ TetheringService.prototype = {
       this._pendingTetheringRequests = [];
 
       if (dun && dun.state == Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED) {
-        gRil
-          .getRadioInterface(this._dataDefaultServiceId)
-          .deactivateDataCallByType(Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN);
+        try {
+          gRil
+            .getRadioInterface(this._dataDefaultServiceId)
+            .deactivateDataCallByType(
+              Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN
+            );
+        } catch (e) {
+          debug("deactivateDunConnection: error: " + e);
+        }
       }
       return;
     }
@@ -1067,11 +1077,15 @@ TetheringService.prototype = {
           );
           if (dun && dun.state == Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED) {
             debug("Wifi connected, switch dun to Wifi as external interface.");
-            gRil
-              .getRadioInterface(this._dataDefaultServiceId)
-              .deactivateDataCallByType(
-                Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN
-              );
+            try {
+              gRil
+                .getRadioInterface(this._dataDefaultServiceId)
+                .deactivateDataCallByType(
+                  Ci.nsINetworkInfo.NETWORK_TYPE_MOBILE_DUN
+                );
+            } catch (e) {
+              debug("deactivateDunConnection: error: " + e);
+            }
           }
         }
         // Handle the dun as external interface case, when embedded is dun.

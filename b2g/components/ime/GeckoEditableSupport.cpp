@@ -410,6 +410,23 @@ TextEventDispatcher* getTextEventDispatcherFromFocus() {
   return widget->GetTextEventDispatcher();
 }
 
+Element* getActiveElement() {
+  RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
+  if (!focusManager) {
+    return nullptr;
+  }
+  RefPtr<Element> focusedElement = focusManager->GetFocusedElement();
+  if (!focusedElement) {
+    return nullptr;
+  }
+  nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
+  if (!doc) {
+    return nullptr;
+  }
+  RefPtr<Element> activeElement = doc->GetActiveElement();
+  return activeElement;
+}
+
 HandleFocusRequest CreateFocusRequestFromInputContext(
     nsIInputContext* aInputContext) {
   nsAutoString typeValue, inputTypeValue, valueValue, maxValue, minValue,
@@ -624,11 +641,6 @@ GeckoEditableSupport::HandleEvent(Event* aEvent) {
       return NS_OK;
     }
     HandleBlur();
-    RefPtr<TextEventDispatcher> dispatcher = getTextEventDispatcherFromFocus();
-    if (dispatcher) {
-      dispatcher->EndInputTransaction(this);
-      OnRemovedFrom(dispatcher);
-    }
   }
   return NS_OK;
 }
@@ -667,7 +679,9 @@ void GeckoEditableSupport::HandleFocus() {
 }
 
 void GeckoEditableSupport::HandleBlur() {
-  MOZ_ASSERT(mIsFocused);
+  if (!mIsFocused) {
+    return;
+  }
   mIsFocused = false;
 
   if (XRE_IsParentProcess()) {
@@ -682,24 +696,17 @@ void GeckoEditableSupport::HandleBlur() {
     Unused << mServiceChild->Send__delete__(mServiceChild);
     mServiceChild = nullptr;
   }
+  RefPtr<TextEventDispatcher> dispatcher = getTextEventDispatcherFromFocus();
+  if (dispatcher) {
+    dispatcher->EndInputTransaction(this);
+    OnRemovedFrom(dispatcher);
+  }
 }
 
 void GeckoEditableSupport::HandleTextChanged() {
   nsresult rv = NS_ERROR_ABORT;
   nsAutoString text;
-  RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
-  if (!focusManager) {
-    return;
-  }
-  RefPtr<Element> focusedElement = focusManager->GetFocusedElement();
-  if (!focusedElement) {
-    return;
-  }
-  nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
-  if (!doc) {
-    return;
-  }
-  RefPtr<Element> activeElement = doc->GetActiveElement();
+  RefPtr<Element> activeElement = getActiveElement();
   if (!activeElement) {
     return;
   }
@@ -753,6 +760,9 @@ GeckoEditableSupport::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
     }
     case NOTIFY_IME_OF_FOCUS:
     case NOTIFY_IME_OF_BLUR: {
+      if (aNotification.mMessage == NOTIFY_IME_OF_BLUR) {
+        HandleBlur();
+      }
       if (!mIsVoiceInputEnabled) {
         break;
       }
@@ -985,17 +995,11 @@ GeckoEditableSupport::DeleteBackward(uint32_t aId,
 
   nsresult rv = NS_ERROR_ABORT;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
-      break;
-    }
-
-    nsCOMPtr<nsIEditor> editor = getEditor(focusedElement);
+    nsCOMPtr<nsIEditor> editor = getEditor(activeElement);
     if (!editor) {
       break;
     }
@@ -1017,13 +1021,8 @@ GeckoEditableSupport::SetSelectedOption(uint32_t aId,
   IME_LOGD("-- EditableSupport aOptionIndex:[%ld]", aOptionIndex);
   nsresult rv = NS_ERROR_ABORT;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
 
@@ -1032,7 +1031,7 @@ GeckoEditableSupport::SetSelectedOption(uint32_t aId,
     }
 
     RefPtr<HTMLSelectElement> selectElement =
-        HTMLSelectElement::FromNodeOrNull(focusedElement);
+        HTMLSelectElement::FromNodeOrNull(activeElement);
     if (!selectElement) {
       break;
     }
@@ -1077,18 +1076,13 @@ GeckoEditableSupport::SetSelectedOptions(
 
   nsresult rv = NS_ERROR_ABORT;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
 
     RefPtr<HTMLSelectElement> selectElement =
-        HTMLSelectElement::FromNodeOrNull(focusedElement);
+        HTMLSelectElement::FromNodeOrNull(activeElement);
     if (!selectElement) {
       break;
     }
@@ -1138,18 +1132,13 @@ GeckoEditableSupport::RemoveFocus(uint32_t aId,
   IME_LOGD("-- GeckoEditableSupport::RemoveFocus");
   nsresult rv = NS_ERROR_ABORT;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
 
     ErrorResult result;
-    focusedElement->Blur(result);
+    activeElement->Blur(result);
     rv = NS_OK;
     if (NS_WARN_IF(result.Failed())) {
       rv = result.StealNSResult();
@@ -1170,19 +1159,14 @@ GeckoEditableSupport::GetSelectionRange(uint32_t aId,
   nsresult rv = NS_ERROR_ABORT;
   int32_t start = 0, end = 0;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
 
     rv = NS_OK;
-    start = (int32_t)getSelectionStart(focusedElement);
-    end = (int32_t)getSelectionEnd(focusedElement);
+    start = (int32_t)getSelectionStart(activeElement);
+    end = (int32_t)getSelectionEnd(activeElement);
   } while (0);
 
   IME_LOGD("GeckoEditableSupport: GetSelectionRange:[rv:%d start:%lu end:%lu]",
@@ -1202,20 +1186,13 @@ GeckoEditableSupport::GetText(uint32_t aId,
   nsresult rv = NS_ERROR_ABORT;
   nsAutoString text;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
-      break;
-    }
-    if (EditableUtils::isContentEditable(focusedElement)) {
-      rv = getContentEditableText(focusedElement, text);
+    if (EditableUtils::isContentEditable(activeElement)) {
+      rv = getContentEditableText(activeElement, text);
     } else {
-      nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
-      Element* activeElement = doc->GetActiveElement();
       RefPtr<HTMLTextAreaElement> textArea =
           HTMLTextAreaElement::FromNodeOrNull(activeElement);
       RefPtr<HTMLInputElement> input =
@@ -1262,22 +1239,11 @@ GeckoEditableSupport::SetValue(uint32_t aId,
       }
     }
 
-    RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-    RefPtr<Element> focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
-      break;
-    }
-    nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
-    if (!doc) {
-      break;
-    }
-    RefPtr<Element> activeElement = doc->GetActiveElement();
+    Element* activeElement = getActiveElement();
     if (!activeElement) {
       break;
     }
+    nsCOMPtr<Document> doc = activeElement->GetComposedDoc();
     RefPtr<HTMLInputElement> inputElement =
         HTMLInputElement::FromNodeOrNull(activeElement);
     RefPtr<HTMLTextAreaElement> textArea =
@@ -1335,23 +1301,11 @@ GeckoEditableSupport::ClearAll(uint32_t aId,
   IME_LOGD("-- GeckoEditableSupport::ClearAll");
   nsresult rv = NS_ERROR_ABORT;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
-      break;
-    }
-
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
-      break;
-    }
-    nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
-    if (!doc) {
-      break;
-    }
-    RefPtr<Element> activeElement = doc->GetActiveElement();
+    Element* activeElement = getActiveElement();
     if (!activeElement) {
       break;
     }
+    nsCOMPtr<Document> doc = activeElement->GetComposedDoc();
     RefPtr<HTMLInputElement> inputElement =
         HTMLInputElement::FromNodeOrNull(activeElement);
     if (inputElement) {
@@ -1361,7 +1315,7 @@ GeckoEditableSupport::ClearAll(uint32_t aId,
       }
     } else {
       // non-input type such as TextAreaElement
-      nsCOMPtr<nsIEditor> editor = getEditor(focusedElement);
+      nsCOMPtr<nsIEditor> editor = getEditor(activeElement);
       if (!editor) {
         break;
       }
@@ -1404,17 +1358,12 @@ GeckoEditableSupport::ReplaceSurroundingText(
   nsresult rv = NS_ERROR_ABORT;
   int32_t start = 0, end = 0;
   do {
-    nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-    if (!focusManager) {
+    Element* activeElement = getActiveElement();
+    if (!activeElement) {
       break;
     }
 
-    Element* focusedElement = focusManager->GetFocusedElement();
-    if (!focusedElement) {
-      break;
-    }
-
-    nsCOMPtr<nsIEditor> editor = getEditor(focusedElement);
+    nsCOMPtr<nsIEditor> editor = getEditor(activeElement);
     if (!editor) {
       break;
     }
@@ -1426,8 +1375,8 @@ GeckoEditableSupport::ReplaceSurroundingText(
     // searching the node for setting selection range is not needed when the
     // selection is collapsed within a text node.
     bool fastPathHit = false;
-    if (!isPlainTextField(focusedElement)) {
-      nsCOMPtr<Document> document = focusedElement->GetComposedDoc();
+    if (!isPlainTextField(activeElement)) {
+      nsCOMPtr<Document> document = activeElement->GetComposedDoc();
       nsCOMPtr<nsPIDOMWindowOuter> window = document->GetWindow();
       RefPtr<Selection> selection = window->GetSelection();
       RefPtr<nsINode> anchorNode = selection->GetAnchorNode();
@@ -1451,14 +1400,14 @@ GeckoEditableSupport::ReplaceSurroundingText(
       }
     }
     if (!fastPathHit) {
-      start = (int32_t)getSelectionStart(focusedElement) + aOffset;
+      start = (int32_t)getSelectionStart(activeElement) + aOffset;
       if (start < 0) {
         start = 0;
       }
       end = start + aLength;
-      if (start != (int32_t)getSelectionStart(focusedElement) ||
-          end != (int32_t)getSelectionEnd(focusedElement)) {
-        if (!setSelectionRange(focusedElement, start, end)) {
+      if (start != (int32_t)getSelectionStart(activeElement) ||
+          end != (int32_t)getSelectionEnd(activeElement)) {
+        if (!setSelectionRange(activeElement, start, end)) {
           IME_LOGD("-- GeckoEditableSupport::ReplaceSurroundingText Failed.");
           break;
         }
@@ -1488,12 +1437,10 @@ GeckoEditableSupport::ReplaceSurroundingText(
 
 nsresult GeckoEditableSupport::GetInputContextBag(
     nsInputContext* aInputContext) {
-  nsFocusManager* focusManager = nsFocusManager::GetFocusManager();
-  if (!focusManager) return NS_ERROR_ABORT;
-  Element* focusedElement = focusManager->GetFocusedElement();
-  if (!focusedElement) return NS_ERROR_ABORT;
-  nsCOMPtr<Document> doc = focusedElement->GetComposedDoc();
-  Element* activeElement = doc->GetActiveElement();
+  Element* activeElement = getActiveElement();
+  if (!activeElement) {
+    return NS_ERROR_FAILURE;
+  }
   RefPtr<HTMLInputElement> inputElement =
       HTMLInputElement::FromNodeOrNull(activeElement);
   RefPtr<HTMLTextAreaElement> textArea =
@@ -1537,20 +1484,20 @@ nsresult GeckoEditableSupport::GetInputContextBag(
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // lang
-  focusedElement->GetAttribute(u"lang"_ns, attributeValue);
+  activeElement->GetAttribute(u"lang"_ns, attributeValue);
   aInputContext->SetLang(attributeValue);
   IME_LOGD("InputContext: lang:[%s]",
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // inputMode
-  focusedElement->GetAttribute(u"x-inputmode"_ns, attributeValue);
+  activeElement->GetAttribute(u"x-inputmode"_ns, attributeValue);
   aInputContext->SetInputMode(attributeValue);
   IME_LOGD("InputContext: inputMode:[%s]", ToNewCString(attributeValue));
 
   // voiceInputSupported
   bool supported =
-      isVoiceInputSupported(focusedElement, mVoiceInputSupportedTypes);
-  focusedElement->SetAttribute(u"voice-input-supported"_ns,
+      isVoiceInputSupported(activeElement, mVoiceInputSupportedTypes);
+  activeElement->SetAttribute(u"voice-input-supported"_ns,
                                supported ? u"true"_ns : u"false"_ns,
                                IgnoreErrors());
   aInputContext->SetVoiceInputSupported(supported);
@@ -1558,32 +1505,32 @@ nsresult GeckoEditableSupport::GetInputContextBag(
            supported ? "true" : "false");
 
   // name
-  focusedElement->GetAttribute(u"name"_ns, attributeValue);
+  activeElement->GetAttribute(u"name"_ns, attributeValue);
   aInputContext->SetName(attributeValue);
   IME_LOGD("InputContext: name:[%s]",
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // selectionStart
-  uint32_t start = getSelectionStart(focusedElement);
+  uint32_t start = getSelectionStart(activeElement);
   aInputContext->SetSelectionStart(start);
   IME_LOGD("InputContext: selectionStart:[%lu]", start);
 
   // selectionEnd
-  uint32_t end = getSelectionEnd(focusedElement);
+  uint32_t end = getSelectionEnd(activeElement);
   aInputContext->SetSelectionEnd(end);
   IME_LOGD("InputContext: selectionEnd:[%lu]", end);
 
   // maxLength
-  focusedElement->GetAttribute(u"maxlength"_ns, attributeValue);
+  activeElement->GetAttribute(u"maxlength"_ns, attributeValue);
   aInputContext->SetMaxLength(attributeValue);
   IME_LOGD("InputContext: maxlength:[%s]",
            NS_ConvertUTF16toUTF8(attributeValue).get());
 
   // Treat contenteditable element as a special text area field
-  if (EditableUtils::isContentEditable(focusedElement)) {
+  if (EditableUtils::isContentEditable(activeElement)) {
     aInputContext->SetType(u"contenteditable"_ns);
     aInputContext->SetInputType(u"textarea"_ns);
-    nsresult rv = getContentEditableText(focusedElement, attributeValue);
+    nsresult rv = getContentEditableText(activeElement, attributeValue);
     if (rv != NS_OK) {
       return rv;
     }
@@ -1594,7 +1541,7 @@ nsresult GeckoEditableSupport::GetInputContextBag(
 
   // Choices
   RefPtr<HTMLSelectElement> selectElement =
-      HTMLSelectElement::FromNodeOrNull(focusedElement);
+      HTMLSelectElement::FromNodeOrNull(activeElement);
   if (!selectElement) {
     return NS_OK;
   }
@@ -1608,7 +1555,7 @@ nsresult GeckoEditableSupport::GetInputContextBag(
   inputContextChoices->SetMultiple(isMultiple);
   IME_LOGD("HTMLSelectElement: multiple:[%s]", isMultiple ? "true" : "false");
   nsCOMPtr<nsINodeList> children;
-  children = focusedElement->ChildNodes();
+  children = activeElement->ChildNodes();
   for (uint32_t i = 0; i < children->Length(); i++) {
     nsCOMPtr<nsINode> child = children->Item(i);
     RefPtr<HTMLOptGroupElement> optGroupElement =

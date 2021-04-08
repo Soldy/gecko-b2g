@@ -32,4 +32,7 @@ interface nsIMobileMessageThread : nsISupports
 
   // Group Message type in the thread.
   readonly attribute boolean            isGroup;
+
+  // Attachement status of the last(MMS) message in the thread.
+  readonly attribute AString          lastMessageAttachmentStatus;
 };

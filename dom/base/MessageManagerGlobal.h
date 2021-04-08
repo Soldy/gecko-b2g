@@ -54,6 +54,14 @@ class MessageManagerGlobal {
     }
     mMessageManager->RemoveWeakMessageListener(aMessageName, aListener, aError);
   }
+  void RemoveMessageListenerHashEntry(const nsAString& aMessageName,
+                                      ErrorResult& aError) {
+    if (!mMessageManager) {
+      aError.Throw(NS_ERROR_NOT_INITIALIZED);
+      return;
+    }
+    mMessageManager->RemoveMessageListenerHashEntry(aMessageName, aError);
+  }
 
   // MessageSender
   void SendAsyncMessage(JSContext* aCx, const nsAString& aMessageName,

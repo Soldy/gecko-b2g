@@ -132,7 +132,6 @@ EXPORTS += [
     "nsBaseScreen.h",
     "nsBaseWidget.h",
     "nsIDeviceContextSpec.h",
-    "nsIPluginWidget.h",
     "nsIPrintDialogService.h",
     "nsIRollupListener.h",
     "nsIWidget.h",
@@ -172,6 +171,7 @@ EXPORTS.mozilla.widget += [
     "IMEData.h",
     "InProcessCompositorWidget.h",
     "MediaKeysEventSourceFactory.h",
+    "NativeMenu.h",
     "nsAutoRollup.h",
     "nsXPLookAndFeel.h",
     "PuppetBidiKeyboard.h",
@@ -271,14 +271,6 @@ if CONFIG["MOZ_X11"]:
         "GfxInfoX11.cpp",
         "nsShmImage.cpp",
         "WindowSurfaceX11SHM.cpp",
-    ]
-
-if toolkit == "windows":
-    EXPORTS += [
-        "PluginWidgetProxy.h",
-    ]
-    SOURCES += [
-        "PluginWidgetProxy.cpp",
     ]
 
 if toolkit in ("cocoa", "windows"):

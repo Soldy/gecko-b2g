@@ -14,12 +14,12 @@ using namespace mozilla::dom;
 
 bool BluetoothUUID::sInShutdown = false;
 // static
-nsDataHashtable<nsStringHashKey, uint32_t>* BluetoothUUID::sUUIDServiceTable;
+nsTHashMap<nsStringHashKey, uint32_t>* BluetoothUUID::sUUIDServiceTable;
 // static
-nsDataHashtable<nsStringHashKey, uint32_t>*
+nsTHashMap<nsStringHashKey, uint32_t>*
     BluetoothUUID::sUUIDCharacteristicTable;
 // static
-nsDataHashtable<nsStringHashKey, uint32_t>* BluetoothUUID::sUUIDDescriptorTable;
+nsTHashMap<nsStringHashKey, uint32_t>* BluetoothUUID::sUUIDDescriptorTable;
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(BluetoothUUID, mOwner)
 NS_IMPL_CYCLE_COLLECTING_ADDREF(BluetoothUUID)
@@ -55,7 +55,7 @@ void BluetoothUUID::HandleShutdown() {
 void BluetoothUUID::InitServiceTable() {
   size_t length = sizeof(ServiceTable) / sizeof(BluetoothGattUUIDName);
   for (size_t i = 0; i < length; ++i) {
-    sUUIDServiceTable->Put(NS_ConvertUTF8toUTF16(ServiceTable[i].name),
+    sUUIDServiceTable->InsertOrUpdate(NS_ConvertUTF8toUTF16(ServiceTable[i].name),
                            ServiceTable[i].uuid);
   }
 }
@@ -64,7 +64,7 @@ void BluetoothUUID::InitServiceTable() {
 void BluetoothUUID::InitCharacteristicTable() {
   size_t length = sizeof(CharacteristicTable) / sizeof(BluetoothGattUUIDName);
   for (size_t i = 0; i < length; ++i) {
-    sUUIDCharacteristicTable->Put(
+    sUUIDCharacteristicTable->InsertOrUpdate(
         NS_ConvertUTF8toUTF16(CharacteristicTable[i].name),
         CharacteristicTable[i].uuid);
   }
@@ -74,7 +74,7 @@ void BluetoothUUID::InitCharacteristicTable() {
 void BluetoothUUID::InitDescriptorTable() {
   size_t length = sizeof(DescriptorTable) / sizeof(BluetoothGattUUIDName);
   for (size_t i = 0; i < length; ++i) {
-    sUUIDDescriptorTable->Put(NS_ConvertUTF8toUTF16(DescriptorTable[i].name),
+    sUUIDDescriptorTable->InsertOrUpdate(NS_ConvertUTF8toUTF16(DescriptorTable[i].name),
                               DescriptorTable[i].uuid);
   }
 }
@@ -147,7 +147,7 @@ bool BluetoothUUID::GetTable(GattAttribute aAttr, const nsAString& aString,
   // If we're in shutdown, don't create a new instance.
   NS_ENSURE_FALSE(sInShutdown, false);
 
-  nsDataHashtable<nsStringHashKey, uint32_t>** tableSlot = nullptr;
+  nsTHashMap<nsStringHashKey, uint32_t>** tableSlot = nullptr;
 
   if (aAttr == SERVICE) {
     tableSlot = &sUUIDServiceTable;
@@ -160,7 +160,7 @@ bool BluetoothUUID::GetTable(GattAttribute aAttr, const nsAString& aString,
   NS_ENSURE_TRUE(tableSlot, false);
 
   if (!*tableSlot) {
-    (*tableSlot) = new nsDataHashtable<nsStringHashKey, uint32_t>;
+    (*tableSlot) = new nsTHashMap<nsStringHashKey, uint32_t>;
     if (aAttr == SERVICE) {
       InitServiceTable();
     } else if (aAttr == CHARACTERISTIC) {

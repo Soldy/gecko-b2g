@@ -4,7 +4,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-[Exposed=Window, Pref="dom.inputmethod.enabled"]
+[Exposed=Window, Pref="dom.inputmethod.enabled", Func="B2G::HasInputPermission"]
 interface InputMethod {
 
   Promise<boolean> setComposition(DOMString text);

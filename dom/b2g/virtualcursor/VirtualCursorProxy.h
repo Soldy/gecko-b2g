@@ -35,6 +35,7 @@ class VirtualCursorProxy final : public nsIObserver {
   void RequestEnable();
   void RequestDisable();
   void IsEnabled(bool* aEnabled);
+  void UpdateScreenSize(int32_t aWidth, int32_t aHeight);
   void UpdateChromeOffset(const LayoutDeviceIntPoint& aChromeOffset);
 
  private:

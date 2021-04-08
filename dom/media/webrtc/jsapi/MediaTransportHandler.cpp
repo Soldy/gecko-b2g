@@ -41,6 +41,7 @@
 #include "mozilla/PublicSSL.h"  // For psm::InitializeCipherSuite
 
 #include "nsISocketTransportService.h"
+#include "nsDNSService2.h"
 #include "nsNetUtil.h"  // NS_CheckPortSafety
 
 #include <string>
@@ -288,6 +289,7 @@ static NrIceCtx::Policy toNrIcePolicy(dom::RTCIceTransportPolicy aPolicy) {
 
 // list of known acceptable ports for webrtc
 int16_t gGoodWebrtcPortList[] = {
+    53,    // Some deplyoments use DNS port to punch through overzealous NATs
     3478,  // stun or turn
     5349,  // stuns or turns
     0,     // Sentinel value: This MUST be zero
@@ -528,6 +530,10 @@ nsresult MediaTransportHandlerSTS::CreateIceCtx(
 
         static bool globalInitDone = false;
         if (!globalInitDone) {
+          // Ensure the DNS service is initted for the first time on main
+          DebugOnly<RefPtr<nsIDNSService>> dnsService =
+              RefPtr<nsIDNSService>(nsDNSService::GetXPCOMSingleton());
+          MOZ_ASSERT(dnsService.value);
           mStsThread->Dispatch(
               WrapRunnableNM(&NrIceCtx::InitializeGlobals, GetGlobalConfig()),
               NS_DISPATCH_NORMAL);
@@ -643,14 +649,10 @@ void MediaTransportHandlerSTS::Destroy() {
   }
 
   MOZ_ASSERT(NS_IsMainThread());
-  if (!STSShutdownHandler::Instance()) {
-    CSFLogDebug(LOGTAG, "%s Already shut down. Nothing else to do.", __func__);
-    delete this;
-    return;
+  if (STSShutdownHandler::Instance()) {
+    STSShutdownHandler::Instance()->Deregister(this);
+    Shutdown();
   }
-
-  STSShutdownHandler::Instance()->Deregister(this);
-  Shutdown();
 
   // mIceCtx still has a reference to us via sigslot! We must dispach to STS,
   // and clean up there. However, by the time _that_ happens, we may have

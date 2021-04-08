@@ -178,7 +178,7 @@ class ProviderTabToSearch extends UrlbarProvider {
       },
       action: {
         l10n: {
-          id: UrlbarUtils.WEB_ENGINE_NAMES.has(result.payload.engine)
+          id: result.payload.isGeneralPurposeEngine
             ? "urlbar-result-action-tabtosearch-web"
             : "urlbar-result-action-tabtosearch-other-engine",
           args: {
@@ -248,19 +248,23 @@ class ProviderTabToSearch extends UrlbarProvider {
   }
 
   /**
-   * Called when the user starts and ends an engagement with the urlbar. We
-   * clear enginesShown on engagement because we want to record in urlbar.tips
-   * and urlbar.tabtosearch once per engagement per engine. This has the
-   * unfortunate side effect of recording again when the user re-opens a view
-   * with a retained tab-to-search result. This is an acceptable tradeoff for
-   * not recording multiple times if the user backspaces autofill but then
-   * retypes the engine hostname, yielding the same tab-to-search result.
+   * Called when the user starts and ends an engagement with the urlbar.  For
+   * details on parameters, see UrlbarProvider.onEngagement().
    *
-   * @param {boolean} isPrivate True if the engagement is in a private context.
-   * @param {string} state The state of the engagement, one of: start,
-   *        engagement, abandonment, discard.
+   * @param {boolean} isPrivate
+   *   True if the engagement is in a private context.
+   * @param {string} state
+   *   The state of the engagement, one of: start, engagement, abandonment,
+   *   discard
+   * @param {UrlbarQueryContext} queryContext
+   *   The engagement's query context.  This is *not* guaranteed to be defined
+   *   when `state` is "start".  It will always be defined for "engagement" and
+   *   "abandonment".
+   * @param {object} details
+   *   This is defined only when `state` is "engagement" or "abandonment", and
+   *   it describes the search string and picked result.
    */
-  onEngagement(isPrivate, state) {
+  onEngagement(isPrivate, state, queryContext, details) {
     if (!this.enginesShown.regular.size && !this.enginesShown.onboarding.size) {
       return;
     }
@@ -446,7 +450,7 @@ function makeOnboardingResult(engine, satisfiesAutofillThreshold = false) {
       engine: engine.name,
       url,
       providesSearchMode: true,
-      icon: UrlbarUtils.ICON.SEARCH_GLASS_INVERTED,
+      icon: UrlbarUtils.ICON.SEARCH_GLASS,
       dynamicType: DYNAMIC_RESULT_TYPE,
       satisfiesAutofillThreshold,
     }
@@ -466,9 +470,10 @@ function makeResult(context, engine, satisfiesAutofillThreshold = false) {
     UrlbarUtils.RESULT_SOURCE.SEARCH,
     ...UrlbarResult.payloadAndSimpleHighlights(context.tokens, {
       engine: engine.name,
+      isGeneralPurposeEngine: engine.isGeneralPurposeEngine,
       url,
       providesSearchMode: true,
-      icon: UrlbarUtils.ICON.SEARCH_GLASS_INVERTED,
+      icon: UrlbarUtils.ICON.SEARCH_GLASS,
       query: "",
       satisfiesAutofillThreshold,
     })

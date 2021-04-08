@@ -63,8 +63,8 @@ add_task(async function test_change_title_from_BookmarkStar() {
 
   let bookmarkPanelTitle = document.getElementById("editBookmarkPanelTitle");
   Assert.equal(
-    bookmarkPanelTitle.value,
-    gNavigatorBundle.getString("editBookmarkPanel.editBookmarkTitle"),
+    bookmarkPanelTitle.textContent,
+    gFluentStrings.formatValueSync("bookmarks-edit-bookmark"),
     "Bookmark title is correct"
   );
 
@@ -116,7 +116,9 @@ add_task(async function test_change_title_from_Toolbar() {
       });
       await promisePopup;
 
-      let properties = document.getElementById("placesContext_show:info");
+      let properties = document.getElementById(
+        "placesContext_show_bookmark:info"
+      );
       EventUtils.synthesizeMouseAtCenter(properties, {});
     },
     async function test(dialogWin) {

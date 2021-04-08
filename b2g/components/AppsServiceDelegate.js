@@ -67,7 +67,6 @@ AppsServiceDelegate.prototype = {
   },
 
   onBoot(aManifestUrl, aFeatures) {
-    // TODO: call to the related components to finish the registration
     log(`onBoot: ${aManifestUrl}`);
     log(aFeatures);
     try {
@@ -84,8 +83,9 @@ AppsServiceDelegate.prototype = {
     ServiceWorkerAssistant.waitForRegistrations();
   },
 
-  onClear(aManifestUrl, aType) {
+  onClear(aManifestUrl, aType, aFeatures) {
     log(`onClear: ${aManifestUrl}: clear type: ${aType}`);
+    log(aFeatures);
     switch (aType) {
       case "Browser":
         AppsUtils.clearBrowserData(aManifestUrl);
@@ -95,10 +95,24 @@ AppsServiceDelegate.prototype = {
         break;
       default:
     }
+
+    // clearStorage removes everything stores per origin, re-register service
+    // worker to create the cache db back for used by service worker.
+    if (aFeatures) {
+      try {
+        let features = JSON.parse(aFeatures);
+        ServiceWorkerAssistant.update(
+          aManifestUrl,
+          features,
+          true /* serviceWorkerOnly */
+        );
+      } catch (e) {
+        log(`Error when trying re-register sw in onClear: ${e}`);
+      }
+    }
   },
 
   onInstall(aManifestUrl, aFeatures) {
-    // TODO: call to the related components to finish the registration
     log(`onInstall: ${aManifestUrl}`);
     log(aFeatures);
     try {
@@ -123,7 +137,6 @@ AppsServiceDelegate.prototype = {
   },
 
   onUninstall(aManifestUrl) {
-    // TODO: call to the related components to finish the registration
     log(`onUninstall: ${aManifestUrl}`);
     PermissionsInstaller.uninstallPermissions(aManifestUrl);
     this._processServiceWorker(aManifestUrl, undefined, "onUninstall");

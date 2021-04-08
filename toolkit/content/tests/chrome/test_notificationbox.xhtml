@@ -18,6 +18,9 @@
 
   <!-- test code goes here -->
   <script type="application/javascript"><![CDATA[
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const PROTON_INFOBARS_ENABLED = Services.prefs.getBoolPref("browser.proton.infobars.enabled", false);
+const NOTIFICATION_LOCAL_NAME = PROTON_INFOBARS_ENABLED ?  "notification-message" : "notification";
 SimpleTest.waitForExplicitFinish();
 
 var testtag_notificationbox_buttons = [
@@ -29,8 +32,33 @@ var testtag_notificationbox_buttons = [
   }
 ];
 
-function testtag_notificationbox_buttonpressed(event)
+var testtag_notificationbox_links = [
+  {
+    label: "Link 1",
+    callback: testtag_notificationbox_buttonpressed,
+    link: "about:mozilla"
+  },
+  {
+    label: "Button 2",
+    accesskey: "u",
+    callback: testtag_notificationbox_buttonpressed,
+  }
+];
+
+var testtag_notificationbox_supportpage = [
+  {
+    supportPage: "test1",
+  },
+  {
+    label: "This is an existing label",
+    supportPage: "test2",
+  }
+];
+
+function testtag_notificationbox_buttonpressed(notification, button)
 {
+  SimpleTest.is(button.localName, "button");
+  return false;
 }
 
 function testtag_notificationbox(nb)
@@ -83,7 +111,7 @@ var tests =
       // append a new notification
       ntf = nb.appendNotification("Notification", "note", "happy.png",
                                       nb.PRIORITY_INFO_LOW, testtag_notificationbox_buttons);
-      SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification");
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification");
       return ntf;
     },
     result(nb, ntf) {
@@ -117,7 +145,7 @@ var tests =
                                       nb.PRIORITY_INFO_LOW,
                                       testtag_notificationbox_buttons,
                                       notification_eventCallback);
-      SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification with callback");
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification with callback");
       return ntf;
     },
     result(nb, ntf) {
@@ -144,7 +172,7 @@ var tests =
                                       nb.PRIORITY_INFO_LOW,
                                       testtag_notificationbox_buttons,
                                       notification_eventCallback);
-      SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification with callback");
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification with callback");
       return ntf;
     },
     result(nb, ntf) {
@@ -198,7 +226,7 @@ var tests =
           // append a new notification
           ntf = nb.appendNotification("Notification", "note", "happy.png",
                             nb.PRIORITY_INFO_LOW, testtag_notificationbox_buttons);
-          SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification");
+          SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification");
 
           // Test persistence
           ntf.persistence++;
@@ -243,7 +271,7 @@ var tests =
       // append another notification
       ntf = nb.appendNotification("Notification", "note", "happy.png",
                                       nb.PRIORITY_INFO_MEDIUM, testtag_notificationbox_buttons);
-      SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification again");
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification again");
       return ntf;
     },
     result(nb, ntf) {
@@ -275,6 +303,57 @@ var tests =
       testtag_notificationbox_State(nb, "append info_high", ntf, 1);
       SimpleTest.is(ntf.priority, nb.PRIORITY_INFO_HIGH,
                     "notification.priority " + nb.PRIORITY_INFO_HIGH);
+      SimpleTest.is(nb.removeAllNotifications(false), undefined, "removeAllNotifications");
+    }
+  },
+  {
+    test(nb, ntf) {
+      ntf = nb.appendNotification("Notification", "note", "happy.png",
+                                      nb.PRIORITY_INFO_LOW,
+                                      testtag_notificationbox_links,
+                                      notification_eventCallback);
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append link notification with callback");
+      return ntf;
+    },
+    result(nb, ntf) {
+      testtag_notificationbox_State(nb, "append link with callback", ntf, 1);
+
+      let buttonContainer = PROTON_INFOBARS_ENABLED ? ntf.buttonContainer : ntf.messageDetails;
+      let button = buttonContainer.lastElementChild;
+      SimpleTest.is(button.localName, "button", "button is a button");
+      SimpleTest.ok(!button.href, "button href is not set");
+
+      let link = ntf.messageText.lastElementChild;
+      SimpleTest.is(link.localName, "label", "link is a label");
+      SimpleTest.is(link.href, "about:mozilla", "link href is correct");
+
+      SimpleTest.is(nb.removeAllNotifications(false), undefined, "removeAllNotifications");
+    }
+  },
+  {
+    test(nb, ntf) {
+      ntf = nb.appendNotification("Notification", "note", "happy.png",
+                                      nb.PRIORITY_INFO_LOW,
+                                      testtag_notificationbox_supportpage,
+                                      notification_eventCallback);
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append support page notification");
+      return ntf;
+    },
+    result(nb, ntf) {
+      testtag_notificationbox_State(nb, "append link with callback", ntf, 1);
+
+      let link = PROTON_INFOBARS_ENABLED
+        ? ntf.messageText.lastElementChild.previousSibling.previousSibling
+        : ntf.messageText.lastElementChild.previousSibling;
+      SimpleTest.is(link.localName, "label", "link 1 is a label");
+      SimpleTest.ok(link.value != "", "link 1 label is set");
+      SimpleTest.ok(link.href.endsWith("/test1"), "link 1 href is set");
+
+      link = ntf.messageText.lastElementChild;
+      SimpleTest.is(link.localName, "label", "link 2 is a label");
+      SimpleTest.is(link.value, "This is an existing label", "link 2 label is set");
+      SimpleTest.ok(link.href.endsWith("/test2"), "link 2 href is set");
+
       SimpleTest.is(nb.removeAllNotifications(false), undefined, "removeAllNotifications");
     }
   },
@@ -338,7 +417,7 @@ var tests =
     test(nb, ntf) {
       var exh = false;
       try {
-        nb.appendNotification("no", "no", "no", 0, null);
+        nb.appendNotification("no", "no", "no", -1, null);
       } catch (ex) { exh = true; }
       SimpleTest.is(exh, true, "appendNotification priority too low");
 
@@ -359,7 +438,7 @@ var appendPriorityTests = [
     test(nb, priority) {
       var ntf = nb.appendNotification("Notification", "note", "happy.png",
                                       priority, testtag_notificationbox_buttons);
-      SimpleTest.is(ntf && ntf.localName == "notification", true, "append notification " + priority);
+      SimpleTest.is(ntf && ntf.localName == NOTIFICATION_LOCAL_NAME, true, "append notification " + priority);
       return [ntf, priority];
     },
     result(nb, obj) {
@@ -382,7 +461,7 @@ var appendPriorityTests = [
         runTimedTests(appendPriorityTests, -1, nb, ++priority);
       }
     }
-  }
+  },
 ];
 
 function testtag_notificationbox_State(nb, testid, expecteditem, expectedcount)
@@ -396,7 +475,6 @@ function testtag_notification_State(nb, ntf, testid, label, value, image, priori
 {
   is(ntf.messageText.textContent, label, testid + " notification label");
   is(ntf.getAttribute("value"), value, testid + " notification value");
-  is(ntf.messageImage.getAttribute("src"), image, testid + " notification image");
   is(ntf.priority, priority, testid + " notification priority");
 
   var type;
@@ -419,6 +497,18 @@ function testtag_notification_State(nb, ntf, testid, label, value, image, priori
   }
 
   is(ntf.getAttribute("type"), type, testid + " notification type");
+
+  if (PROTON_INFOBARS_ENABLED) {
+    let icons = {
+      info: "chrome://global/skin/icons/info.svg",
+      warning: "chrome://global/skin/icons/warning.svg",
+      critical: "chrome://global/skin/icons/error.svg",
+    };
+    let icon = icons[type];
+    is(getComputedStyle(ntf.messageImage, "::after").content, `url("${icon}")`, "notification image is set");
+  } else {
+    is(ntf.messageImage.getAttribute("src"), image, testid + " notification image");
+  }
 }
 
 function checkPopupTest(nb, ntf)
@@ -429,7 +519,11 @@ function checkPopupTest(nb, ntf)
     var evt = new Event("");
     ntf.dispatchEvent(evt);
     evt.target.buttonInfo = testtag_notificationbox_buttons[0];
-    ntf._doButtonCommand(evt);
+    if (PROTON_INFOBARS_ENABLED) {
+      ntf.handleEvent(evt);
+    } else {
+      ntf._doButtonCommand(evt);
+    }
   }
 }
 

@@ -113,6 +113,10 @@ const DELIVERY_STATUS_ERROR = "error";
 
 const MESSAGE_CLASS_NORMAL = "normal";
 
+const ATTACHMENT_STATUS_NONE = "none";
+const ATTACHMENT_STATUS_NOT_DOWNLOADED = "not-downloaded";
+const ATTACHMENT_STATUS_DOWNLOADED = "downloaded";
+
 // We can´t create an IDBKeyCursor with a boolean, so we need to use numbers
 // instead.
 const FILTER_READ_UNREAD = 0;
@@ -306,6 +310,7 @@ var DEBUG = RIL_DEBUG.DEBUG_RIL;
  * |                                       |
  * | [MMS Only]                            |
  * | lastMessageSubject: String            |
+ * | lastMessageAttachementStatus: String  |
  * +---------------------------------------+
  * </pre>
  */
@@ -538,6 +543,32 @@ MobileMessageDB.prototype = {
     } catch (e) {}
   },
 
+  getAttachmentStatus(aMessageRecord) {
+    if (aMessageRecord && aMessageRecord.type == "mms") {
+      if (aMessageRecord.delivery == DELIVERY_NOT_DOWNLOADED) {
+        return ATTACHMENT_STATUS_NOT_DOWNLOADED;
+      }
+      let parts = aMessageRecord.parts;
+      if (!parts) {
+        return ATTACHMENT_STATUS_NONE;
+      }
+      for (let i = 0; i < parts.length; i++) {
+        let part = parts[i];
+        if (!part) {
+          continue;
+        }
+        let partHeaders = part.headers;
+        if (
+          partHeaders["content-type"].media != "application/smil" &&
+          partHeaders["content-type"].media != "text/plain"
+        ) {
+          return ATTACHMENT_STATUS_DOWNLOADED;
+        }
+      }
+    }
+    return ATTACHMENT_STATUS_NONE;
+  },
+
   /**
    * @callback MobileMessageDB.EnsureDBCallback
    * @param {number} aErrorCode
@@ -735,7 +766,9 @@ MobileMessageDB.prototype = {
   init(aDbName, aDbVersion, aCallback) {
     this.dbName = aDbName;
     this.dbVersion = aDbVersion || DB_VERSION;
-
+    if (DEBUG) {
+      debug("MobileMessageDB init");
+    }
     let self = this;
     this.newTxn(READ_ONLY, function(error, txn, messageStore) {
       if (error) {
@@ -834,6 +867,14 @@ MobileMessageDB.prototype = {
         let messageRecord = messageCursor.value;
 
         // Set delivery to error.
+        if (DEBUG) {
+          debug(
+            "updatePendingTransactionToError: update message " +
+              messageRecord.id +
+              " to " +
+              DELIVERY_ERROR
+          );
+        }
         messageRecord.delivery = DELIVERY_ERROR;
         messageRecord.deliveryIndex = [DELIVERY_ERROR, messageRecord.timestamp];
 
@@ -842,6 +883,16 @@ MobileMessageDB.prototype = {
         } else {
           // Set delivery status to error.
           for (let i = 0; i < messageRecord.deliveryInfo.length; i++) {
+            if (DEBUG) {
+              debug(
+                "updatePendingTransactionToError: update message " +
+                  messageRecord.id +
+                  " deliveryStatus from " +
+                  messageRecord.deliveryInfo[i].deliveryStatus +
+                  " to " +
+                  DELIVERY_STATUS_ERROR
+              );
+            }
             messageRecord.deliveryInfo[
               i
             ].deliveryStatus = DELIVERY_STATUS_ERROR;
@@ -1921,6 +1972,9 @@ MobileMessageDB.prototype = {
             threadRecord.body = aMessageRecord.body;
             threadRecord.lastMessageId = aMessageRecord.id;
             threadRecord.lastMessageType = aMessageRecord.type;
+            threadRecord.lastMessageAttachementStatus = self.getAttachmentStatus(
+              aMessageRecord
+            );
             needsUpdate = true;
           }
 
@@ -1942,7 +1996,9 @@ MobileMessageDB.prototype = {
         if (aMessageRecord.type == "mms") {
           lastMessageSubject = aMessageRecord.headers.subject;
         }
-
+        let lastMessageAttachementStatus = self.getAttachmentStatus(
+          aMessageRecord
+        );
         threadRecord = {
           participantIds,
           participantAddresses: aThreadParticipants.map(function(typedAddress) {
@@ -1951,6 +2007,7 @@ MobileMessageDB.prototype = {
           lastMessageId: aMessageRecord.id,
           lastTimestamp: timestamp,
           lastMessageSubject: lastMessageSubject || null,
+          lastMessageAttachementStatus,
           body: aMessageRecord.body,
           unreadCount: aMessageRecord.read ? 0 : 1,
           lastMessageType: aMessageRecord.type,
@@ -2279,6 +2336,7 @@ MobileMessageDB.prototype = {
     ignoredUnreadCount,
     deletedInfo
   ) {
+    let self = this;
     threadStore.get(threadId).onsuccess = function(event) {
       // This must exist.
       let threadRecord = event.target.result;
@@ -2324,6 +2382,9 @@ MobileMessageDB.prototype = {
             lastMessageSubject = nextMsg.headers.subject;
           }
           threadRecord.lastMessageSubject = lastMessageSubject || null;
+          threadRecord.lastMessageAttachementStatus = self.getAttachmentStatus(
+            nextMsg
+          );
           threadRecord.lastMessageId = nextMsg.id;
           threadRecord.lastTimestamp = nextMsg.timestamp;
           threadRecord.body = nextMsg.body;
@@ -3490,11 +3551,13 @@ MobileMessageDB.prototype = {
           if (size === length) {
             messageStore.clear();
             threadStore.clear();
+            let threadsIdSet = new Set();
             for (let i = 0; i < length; i++) {
               deleted[i] = true;
               deletedInfo.messageIds.push(messageIds[i]);
+              threadsIdSet.add(event.target.result[i].threadId);
             }
-            deletedInfo.threadIds.push(event.target.result[0].threadId);
+            deletedInfo.threadIds.push(...Array.from(threadsIdSet));
             updateThreadInfo();
           } else {
             for (let i = 0; i < length; i++) {
@@ -4882,7 +4945,8 @@ GetThreadsCursor.prototype = {
         threadRecord.body,
         threadRecord.unreadCount,
         threadRecord.lastMessageType,
-        threadRecord.isGroup
+        threadRecord.isGroup,
+        threadRecord.lastMessageAttachementStatus || ATTACHMENT_STATUS_NONE
       );
       collector.notifyResult(txn, threadId, thread);
     };

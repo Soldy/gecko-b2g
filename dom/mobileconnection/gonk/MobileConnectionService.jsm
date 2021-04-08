@@ -203,6 +203,19 @@ XPCOMUtils.defineLazyServiceGetter(
 );
 
 var DEBUG = RIL_DEBUG.DEBUG_RIL;
+function updateDebugFlag() {
+  // Read debug setting from pref
+  let debugPref;
+  try {
+    debugPref =
+      debugPref || Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
+  } catch (e) {
+    debugPref = false;
+  }
+  DEBUG = debugPref || RIL_DEBUG.DEBUG_RIL;
+}
+updateDebugFlag();
+
 function debug(s) {
   dump("MobileConnectionService: " + s + "\n");
 }
@@ -2488,13 +2501,20 @@ MobileConnectionProvider.prototype = {
       this._debug(
         "onUtConfigurationUpdateFailed. aId=" +
           aId +
-          " , aReqeust=" +
+          ", aReqeust=" +
           token.reqeust +
-          " , aError=" +
-          aError
+          ", aError.code=" +
+          aError.code +
+          ", aError.extraCode=" +
+          aError.extraCode +
+          ", aError.extraMessage=" +
+          aError.extraMessage
       );
     }
-    this._dispatchNotifyError(token.callback, aError);
+    this._dispatchNotifyError(
+      token.callback,
+      RIL.RIL_IMSCALL_FAILCAUSE_TO_GECKO_CALL_ERROR[aError]
+    );
     delete this._tokenUtMap[aId];
   },
 
@@ -2626,13 +2646,20 @@ MobileConnectionProvider.prototype = {
       this._debug(
         "onCallBarringQueried. aId=" +
           aId +
-          " , aRequest= " +
+          ", aRequest= " +
           token.request +
-          " , aError=" +
-          aError
+          ", aError.code=" +
+          aError.code +
+          ", aError.extraCode=" +
+          aError.extraCode +
+          ", aError.extraMessage=" +
+          aError.extraMessage
       );
     }
-    this._dispatchNotifyError(token.callback, aError);
+    this._dispatchNotifyError(
+      token.callback,
+      RIL.RIL_IMSCALL_FAILCAUSE_TO_GECKO_CALL_ERROR[aError]
+    );
   },
 
   // Helper functions

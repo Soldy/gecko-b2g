@@ -13,8 +13,7 @@ namespace mozilla {
 /* static */
 bool AMRDecoder::IsEnabled() {
   RefPtr<PDMFactory> platform = new PDMFactory();
-  return platform->SupportsMimeType("audio/3gpp"_ns,
-                                    /* DecoderDoctorDiagnostics* */ nullptr);
+  return platform->SupportsMimeType("audio/3gpp"_ns);
 }
 
 /* static */

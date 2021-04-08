@@ -353,7 +353,7 @@ void SupplicantStaIfaceCallback::NotifyAnqpQueryDone(
 #define ASSIGN_ANQP_IF_EXIST(map, type, payload) \
   do {                                           \
     if (payload.size() > 0) {                    \
-      map.Put((uint32_t)type, payload);          \
+      map.InsertOrUpdate((uint32_t)type, payload);          \
     }                                            \
   } while (0)
 
