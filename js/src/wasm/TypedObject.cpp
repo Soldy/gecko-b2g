@@ -385,10 +385,10 @@ bool RttValue::lookupProperty(JSContext* cx, HandleTypedObject object, jsid id,
 /* static */
 bool TypedObject::obj_lookupProperty(JSContext* cx, HandleObject obj,
                                      HandleId id, MutableHandleObject objp,
-                                     MutableHandle<PropertyResult> propp) {
+                                     PropertyResult* propp) {
   RootedTypedObject typedObj(cx, &obj->as<TypedObject>());
   if (typedObj->rttValue().hasProperty(cx, typedObj, id)) {
-    propp.setTypedObjectProperty();
+    propp->setTypedObjectProperty();
     objp.set(obj);
     return true;
   }
@@ -396,7 +396,7 @@ bool TypedObject::obj_lookupProperty(JSContext* cx, HandleObject obj,
   RootedObject proto(cx, obj->staticPrototype());
   if (!proto) {
     objp.set(nullptr);
-    propp.setNotFound();
+    propp->setNotFound();
     return true;
   }
 
@@ -469,21 +469,23 @@ bool TypedObject::obj_setProperty(JSContext* cx, HandleObject obj, HandleId id,
 
 bool TypedObject::obj_getOwnPropertyDescriptor(
     JSContext* cx, HandleObject obj, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) {
+    MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc) {
   Rooted<TypedObject*> typedObj(cx, &obj->as<TypedObject>());
 
   uint32_t offset;
   FieldType type;
   if (typedObj->rttValue().lookupProperty(cx, typedObj, id, &offset, &type)) {
-    if (!typedObj->loadValue(cx, offset, type, desc.value())) {
+    Rooted<PropertyDescriptor> desc_(cx);
+    if (!typedObj->loadValue(cx, offset, type, desc_.value())) {
       return false;
     }
-    desc.setAttributes(JSPROP_ENUMERATE | JSPROP_PERMANENT);
-    desc.object().set(obj);
+    desc_.setAttributes(JSPROP_ENUMERATE | JSPROP_PERMANENT);
+    desc_.object().set(obj);
+    desc.set(mozilla::Some(desc_.get()));
     return true;
   }
 
-  desc.object().set(nullptr);
+  desc.reset();
   return true;
 }
 

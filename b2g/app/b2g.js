@@ -1121,8 +1121,8 @@ pref("wifi.affect.tethering", false);
 // Customize whether wifi could be turned on again after tethering is turned off
 pref("tethering.affect.wifi", false);
 
-// Enable IPv6 tethering router mode in Gecko
-pref("dom.b2g_ipv6_router_mode", true);
+// Setup IPv6 address generate mode in Gecko
+pref("dom.b2g_ipv6_addr_mode", 0);
 
 // Support primary sim switch
 pref("ril.support.primarysim.switch", false);

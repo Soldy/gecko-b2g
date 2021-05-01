@@ -58,8 +58,10 @@ class AudioChannelManager final : public DOMEventTargetHelper,
       nsTArray<RefPtr<AudioChannelHandler>>& aAudioChannels,
       mozilla::ErrorResult& aRv);
 
+  void Shutdown();
+
  protected:
-  virtual ~AudioChannelManager();
+  virtual ~AudioChannelManager() = default;
 
  private:
   void NotifyVolumeControlChannelChanged();

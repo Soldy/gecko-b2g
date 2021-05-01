@@ -20,6 +20,17 @@ bug-numbers = [1602129]
 is-public = {default = false, nightly = true}
 default-value = false
 
+[media-avif]
+title = "experimental-features-media-avif"
+description = "experimental-features-media-avif-description"
+description-links = {bugzilla = "https://bugzilla.mozilla.org/show_bug.cgi?id=1443863"}
+restart-required = false
+preference = "image.avif.enabled"
+type = "boolean"
+bug-numbers = [1443863]
+is-public = {default = false, nightly = true}
+default-value = {default = false, nightly = false}
+
 [web-api-inputmode]
 title = "experimental-features-web-api-inputmode"
 description = "experimental-features-web-api-inputmode-description"
@@ -132,6 +143,16 @@ restart-required = false
 preference = "privacy.webrtc.globalMuteToggles"
 type = "boolean"
 bug-numbers = [1643027]
+is-public = true
+default-value = false
+
+[win32-lockdown]
+title = "experimental-features-win32k-lockdown"
+description = "experimental-features-win32k-lockdown-description"
+restart-required = true
+preference = "security.sandbox.content.win32k-disable"
+type = "boolean"
+bug-numbers = [1697865]
 is-public = true
 default-value = false
 

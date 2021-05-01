@@ -55,6 +55,8 @@ const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
 /* eslint-disable no-unused-vars, max-len */
 const EXAMPLE_URL =
   "http://example.com/browser/devtools/client/netmonitor/test/";
+const EXAMPLE_ORG_URL =
+  "http://example.org/browser/devtools/client/netmonitor/test/";
 const HTTPS_EXAMPLE_URL =
   "https://example.com/browser/devtools/client/netmonitor/test/";
 /* Since the test server will proxy `ws://example.com` to websocket server on 9988,
@@ -93,6 +95,7 @@ const JSON_TEXT_MIME_URL = EXAMPLE_URL + "html_json-text-mime-test-page.html";
 const JSON_B64_URL = EXAMPLE_URL + "html_json-b64.html";
 const JSON_BASIC_URL = EXAMPLE_URL + "html_json-basic.html";
 const JSON_EMPTY_URL = EXAMPLE_URL + "html_json-empty.html";
+const FONTS_URL = EXAMPLE_URL + "html_fonts-test-page.html";
 const SORTING_URL = EXAMPLE_URL + "html_sorting-test-page.html";
 const FILTERING_URL = EXAMPLE_URL + "html_filter-test-page.html";
 const INFINITE_GET_URL = EXAMPLE_URL + "html_infinite-get-page.html";

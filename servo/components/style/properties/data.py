@@ -483,6 +483,7 @@ class Longhand(Property):
                 "LineBreak",
                 "MasonryAutoFlow",
                 "MozForceBrokenImageIcon",
+                "text::MozControlCharacterVisibility",
                 "MozListReversed",
                 "MathDepth",
                 "MozScriptMinSize",
@@ -511,6 +512,7 @@ class Longhand(Property):
                 "TextAlignLast",
                 "TextDecorationLine",
                 "TextEmphasisPosition",
+                "TextJustify",
                 "TextTransform",
                 "TextUnderlinePosition",
                 "TouchAction",
@@ -877,6 +879,7 @@ class PropertyRestrictions:
     def marker(data):
         return set(
             [
+                "white-space",
                 "color",
                 "text-combine-upright",
                 "text-transform",

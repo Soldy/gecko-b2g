@@ -8,6 +8,7 @@
 #include "nsStyleConsts.h"
 #include "gtkdrawing.h"
 #include "ScreenHelperGTK.h"
+#include "WidgetUtilsGtk.h"
 
 #include "gfx2DGlue.h"
 #include "nsIObserverService.h"
@@ -32,7 +33,6 @@
 #include <gtk/gtk.h>
 
 #include "gfxContext.h"
-#include "gfxPlatformGtk.h"
 #include "gfxGdkNativeRenderer.h"
 #include "mozilla/gfx/BorrowedContext.h"
 #include "mozilla/gfx/HelpersCairo.h"
@@ -707,9 +707,6 @@ bool nsNativeThemeGTK::GetGtkWidgetAndState(StyleAppearance aAppearance,
     case StyleAppearance::Menubar:
       aGtkWidgetType = MOZ_GTK_MENUBAR;
       break;
-    case StyleAppearance::Menupopup:
-      aGtkWidgetType = MOZ_GTK_MENUPOPUP;
-      break;
     case StyleAppearance::Menuitem: {
       nsMenuFrame* menuFrame = do_QueryFrame(aFrame);
       if (menuFrame && menuFrame->IsOnMenuBar()) {
@@ -730,10 +727,6 @@ bool nsNativeThemeGTK::GetGtkWidgetAndState(StyleAppearance aAppearance,
       break;
     case StyleAppearance::Radiomenuitem:
       aGtkWidgetType = MOZ_GTK_RADIOMENUITEM;
-      break;
-    case StyleAppearance::Window:
-    case StyleAppearance::Dialog:
-      aGtkWidgetType = MOZ_GTK_WINDOW;
       break;
     case StyleAppearance::MozGtkInfoBar:
       aGtkWidgetType = MOZ_GTK_INFO_BAR;
@@ -838,7 +831,6 @@ static void DrawThemeWithCairo(gfxContext* aContext, DrawTarget* aDrawTarget,
                                const nsIntSize& aDrawSize,
                                GdkRectangle& aGDKRect,
                                nsITheme::Transparency aTransparency) {
-  bool isX11Display = gfxPlatformGtk::GetPlatform()->IsX11Display();
   static auto sCairoSurfaceSetDeviceScalePtr =
       (void (*)(cairo_surface_t*, double, double))dlsym(
           RTLD_DEFAULT, "cairo_surface_set_device_scale");
@@ -875,7 +867,7 @@ static void DrawThemeWithCairo(gfxContext* aContext, DrawTarget* aDrawTarget,
   // A direct Cairo draw target is not available, so we need to create a
   // temporary one.
 #if defined(MOZ_X11) && defined(CAIRO_HAS_XLIB_SURFACE)
-  if (isX11Display) {
+  if (GdkIsX11Display()) {
     // If using a Cairo xlib surface, then try to reuse it.
     BorrowedXlibDrawable borrow(aDrawTarget);
     if (borrow.GetDrawable()) {
@@ -1176,7 +1168,7 @@ nsNativeThemeGTK::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
   if (!safeState) {
     // gdk_flush() call from expose event crashes Gtk+ on Wayland
     // (Gnome BZ #773307)
-    if (gfxPlatformGtk::GetPlatform()->IsX11Display()) {
+    if (GdkIsX11Display()) {
       gdk_flush();
     }
     gLastGdkError = gdk_error_trap_pop();
@@ -1208,31 +1200,6 @@ nsNativeThemeGTK::DrawWidgetBackground(gfxContext* aContext, nsIFrame* aFrame,
   }
 
   return NS_OK;
-}
-
-bool nsNativeThemeGTK::CreateWebRenderCommandsForWidget(
-    mozilla::wr::DisplayListBuilder& aBuilder,
-    mozilla::wr::IpcResourceUpdateQueue& aResources,
-    const mozilla::layers::StackingContextHelper& aSc,
-    mozilla::layers::RenderRootStateManager* aManager, nsIFrame* aFrame,
-    StyleAppearance aAppearance, const nsRect& aRect) {
-  nsPresContext* presContext = aFrame->PresContext();
-  wr::LayoutRect bounds = wr::ToLayoutRect(LayoutDeviceRect::FromAppUnits(
-      aRect, presContext->AppUnitsPerDevPixel()));
-
-  switch (aAppearance) {
-    case StyleAppearance::Window:
-    case StyleAppearance::Dialog:
-      aBuilder.PushRect(bounds, bounds, true,
-                        wr::ToColorF(ToDeviceColor(LookAndFeel::Color(
-                            LookAndFeel::ColorID::WindowBackground,
-                            LookAndFeel::ColorScheme::Light,
-                            LookAndFeel::UseStandins::No, NS_TRANSPARENT))));
-      return true;
-
-    default:
-      return false;
-  }
 }
 
 WidgetNodeType nsNativeThemeGTK::NativeThemeToGtkTheme(
@@ -1709,11 +1676,8 @@ nsNativeThemeGTK::WidgetStateChanged(nsIFrame* aFrame,
       aAppearance == StyleAppearance::Progresschunk ||
       aAppearance == StyleAppearance::ProgressBar ||
       aAppearance == StyleAppearance::Menubar ||
-      aAppearance == StyleAppearance::Menupopup ||
       aAppearance == StyleAppearance::Tooltip ||
-      aAppearance == StyleAppearance::Menuseparator ||
-      aAppearance == StyleAppearance::Window ||
-      aAppearance == StyleAppearance::Dialog) {
+      aAppearance == StyleAppearance::Menuseparator) {
     *aShouldRepaint = false;
     return NS_OK;
   }
@@ -1885,15 +1849,12 @@ nsNativeThemeGTK::ThemeSupportsWidget(nsPresContext* aPresContext,
     case StyleAppearance::CheckboxLabel:
     case StyleAppearance::RadioLabel:
     case StyleAppearance::Menubar:
-    case StyleAppearance::Menupopup:
     case StyleAppearance::Menuitem:
     case StyleAppearance::Menuarrow:
     case StyleAppearance::Menuseparator:
     case StyleAppearance::Checkmenuitem:
     case StyleAppearance::Radiomenuitem:
     case StyleAppearance::Splitter:
-    case StyleAppearance::Window:
-    case StyleAppearance::Dialog:
     case StyleAppearance::MozGtkInfoBar:
     case StyleAppearance::MozWindowButtonBox:
     case StyleAppearance::MozWindowButtonClose:
@@ -1960,11 +1921,6 @@ bool nsNativeThemeGTK::ThemeNeedsComboboxDropmarker() { return false; }
 nsITheme::Transparency nsNativeThemeGTK::GetWidgetTransparency(
     nsIFrame* aFrame, StyleAppearance aAppearance) {
   switch (aAppearance) {
-    // These widgets always draw a default background.
-    case StyleAppearance::Menupopup:
-    case StyleAppearance::Window:
-    case StyleAppearance::Dialog:
-      return eOpaque;
     case StyleAppearance::ScrollbarVertical:
     case StyleAppearance::ScrollbarHorizontal:
       // Make scrollbar tracks opaque on the window's scroll frame to prevent

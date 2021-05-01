@@ -88,14 +88,14 @@ impl Default for PrecacheOuput {
 #[derive(Clone, Default)]
 pub struct qcms_transform {
     pub matrix: [[f32; 4]; 3],
-    pub input_gamma_table_r: Option<Vec<f32>>,
-    pub input_gamma_table_g: Option<Vec<f32>>,
-    pub input_gamma_table_b: Option<Vec<f32>>,
+    pub input_gamma_table_r: Option<Box<[f32; 256]>>,
+    pub input_gamma_table_g: Option<Box<[f32; 256]>>,
+    pub input_gamma_table_b: Option<Box<[f32; 256]>>,
     pub input_clut_table_length: u16,
     pub clut: Option<Vec<f32>>,
     pub grid_size: u16,
     pub output_clut_table_length: u16,
-    pub input_gamma_table_gray: Option<Vec<f32>>,
+    pub input_gamma_table_gray: Option<Box<[f32; 256]>>,
     pub out_gamma_r: f32,
     pub out_gamma_g: f32,
     pub out_gamma_b: f32,
@@ -125,6 +125,7 @@ pub enum DataType {
     BGRA8 = 2,
     Gray8 = 3,
     GrayA8 = 4,
+    CMYK = 5,
 }
 
 impl DataType {
@@ -135,6 +136,7 @@ impl DataType {
             BGRA8 => 4,
             Gray8 => 1,
             GrayA8 => 2,
+            CMYK => 4,
         }
     }
 }
@@ -405,11 +407,7 @@ unsafe extern "C" fn qcms_transform_data_gray_template_lut<I: GrayFormat, F: For
     length: usize,
 ) {
     let components: u32 = if F::kAIndex == 0xff { 3 } else { 4 } as u32;
-    let input_gamma_table_gray = (*transform)
-        .input_gamma_table_gray
-        .as_ref()
-        .unwrap()
-        .as_ptr();
+    let input_gamma_table_gray = transform.input_gamma_table_gray.as_ref().unwrap();
 
     let mut i: u32 = 0;
     while (i as usize) < length {
@@ -422,7 +420,7 @@ unsafe extern "C" fn qcms_transform_data_gray_template_lut<I: GrayFormat, F: For
             src = src.offset(1);
             alpha = *fresh1
         }
-        let linear: f32 = *input_gamma_table_gray.offset(device as isize);
+        let linear: f32 = input_gamma_table_gray[device as usize];
 
         let out_device_r: f32 = lut_interp_linear(
             linear as f64,
@@ -721,23 +719,21 @@ unsafe extern "C" fn qcms_transform_data_tetra_clut_template<F: Format>(
     let r_table: *const f32 = table;
     let g_table: *const f32 = table.offset(1);
     let b_table: *const f32 = table.offset(2);
-    let mut c0_r: f32;
-    let mut c1_r: f32;
-    let mut c2_r: f32;
-    let mut c3_r: f32;
-    let mut c0_g: f32;
-    let mut c1_g: f32;
-    let mut c2_g: f32;
-    let mut c3_g: f32;
-    let mut c0_b: f32;
-    let mut c1_b: f32;
-    let mut c2_b: f32;
-    let mut c3_b: f32;
-    let mut clut_r: f32;
-    let mut clut_g: f32;
-    let mut clut_b: f32;
+
     let mut i: u32 = 0;
     while (i as usize) < length {
+        let c0_r: f32;
+        let c1_r: f32;
+        let c2_r: f32;
+        let c3_r: f32;
+        let c0_g: f32;
+        let c1_g: f32;
+        let c2_g: f32;
+        let c3_g: f32;
+        let c0_b: f32;
+        let c1_b: f32;
+        let c2_b: f32;
+        let c3_b: f32;
         let in_r: u8 = *src.add(F::kRIndex);
         let in_g: u8 = *src.add(F::kGIndex);
         let in_b: u8 = *src.add(F::kBIndex);
@@ -758,115 +754,85 @@ unsafe extern "C" fn qcms_transform_data_tetra_clut_template<F: Format>(
         let rx: f32 = linear_r * ((*transform).grid_size as i32 - 1) as f32 - x as f32;
         let ry: f32 = linear_g * ((*transform).grid_size as i32 - 1) as f32 - y as f32;
         let rz: f32 = linear_b * ((*transform).grid_size as i32 - 1) as f32 - z as f32;
-        c0_r = *r_table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize);
-        c0_g = *g_table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize);
-        c0_b = *b_table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize);
+        let CLU = |table: *const f32, x, y, z| {
+            *table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize)
+        };
+
+        c0_r = CLU(r_table, x, y, z);
+        c0_g = CLU(g_table, x, y, z);
+        c0_b = CLU(b_table, x, y, z);
         if rx >= ry {
             if ry >= rz {
                 //rx >= ry && ry >= rz
-                c1_r = *r_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_r; //rz > rx && rx >= ry
-                c2_r = *r_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                    - *r_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize);
-                c3_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *r_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize);
-                c1_g = *g_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_g;
-                c2_g = *g_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                    - *g_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize);
-                c3_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *g_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize);
-                c1_b = *b_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_b;
-                c2_b = *b_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                    - *b_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize);
-                c3_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *b_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
+                c1_r = CLU(r_table, x_n, y, z) - c0_r;
+                c2_r = CLU(r_table, x_n, y_n, z) - CLU(r_table, x_n, y, z);
+                c3_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y_n, z);
+                c1_g = CLU(g_table, x_n, y, z) - c0_g;
+                c2_g = CLU(g_table, x_n, y_n, z) - CLU(g_table, x_n, y, z);
+                c3_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y_n, z);
+                c1_b = CLU(b_table, x_n, y, z) - c0_b;
+                c2_b = CLU(b_table, x_n, y_n, z) - CLU(b_table, x_n, y, z);
+                c3_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y_n, z);
             } else if rx >= rz {
                 //rx >= rz && rz >= ry
-                c1_r = *r_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_r;
-                c2_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *r_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_r = *r_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *r_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize);
-                c1_g = *g_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_g;
-                c2_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *g_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_g = *g_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *g_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize);
-                c1_b = *b_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize) - c0_b;
-                c2_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *b_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_b = *b_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *b_table.offset(((x_n * len + y * x_len + z * xy_len) * 3) as isize)
+                c1_r = CLU(r_table, x_n, y, z) - c0_r;
+                c2_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y, z_n);
+                c3_r = CLU(r_table, x_n, y, z_n) - CLU(r_table, x_n, y, z);
+                c1_g = CLU(g_table, x_n, y, z) - c0_g;
+                c2_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y, z_n);
+                c3_g = CLU(g_table, x_n, y, z_n) - CLU(g_table, x_n, y, z);
+                c1_b = CLU(b_table, x_n, y, z) - c0_b;
+                c2_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y, z_n);
+                c3_b = CLU(b_table, x_n, y, z_n) - CLU(b_table, x_n, y, z);
             } else {
-                c1_r = *r_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *r_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c2_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *r_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_r = *r_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_r;
-                c1_g = *g_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *g_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c2_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *g_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_g = *g_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_g;
-                c1_b = *b_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize)
-                    - *b_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c2_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                    - *b_table.offset(((x_n * len + y * x_len + z_n * xy_len) * 3) as isize);
-                c3_b = *b_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_b
+                //rz > rx && rx >= ry
+                c1_r = CLU(r_table, x_n, y, z_n) - CLU(r_table, x, y, z_n);
+                c2_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y, z_n);
+                c3_r = CLU(r_table, x, y, z_n) - c0_r;
+                c1_g = CLU(g_table, x_n, y, z_n) - CLU(g_table, x, y, z_n);
+                c2_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y, z_n);
+                c3_g = CLU(g_table, x, y, z_n) - c0_g;
+                c1_b = CLU(b_table, x_n, y, z_n) - CLU(b_table, x, y, z_n);
+                c2_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y, z_n);
+                c3_b = CLU(b_table, x, y, z_n) - c0_b;
             }
         } else if rx >= rz {
             //ry > rx && rx >= rz
-            c1_r = *r_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                - *r_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize); //rz > ry && ry > rx
-            c2_r = *r_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_r;
-            c3_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *r_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c1_g = *g_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                - *g_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c2_g = *g_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_g;
-            c3_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *g_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c1_b = *b_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
-                - *b_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c2_b = *b_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_b;
-            c3_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *b_table.offset(((x_n * len + y_n * x_len + z * xy_len) * 3) as isize)
+            c1_r = CLU(r_table, x_n, y_n, z) - CLU(r_table, x, y_n, z);
+            c2_r = CLU(r_table, x, y_n, z) - c0_r;
+            c3_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y_n, z);
+            c1_g = CLU(g_table, x_n, y_n, z) - CLU(g_table, x, y_n, z);
+            c2_g = CLU(g_table, x, y_n, z) - c0_g;
+            c3_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y_n, z);
+            c1_b = CLU(b_table, x_n, y_n, z) - CLU(b_table, x, y_n, z);
+            c2_b = CLU(b_table, x, y_n, z) - c0_b;
+            c3_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y_n, z);
         } else if ry >= rz {
             //ry >= rz && rz > rx
-            c1_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *r_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_r = *r_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_r;
-            c3_r = *r_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *r_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c1_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *g_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_g = *g_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_g;
-            c3_g = *g_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *g_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize);
-            c1_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *b_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_b = *b_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize) - c0_b;
-            c3_b = *b_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *b_table.offset(((x * len + y_n * x_len + z * xy_len) * 3) as isize)
+            c1_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x, y_n, z_n);
+            c2_r = CLU(r_table, x, y_n, z) - c0_r;
+            c3_r = CLU(r_table, x, y_n, z_n) - CLU(r_table, x, y_n, z);
+            c1_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x, y_n, z_n);
+            c2_g = CLU(g_table, x, y_n, z) - c0_g;
+            c3_g = CLU(g_table, x, y_n, z_n) - CLU(g_table, x, y_n, z);
+            c1_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x, y_n, z_n);
+            c2_b = CLU(b_table, x, y_n, z) - c0_b;
+            c3_b = CLU(b_table, x, y_n, z_n) - CLU(b_table, x, y_n, z);
         } else {
-            c1_r = *r_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *r_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_r = *r_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *r_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-            c3_r = *r_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_r;
-            c1_g = *g_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *g_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_g = *g_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *g_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-            c3_g = *g_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_g;
-            c1_b = *b_table.offset(((x_n * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *b_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize);
-            c2_b = *b_table.offset(((x * len + y_n * x_len + z_n * xy_len) * 3) as isize)
-                - *b_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize);
-            c3_b = *b_table.offset(((x * len + y * x_len + z_n * xy_len) * 3) as isize) - c0_b
+            //rz > ry && ry > rx
+            c1_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x, y_n, z_n);
+            c2_r = CLU(r_table, x, y_n, z_n) - CLU(r_table, x, y, z_n);
+            c3_r = CLU(r_table, x, y, z_n) - c0_r;
+            c1_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x, y_n, z_n);
+            c2_g = CLU(g_table, x, y_n, z_n) - CLU(g_table, x, y, z_n);
+            c3_g = CLU(g_table, x, y, z_n) - c0_g;
+            c1_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x, y_n, z_n);
+            c2_b = CLU(b_table, x, y_n, z_n) - CLU(b_table, x, y, z_n);
+            c3_b = CLU(b_table, x, y, z_n) - c0_b;
         }
-        clut_r = c0_r + c1_r * rx + c2_r * ry + c3_r * rz;
-        clut_g = c0_g + c1_g * rx + c2_g * ry + c3_g * rz;
-        clut_b = c0_b + c1_b * rx + c2_b * ry + c3_b * rz;
+        let clut_r = c0_r + c1_r * rx + c2_r * ry + c3_r * rz;
+        let clut_g = c0_g + c1_g * rx + c2_g * ry + c3_g * rz;
+        let clut_b = c0_b + c1_b * rx + c2_b * ry + c3_b * rz;
         *dest.add(F::kRIndex) = clamp_u8(clut_r * 255.0);
         *dest.add(F::kGIndex) = clamp_u8(clut_g * 255.0);
         *dest.add(F::kBIndex) = clamp_u8(clut_b * 255.0);
@@ -877,6 +843,170 @@ unsafe extern "C" fn qcms_transform_data_tetra_clut_template<F: Format>(
         i += 1
     }
 }
+
+unsafe fn tetra(
+    transform: &qcms_transform,
+    table: *const f32,
+    in_r: u8,
+    in_g: u8,
+    in_b: u8,
+) -> (f32, f32, f32) {
+    let r_table: *const f32 = table;
+    let g_table: *const f32 = table.offset(1);
+    let b_table: *const f32 = table.offset(2);
+    let linear_r: f32 = in_r as i32 as f32 / 255.0;
+    let linear_g: f32 = in_g as i32 as f32 / 255.0;
+    let linear_b: f32 = in_b as i32 as f32 / 255.0;
+    let xy_len: i32 = 1;
+    let x_len: i32 = (*transform).grid_size as i32;
+    let len: i32 = x_len * x_len;
+    let x: i32 = in_r as i32 * ((*transform).grid_size as i32 - 1) / 255;
+    let y: i32 = in_g as i32 * ((*transform).grid_size as i32 - 1) / 255;
+    let z: i32 = in_b as i32 * ((*transform).grid_size as i32 - 1) / 255;
+    let x_n: i32 = int_div_ceil(in_r as i32 * ((*transform).grid_size as i32 - 1), 255);
+    let y_n: i32 = int_div_ceil(in_g as i32 * ((*transform).grid_size as i32 - 1), 255);
+    let z_n: i32 = int_div_ceil(in_b as i32 * ((*transform).grid_size as i32 - 1), 255);
+    let rx: f32 = linear_r * ((*transform).grid_size as i32 - 1) as f32 - x as f32;
+    let ry: f32 = linear_g * ((*transform).grid_size as i32 - 1) as f32 - y as f32;
+    let rz: f32 = linear_b * ((*transform).grid_size as i32 - 1) as f32 - z as f32;
+    let CLU = |table: *const f32, x, y, z| {
+        *table.offset(((x * len + y * x_len + z * xy_len) * 3) as isize)
+    };
+    let c0_r: f32;
+    let c1_r: f32;
+    let c2_r: f32;
+    let c3_r: f32;
+    let c0_g: f32;
+    let c1_g: f32;
+    let c2_g: f32;
+    let c3_g: f32;
+    let c0_b: f32;
+    let c1_b: f32;
+    let c2_b: f32;
+    let c3_b: f32;
+    c0_r = CLU(r_table, x, y, z);
+    c0_g = CLU(g_table, x, y, z);
+    c0_b = CLU(b_table, x, y, z);
+    if rx >= ry {
+        if ry >= rz {
+            //rx >= ry && ry >= rz
+            c1_r = CLU(r_table, x_n, y, z) - c0_r;
+            c2_r = CLU(r_table, x_n, y_n, z) - CLU(r_table, x_n, y, z);
+            c3_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y_n, z);
+            c1_g = CLU(g_table, x_n, y, z) - c0_g;
+            c2_g = CLU(g_table, x_n, y_n, z) - CLU(g_table, x_n, y, z);
+            c3_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y_n, z);
+            c1_b = CLU(b_table, x_n, y, z) - c0_b;
+            c2_b = CLU(b_table, x_n, y_n, z) - CLU(b_table, x_n, y, z);
+            c3_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y_n, z);
+        } else if rx >= rz {
+            //rx >= rz && rz >= ry
+            c1_r = CLU(r_table, x_n, y, z) - c0_r;
+            c2_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y, z_n);
+            c3_r = CLU(r_table, x_n, y, z_n) - CLU(r_table, x_n, y, z);
+            c1_g = CLU(g_table, x_n, y, z) - c0_g;
+            c2_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y, z_n);
+            c3_g = CLU(g_table, x_n, y, z_n) - CLU(g_table, x_n, y, z);
+            c1_b = CLU(b_table, x_n, y, z) - c0_b;
+            c2_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y, z_n);
+            c3_b = CLU(b_table, x_n, y, z_n) - CLU(b_table, x_n, y, z);
+        } else {
+            //rz > rx && rx >= ry
+            c1_r = CLU(r_table, x_n, y, z_n) - CLU(r_table, x, y, z_n);
+            c2_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y, z_n);
+            c3_r = CLU(r_table, x, y, z_n) - c0_r;
+            c1_g = CLU(g_table, x_n, y, z_n) - CLU(g_table, x, y, z_n);
+            c2_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y, z_n);
+            c3_g = CLU(g_table, x, y, z_n) - c0_g;
+            c1_b = CLU(b_table, x_n, y, z_n) - CLU(b_table, x, y, z_n);
+            c2_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y, z_n);
+            c3_b = CLU(b_table, x, y, z_n) - c0_b;
+        }
+    } else if rx >= rz {
+        //ry > rx && rx >= rz
+        c1_r = CLU(r_table, x_n, y_n, z) - CLU(r_table, x, y_n, z);
+        c2_r = CLU(r_table, x, y_n, z) - c0_r;
+        c3_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x_n, y_n, z);
+        c1_g = CLU(g_table, x_n, y_n, z) - CLU(g_table, x, y_n, z);
+        c2_g = CLU(g_table, x, y_n, z) - c0_g;
+        c3_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x_n, y_n, z);
+        c1_b = CLU(b_table, x_n, y_n, z) - CLU(b_table, x, y_n, z);
+        c2_b = CLU(b_table, x, y_n, z) - c0_b;
+        c3_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x_n, y_n, z);
+    } else if ry >= rz {
+        //ry >= rz && rz > rx
+        c1_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x, y_n, z_n);
+        c2_r = CLU(r_table, x, y_n, z) - c0_r;
+        c3_r = CLU(r_table, x, y_n, z_n) - CLU(r_table, x, y_n, z);
+        c1_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x, y_n, z_n);
+        c2_g = CLU(g_table, x, y_n, z) - c0_g;
+        c3_g = CLU(g_table, x, y_n, z_n) - CLU(g_table, x, y_n, z);
+        c1_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x, y_n, z_n);
+        c2_b = CLU(b_table, x, y_n, z) - c0_b;
+        c3_b = CLU(b_table, x, y_n, z_n) - CLU(b_table, x, y_n, z);
+    } else {
+        //rz > ry && ry > rx
+        c1_r = CLU(r_table, x_n, y_n, z_n) - CLU(r_table, x, y_n, z_n);
+        c2_r = CLU(r_table, x, y_n, z_n) - CLU(r_table, x, y, z_n);
+        c3_r = CLU(r_table, x, y, z_n) - c0_r;
+        c1_g = CLU(g_table, x_n, y_n, z_n) - CLU(g_table, x, y_n, z_n);
+        c2_g = CLU(g_table, x, y_n, z_n) - CLU(g_table, x, y, z_n);
+        c3_g = CLU(g_table, x, y, z_n) - c0_g;
+        c1_b = CLU(b_table, x_n, y_n, z_n) - CLU(b_table, x, y_n, z_n);
+        c2_b = CLU(b_table, x, y_n, z_n) - CLU(b_table, x, y, z_n);
+        c3_b = CLU(b_table, x, y, z_n) - c0_b;
+    }
+    let clut_r = c0_r + c1_r * rx + c2_r * ry + c3_r * rz;
+    let clut_g = c0_g + c1_g * rx + c2_g * ry + c3_g * rz;
+    let clut_b = c0_b + c1_b * rx + c2_b * ry + c3_b * rz;
+    (clut_r, clut_g, clut_b)
+}
+
+#[inline]
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a * (1.0 - t) + b * t
+}
+
+// lerp between two tetrahedral interpolations
+// See lcms:Eval4InputsFloat
+unsafe fn qcms_transform_data_tetra_clut_cmyk(
+    transform: &qcms_transform,
+    mut src: *const u8,
+    mut dest: *mut u8,
+    length: usize,
+) {
+    let table = (*transform).clut.as_ref().unwrap().as_ptr();
+    assert!(
+        (*transform).clut.as_ref().unwrap().len()
+            >= ((transform.grid_size as i32).pow(4) * 3) as usize
+    );
+    for _ in 0..length {
+        let c: u8 = *src.add(0);
+        let m: u8 = *src.add(1);
+        let y: u8 = *src.add(2);
+        let k: u8 = *src.add(3);
+        src = src.offset(4);
+        let linear_k: f32 = k as i32 as f32 / 255.0;
+        let grid_size = (*transform).grid_size as i32;
+        let w: i32 = k as i32 * ((*transform).grid_size as i32 - 1) / 255;
+        let w_n: i32 = int_div_ceil(k as i32 * ((*transform).grid_size as i32 - 1), 255);
+        let t: f32 = linear_k * ((*transform).grid_size as i32 - 1) as f32 - w as f32;
+
+        let table1 = table.offset((w * grid_size * grid_size * grid_size * 3) as isize);
+        let table2 = table.offset((w_n * grid_size * grid_size * grid_size * 3) as isize);
+
+        let (r1, g1, b1) = tetra(transform, table1, c, m, y);
+        let (r2, g2, b2) = tetra(transform, table2, c, m, y);
+        let r = lerp(r1, r2, t);
+        let g = lerp(g1, g2, t);
+        let b = lerp(b1, b2, t);
+        *dest.add(0) = clamp_u8(r * 255.0);
+        *dest.add(1) = clamp_u8(g * 255.0);
+        *dest.add(2) = clamp_u8(b * 255.0);
+        dest = dest.offset(3);
+    }
+}
+
 unsafe fn qcms_transform_data_tetra_clut_rgb(
     transform: &qcms_transform,
     src: *const u8,
@@ -1125,6 +1255,44 @@ fn transform_precacheLUT_float(
     Some(transform)
 }
 
+fn transform_precacheLUT_cmyk_float(
+    mut transform: Box<qcms_transform>,
+    input: &Profile,
+    output: &Profile,
+    samples: i32,
+    in_type: DataType,
+) -> Option<Box<qcms_transform>> {
+    /* The range between which 2 consecutive sample points can be used to interpolate */
+    let lutSize: u32 = (4 * samples * samples * samples * samples) as u32;
+
+    let mut src = Vec::with_capacity(lutSize as usize);
+    let dest = vec![0.; lutSize as usize];
+    /* Prepare a list of points we want to sample */
+    for k in 0..samples {
+        for c in 0..samples {
+            for m in 0..samples {
+                for y in 0..samples {
+                    src.push(c as f32 / (samples - 1) as f32);
+                    src.push(m as f32 / (samples - 1) as f32);
+                    src.push(y as f32 / (samples - 1) as f32);
+                    src.push(k as f32 / (samples - 1) as f32);
+                }
+            }
+        }
+    }
+    let lut = chain_transform(input, output, src, dest, lutSize as usize);
+    if let Some(lut) = lut {
+        transform.clut = Some(lut);
+        transform.grid_size = samples as u16;
+        assert!(in_type == DataType::CMYK);
+        transform.transform_fn = Some(qcms_transform_data_tetra_clut_cmyk)
+    } else {
+        return None;
+    }
+
+    Some(transform)
+}
+
 pub fn transform_create(
     input: &Profile,
     in_type: DataType,
@@ -1139,6 +1307,7 @@ pub fn transform_create(
         (BGRA8, BGRA8) => true,
         (Gray8, out_type) => matches!(out_type, RGB8 | RGBA8 | BGRA8),
         (GrayA8, out_type) => matches!(out_type, RGBA8 | BGRA8),
+        (CMYK, RGB8) => true,
         _ => false,
     };
     if !matching_format {
@@ -1155,12 +1324,15 @@ pub fn transform_create(
     }
     // This precache assumes RGB_SIGNATURE (fails on GRAY_SIGNATURE, for instance)
     if SUPPORTS_ICCV4.load(Ordering::Relaxed)
-        && (in_type == RGB8 || in_type == RGBA8 || in_type == BGRA8)
+        && (in_type == RGB8 || in_type == RGBA8 || in_type == BGRA8 || in_type == CMYK)
         && (input.A2B0.is_some()
             || output.B2A0.is_some()
             || input.mAB.is_some()
             || output.mAB.is_some())
     {
+        if in_type == CMYK {
+            return transform_precacheLUT_cmyk_float(transform, input, output, 17, in_type);
+        }
         // Precache the transformation to a CLUT 33x33x33 in size.
         // 33 is used by many profiles and works well in pratice.
         // This evenly divides 256 into blocks of 8x8x8.
@@ -1178,9 +1350,9 @@ pub fn transform_create(
         if output.redTRC.is_none() || output.greenTRC.is_none() || output.blueTRC.is_none() {
             return None;
         }
-        transform.output_gamma_lut_r = Some(build_output_lut(output.redTRC.as_deref().unwrap()));
-        transform.output_gamma_lut_g = Some(build_output_lut(output.greenTRC.as_deref().unwrap()));
-        transform.output_gamma_lut_b = Some(build_output_lut(output.blueTRC.as_deref().unwrap()));
+        transform.output_gamma_lut_r = build_output_lut(output.redTRC.as_deref().unwrap());
+        transform.output_gamma_lut_g = build_output_lut(output.greenTRC.as_deref().unwrap());
+        transform.output_gamma_lut_b = build_output_lut(output.blueTRC.as_deref().unwrap());
 
         if transform.output_gamma_lut_r.is_none()
             || transform.output_gamma_lut_g.is_none()
@@ -1327,22 +1499,42 @@ pub fn transform_create(
 }
 /// A transform from an input profile to an output one.
 pub struct Transform {
-    ty: DataType,
+    src_ty: DataType,
+    dst_ty: DataType,
     xfm: Box<qcms_transform>,
 }
 
 impl Transform {
     /// Create a new transform from `input` to `output` for pixels of `DataType` `ty` with `intent`
     pub fn new(input: &Profile, output: &Profile, ty: DataType, intent: Intent) -> Option<Self> {
-        transform_create(input, ty, output, ty, intent).map(|xfm| Transform { ty, xfm })
+        transform_create(input, ty, output, ty, intent).map(|xfm| Transform {
+            src_ty: ty,
+            dst_ty: ty,
+            xfm,
+        })
+    }
+
+    /// Create a new transform from `input` to `output` for pixels of `DataType` `ty` with `intent`
+    pub fn new_to(
+        input: &Profile,
+        output: &Profile,
+        src_ty: DataType,
+        dst_ty: DataType,
+        intent: Intent,
+    ) -> Option<Self> {
+        transform_create(input, src_ty, output, dst_ty, intent).map(|xfm| Transform {
+            src_ty,
+            dst_ty,
+            xfm,
+        })
     }
 
     /// Apply the color space transform to `data`
     pub fn apply(&self, data: &mut [u8]) {
-        if data.len() % self.ty.bytes_per_pixel() != 0 {
+        if data.len() % self.src_ty.bytes_per_pixel() != 0 {
             panic!(
                 "incomplete pixels: should be a multiple of {} got {}",
-                self.ty.bytes_per_pixel(),
+                self.src_ty.bytes_per_pixel(),
                 data.len()
             )
         }
@@ -1351,7 +1543,37 @@ impl Transform {
                 &*self.xfm,
                 data.as_ptr(),
                 data.as_mut_ptr(),
-                data.len() / self.ty.bytes_per_pixel(),
+                data.len() / self.src_ty.bytes_per_pixel(),
+            );
+        }
+    }
+
+    /// Apply the color space transform to `data`
+    pub fn convert(&self, src: &[u8], dst: &mut [u8]) {
+        if src.len() % self.src_ty.bytes_per_pixel() != 0 {
+            panic!(
+                "incomplete pixels: should be a multiple of {} got {}",
+                self.src_ty.bytes_per_pixel(),
+                src.len()
+            )
+        }
+        if dst.len() % self.dst_ty.bytes_per_pixel() != 0 {
+            panic!(
+                "incomplete pixels: should be a multiple of {} got {}",
+                self.dst_ty.bytes_per_pixel(),
+                dst.len()
+            )
+        }
+        assert_eq!(
+            src.len() / self.src_ty.bytes_per_pixel(),
+            dst.len() / self.dst_ty.bytes_per_pixel()
+        );
+        unsafe {
+            self.xfm.transform_fn.expect("non-null function pointer")(
+                &*self.xfm,
+                src.as_ptr(),
+                dst.as_mut_ptr(),
+                src.len() / self.src_ty.bytes_per_pixel(),
             );
         }
     }

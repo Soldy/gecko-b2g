@@ -44,7 +44,8 @@ class BrowserConsole extends WebConsole {
   constructor(commands, iframeWindow, chromeWindow) {
     super(null, commands, iframeWindow, chromeWindow, true);
 
-    this._resourceWatcher = new ResourceWatcher(this.targetList);
+    // Note that this.commands is being assigned from WebConsole's constructor
+    this._resourceWatcher = new ResourceWatcher(this.commands.targetCommand);
     this._telemetry = new Telemetry();
     this._bcInitializer = null;
     this._bcDestroyer = null;
@@ -76,7 +77,7 @@ class BrowserConsole extends WebConsole {
       await super.init(false);
 
       // Reports the console as created only after everything is done,
-      // including TargetList.startListening.
+      // including TargetCommand.startListening.
       const id = Utils.supportsString(this.hudId);
       Services.obs.notifyObservers(id, "web-console-created");
     })();
@@ -99,7 +100,7 @@ class BrowserConsole extends WebConsole {
       // toolbox session id.
       this._telemetry.toolClosed("browserconsole", -1, this);
 
-      this.targetList.destroy();
+      this.commands.targetCommand.destroy();
       // Wait for any pending connection initialization.
       await Promise.all(
         this.ui.getAllProxies().map(proxy => proxy.getConnectionPromise())

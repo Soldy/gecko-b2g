@@ -98,6 +98,60 @@ void XULPopupElement::HidePopup(bool aCancel) {
   }
 }
 
+static Modifiers ConvertModifiers(const ActivateMenuItemOptions& aModifiers) {
+  Modifiers modifiers = 0;
+  if (aModifiers.mCtrlKey) {
+    modifiers |= MODIFIER_CONTROL;
+  }
+  if (aModifiers.mAltKey) {
+    modifiers |= MODIFIER_ALT;
+  }
+  if (aModifiers.mShiftKey) {
+    modifiers |= MODIFIER_SHIFT;
+  }
+  if (aModifiers.mMetaKey) {
+    modifiers |= MODIFIER_META;
+  }
+  return modifiers;
+}
+
+void XULPopupElement::ActivateItem(Element& aItemElement,
+                                   const ActivateMenuItemOptions& aOptions,
+                                   ErrorResult& aRv) {
+  if (!Contains(&aItemElement)) {
+    return aRv.ThrowInvalidStateError("Menu item is not inside this menu.");
+  }
+
+  Modifiers modifiers = ConvertModifiers(aOptions);
+
+  // First, check if a native menu is open, and activate the item in it.
+  if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
+    if (pm->ActivateNativeMenuItem(&aItemElement, modifiers, aOptions.mButton,
+                                   aRv)) {
+      return;
+    }
+  }
+
+  nsMenuPopupFrame* menuPopupFrame =
+      do_QueryFrame(GetPrimaryFrame(FlushType::Frames));
+
+  if (!menuPopupFrame || !menuPopupFrame->IsOpen()) {
+    return aRv.ThrowInvalidStateError("Menu is closed");
+  }
+
+  nsMenuFrame* itemFrame = do_QueryFrame(aItemElement.GetPrimaryFrame());
+  if (!itemFrame) {
+    return aRv.ThrowInvalidStateError("Couldn't get frame for menuitem");
+  }
+
+  if (itemFrame->GetMenuParent() != menuPopupFrame) {
+    return aRv.ThrowInvalidStateError(
+        "Menu item is not directly inside this menu");
+  }
+
+  itemFrame->ActivateItem(modifiers, aOptions.mButton);
+}
+
 void XULPopupElement::MoveTo(int32_t aLeft, int32_t aTop) {
   nsMenuPopupFrame* menuPopupFrame = do_QueryFrame(GetPrimaryFrame());
   if (menuPopupFrame) {
@@ -158,9 +212,8 @@ void XULPopupElement::GetState(nsString& aState) {
   // set this here in case there's no frame for the popup
   aState.AssignLiteral("closed");
 
-  nsMenuPopupFrame* menuPopupFrame = do_QueryFrame(GetPrimaryFrame());
-  if (menuPopupFrame) {
-    switch (menuPopupFrame->PopupState()) {
+  if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
+    switch (pm->GetPopupState(this)) {
       case ePopupShown:
         aState.AssignLiteral("open");
         break;
@@ -217,15 +270,27 @@ already_AddRefed<DOMRect> XULPopupElement::GetOuterScreenRect() {
     return rect.forget();
   }
 
-  nsView* view = menuPopupFrame->GetView();
-  if (view) {
-    nsIWidget* widget = view->GetWidget();
-    if (widget) {
-      LayoutDeviceIntRect screenRect = widget->GetScreenBounds();
+  Maybe<CSSRect> screenRect;
 
-      int32_t pp = menuPopupFrame->PresContext()->AppUnitsPerDevPixel();
-      rect->SetLayoutRect(LayoutDeviceIntRect::ToAppUnits(screenRect, pp));
+  if (menuPopupFrame->IsNativeMenu()) {
+    // For native menus we can't query the true size. Use the anchor rect
+    // instead, which at least has the position at which we were intending to
+    // open the menu.
+    screenRect = Some(CSSRect(
+        CSSIntRect::FromUnknownRect(menuPopupFrame->GetScreenAnchorRect())));
+  } else {
+    // For non-native menus, query the bounds from the widget.
+    if (nsView* view = menuPopupFrame->GetView()) {
+      if (nsIWidget* widget = view->GetWidget()) {
+        screenRect = Some(widget->GetScreenBounds() /
+                          menuPopupFrame->PresContext()->CSSToDevPixelScale());
+      }
     }
+  }
+
+  if (screenRect) {
+    rect->SetRect(screenRect->X(), screenRect->Y(), screenRect->Width(),
+                  screenRect->Height());
   }
   return rect.forget();
 }

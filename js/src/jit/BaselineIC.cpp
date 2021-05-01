@@ -610,12 +610,6 @@ void ICFallbackStub::trace(JSTracer* trc) {
                         "baseline-newarray-template");
       break;
     }
-    case ICStub::NewObject_Fallback: {
-      ICNewObject_Fallback* stub = toNewObject_Fallback();
-      TraceNullableEdge(trc, &stub->templateObject(),
-                        "baseline-newobject-template");
-      break;
-    }
     case ICStub::Rest_Fallback: {
       ICRest_Fallback* stub = toRest_Fallback();
       TraceEdge(trc, &stub->templateObject(), "baseline-rest-template");
@@ -630,10 +624,12 @@ static void MaybeTransition(JSContext* cx, BaselineFrame* frame,
                             ICFallbackStub* stub) {
   if (stub->state().maybeTransition()) {
 #ifdef JS_CACHEIR_SPEW
-    if (cx->spewer().enabled(cx, frame->script(), SpewChannel::RateMyCacheIR)) {
+    if (cx->spewer().enabled(cx, frame->script(),
+                             SpewChannel::CacheIRHealthReport)) {
       CacheIRHealth cih;
       RootedScript script(cx, frame->script());
-      cih.rateIC(cx, stub->icEntry(), script, SpewContext::Transition);
+      cih.healthReportForIC(cx, stub->icEntry(), script,
+                            SpewContext::Transition);
     }
 #endif
     stub->discardStubs(cx);
@@ -651,10 +647,8 @@ static void TryAttachStub(const char* name, JSContext* cx, BaselineFrame* frame,
     RootedScript script(cx, frame->script());
     ICScript* icScript = frame->icScript();
     jsbytecode* pc = stub->icEntry()->pc(script);
-
     bool attached = false;
-    IRGenerator gen(cx, script, pc, stub->state().mode(),
-                    std::forward<Args>(args)...);
+    IRGenerator gen(cx, script, pc, stub->state(), std::forward<Args>(args)...);
     switch (gen.tryAttachStub()) {
       case AttachDecision::Attach: {
         ICStub* newStub =
@@ -1021,8 +1015,8 @@ bool DoSetElemFallback(JSContext* cx, BaselineFrame* frame,
 
   if (stub->state().canAttachStub() && !mayThrow) {
     ICScript* icScript = frame->icScript();
-    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetElem,
-                           stub->state().mode(), objv, index, rhs);
+    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetElem, stub->state(),
+                           objv, index, rhs);
     switch (gen.tryAttachStub()) {
       case AttachDecision::Attach: {
         ICStub* newStub = AttachBaselineCacheIRStub(
@@ -1082,8 +1076,8 @@ bool DoSetElemFallback(JSContext* cx, BaselineFrame* frame,
   bool canAttachStub = stub->state().canAttachStub();
 
   if (deferType != DeferType::None && canAttachStub) {
-    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetElem,
-                           stub->state().mode(), objv, index, rhs);
+    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetElem, stub->state(),
+                           objv, index, rhs);
 
     MOZ_ASSERT(deferType == DeferType::AddSlot);
     AttachDecision decision = gen.tryAttachAddSlotStub(oldShape);
@@ -1603,8 +1597,8 @@ bool DoSetPropFallback(JSContext* cx, BaselineFrame* frame,
 
   if (stub->state().canAttachStub()) {
     RootedValue idVal(cx, StringValue(name));
-    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetProp,
-                           stub->state().mode(), lhs, idVal, rhs);
+    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetProp, stub->state(),
+                           lhs, idVal, rhs);
     switch (gen.tryAttachStub()) {
       case AttachDecision::Attach: {
         ICScript* icScript = frame->icScript();
@@ -1673,8 +1667,8 @@ bool DoSetPropFallback(JSContext* cx, BaselineFrame* frame,
 
   if (deferType != DeferType::None && canAttachStub) {
     RootedValue idVal(cx, StringValue(name));
-    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetProp,
-                           stub->state().mode(), lhs, idVal, rhs);
+    SetPropIRGenerator gen(cx, script, pc, CacheKind::SetProp, stub->state(),
+                           lhs, idVal, rhs);
 
     MOZ_ASSERT(deferType == DeferType::AddSlot);
     AttachDecision decision = gen.tryAttachAddSlotStub(oldShape);
@@ -1791,9 +1785,8 @@ bool DoCallFallback(JSContext* cx, BaselineFrame* frame, ICCall_Fallback* stub,
   // allowed to attach stubs.
   if (canAttachStub) {
     HandleValueArray args = HandleValueArray::fromMarkedLocation(argc, vp + 2);
-    bool isFirstStub = stub->newStubIsFirstStub();
-    CallIRGenerator gen(cx, script, pc, op, stub->state().mode(), isFirstStub,
-                        argc, callee, callArgs.thisv(), newTarget, args);
+    CallIRGenerator gen(cx, script, pc, op, stub->state(), argc, callee,
+                        callArgs.thisv(), newTarget, args);
     switch (gen.tryAttachStub()) {
       case AttachDecision::NoAction:
         break;
@@ -1881,9 +1874,8 @@ bool DoSpreadCallFallback(JSContext* cx, BaselineFrame* frame,
 
     HandleValueArray args = HandleValueArray::fromMarkedLocation(
         aobj->length(), aobj->getDenseElements());
-    bool isFirstStub = stub->newStubIsFirstStub();
-    CallIRGenerator gen(cx, script, pc, op, stub->state().mode(), isFirstStub,
-                        1, callee, thisv, newTarget, args);
+    CallIRGenerator gen(cx, script, pc, op, stub->state(), 1, callee, thisv,
+                        newTarget, args);
     switch (gen.tryAttachStub()) {
       case AttachDecision::NoAction:
         break;
@@ -2621,11 +2613,18 @@ bool DoNewArrayFallback(JSContext* cx, BaselineFrame* frame,
   MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "NewArray");
 
-  if (!stub->templateObject()) {
-    ArrayObject* templateObject = NewArrayOperation(cx, length, TenuredObject);
+  RootedArrayObject templateObject(cx, stub->templateObject());
+  if (!templateObject) {
+    templateObject = NewArrayOperation(cx, length, TenuredObject);
     if (!templateObject) {
       return false;
     }
+
+    RootedScript script(cx, frame->script());
+    jsbytecode* pc = stub->icEntry()->pc(script);
+    TryAttachStub<NewArrayIRGenerator>("NewArray", cx, frame, stub, JSOp(*pc),
+                                       templateObject);
+
     stub->setTemplateObject(templateObject);
   }
 
@@ -2659,32 +2658,16 @@ bool DoNewObjectFallback(JSContext* cx, BaselineFrame* frame,
   MaybeNotifyWarp(frame->outerScript(), stub);
   FallbackICSpew(cx, stub, "NewObject");
 
-  RootedObject obj(cx);
+  RootedScript script(cx, frame->script());
+  jsbytecode* pc = stub->icEntry()->pc(script);
 
-  RootedObject templateObject(cx, stub->templateObject());
-  if (templateObject) {
-    obj = NewObjectOperationWithTemplate(cx, templateObject);
-  } else {
-    RootedScript script(cx, frame->script());
-    jsbytecode* pc = stub->icEntry()->pc(script);
-    obj = NewObjectOperation(cx, script, pc);
-
-    if (obj) {
-      templateObject = NewObjectOperation(cx, script, pc, TenuredObject);
-      if (!templateObject) {
-        return false;
-      }
-
-      TryAttachStub<NewObjectIRGenerator>("NewObject", cx, frame, stub,
-                                          JSOp(*pc), templateObject);
-
-      stub->setTemplateObject(templateObject);
-    }
-  }
-
+  RootedObject obj(cx, NewObjectOperation(cx, script, pc));
   if (!obj) {
     return false;
   }
+
+  TryAttachStub<NewObjectIRGenerator>("NewObject", cx, frame, stub, JSOp(*pc),
+                                      obj);
 
   res.setObject(*obj);
   return true;

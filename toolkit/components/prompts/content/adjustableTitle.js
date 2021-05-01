@@ -14,32 +14,17 @@ let { PromptUtils } = ChromeUtils.import(
 const AdjustableTitle = {
   _cssSnippet: `
     #titleContainer {
-      /* go from left to right with the mask: */
-      --mask-dir: right;
-
       display: flex; /* Try removing me when browser.proton.enabled goes away. */
+      flex-shrink: 0;
 
       flex-direction: row;
+      align-items: baseline;
+
       margin-inline: 4px;
-      --icon-size: 20px; /* 16px icon + 4px spacing. */
-      padding-inline-start: var(--icon-size);
-      /* Ensure we don't exceed the bounds of the dialog minus our own padding: */
-      max-width: calc(100vw - 32px - var(--icon-size));
-      overflow: hidden;
-      justify-content: right;
-      position: relative;
-      min-height: max(16px, 1.5em);
-      mask-repeat: no-repeat;
-    }
+      /* Ensure we don't exceed the bounds of the dialog: */
+      max-width: calc(100vw - 32px);
 
-    #titleContainer[rtlorigin] {
-      justify-content: left;
-      /* go from right to left with the mask: */
-      --mask-dir: left;
-    }
-
-    #titleContainer[noicon] {
-      --icon-size: 0;
+      --icon-size: 16px;
     }
 
     #titleContainer[noicon] > .titleIcon {
@@ -47,16 +32,11 @@ const AdjustableTitle = {
     }
 
     .titleIcon {
-      /* We put the icon in its own element rather than on .titleContainer, because
-       * it needs to overlap the text when the text overflows.
-       */
-      position: absolute;
-      /* center vertically: */
-      top: max(0px, calc(0.75em - 8px));
-      inset-inline-start: 0;
-      width: 16px;
-      height: 16px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       padding-inline-end: 4px;
+      flex-shrink: 0;
+
       background-image: var(--icon-url, url("chrome://global/skin/icons/defaultFavicon.svg"));
       background-size: 16px 16px;
       background-origin: content-box;
@@ -66,30 +46,44 @@ const AdjustableTitle = {
       fill: currentColor;
     }
 
+    #titleCropper:not([nomaskfade]) {
+      display: inline-flex;
+    }
+
+    #titleCropper {
+      overflow: hidden;
+
+      justify-content: right;
+      mask-repeat: no-repeat;
+      /* go from left to right with the mask: */
+      --mask-dir: right;
+    }
+
+    #titleContainer:not([noicon]) > #titleCropper {
+      /* Align the icon and text: */
+      translate: 0 calc(-1px - max(.6 * var(--icon-size) - .6em, 0px));
+    }
+
+    #titleCropper[rtlorigin] {
+      justify-content: left;
+      /* go from right to left with the mask: */
+      --mask-dir: left;
+    }
+
+
+    #titleCropper:not([nomaskfade]) #titleText {
+      display: inline-flex;
+      white-space: nowrap;
+    }
+
     #titleText {
       font-weight: 600;
       flex: 1 0 auto; /* Grow but do not shrink. */
-      white-space: nowrap;
       unicode-bidi: plaintext; /* Ensure we align RTL text correctly. */
       text-align: match-parent;
     }
 
-    #titleText[nomaskfade] {
-      width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* Mask when the icon is at the same side as the side of the domain we're
-     * masking. */
-    #titleContainer[overflown][rtlorigin]:-moz-locale-dir(rtl),
-    #titleContainer[overflown]:not([rtlorigin]):-moz-locale-dir(ltr) {
-      mask-image: linear-gradient(to var(--mask-dir), black, black var(--icon-size), transparent var(--icon-size), black calc(100px + var(--icon-size)));
-    }
-
-    /* Mask when the icon is on the opposite side as the side of the domain we're masking. */
-    #titleContainer[overflown]:not([rtlorigin]):-moz-locale-dir(rtl),
-    #titleContainer[overflown][rtlorigin]:-moz-locale-dir(ltr) {
+    #titleCropper[overflown] {
       mask-image: linear-gradient(to var(--mask-dir), transparent, black 100px);
     }
 
@@ -100,14 +94,17 @@ const AdjustableTitle = {
    `,
 
   _insertMarkup() {
-    let iconEl = document.createElement("div");
+    let iconEl = document.createElement("span");
     iconEl.className = "titleIcon";
+    this._titleCropEl = document.createElement("span");
+    this._titleCropEl.id = "titleCropper";
     this._titleEl = document.createElement("span");
     this._titleEl.id = "titleText";
     this._containerEl = document.createElement("div");
     this._containerEl.id = "titleContainer";
     this._containerEl.className = "dialogRow titleContainer";
-    this._containerEl.append(iconEl, this._titleEl);
+    this._titleCropEl.append(this._titleEl);
+    this._containerEl.append(iconEl, this._titleCropEl);
     let targetID = document.documentElement.getAttribute("headerparent");
     document.getElementById(targetID).prepend(this._containerEl);
     let styleEl = document.createElement("style");
@@ -117,15 +114,27 @@ const AdjustableTitle = {
 
   _overflowHandler() {
     requestAnimationFrame(async () => {
-      let isOverflown = await window.promiseDocumentFlushed(() => {
-        return (
-          this._containerEl.getBoundingClientRect().width -
-            this._titleEl.getBoundingClientRect().width -
-            this._titleEl.previousElementSibling.getBoundingClientRect().width <
-          0
-        );
-      });
-      this._containerEl.toggleAttribute("overflown", isOverflown);
+      let isOverflown;
+      try {
+        isOverflown = await window.promiseDocumentFlushed(() => {
+          return (
+            this._titleCropEl.getBoundingClientRect().width <
+            this._titleEl.getBoundingClientRect().width
+          );
+        });
+      } catch (ex) {
+        // In automated tests, this can fail with a DOM exception if
+        // the window has closed by the time layout tries to call us.
+        // In this case, just bail, and only log any other errors:
+        if (
+          !DOMException.isInstance(ex) ||
+          ex.name != "NoModificationAllowedError"
+        ) {
+          Cu.reportError(ex);
+        }
+        return;
+      }
+      this._titleCropEl.toggleAttribute("overflown", isOverflown);
       if (isOverflown) {
         this._titleEl.setAttribute("title", this._titleEl.textContent);
       } else {
@@ -139,7 +148,7 @@ const AdjustableTitle = {
     if (title.raw) {
       this._titleEl.textContent = title.raw;
       let { DIRECTION_RTL } = window.windowUtils;
-      this._containerEl.toggleAttribute(
+      this._titleCropEl.toggleAttribute(
         "rtlorigin",
         window.windowUtils.getDirectionFromText(title.raw) == DIRECTION_RTL
       );
@@ -152,7 +161,7 @@ const AdjustableTitle = {
     } else if (title.shouldUseMaskFade) {
       this._overflowHandler();
     } else {
-      this._titleEl.toggleAttribute("nomaskfade", true);
+      this._titleCropEl.toggleAttribute("nomaskfade", true);
     }
   },
 

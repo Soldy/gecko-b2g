@@ -382,6 +382,7 @@
         "ignoreuserfocus",
         "transparent",
         "mozpasspointerevents",
+        "ua",
       ];
 
       // If we are in chrome, it does no effect.
@@ -486,6 +487,11 @@
       kRelayedEvents.forEach(name => {
         this.browser.addEventListener(name, this);
       });
+
+      let ua = this.browser.getAttribute("ua");
+      if (ua) {
+        this.browser.browsingContext.customUserAgent = ua;
+      }
 
       // TODO: figure out why we can't just set `observe()` as a class method.
       // Logic here is similar to the one used in GeckoView:
@@ -829,6 +835,22 @@
     download(url) {
       this.log(`download ${url}`);
       this.browser?.webViewDownload(url);
+    }
+
+    set userAgent(ua) {
+      this.log(`set userAgent`);
+      if (!this.browser) {
+        this.attrs.push({ name: "ua", new_value: ua });
+      } else {
+        this.browser.browsingContext.customUserAgent = ua;
+      }
+    }
+
+    get userAgent() {
+      return this.browser
+        ? this.browser.browsingContext.customUserAgent ||
+            window.navigator.userAgent
+        : window.navigator.userAgent;
     }
   }
 

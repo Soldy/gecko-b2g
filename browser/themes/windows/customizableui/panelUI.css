@@ -5,6 +5,18 @@
 %include ../../shared/customizableui/panelUI.inc.css
 %include ../../shared/customizableui/panelUI-custom-colors.inc.css
 
+@media (-moz-proton) {
+#customizationui-widget-panel[viewId="PanelUI-profiler"][type="arrow"][side="top"],
+#customizationui-widget-panel[viewId="PanelUI-profiler"][type="arrow"][side="bottom"] {
+  margin-inline: -13px;
+}
+
+#customizationui-widget-panel[viewId="PanelUI-profiler"][type="arrow"][side="left"],
+#customizationui-widget-panel[viewId="PanelUI-profiler"][type="arrow"][side="right"] {
+  margin-block: -13px;
+}
+} /** END Proton **/
+
 /* bookmark panel submenus */
 
 #BMB_bookmarksPopup menupopup[placespopup=true] {
@@ -24,6 +36,11 @@
   #BMB_bookmarksPopup menupopup[placespopup=true]::part(arrowscrollbox) {
     background-color: var(--arrowpanel-background);
     padding-block-start: 0;
+  }
+
+  /* Override the menupopup shadow rule from windows/global/popup.css */
+  #BMB_bookmarksPopup {
+    -moz-window-shadow: none;
   }
 }
 }

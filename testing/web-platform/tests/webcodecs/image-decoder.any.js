@@ -1,46 +1,63 @@
 // META: global=window,dedicatedworker
 // META: script=/webcodecs/image-decoder-utils.js
 
-function testFourColorsDecode(filename, mimeType, preferAnimation) {
+function testFourColorsDecode(filename, mimeType, options = {}) {
   var decoder = null;
-  return fetch(filename)
-      .then(response => {
-        decoder = new ImageDecoder({
-          data: response.body,
-          type: mimeType,
-          preferAnimation: preferAnimation
-        });
-        return decoder.decode();
-      })
-      .then(result => {
-        assert_equals(result.image.displayWidth, 320);
-        assert_equals(result.image.displayHeight, 240);
-        if (preferAnimation !== undefined) {
-          assert_greater_than(decoder.tracks.length, 1);
-          assert_equals(preferAnimation, decoder.tracks.selectedTrack.animated);
-        }
+  return fetch(filename).then(response => {
+    return testFourColorsDecodeBuffer(response.body, mimeType, options);
+  });
+}
 
-        let canvas = new OffscreenCanvas(
-            result.image.displayWidth, result.image.displayHeight);
-        let ctx = canvas.getContext('2d');
-        ctx.drawImage(result.image, 0, 0);
+// Note: Requiring all data to do YUV decoding is a Chromium limitation, other
+// implementations may support YUV decode with partial ReadableStream data.
+function testFourColorsYuvDecode(filename, mimeType, options = {}) {
+  var decoder = null;
+  return fetch(filename).then(
+      response => {return response.arrayBuffer().then(buffer => {
+        return testFourColorsDecodeBuffer(buffer, mimeType, options);
+      })});
+}
 
-        let top_left = toUInt32(ctx.getImageData(0, 0, 1, 1));
-        assert_equals(top_left, 0xFFFF00FF, 'top left corner is yellow');
+function testFourColorsDecodeBuffer(buffer, mimeType, options = {}) {
+  var decoder = new ImageDecoder(
+      {data: buffer, type: mimeType, preferAnimation: options.preferAnimation});
+  return decoder.decode().then(result => {
+    assert_equals(result.image.displayWidth, 320);
+    assert_equals(result.image.displayHeight, 240);
+    if (options.preferAnimation !== undefined) {
+      assert_greater_than(decoder.tracks.length, 1);
+      assert_equals(
+          options.preferAnimation, decoder.tracks.selectedTrack.animated);
+    }
+    if (options.yuvFormat !== undefined)
+      assert_equals(result.image.format, options.yuvFormat);
+    if (options.tolerance === undefined)
+      options.tolerance = 0;
 
-        let top_right =
-            toUInt32(ctx.getImageData(result.image.displayWidth - 1, 0, 1, 1));
-        assert_equals(top_right, 0xFF0000FF, 'top right corner is red');
+    let canvas = new OffscreenCanvas(
+        result.image.displayWidth, result.image.displayHeight);
+    let ctx = canvas.getContext('2d');
+    ctx.drawImage(result.image, 0, 0);
 
-        let bottom_left =
-            toUInt32(ctx.getImageData(0, result.image.displayHeight - 1, 1, 1));
-        assert_equals(bottom_left, 0x0000FFFF, 'bottom left corner is blue');
+    let top_left = ctx.getImageData(0, 0, 1, 1);
+    let top_right = ctx.getImageData(result.image.displayWidth - 1, 0, 1, 1);
+    let bottom_left = ctx.getImageData(0, result.image.displayHeight - 1, 1, 1);
+    let left_corner = ctx.getImageData(
+        result.image.displayWidth - 1, result.image.displayHeight - 1, 1, 1);
 
-        let left_corner = toUInt32(ctx.getImageData(
-            result.image.displayWidth - 1, result.image.displayHeight - 1, 1,
-            1));
-        assert_equals(left_corner, 0x00FF00FF, 'bottom right corner is green');
-      });
+    assert_array_approx_equals(
+        top_left.data, [0xFF, 0xFF, 0x00, 0xFF], options.tolerance,
+        'top left corner is yellow');
+    assert_array_approx_equals(
+        top_right.data, [0xFF, 0x00, 0x00, 0xFF], options.tolerance,
+        'top right corner is red');
+    assert_array_approx_equals(
+        bottom_left.data, [0x00, 0x00, 0xFF, 0xFF], options.tolerance,
+        'bottom left corner is blue');
+    assert_array_approx_equals(
+        left_corner.data, [0x00, 0xFF, 0x00, 0xFF], options.tolerance,
+        'bottom right corner is green');
+  });
 }
 
 promise_test(t => {
@@ -93,11 +110,13 @@ promise_test(t => {
 }, 'Test high bit depth HDR AVIF image decoding.');
 
 promise_test(t => {
-  return testFourColorsDecode('four-colors-flip.avif', 'image/avif', false);
+  return testFourColorsDecode(
+      'four-colors-flip.avif', 'image/avif', {preferAnimation: false});
 }, 'Test multi-track AVIF image decoding w/ preferAnimation=false.');
 
 promise_test(t => {
-  return testFourColorsDecode('four-colors-flip.avif', 'image/avif', true);
+  return testFourColorsDecode(
+      'four-colors-flip.avif', 'image/avif', {preferAnimation: true});
 }, 'Test multi-track AVIF image decoding w/ preferAnimation=true.');
 
 promise_test(t => {
@@ -109,6 +128,36 @@ promise_test(t => {
 }, 'Test GIF image decoding.');
 
 promise_test(t => {
+  return testFourColorsYuvDecode(
+      'four-colors-limited-range-420-8bpc.jpg', 'image/jpeg',
+      {yuvFormat: 'I420', tolerance: 1});
+}, 'Test JPEG image YUV 4:2:0 decoding.');
+
+promise_test(t => {
+  return testFourColorsYuvDecode(
+      'four-colors-limited-range-420-8bpc.avif', 'image/avif',
+      {yuvFormat: 'I420', tolerance: 1});
+}, 'Test AVIF image YUV 4:2:0 decoding.');
+
+promise_test(t => {
+  return testFourColorsYuvDecode(
+      'four-colors-limited-range-422-8bpc.avif', 'image/avif',
+      {yuvFormat: 'I422', tolerance: 1});
+}, 'Test AVIF image YUV 4:2:2 decoding.');
+
+promise_test(t => {
+  return testFourColorsYuvDecode(
+      'four-colors-limited-range-444-8bpc.avif', 'image/avif',
+      {yuvFormat: 'I444', tolerance: 1});
+}, 'Test AVIF image YUV 4:4:4 decoding.');
+
+promise_test(t => {
+  return testFourColorsYuvDecode(
+      'four-colors-limited-range-420-8bpc.webp', 'image/webp',
+      {yuvFormat: 'I420', tolerance: 1});
+}, 'Test WEBP image YUV 4:2:0 decoding.');
+
+promise_test(t => {
   return fetch('four-colors.png').then(response => {
     let decoder = new ImageDecoder({data: response.body, type: 'junk/type'});
     return promise_rejects_dom(t, 'NotSupportedError', decoder.decode());
@@ -118,10 +167,45 @@ promise_test(t => {
 promise_test(t => {
   return fetch('four-colors.png').then(response => {
     let decoder = new ImageDecoder({data: response.body, type: 'junk/type'});
-    return promise_rejects_dom(
-        t, 'NotSupportedError', decoder.decodeMetadata());
+    return promise_rejects_dom(t, 'NotSupportedError', decoder.tracks.ready);
   });
 }, 'Test invalid mime type rejects decodeMetadata() requests');
+
+promise_test(t => {
+  return fetch('four-colors.png')
+      .then(response => {
+        return response.arrayBuffer();
+      })
+      .then(buffer => {
+        let decoder = new ImageDecoder({data: buffer, type: 'image/png'});
+        return promise_rejects_dom(
+            t, 'IndexSizeError', decoder.decode({frameIndex: 1}));
+      });
+}, 'Test out of range index returns IndexSizeError');
+
+promise_test(t => {
+  var decoder;
+  var p1;
+  return fetch('four-colors.png')
+      .then(response => {
+        return response.arrayBuffer();
+      })
+      .then(buffer => {
+        decoder =
+            new ImageDecoder({data: buffer.slice(0, 100), type: 'image/png'});
+        return decoder.tracks.ready;
+      })
+      .then(_ => {
+        // Queue two decodes to ensure index verification and decoding are
+        // properly ordered.
+        p1 = decoder.decode({frameIndex: 0});
+        return promise_rejects_dom(
+            t, 'IndexSizeError', decoder.decode({frameIndex: 1}));
+      })
+      .then(_ => {
+        return promise_rejects_dom(t, 'IndexSizeError', p1);
+      })
+}, 'Test partial decoding without a frame results in an error');
 
 promise_test(t => {
   var decoder = null;
@@ -129,13 +213,13 @@ promise_test(t => {
   return fetch('four-colors.png')
       .then(response => {
         decoder = new ImageDecoder({data: response.body, type: 'image/png'});
-        return decoder.decodeMetadata();
+        return decoder.tracks.ready;
       })
       .then(_ => {
         decoder.tracks.selectedTrack.selected = false;
         assert_equals(decoder.tracks.selectedIndex, -1);
         assert_equals(decoder.tracks.selectedTrack, null);
-        return decoder.decodeMetadata();
+        return decoder.tracks.ready;
       })
       .then(_ => {
         return promise_rejects_dom(t, 'InvalidStateError', decoder.decode());
@@ -159,7 +243,7 @@ promise_test(t => {
       .then(response => {
         decoder = new ImageDecoder(
             {data: response.body, type: 'image/avif', preferAnimation: false});
-        return decoder.decodeMetadata();
+        return decoder.tracks.ready;
       })
       .then(_ => {
         assert_equals(decoder.tracks.length, 2);
@@ -228,7 +312,7 @@ promise_test(async t => {
 
   let stream = new ReadableStream(source, {type: 'bytes'});
   let decoder = new ImageDecoder({data: stream, type: 'image/gif'});
-  return decoder.decodeMetadata()
+  return decoder.tracks.ready
       .then(_ => {
         assert_equals(decoder.tracks.selectedTrack.frameCount, 2);
         assert_equals(decoder.tracks.selectedTrack.repetitionCount, 5);
@@ -280,10 +364,6 @@ promise_test(async t => {
       .then(_ => {
         // Ensure feeding the source after closing doesn't crash.
         source.addFrame();
-        return promise_rejects_dom(
-            t, 'InvalidStateError', decoder.decodeMetadata());
-      })
-      .then(_ => {
         return promise_rejects_dom(t, 'InvalidStateError', decoder.decode());
       });
 }, 'Test ReadableStream of gif');
@@ -294,7 +374,23 @@ promise_test(async t => {
 
   let stream = new ReadableStream(source, {type: 'bytes'});
   let decoder = new ImageDecoder({data: stream, type: 'image/gif'});
-  return decoder.decodeMetadata().then(_ => {
+  return decoder.tracks.ready.then(_ => {
+    assert_equals(decoder.tracks.selectedTrack.frameCount, 2);
+    assert_equals(decoder.tracks.selectedTrack.repetitionCount, 5);
+
+    decoder.decode({frameIndex: 2}).then(t.unreached_func());
+    decoder.decode({frameIndex: 1}).then(t.unreached_func());
+    return decoder.tracks.ready;
+  });
+}, 'Test that decode requests are serialized.');
+
+promise_test(async t => {
+  let source = new InfiniteGifSource();
+  await source.load(5);
+
+  let stream = new ReadableStream(source, {type: 'bytes'});
+  let decoder = new ImageDecoder({data: stream, type: 'image/gif'});
+  return decoder.tracks.ready.then(_ => {
     assert_equals(decoder.tracks.selectedTrack.frameCount, 2);
     assert_equals(decoder.tracks.selectedTrack.repetitionCount, 5);
 

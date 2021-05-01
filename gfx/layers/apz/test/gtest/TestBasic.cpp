@@ -358,3 +358,142 @@ TEST_F(APZCBasicTester, MultipleSmoothScrollsSmooth) {
     lastOffset = offset;
   }
 }
+
+TEST_F(APZCBasicTester, ZoomAndScrollableRectChangeAfterZoomChange) {
+  // We want to check that a small scrollable rect change (which causes us to
+  // reclamp our scroll position, including in the sampled state) does not move
+  // the scroll offset in the sample state based the zoom in the apzc, only
+  // based on the zoom in the sampled state.
+
+  // First we zoom in to the right hand side. Then start zooming out, then send
+  // a scrollable rect change and check that it doesn't change the sampled state
+  // scroll offset.
+
+  ScrollMetadata metadata;
+  FrameMetrics& metrics = metadata.GetMetrics();
+  metrics.SetCompositionBounds(ParentLayerRect(0, 0, 100, 100));
+  metrics.SetScrollableRect(CSSRect(0, 0, 100, 1000));
+  metrics.SetLayoutViewport(CSSRect(0, 0, 100, 100));
+  metrics.SetVisualScrollOffset(CSSPoint(0, 0));
+  metrics.SetZoom(CSSToParentLayerScale2D(1.0, 1.0));
+  metrics.SetIsRootContent(true);
+  apzc->SetFrameMetrics(metrics);
+
+  MakeApzcZoomable();
+
+  // Zoom to right side.
+  ZoomTarget zoomTarget{CSSRect(75, 25, 25, 25), Nothing()};
+  apzc->ZoomToRect(zoomTarget, 0);
+
+  // Run the animation to completion, should take 250ms/16.67ms = 15 frames, but
+  // do extra to make sure.
+  for (uint32_t i = 0; i < 30; i++) {
+    SampleAnimationOneFrame();
+  }
+
+  EXPECT_FALSE(apzc->IsAsyncZooming());
+
+  // Zoom out.
+  ZoomTarget zoomTarget2{CSSRect(0, 0, 100, 100), Nothing()};
+  apzc->ZoomToRect(zoomTarget2, 0);
+
+  // Run the animation a few times to get it going.
+  for (uint32_t i = 0; i < 2; i++) {
+    SampleAnimationOneFrame();
+  }
+
+  // Check that it is decreasing in scale.
+  float prevScale =
+      apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+          .scale;
+  for (uint32_t i = 0; i < 2; i++) {
+    SampleAnimationOneFrame();
+    float scale =
+        apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+            .scale;
+    ASSERT_GT(prevScale, scale);
+    prevScale = scale;
+  }
+
+  float offset =
+      apzc->GetCurrentAsyncScrollOffset(AsyncPanZoomController::eForCompositing)
+          .x;
+
+  // Change the scrollable rect slightly to trigger a reclamp.
+  ScrollMetadata metadata2 = metadata;
+  metadata2.GetMetrics().SetScrollableRect(CSSRect(0, 0, 100, 1000.2));
+  apzc->NotifyLayersUpdated(metadata2, /*isFirstPaint=*/false,
+                            /*thisLayerTreeUpdated=*/true);
+
+  float newOffset =
+      apzc->GetCurrentAsyncScrollOffset(AsyncPanZoomController::eForCompositing)
+          .x;
+
+  ASSERT_EQ(newOffset, offset);
+}
+
+TEST_F(APZCBasicTester, ZoomToRectAndCompositionBoundsChange) {
+  // We want to check that content sending a composition bounds change (due to
+  // addition of scrollbars) during a zoom animation does not cause us to take
+  // the out of date content resolution.
+
+  ScrollMetadata metadata;
+  FrameMetrics& metrics = metadata.GetMetrics();
+  metrics.SetCompositionBounds(ParentLayerRect(0, 0, 100, 100));
+  metrics.SetCompositionBoundsWidthIgnoringScrollbars(ParentLayerCoord{100});
+  metrics.SetScrollableRect(CSSRect(0, 0, 100, 1000));
+  metrics.SetLayoutViewport(CSSRect(0, 0, 100, 100));
+  metrics.SetVisualScrollOffset(CSSPoint(0, 0));
+  metrics.SetZoom(CSSToParentLayerScale2D(1.0, 1.0));
+  metrics.SetIsRootContent(true);
+  apzc->SetFrameMetrics(metrics);
+
+  MakeApzcZoomable();
+
+  // Start a zoom to a rect.
+  ZoomTarget zoomTarget{CSSRect(25, 25, 25, 25), Nothing()};
+  apzc->ZoomToRect(zoomTarget, 0);
+
+  // Run the animation a few times to get it going.
+  // Check that it is increasing in scale.
+  float prevScale =
+      apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+          .scale;
+  for (uint32_t i = 0; i < 3; i++) {
+    SampleAnimationOneFrame();
+    float scale =
+        apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+            .scale;
+    ASSERT_GE(scale, prevScale);
+    prevScale = scale;
+  }
+
+  EXPECT_TRUE(apzc->IsAsyncZooming());
+
+  // Simulate the appearance of a scrollbar by reducing the width of
+  // the composition bounds, while keeping
+  // mCompositionBoundsWidthIgnoringScrollbars unchanged.
+  ScrollMetadata metadata2 = metadata;
+  metadata2.GetMetrics().SetCompositionBounds(ParentLayerRect(0, 0, 90, 100));
+  apzc->NotifyLayersUpdated(metadata2, /*isFirstPaint=*/false,
+                            /*thisLayerTreeUpdated=*/true);
+
+  float scale =
+      apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+          .scale;
+
+  ASSERT_EQ(scale, prevScale);
+
+  // Run the rest of the animation to completion, should take 250ms/16.67ms = 15
+  // frames total, but do extra to make sure.
+  for (uint32_t i = 0; i < 30; i++) {
+    SampleAnimationOneFrame();
+    scale =
+        apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
+            .scale;
+    ASSERT_GE(scale, prevScale);
+    prevScale = scale;
+  }
+
+  EXPECT_FALSE(apzc->IsAsyncZooming());
+}

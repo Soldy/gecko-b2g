@@ -24,6 +24,7 @@
 
 class nsISHistory;
 class nsIWidget;
+class nsIPrintSettings;
 class nsSHistory;
 class nsBrowserStatusFilter;
 class nsSecureBrowserUI;
@@ -127,6 +128,9 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   UniquePtr<LoadingSessionHistoryInfo> ReplaceLoadingSessionHistoryEntryForLoad(
       LoadingSessionHistoryInfo* aInfo, nsIChannel* aChannel);
 
+  already_AddRefed<Promise> Print(nsIPrintSettings* aPrintSettings,
+                                  ErrorResult& aRv);
+
   // Call the given callback on all top-level descendant BrowsingContexts.
   // Return Callstate::Stop from the callback to stop calling
   // further children.
@@ -162,7 +166,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void RemoveFromSessionHistory(const nsID& aChangeID);
 
   void HistoryGo(int32_t aIndex, uint64_t aHistoryEpoch,
-                 bool aRequireUserInteraction,
+                 bool aRequireUserInteraction, bool aUserActivation,
                  Maybe<ContentParentId> aContentId,
                  std::function<void(int32_t&&)>&& aResolver);
 
@@ -199,11 +203,11 @@ class CanonicalBrowsingContext final : public BrowsingContext {
                ErrorResult& aError);
 
   void GoBack(const Optional<int32_t>& aCancelContentJSEpoch,
-              bool aRequireUserInteraction);
+              bool aRequireUserInteraction, bool aUserActivation);
   void GoForward(const Optional<int32_t>& aCancelContentJSEpoch,
-                 bool aRequireUserInteraction);
-  void GoToIndex(int32_t aIndex,
-                 const Optional<int32_t>& aCancelContentJSEpoch);
+                 bool aRequireUserInteraction, bool aUserActivation);
+  void GoToIndex(int32_t aIndex, const Optional<int32_t>& aCancelContentJSEpoch,
+                 bool aUserActivation);
   void Reload(uint32_t aReloadFlags);
   void Stop(uint32_t aStopFlags);
 
@@ -292,6 +296,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
   void StartUnloadingHost(uint64_t aChildID);
   void ClearUnloadingHost(uint64_t aChildID);
+
+  bool AllowedInBFCache(const Maybe<uint64_t>& aChannelId);
 
  protected:
   // Called when the browsing context is being discarded.

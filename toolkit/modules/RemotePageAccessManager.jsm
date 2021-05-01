@@ -39,6 +39,7 @@ let RemotePageAccessManager = {
         "Browser:SSLErrorGoBack",
         "Browser:PrimeMitm",
         "Browser:ResetEnterpriseRootsPref",
+        "DisplayOfflineSupportPage",
       ],
       RPMRecordTelemetryEvent: ["*"],
       RPMAddMessageListener: ["*"],
@@ -80,6 +81,7 @@ let RemotePageAccessManager = {
         "Browser:PrimeMitm",
         "Browser:ResetEnterpriseRootsPref",
         "ReportBlockingError",
+        "DisplayOfflineSupportPage",
       ],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
@@ -101,10 +103,6 @@ let RemotePageAccessManager = {
       RPMGetInnerMostURI: ["*"],
       RPMGetHttpResponseHeader: ["*"],
     },
-    "about:newinstall": {
-      RPMGetUpdateChannel: ["*"],
-      RPMGetFxAccountsEndpoint: ["*"],
-    },
     "about:plugins": {
       RPMSendQuery: ["RequestPlugins"],
     },
@@ -114,6 +112,11 @@ let RemotePageAccessManager = {
       RPMRemoveMessageListener: ["*"],
     },
     "about:pocket-signup": {
+      RPMSendAsyncMessage: ["*"],
+      RPMAddMessageListener: ["*"],
+      RPMRemoveMessageListener: ["*"],
+    },
+    "about:pocket-home": {
       RPMSendAsyncMessage: ["*"],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
@@ -306,7 +309,7 @@ let RemotePageAccessManager = {
       if (!aPrincipal.schemeIs("about")) {
         return null;
       }
-      spec = aPrincipal.prepath + aPrincipal.filePath;
+      spec = aPrincipal.prePath + aPrincipal.filePath;
     }
 
     // Check if there is an entry for that requestying URI in the accessMap;

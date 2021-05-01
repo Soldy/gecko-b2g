@@ -443,15 +443,15 @@ class nsRilResponse : public IRadioResponse {
   Return<void> acknowledgeRequest(int32_t serial);
 
   Return<void> setCarrierInfoForImsiEncryptionResponse(const RadioResponseInfo& info);
- 
+
   Return<void> setSimCardPowerResponse_1_1(const RadioResponseInfo& info);
- 
+
   Return<void> startNetworkScanResponse(const RadioResponseInfo& info);
- 
+
   Return<void> stopNetworkScanResponse(const RadioResponseInfo& info);
- 
+
   Return<void> startKeepaliveResponse(const RadioResponseInfo& info , const KeepaliveStatus& status);
- 
+
   Return<void> stopKeepaliveResponse(const RadioResponseInfo& info);
 
  private:

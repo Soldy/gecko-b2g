@@ -251,10 +251,10 @@ void CameraPreferences::Shutdown() {
       DOM_CAMERA_LOGE("Failed to remove CameraPreferences observer (0x%x)\n",
                       rv);
     }
-    sObserver = nullptr;
   } else {
     DOM_CAMERA_LOGE("Could not get observer service\n");
   }
+  sObserver = nullptr;
 #endif
 
   DOM_CAMERA_LOGI("Camera preferences shut down\n");

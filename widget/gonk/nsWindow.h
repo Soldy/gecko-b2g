@@ -109,12 +109,11 @@ class nsWindow : public nsBaseWidget {
       override;
   virtual void EndRemoteDrawing() override;
 
-  void SetCursor(nsCursor aDefaultCursor, imgIContainer* aImageCursor,
-                 uint32_t aHotspotX, uint32_t aHotspotY) override;
+  void SetCursor(const Cursor&) override;
 
-  void UpdateCursorSourceMap(nsCursor aCursor);
+  void UpdateCursorSourceMap(Cursor aCursor);
   already_AddRefed<mozilla::gfx::SourceSurface> RestyleCursorElement(
-      nsCursor aCursor);
+      Cursor aCursor);
 
   virtual float GetDPI() override;
   virtual bool IsVsyncSupported();

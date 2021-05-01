@@ -5,13 +5,18 @@
 .content {
   display: flex;
   flex-direction: column;
+  grid-area: 2 / 2 / 3 / 4;
 }
 
 .error-title {
-  font-weight: bold;
+  font-weight: 600;
   margin-top: 20px;
 }
 
 .no-logins {
   margin-top: 25px;
+}
+
+.error-learn-more-link {
+  font-weight: 600;
 }

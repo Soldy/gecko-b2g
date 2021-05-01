@@ -211,7 +211,9 @@ NetworkTimeService.prototype = {
         .then(suggestion => {
           aCallback.onSuggestedNetworkTimeResponse(suggestion);
         })
-        .catch();
+        .catch(() => {
+          this.debug("getSuggestedNetworkTime rejected");
+        });
       return;
     }
 
@@ -456,6 +458,17 @@ NetworkTimeService.prototype = {
         },
       };
 
+      let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+      timer.initWithCallback(
+        () => {
+          if (DEBUG) {
+            self.debug("500ms timeout, force reject");
+          }
+          callback.reject();
+        },
+        500,
+        Ci.nsITimer.TYPE_ONE_SHOT
+      );
       gTime.getElapsedRealTime(callback);
     });
   },

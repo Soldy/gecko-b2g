@@ -16,14 +16,17 @@ function debug(aStr) {
 // top-level window once we receive a display connected event.
 let MultiscreenHandler = {
   topLevelWindows: new Map(),
+  displays: [],
 
   init: function init() {
     Services.obs.addObserver(this, "display-changed");
+    Services.obs.addObserver(this, "open-remote-shell-windows");
     Services.obs.addObserver(this, "xpcom-shutdown");
   },
 
   uninit: function uninit() {
     Services.obs.removeObserver(this, "display-changed");
+    Services.obs.removeObserver(this, "open-remote-shell-windows");
     Services.obs.removeObserver(this, "xpcom-shutdown");
   },
 
@@ -31,6 +34,9 @@ let MultiscreenHandler = {
     switch (aTopic) {
       case "display-changed":
         this.handleDisplayChangeEvent(aSubject);
+        break;
+      case "open-remote-shell-windows":
+        this.openTopLevelWindows();
         break;
       case "xpcom-shutdown":
         this.uninit();
@@ -65,6 +71,12 @@ let MultiscreenHandler = {
     this.topLevelWindows.set(aDisplay.id, win);
   },
 
+  openTopLevelWindows: function openTopLevelWindows() {
+    this.displays.forEach(display => {
+      this.openTopLevelWindow(display);
+    });
+  },
+
   closeTopLevelWindow: function closeTopLevelWindow(aDisplay) {
     let win = this.topLevelWindows.get(aDisplay.id);
 
@@ -78,7 +90,7 @@ let MultiscreenHandler = {
     let display = aSubject.QueryInterface(Ci.nsIDisplayInfo);
 
     if (display.connected) {
-      this.openTopLevelWindow(display);
+      this.displays.push(display);
     } else {
       this.closeTopLevelWindow(display);
     }

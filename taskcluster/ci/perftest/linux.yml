@@ -94,7 +94,6 @@ http3:
             --xpcshell-nodejs ${MOZ_FETCHES_DIR}/node/bin/node
             --xpcshell-cycles 13
             --xpcshell-xre-path ${MOZ_FETCHES_DIR}/firefox
-            --verbose
 
 livesites:
     description: Live site performance testing
@@ -231,7 +230,7 @@ perfstats:
             --browsertime-geckodriver ${MOZ_FETCHES_DIR}/geckodriver
             --output $MOZ_FETCHES_DIR/../artifacts
             --perfherder
-            --perfherder-metrics name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
+            --perfherder-metrics name:HttpChannelCompletion,unit:ms name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
             --browsertime-iterations 10
             --hooks testing/performance/hooks_perfstats.py
             testing/performance/perftest_perfstats.js

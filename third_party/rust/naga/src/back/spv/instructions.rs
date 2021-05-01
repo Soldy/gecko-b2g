@@ -81,6 +81,12 @@ impl super::Instruction {
     //  Extension Instructions
     //
 
+    pub(super) fn extension(name: &str) -> Self {
+        let mut instruction = Self::new(Op::Extension);
+        instruction.add_operands(helpers::string_to_words(name));
+        instruction
+    }
+
     pub(super) fn ext_inst_import(id: Word, name: &str) -> Self {
         let mut instruction = Self::new(Op::ExtInstImport);
         instruction.set_result(id);
@@ -427,12 +433,12 @@ impl super::Instruction {
     }
 
     pub(super) fn store(
-        pointer_type_id: Word,
+        pointer_id: Word,
         object_id: Word,
         memory_access: Option<spirv::MemoryAccess>,
     ) -> Self {
         let mut instruction = Self::new(Op::Store);
-        instruction.add_operand(pointer_type_id);
+        instruction.add_operand(pointer_id);
         instruction.add_operand(object_id);
 
         if let Some(memory_access) = memory_access {
@@ -552,6 +558,20 @@ impl super::Instruction {
         instruction
     }
 
+    pub(super) fn image_fetch(
+        result_type_id: Word,
+        id: Word,
+        image: Word,
+        coordinates: Word,
+    ) -> Self {
+        let mut instruction = Self::new(Op::ImageFetch);
+        instruction.set_type(result_type_id);
+        instruction.set_result(id);
+        instruction.add_operand(image);
+        instruction.add_operand(coordinates);
+        instruction
+    }
+
     pub(super) fn image_read(
         result_type_id: Word,
         id: Word,
@@ -668,6 +688,30 @@ impl super::Instruction {
     //
     // Derivative Instructions
     //
+
+    pub(super) fn derive_x(result_type_id: Word, id: Word, expr_id: Word) -> Self {
+        let mut instruction = Self::new(Op::DPdx);
+        instruction.set_type(result_type_id);
+        instruction.set_result(id);
+        instruction.add_operand(expr_id);
+        instruction
+    }
+
+    pub(super) fn derive_y(result_type_id: Word, id: Word, expr_id: Word) -> Self {
+        let mut instruction = Self::new(Op::DPdy);
+        instruction.set_type(result_type_id);
+        instruction.set_result(id);
+        instruction.add_operand(expr_id);
+        instruction
+    }
+
+    pub(super) fn derive_width(result_type_id: Word, id: Word, expr_id: Word) -> Self {
+        let mut instruction = Self::new(Op::Fwidth);
+        instruction.set_type(result_type_id);
+        instruction.set_result(id);
+        instruction.add_operand(expr_id);
+        instruction
+    }
 
     //
     // Control-Flow Instructions

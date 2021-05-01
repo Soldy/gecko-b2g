@@ -55,8 +55,7 @@ static already_AddRefed<gl::GLContext> CreateGLContext(nsACString& aError);
 
 MOZ_DEFINE_MALLOC_SIZE_OF(WebRenderRendererMallocSizeOf)
 
-namespace mozilla {
-namespace wr {
+namespace mozilla::wr {
 
 static StaticRefPtr<RenderThread> sRenderThread;
 
@@ -384,7 +383,7 @@ void RenderThread::SetClearColor(wr::WindowId aWindowId, wr::ColorF aColor) {
   }
 }
 
-void RenderThread::SetProfilerUI(wr::WindowId aWindowId, nsCString aUI) {
+void RenderThread::SetProfilerUI(wr::WindowId aWindowId, const nsCString& aUI) {
   if (mHasShutdown) {
     return;
   }
@@ -417,7 +416,7 @@ void RenderThread::RunEvent(wr::WindowId aWindowId,
 }
 
 static void NotifyDidRender(layers::CompositorBridgeParent* aBridge,
-                            RefPtr<const WebRenderPipelineInfo> aInfo,
+                            const RefPtr<const WebRenderPipelineInfo>& aInfo,
                             VsyncId aCompositeStartId,
                             TimeStamp aCompositeStart, TimeStamp aRenderStart,
                             TimeStamp aEnd, bool aRender,
@@ -904,7 +903,7 @@ bool RenderThread::IsHandlingWebRenderError() {
 
 gl::GLContext* RenderThread::SingletonGL() {
   nsAutoCString err;
-  auto gl = SingletonGL(err);
+  auto* gl = SingletonGL(err);
   if (!err.IsEmpty()) {
     gfxCriticalNote << err.get();
   }
@@ -1064,8 +1063,7 @@ WebRenderProgramCache::~WebRenderProgramCache() {
   wr_program_cache_delete(mProgramCache);
 }
 
-}  // namespace wr
-}  // namespace mozilla
+}  // namespace mozilla::wr
 
 #ifdef XP_WIN
 static already_AddRefed<gl::GLContext> CreateGLContextANGLE(
@@ -1209,29 +1207,35 @@ void wr_notifier_external_event(mozilla::wr::WrWindowId aWindowId,
                                              std::move(evt));
 }
 
-void wr_schedule_render(mozilla::wr::WrWindowId aWindowId) {
+static void NotifyScheduleRender(mozilla::wr::WrWindowId aWindowId) {
   RefPtr<mozilla::layers::CompositorBridgeParent> cbp = mozilla::layers::
       CompositorBridgeParent::GetCompositorBridgeParentFromWindowId(aWindowId);
   if (cbp) {
-    cbp->ScheduleRenderOnCompositorThread();
+    cbp->ScheduleComposition();
   }
 }
 
-static void NotifyDidSceneBuild(RefPtr<layers::CompositorBridgeParent> aBridge,
-                                RefPtr<const wr::WebRenderPipelineInfo> aInfo) {
-  aBridge->NotifyDidSceneBuild(aInfo);
+void wr_schedule_render(mozilla::wr::WrWindowId aWindowId) {
+  layers::CompositorThread()->Dispatch(NewRunnableFunction(
+      "NotifyScheduleRender", &NotifyScheduleRender, aWindowId));
+}
+
+static void NotifyDidSceneBuild(
+    mozilla::wr::WrWindowId aWindowId,
+    const RefPtr<const wr::WebRenderPipelineInfo>& aInfo) {
+  RefPtr<mozilla::layers::CompositorBridgeParent> cbp = mozilla::layers::
+      CompositorBridgeParent::GetCompositorBridgeParentFromWindowId(aWindowId);
+  if (cbp) {
+    cbp->NotifyDidSceneBuild(aInfo);
+  }
 }
 
 void wr_finished_scene_build(mozilla::wr::WrWindowId aWindowId,
-                             mozilla::wr::WrPipelineInfo* aInfo) {
-  RefPtr<mozilla::layers::CompositorBridgeParent> cbp = mozilla::layers::
-      CompositorBridgeParent::GetCompositorBridgeParentFromWindowId(aWindowId);
+                             mozilla::wr::WrPipelineInfo* aPipelineInfo) {
   RefPtr<wr::WebRenderPipelineInfo> info = new wr::WebRenderPipelineInfo();
-  info->Raw() = std::move(*aInfo);
-  if (cbp) {
-    layers::CompositorThread()->Dispatch(NewRunnableFunction(
-        "NotifyDidSceneBuild", &NotifyDidSceneBuild, cbp, info));
-  }
+  info->Raw() = std::move(*aPipelineInfo);
+  layers::CompositorThread()->Dispatch(NewRunnableFunction(
+      "NotifyDidSceneBuild", &NotifyDidSceneBuild, aWindowId, info));
 }
 
 }  // extern C

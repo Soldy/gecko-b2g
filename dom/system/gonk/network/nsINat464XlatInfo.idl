@@ -52,9 +52,14 @@ interface nsIStackedLinkInfo : nsISupports
                 [array, size_is(count), retval] out wstring dnses);
 };
 
-[scriptable, uuid(21887cc7-7d35-4188-ac3b-127400d0026d)]
+[scriptable, uuid(36713965-e47d-42e2-95b3-a7575e5df384)]
 interface nsINat464XlatInfo : nsINetworkInfo
 {
+  const long XLAT_STATE_IDLE = 0;         // start() not called. Base iface and stacked iface names are null.
+  const long XLAT_STATE_DISCOVERING = 1;  // same as IDLE, except prefix discovery in progress.
+  const long XLAT_STATE_STARTING = 2;     // start() called. Base iface and stacked iface names are known.
+  const long XLAT_STATE_RUNNING = 3;      // start() called, and the stacked iface is known to be up.
+
   /**
    * The network information about this xlat network interface.
    */

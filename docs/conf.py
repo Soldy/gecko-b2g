@@ -77,6 +77,7 @@ html_logo = os.path.join(
     topsrcdir, "browser/branding/nightly/content/firefox-wordmark.svg"
 )
 html_favicon = os.path.join(topsrcdir, "browser/branding/nightly/firefox.ico")
+html_js_files = ["https://cdnjs.cloudflare.com/ajax/libs/mermaid/8.9.1/mermaid.js"]
 
 exclude_patterns = ["_build", "_staging", "_venv"]
 pygments_style = "sphinx"
@@ -115,6 +116,12 @@ html_show_copyright = False
 autosectionlabel_maxdepth = 1
 
 
+def install_sphinx_panels(app, pagename, templatename, context, doctree):
+    if "raptor" in pagename:
+        app.add_js_file("sphinx_panels.js")
+        app.add_css_file("sphinx_panels.css")
+
+
 def setup(app):
     app.add_config_value(
         "recommonmark_config",
@@ -128,3 +135,4 @@ def setup(app):
     )
     app.add_stylesheet("custom_theme.css")
     app.add_transform(AutoStructify)
+    app.connect("html-page-context", install_sphinx_panels)

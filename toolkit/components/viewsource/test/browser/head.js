@@ -76,8 +76,9 @@ async function openViewSource() {
       contentAreaContextMenuPopup,
       "popuphidden"
     );
-    let item = document.getElementById("context-viewsource");
-    EventUtils.synthesizeMouseAtCenter(item, {});
+    contentAreaContextMenuPopup.activateItem(
+      document.getElementById("context-viewsource")
+    );
     await popupHiddenPromise;
   });
 }
@@ -116,7 +117,7 @@ async function openViewPartialSource(
       "popuphidden"
     );
     let item = document.getElementById("context-viewpartialsource-selection");
-    EventUtils.synthesizeMouseAtCenter(item, {});
+    contentAreaContextMenuPopup.activateItem(item);
     await popupHiddenPromise;
   });
 }
@@ -148,7 +149,7 @@ async function openViewFrameSourceTab(aCSSSelector) {
     frameContextMenu,
     "popupshown"
   );
-  EventUtils.synthesizeMouseAtCenter(frameContextMenu, {});
+  frameContextMenu.openMenu(true);
   await popupShownPromise;
 
   return waitForViewSourceTab(async () => {
@@ -157,7 +158,7 @@ async function openViewFrameSourceTab(aCSSSelector) {
       "popuphidden"
     );
     let item = document.getElementById("context-viewframesource");
-    EventUtils.synthesizeMouseAtCenter(item, {});
+    frameContextMenu.menupopup.activateItem(item);
     await popupHiddenPromise;
   });
 }

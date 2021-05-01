@@ -8,7 +8,9 @@
 #define nsDocShell_h__
 
 #include "Units.h"
+#include "mozilla/Encoding.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/NotNull.h"
 #include "mozilla/ScrollbarPreferences.h"
 #include "mozilla/TimelineConsumers.h"
 #include "mozilla/UniquePtr.h"
@@ -333,8 +335,8 @@ class nsDocShell final : public nsDocLoader,
   nsresult SetHTMLEditorInternal(mozilla::HTMLEditor* aHTMLEditor);
 
   // Handle page navigation due to charset changes
-  nsresult CharsetChangeReloadDocument(const char* aCharset = nullptr,
-                                       int32_t aSource = kCharsetUninitialized);
+  nsresult CharsetChangeReloadDocument(
+      mozilla::NotNull<const mozilla::Encoding*> aEncoding, int32_t aSource);
   nsresult CharsetChangeStopDocumentLoad();
 
   nsDOMNavigationTiming* GetNavigationTiming() const;
@@ -510,6 +512,10 @@ class nsDocShell final : public nsDocLoader,
 
   // This returns true only when using session history in parent.
   bool IsLoadingFromSessionHistory();
+
+  NS_IMETHODIMP OnStartRequest(nsIRequest* aRequest) override;
+  NS_IMETHODIMP OnStopRequest(nsIRequest* aRequest,
+                              nsresult aStatusCode) override;
 
  private:  // member functions
   friend class nsDSURIContentListener;
@@ -859,7 +865,7 @@ class nsDocShell final : public nsDocLoader,
   bool CanSavePresentation(uint32_t aLoadType, nsIRequest* aNewRequest,
                            mozilla::dom::Document* aNewDocument);
 
-  void ReportBFCacheComboTelemetry(uint16_t aCombo);
+  static void ReportBFCacheComboTelemetry(uint16_t aCombo);
 
   // Captures the state of the supporting elements of the presentation
   // (the "window" object, docshell tree, meta-refresh loads, and security
@@ -974,10 +980,11 @@ class nsDocShell final : public nsDocLoader,
                  bool aIsTransientAboutBlank, bool aPersist);
   nsPresContext* GetEldestPresContext();
   nsresult CheckLoadingPermissions();
-  nsresult LoadHistoryEntry(nsISHEntry* aEntry, uint32_t aLoadType);
+  nsresult LoadHistoryEntry(nsISHEntry* aEntry, uint32_t aLoadType,
+                            bool aUserActivation);
   nsresult LoadHistoryEntry(
-      const mozilla::dom::LoadingSessionHistoryInfo& aEntry,
-      uint32_t aLoadType);
+      const mozilla::dom::LoadingSessionHistoryInfo& aEntry, uint32_t aLoadType,
+      bool aUserActivation);
   nsresult LoadHistoryEntry(nsDocShellLoadState* aLoadState, uint32_t aLoadType,
                             bool aReloadingActiveEntry);
   nsresult GetHttpChannel(nsIChannel* aChannel, nsIHttpChannel** aReturn);
@@ -1079,6 +1086,8 @@ class nsDocShell final : public nsDocLoader,
   bool ShouldOpenInBlankTarget(const nsAString& aOriginalTarget,
                                nsIURI* aLinkURI, nsIContent* aContent);
 
+  void RecordSingleChannelId();
+
  private:  // data members
   nsString mTitle;
   nsCString mOriginalUriString;
@@ -1173,11 +1182,6 @@ class nsDocShell final : public nsDocLoader,
   nsCOMPtr<nsIURI> mFailedURI;
   nsCOMPtr<nsIChannel> mFailedChannel;
 
-  // Set in DoURILoad when either the LOAD_RELOAD_ALLOW_MIXED_CONTENT flag or
-  // the LOAD_NORMAL_ALLOW_MIXED_CONTENT flag is set.
-  // Checked in nsMixedContentBlocker, to see if the channels match.
-  nsCOMPtr<nsIChannel> mMixedContentChannel;
-
   mozilla::UniquePtr<mozilla::gfx::Matrix5x4> mColorMatrix;
 
   const mozilla::Encoding* mForcedCharset;
@@ -1219,6 +1223,9 @@ class nsDocShell final : public nsDocLoader,
   // Whether or not handling of the <meta name="viewport"> tag is overridden.
   // Possible values are defined as constants in nsIDocShell.idl.
   MetaViewportOverride mMetaViewportOverride;
+
+  // See WindowGlobalParent::mSingleChannelId.
+  mozilla::Maybe<uint64_t> mSingleChannelId;
 
   // The following two fields cannot be declared as bit fields
   // because of uses with AutoRestore.

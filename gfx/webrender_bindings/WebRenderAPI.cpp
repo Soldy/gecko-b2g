@@ -17,6 +17,7 @@
 #include "mozilla/layers/SynchronousTask.h"
 #include "TextDrawTarget.h"
 #include "malloc_decls.h"
+#include "GLContext.h"
 
 // clang-format off
 #define WRDL_LOG(...)
@@ -133,6 +134,23 @@ class NewRenderer : public RendererEvent {
     auto* shaders = (aRenderThread.GetShaders() && !swgl)
                         ? aRenderThread.GetShaders()->RawShaders()
                         : nullptr;
+
+    // Check That if we are not using SWGL, we have at least a GL or GLES 3.0
+    // context.
+    if (gl && !swgl) {
+      bool versionCheck =
+          gl->IsAtLeast(gl::ContextProfile::OpenGLCore, 300) ||
+          gl->IsAtLeast(gl::ContextProfile::OpenGLCompatibility, 300) ||
+          gl->IsAtLeast(gl::ContextProfile::OpenGLES, 300);
+
+      if (!versionCheck) {
+        gfxCriticalNote << "GL context version (" << gl->Version()
+                        << ") insufficent for hardware WebRender";
+
+        mError->AssignASCII("GL context version insufficient");
+        return;
+      }
+    }
 
     if (!wr_window_new(
             aWindowId, mSize.width, mSize.height,
@@ -445,6 +463,8 @@ void WebRenderAPI::DestroyRenderer() {
   MOZ_RELEASE_ASSERT(!mRootApi);
 
   RenderThread::Get()->SetDestroyed(GetId());
+  // Call wr_api_stop_render_backend() before RemoveRenderer.
+  wr_api_stop_render_backend(mDocHandle);
 
   layers::SynchronousTask task("Destroy WebRenderAPI");
   auto event = MakeUnique<RemoveRenderer>(&task);
@@ -1070,11 +1090,13 @@ wr::WrClipId DisplayListBuilder::DefineClip(
 }
 
 wr::WrClipId DisplayListBuilder::DefineImageMaskClip(
-    const wr::ImageMask& aMask) {
+    const wr::ImageMask& aMask, const nsTArray<wr::LayoutPoint>& aPoints,
+    wr::FillRule aFillRule) {
   CancelGroup();
 
   WrClipId clipId = wr_dp_define_image_mask_clip_with_parent_clip_chain(
-      mWrState, &mCurrentSpaceAndClipChain, aMask);
+      mWrState, &mCurrentSpaceAndClipChain, aMask, aPoints.Elements(),
+      aPoints.Length(), aFillRule);
 
   return clipId;
 }

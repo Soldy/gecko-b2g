@@ -15,11 +15,14 @@ async function pause(tab, options) {
 
   try {
     let browser = tab.linkedBrowser;
-    let awaitDOMAudioPlaybackStopped = BrowserTestUtils.waitForEvent(
-      browser,
-      "DOMAudioPlaybackStopped",
-      "DOMAudioPlaybackStopped event should get fired after pause"
-    );
+    let awaitDOMAudioPlaybackStopped;
+    if (!browser.audioMuted) {
+      awaitDOMAudioPlaybackStopped = BrowserTestUtils.waitForEvent(
+        browser,
+        "DOMAudioPlaybackStopped",
+        "DOMAudioPlaybackStopped event should get fired after pause"
+      );
+    }
     await SpecialPowers.spawn(browser, [], async function() {
       let audio = content.document.querySelector("audio");
       audio.pause();
@@ -168,7 +171,7 @@ async function test_muting_using_menu(tab, expectMuted) {
     contextMenu,
     "popuphidden"
   );
-  EventUtils.synthesizeMouseAtCenter(toggleMute, {});
+  contextMenu.activateItem(toggleMute);
   await popupHiddenPromise;
   await mutedPromise;
 }
@@ -256,7 +259,7 @@ async function test_playing_icon_on_hidden_tab(tab) {
   function assertIconShowing() {
     is(
       getComputedStyle(alltabsBadge).backgroundImage,
-      'url("chrome://browser/skin/tabbrowser/badge-audio-playing.svg")',
+      'url("chrome://browser/skin/tabbrowser/tab-audio-playing-small.svg")',
       "The audio playing icon is shown"
     );
     is(

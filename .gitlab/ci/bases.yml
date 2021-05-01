@@ -2,14 +2,76 @@ variables:
   SCCACHE_REDIS_BASEURL: redis://10.81.70.108
 
 .global_setup: &global_setup
+  # remove the replacement of remote url in case the container is stale
+  - 'git config --global --remove-section url."${LOCAL_GIT_MIRROR}" || true'
+  - '[[ -f /entrypoint.sh ]] && /entrypoint.sh'
   - export CI_USE_MIRROR=${CI_USE_MIRROR:-false} # in case not set in config.toml
+  - export CPU_CORES=$(cat /proc/cpuinfo | grep processor -c)
+  - export PATHSPEC=${PATHSPEC:-.}
   - echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
   - git config --global url."${CI_SERVER_URL}/".insteadOf "git@${CI_SERVER_HOST}:"
   - |
+    msg() {
+      echo -e "\033[1;33m${1-}\033[0m"
+    }
+  - |
+    die() {
+      local msg=$1
+      local code=${2-1}
+      echo -e  "\033[0;31m${msg}\033[0m"
+      exit "$code"
+    }
+  - |
+    if [[ ${GIT_STRATEGY} == none ]]; then
+      msg "Try restoring a bare repo in ${GIT_CLONE_PATH}"
+      pushd ${GIT_CLONE_PATH%/*}
+      rm -rf ${GIT_CLONE_PATH}
+      git clone \
+        --no-checkout \
+        -o kaios \
+        -b ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} \
+        --jobs ${CPU_CORES} \
+        "${LOCAL_GIT_MIRROR:-"${CI_SERVER_URL}"}/${CI_MERGE_REQUEST_PROJECT_PATH}.git" \
+        ${GIT_CLONE_PATH}
+      popd
+      git remote add origin ${CI_MERGE_REQUEST_SOURCE_PROJECT_URL}.git
+      git fetch \
+          -j${CPU_CORES} \
+          origin \
+          ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+    elif $(git rev-parse --is-shallow-repository); then
+      msg "Due to GIT_DEPTH (set as ${GIT_DEPTH}), restore the whole git history between \
+      origin/${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} and kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+      git fetch \
+          -j${CPU_CORES} \
+          --unshallow \
+          origin \
+          ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+    fi
+  - |
     if ${CI_USE_MIRROR}; then
-      git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow
-      echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
+      msg "Alternatively use ${LOCAL_GIT_MIRROR} for following git-clone."
       git config --global url."${LOCAL_GIT_MIRROR}".insteadOf "${CI_SERVER_URL}"
+    fi
+  - merge_base=$(git merge-base kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} FETCH_HEAD)
+  # git can't retrieve pathspec stored in variable for unknown reason
+  # as a workaround, eval works
+  - |
+    mapfile -t changed_files \
+      < <(eval "git diff ${merge_base} FETCH_HEAD --diff-filter=ARM --name-only -- ${PATHSPEC}")
+  - printf '%s\n' "${changed_files[@]}"
+  # explicitly checkout the modified files
+  - |
+    if [[ ${GIT_STRATEGY} != none ]]; then
+      if [[ ${CI_JOB_NAME%:*} == build ]]; then
+        git checkout FETCH_HEAD -- .
+      else
+        msg "Instead of the whole working tree, \
+        only the following files will be explicitly checked out to \
+        origin/${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}:"
+        git checkout FETCH_HEAD -- "${changed_files[@]}"
+      fi
+      git status --short --untracked-files=no
     fi
 
 .koost_setup: &koost_setup
@@ -17,33 +79,83 @@ variables:
     if [[ ${GIT_CLONE_PATH##*/} == koost ]]; then
       cd ${GIT_CLONE_PATH%/*}
       git init
-      git fetch ${CI_SERVER_URL}/KaiOS/gecko-dev.git next --no-tags --depth 1
+      git fetch ${CI_SERVER_URL}/KaiOS/gecko-dev.git next --no-tags --depth 1 -j${CPU_CORES:-8}
       git checkout FETCH_HEAD
-      check_format_opt="${check_format_opt} --koost"
     else
       cd ${GIT_CLONE_PATH}
-      if [[ ${CI_JOB_NAME} != lint ]]; then
+      if [[ ${CI_JOB_NAME%:*} == build ]]; then
         git clone ${CI_SERVER_URL}/KaiOS/koost.git -b next --depth 1
         git -C koost log -1
       fi
     fi
 
-.lint_base:
-  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+.precautions_base:
+  stage: .pre
+  image: ${CI_REGISTRY}/kaios/gecko-dev/lint:3d9d58d5
   tags:
     - gecko-lint
+  variables:
+    GIT_STRATEGY: none # save the time took by disk I/O since we don't need working tree in this stage
+    COMMIT_MESSAGE_PATTERN: '^(Bug|MozBug) [[:digit:]]+ \- '
   before_script:
     - *global_setup
-    - git fetch origin ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} --unshallow || true
-    - 'git log --decorate --oneline --graph -10 --color=always HEAD kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}'
-    - 'export mr_commits=$(git rev-list kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}.. --count)'
   script:
-    - 'check_format_opt="--against HEAD~${mr_commits} -v"'
+    - |
+      remote_head=$( \
+        git ls-remote -h --exit-code \
+        ${CI_MERGE_REQUEST_PROJECT_URL}.git \
+        ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} | awk '{print $1}'\
+      )
+    - |
+      msg "Check whether or not MR #${CI_MERGE_REQUEST_IID} is rebased..."
+      if ! git merge-base --is-ancestor ${remote_head} FETCH_HEAD; then
+        git log FETCH_HEAD kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} \
+          --not ${merge_base}^ \
+          --decorate \
+          --oneline \
+          --graph \
+          --color=always
+        die "Please rebase your MR to the latest ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}."
+      fi
+      echo "MR #${CI_MERGE_REQUEST_IID} (detached from ${GITLAB_USER_LOGIN}/${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}) is rebased."
+    - |
+      msg "Iteratively validate the message format of the commits within MR #${CI_MERGE_REQUEST_IID}..."
+      for c in `git rev-list kaios/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}..FETCH_HEAD --reverse`; do
+        cmsg="$(git show ${c} -q --format=%s)"
+        if ! [[ ${cmsg} =~ ${COMMIT_MESSAGE_PATTERN} ]]; then
+          die "Commit message format error: ${cmsg}"
+        fi
+        echo "commit message of ${c} validated."
+      done
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - when: on_success
+
+.lint_base:
+  # this image is based on the one used by taskcluster in mozilla ci,
+  # in combination with `clang-tidy` from our prebuilt mozbuild.tar.bz (v5).
+  #
+  # since this is basically built by `mach taskcluster-build-image lint` command,
+  # hence probably needs update due to upstream changes.
+  # 3d9d58d5 is the commit of gecko in which this image was built.
+  image: ${CI_REGISTRY}/kaios/gecko-dev/lint:3d9d58d5
+  tags:
+    - gecko-lint
+  variables:
+    GIT_STRATEGY: fetch
+    MACH_LINT_PARAMETERS: '-f unix -v'
+  before_script:
+    - *global_setup
     - *koost_setup
-    - ./check-format.sh ${check_format_opt}
+    - '[[ ${GIT_CLONE_PATH##*/} == koost ]] && changed_files=("${changed_files[@]/#/koost/}")'
+    - 'msg "linters to be activated: ${SPECIFIC_LINTERS}"'
+  script:
+    - export MACH_USE_SYSTEM_PYTHON=${MACH_USE_SYSTEM_PYTHON-1}
+    - './mach lint -l ${SPECIFIC_LINTERS// /" -l "} ${MACH_LINT_PARAMETERS} "${changed_files[@]}"'
 
 .build_desktop:
-  image: ${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0_5_0
+  image: ${CI_REGISTRY}/re/kaios-build/next/desktop:1.49.0_5_2
   tags:
     - gecko-dev
   variables:
@@ -56,13 +168,13 @@ variables:
     - *koost_setup
   script:
     - export SCCACHE_REDIS=${SCCACHE_REDIS_BASEURL}/${SCCACHE_REDIS_DB}
+    - export MACH_USE_SYSTEM_PYTHON=${MACH_USE_SYSTEM_PYTHON-1}
     - sccache -z
     - ./mach build
-    - ./mach package
     - sccache -s
 
 .build_emulator:
-  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0_5_2
   tags:
     - gecko-dev
   variables:
@@ -84,11 +196,10 @@ variables:
     - export GONK_PATH=${PWD}/emulator-10
     - export GECKO_OBJDIR=${PWD}/objdir-emulator-gecko
     - ./build-b2g.sh
-    - ./build-b2g.sh package
     - sccache -s
 
 .build_arm:
-  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0_5_2
   tags:
     - gecko-dev
   variables:
@@ -113,5 +224,4 @@ variables:
     - export GONK_PATH=${PWD}/gonk-q
     - export GECKO_OBJDIR=${PWD}/objdir-arm-gecko
     - ./build-b2g.sh
-    - ./build-b2g.sh package
     - sccache -s

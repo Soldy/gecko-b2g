@@ -1127,7 +1127,7 @@ nsresult HTMLInputElement::Clone(dom::NodeInfo* aNodeInfo,
 
   it->DoneCreatingElement();
 
-  it->mLastValueChangeWasInteractive = mLastValueChangeWasInteractive;
+  it->SetLastValueChangeWasInteractive(mLastValueChangeWasInteractive);
   it.forget(aResult);
   return NS_OK;
 }
@@ -2738,15 +2738,29 @@ nsresult HTMLInputElement::SetValueInternal(
 }
 
 nsresult HTMLInputElement::SetValueChanged(bool aValueChanged) {
-  bool valueChangedBefore = mValueChanged;
-
+  if (mValueChanged == aValueChanged) {
+    return NS_OK;
+  }
   mValueChanged = aValueChanged;
+  UpdateTooLongValidityState();
+  UpdateTooShortValidityState();
+  // We need to do this unconditionally because the validity ui bits depend on
+  // this.
+  UpdateState(true);
+  return NS_OK;
+}
 
-  if (valueChangedBefore != aValueChanged) {
+void HTMLInputElement::SetLastValueChangeWasInteractive(bool aWasInteractive) {
+  if (aWasInteractive == mLastValueChangeWasInteractive) {
+    return;
+  }
+  mLastValueChangeWasInteractive = aWasInteractive;
+  const bool wasValid = IsValid();
+  UpdateTooLongValidityState();
+  UpdateTooShortValidityState();
+  if (wasValid != IsValid()) {
     UpdateState(true);
   }
-
-  return NS_OK;
 }
 
 void HTMLInputElement::SetCheckedChanged(bool aCheckedChanged) {
@@ -2758,7 +2772,7 @@ void HTMLInputElement::DoSetCheckedChanged(bool aCheckedChanged, bool aNotify) {
     if (mCheckedChanged != aCheckedChanged) {
       nsCOMPtr<nsIRadioVisitor> visitor =
           new nsRadioSetCheckedChangedVisitor(aCheckedChanged);
-      VisitGroup(visitor, aNotify);
+      VisitGroup(visitor);
     }
   } else {
     SetCheckedChangedInternal(aCheckedChanged);
@@ -2943,7 +2957,7 @@ void HTMLInputElement::SetCheckedInternal(bool aChecked, bool aNotify) {
   // radios to have the chance to update its states, e.g., :indeterminate.
   if (mType == NS_FORM_INPUT_RADIO) {
     nsCOMPtr<nsIRadioVisitor> visitor = new nsRadioUpdateStateVisitor(this);
-    VisitGroup(visitor, aNotify);
+    VisitGroup(visitor);
   }
 }
 
@@ -5041,12 +5055,18 @@ bool HTMLInputElement::ParseTime(const nsAString& aValue, uint32_t* aResult) {
 
 /* static */
 bool HTMLInputElement::IsDateTimeTypeSupported(uint8_t aDateTimeInputType) {
-  return aDateTimeInputType == NS_FORM_INPUT_DATE ||
-         aDateTimeInputType == NS_FORM_INPUT_TIME ||
-         ((aDateTimeInputType == NS_FORM_INPUT_MONTH ||
-           aDateTimeInputType == NS_FORM_INPUT_WEEK ||
-           aDateTimeInputType == NS_FORM_INPUT_DATETIME_LOCAL) &&
-          StaticPrefs::dom_forms_datetime_others());
+  switch (aDateTimeInputType) {
+    case NS_FORM_INPUT_DATE:
+    case NS_FORM_INPUT_TIME:
+      return true;
+    case NS_FORM_INPUT_DATETIME_LOCAL:
+      return StaticPrefs::dom_forms_datetime_local();
+    case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
+      return StaticPrefs::dom_forms_datetime_others();
+    default:
+      return false;
+  }
 }
 
 bool HTMLInputElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
@@ -5565,25 +5585,17 @@ void HTMLInputElement::SetDirectionFromValue(bool aNotify) {
   }
 }
 
-namespace {
-
-bool IsDateOrTime(uint8_t aType) {
-  return (aType == NS_FORM_INPUT_DATE) || (aType == NS_FORM_INPUT_TIME);
-}
-
-}  // namespace
-
 NS_IMETHODIMP
 HTMLInputElement::Reset() {
   // We should be able to reset all dirty flags regardless of the type.
   SetCheckedChanged(false);
   SetValueChanged(false);
-  mLastValueChangeWasInteractive = false;
+  SetLastValueChangeWasInteractive(false);
 
   switch (GetValueMode()) {
     case VALUE_MODE_VALUE: {
       nsresult result = SetDefaultValueAsValue();
-      if (IsDateOrTime(mType)) {
+      if (CreatesDateTimeWidget()) {
         // mFocusedValue has to be set here, so that `FireChangeEventIfNeeded`
         // can fire a change event if necessary.
         GetValue(mFocusedValue, CallerType::System);
@@ -5668,6 +5680,7 @@ HTMLInputElement::SubmitNamesValues(HTMLFormSubmission* aFormSubmission) {
         GetFilesOrDirectoriesInternal();
 
     if (files.IsEmpty()) {
+      NS_ENSURE_STATE(GetOwnerGlobal());
       ErrorResult rv;
       RefPtr<Blob> blob = Blob::CreateStringBlob(
           GetOwnerGlobal(), ""_ns, u"application/octet-stream"_ns);
@@ -5845,7 +5858,7 @@ void HTMLInputElement::DoneCreatingElement() {
     // before the type change.)
     SetValueInternal(aValue, ValueSetterOption::ByInternalAPI);
 
-    if (IsDateOrTime(mType)) {
+    if (CreatesDateTimeWidget()) {
       // mFocusedValue has to be set here, so that `FireChangeEventIfNeeded` can
       // fire a change event if necessary.
       mFocusedValue = aValue;
@@ -6019,8 +6032,7 @@ bool HTMLInputElement::RestoreState(PresState* aState) {
         SetValueInternal(inputState.get_TextContentData().value(),
                          ValueSetterOption::SetValueChanged);
         if (inputState.get_TextContentData().lastValueChangeWasInteractive()) {
-          mLastValueChangeWasInteractive = true;
-          UpdateState(true);
+          SetLastValueChangeWasInteractive(true);
         }
       }
       break;
@@ -6077,7 +6089,7 @@ void HTMLInputElement::AddedToRadioGroup() {
 
   nsCOMPtr<nsIRadioVisitor> visitor =
       new nsRadioGetCheckedChangedVisitor(&checkedChanged, this);
-  VisitGroup(visitor, notify);
+  VisitGroup(visitor);
 
   SetCheckedChangedInternal(checkedChanged);
 
@@ -6112,7 +6124,7 @@ void HTMLInputElement::WillRemoveFromRadioGroup() {
     container->SetCurrentRadioButton(name, nullptr);
 
     nsCOMPtr<nsIRadioVisitor> visitor = new nsRadioUpdateStateVisitor(this);
-    VisitGroup(visitor, true);
+    VisitGroup(visitor);
   }
 
   // Remove this radio from its group in the container.
@@ -6192,13 +6204,12 @@ bool HTMLInputElement::IsHTMLFocusable(bool aWithMouse, bool* aIsFocusable,
   return false;
 }
 
-nsresult HTMLInputElement::VisitGroup(nsIRadioVisitor* aVisitor,
-                                      bool aFlushContent) {
+nsresult HTMLInputElement::VisitGroup(nsIRadioVisitor* aVisitor) {
   nsIRadioGroupContainer* container = GetRadioGroupContainer();
   if (container) {
     nsAutoString name;
     GetAttr(kNameSpaceID_None, nsGkAtoms::name, name);
-    return container->WalkRadioGroup(name, aVisitor, aFlushContent);
+    return container->WalkRadioGroup(name, aVisitor);
   }
 
   aVisitor->Visit(this);
@@ -6463,7 +6474,6 @@ void HTMLInputElement::UpdateValueMissingValidityStateForRadio(
   MOZ_ASSERT(mType == NS_FORM_INPUT_RADIO,
              "This should be called only for radio input types");
 
-  bool notify = mDoneCreating;
   HTMLInputElement* selection = GetSelectedRadioButton();
 
   aIgnoreSelf = aIgnoreSelf || !IsMutable();
@@ -6503,8 +6513,8 @@ void HTMLInputElement::UpdateValueMissingValidityStateForRadio(
     // nsRadioSetValueMissingState will call ContentStateChanged while visiting.
     nsAutoScriptBlocker scriptBlocker;
     nsCOMPtr<nsIRadioVisitor> visitor =
-        new nsRadioSetValueMissingState(this, valueMissing, notify);
-    VisitGroup(visitor, notify);
+        new nsRadioSetValueMissingState(this, valueMissing);
+    VisitGroup(visitor);
   }
 }
 

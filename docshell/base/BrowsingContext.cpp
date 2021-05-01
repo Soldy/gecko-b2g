@@ -540,6 +540,7 @@ BrowsingContext::BrowsingContext(WindowContext* aParentWindow,
       mUseRemoteTabs(false),
       mUseRemoteSubframes(false),
       mCreatedDynamically(false),
+      mIsInBFCache(false),
       mChildOffset(0) {
   MOZ_RELEASE_ASSERT(!mParentWindow || mParentWindow->Group() == mGroup);
   MOZ_RELEASE_ASSERT(mBrowsingContextId != 0);
@@ -693,6 +694,13 @@ void BrowsingContext::SetEmbedderElement(Element* aEmbedder) {
   }
 
   mEmbedderElement = aEmbedder;
+
+  if (mEmbedderElement) {
+    if (nsCOMPtr<nsIObserverService> obs = services::GetObserverService()) {
+      obs->NotifyWhenScriptSafe(ToSupports(this),
+                                "browsing-context-did-set-embedder", nullptr);
+    }
+  }
 }
 
 void BrowsingContext::Embed() {
@@ -2743,6 +2751,11 @@ void BrowsingContext::DidSet(FieldIndex<IDX_IsInBFCache>) {
   MOZ_DIAGNOSTIC_ASSERT(IsTop());
 
   const bool isInBFCache = GetIsInBFCache();
+  if (!isInBFCache) {
+    PreOrderWalk(
+        [&](BrowsingContext* aContext) { aContext->mIsInBFCache = false; });
+  }
+
   PreOrderWalk([&](BrowsingContext* aContext) {
     nsCOMPtr<nsIDocShell> shell = aContext->GetDocShell();
     if (shell) {
@@ -2750,6 +2763,11 @@ void BrowsingContext::DidSet(FieldIndex<IDX_IsInBFCache>) {
           ->FirePageHideShowNonRecursive(!isInBFCache);
     }
   });
+
+  if (isInBFCache) {
+    PreOrderWalk(
+        [&](BrowsingContext* aContext) { aContext->mIsInBFCache = true; });
+  }
 }
 
 void BrowsingContext::SetCustomPlatform(const nsAString& aPlatform,
@@ -3359,16 +3377,17 @@ void BrowsingContext::RemoveFromSessionHistory(const nsID& aChangeID) {
 
 void BrowsingContext::HistoryGo(int32_t aOffset, uint64_t aHistoryEpoch,
                                 bool aRequireUserInteraction,
+                                bool aUserActivation,
                                 std::function<void(int32_t&&)>&& aResolver) {
   if (XRE_IsContentProcess()) {
     ContentChild::GetSingleton()->SendHistoryGo(
-        this, aOffset, aHistoryEpoch, aRequireUserInteraction,
+        this, aOffset, aHistoryEpoch, aRequireUserInteraction, aUserActivation,
         std::move(aResolver),
         [](mozilla::ipc::
                ResponseRejectReason) { /* FIXME Is ignoring this fine? */ });
   } else {
     Canonical()->HistoryGo(
-        aOffset, aHistoryEpoch, aRequireUserInteraction,
+        aOffset, aHistoryEpoch, aRequireUserInteraction, aUserActivation,
         Canonical()->GetContentParent()
             ? Some(Canonical()->GetContentParent()->ChildID())
             : Nothing(),

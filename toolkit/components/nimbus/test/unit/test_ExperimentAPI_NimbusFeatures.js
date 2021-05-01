@@ -29,14 +29,17 @@ XPCOMUtils.defineLazyGetter(this, "fetchSchema", async () => {
 
 const REMOTE_CONFIGURATION = Object.freeze({
   id: "aboutwelcome",
-  description: "Content for the about:welcome page",
   configurations: [
     {
+      slug: "non-matching-configuration",
+      description: "This configuration does not match because of targeting.",
       variables: { skipFocus: false, remoteValue: false },
       enabled: false,
       targeting: "false",
     },
     {
+      slug: "matching-configuration",
+      description: "This configuration will match targeting.",
       variables: { skipFocus: true, remoteValue: true },
       enabled: true,
       targeting: "true",
@@ -84,8 +87,31 @@ add_task(async function readyCallAfterStore_with_remote_value() {
   await feature.ready();
 
   Assert.ok(feature.getValue().skipFocus, "Loads value from store");
-  manager.store._deleteForTests("remoteDefaults");
+  manager.store._deleteForTests("aboutwelcome");
   sandbox.restore();
+});
+
+add_task(async function has_sync_value_before_ready() {
+  let { manager } = await setupForExperimentFeature();
+  let feature = new ExperimentFeature("aboutwelcome");
+
+  Assert.equal(
+    feature.getValue().remoteValue,
+    undefined,
+    "Feature is not defined"
+  );
+
+  Services.prefs.setStringPref(
+    "nimbus.syncdefaultsstore.aboutwelcome",
+    JSON.stringify(REMOTE_CONFIGURATION.configurations[0])
+  );
+
+  Assert.equal(
+    feature.getValue().remoteValue,
+    REMOTE_CONFIGURATION.configurations[0].variables.remoteValue,
+    "Sync load from pref"
+  );
+  manager.store._deleteForTests("aboutwelcome");
 });
 
 add_task(async function update_remote_defaults_onUpdate() {
@@ -114,7 +140,7 @@ add_task(async function update_remote_defaults_onUpdate() {
     "Correct reason"
   );
 
-  manager.store._deleteForTests("remoteDefaults");
+  manager.store._deleteForTests("aboutwelcome");
   sandbox.restore();
 });
 
@@ -139,9 +165,7 @@ add_task(async function update_remote_defaults_readyPromise() {
 
   await promise;
 
-  Assert.ok(feature._remoteReady, "Ready state updated");
-
-  manager.store._deleteForTests("remoteDefaults");
+  manager.store._deleteForTests("aboutwelcome");
   sandbox.restore();
 });
 
@@ -168,6 +192,28 @@ add_task(async function update_remote_defaults_enabled() {
     "Feature is disabled by remote configuration"
   );
 
-  manager.store._deleteForTests("remoteDefaults");
+  manager.store._deleteForTests("aboutwelcome");
+  sandbox.restore();
+});
+
+// If the branch data returned from the store is not modified
+// this test should not throw
+add_task(async function test_getValue_no_mutation() {
+  let { sandbox, manager } = await setupForExperimentFeature();
+  sandbox.stub(manager.store, "getExperimentForFeature").returns(
+    Cu.cloneInto(
+      {
+        branch: {
+          feature: { value: { mochitest: true } },
+        },
+      },
+      {},
+      { deepFreeze: true }
+    )
+  );
+  let feature = new ExperimentFeature("aboutwelcome");
+
+  Assert.ok(feature.getValue().mochitest, "Got back the expected feature");
+
   sandbox.restore();
 });

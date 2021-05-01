@@ -118,10 +118,7 @@ class PuppetWidget : public nsBaseWidget,
   virtual void Invalidate(const LayoutDeviceIntRect& aRect) override;
 
   // PuppetWidgets don't have native data, as they're purely nonnative.
-  virtual void* GetNativeData(uint32_t aDataType) override;
-#if defined(XP_WIN)
-  void SetNativeData(uint32_t aDataType, uintptr_t aVal) override;
-#endif
+  virtual void* GetNativeData(uint32_t aDataType) override { return nullptr; }
 
   // PuppetWidgets don't have any concept of titles.
   virtual nsresult SetTitle(const nsAString& aTitle) override {
@@ -144,7 +141,8 @@ class PuppetWidget : public nsBaseWidget,
 
   virtual nsresult DispatchEvent(WidgetGUIEvent* aEvent,
                                  nsEventStatus& aStatus) override;
-  nsEventStatus DispatchInputEvent(WidgetInputEvent* aEvent) override;
+  ContentAndAPZEventStatus DispatchInputEvent(
+      WidgetInputEvent* aEvent) override;
   void SetConfirmedTargetAPZC(
       uint64_t aInputBlockId,
       const nsTArray<ScrollableLayerGuid>& aTargets) const override;
@@ -202,10 +200,7 @@ class PuppetWidget : public nsBaseWidget,
     mNativeTextEventDispatcherListener = aListener;
   }
 
-  virtual void SetCursor(nsCursor aDefaultCursor, imgIContainer* aCustomCursor,
-                         uint32_t aHotspotX, uint32_t aHotspotY) override;
-
-  virtual void ClearCachedCursor() override;
+  virtual void SetCursor(const Cursor&) override;
 
   // Gets the DPI of the screen corresponding to this widget.
   // Contacts the parent process which gets the DPI from the
@@ -282,6 +277,9 @@ class PuppetWidget : public nsBaseWidget,
 
   virtual nsresult SynthesizeNativeTouchpadDoubleTap(
       LayoutDeviceIntPoint aPoint, uint32_t aModifierFlags) override;
+
+  virtual void LockNativePointer() override;
+  virtual void UnlockNativePointer() override;
 
   virtual void StartAsyncScrollbarDrag(
       const AsyncDragMetrics& aDragMetrics) override;
@@ -385,9 +383,6 @@ class PuppetWidget : public nsBaseWidget,
   float mDPI;
   int32_t mRounding;
   double mDefaultScale;
-
-  nsCOMPtr<imgIContainer> mCustomCursor;
-  uint32_t mCursorHotspotX, mCursorHotspotY;
 
   ScreenIntMargin mSafeAreaInsets;
 

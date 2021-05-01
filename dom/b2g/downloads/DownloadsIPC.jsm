@@ -17,6 +17,7 @@ const { Promise } = ChromeUtils.import("resource://gre/modules/Promise.jsm");
  * This module needs to be loaded once and only once per process.
  */
 
+const DEBUG = Services.prefs.getBoolPref("dom.downloads.debug", false);
 function debug(aStr) {
   dump("-*- DownloadsIPC.jsm : " + aStr + "\n");
 }
@@ -36,7 +37,7 @@ this.DownloadsIPC = {
   downloads: {},
 
   init() {
-    debug("init");
+    DEBUG && debug("init");
     Services.obs.addObserver(this, "xpcom-shutdown");
     ipcMessages.forEach(aMessage => {
       Services.cpmm.addMessageListener(aMessage, this);
@@ -53,14 +54,14 @@ this.DownloadsIPC = {
   notifyChanges(aId) {
     // TODO: use the subject instead of stringifying.
     if (this.downloads[aId]) {
-      debug("notifyChanges notifying changes for " + aId);
+      DEBUG && debug("notifyChanges notifying changes for " + aId);
       Services.obs.notifyObservers(
         null,
         "downloads-state-change-" + aId,
         JSON.stringify(this.downloads[aId])
       );
     } else {
-      debug("notifyChanges failed for " + aId);
+      DEBUG && debug("notifyChanges failed for " + aId);
     }
   },
 
@@ -74,7 +75,7 @@ this.DownloadsIPC = {
 
   receiveMessage(aMessage) {
     let download = aMessage.data;
-    debug("message: " + aMessage.name);
+    DEBUG && debug("message: " + aMessage.name);
     switch (aMessage.name) {
       case "Downloads:GetList:Return":
         this._updateDownloadsArray(download);
@@ -151,10 +152,10 @@ this.DownloadsIPC = {
    * Returns a promise that is resolved with the list of current downloads.
    */
   getDownloads() {
-    debug("getDownloads()");
+    DEBUG && debug("getDownloads");
     let deferred = Promise.defer();
     if (this.ready) {
-      debug("Returning existing list.");
+      DEBUG && debug("Returning existing list.");
       deferred.resolve(this.downloads);
     } else {
       this.getListPromises.push(deferred);
@@ -166,7 +167,7 @@ this.DownloadsIPC = {
    * Void function to trigger removal of completed downloads.
    */
   clearAllDone() {
-    debug("clearAllDone");
+    DEBUG && debug("clearAllDone");
     Services.cpmm.sendAsyncMessage("Downloads:ClearAllDone", {});
   },
 
@@ -175,7 +176,7 @@ this.DownloadsIPC = {
   },
 
   remove(aId) {
-    debug("remove " + aId);
+    DEBUG && debug("remove " + aId);
     let deferred = Promise.defer();
     let pId = this.promiseId();
     this.downloadPromises[pId] = deferred;
@@ -187,7 +188,7 @@ this.DownloadsIPC = {
   },
 
   pause(aId) {
-    debug("pause " + aId);
+    DEBUG && debug("pause " + aId);
     let deferred = Promise.defer();
     let pId = this.promiseId();
     this.downloadPromises[pId] = deferred;
@@ -199,7 +200,7 @@ this.DownloadsIPC = {
   },
 
   resume(aId) {
-    debug("resume " + aId);
+    DEBUG && debug("resume " + aId);
     let deferred = Promise.defer();
     let pId = this.promiseId();
     this.downloadPromises[pId] = deferred;
@@ -211,7 +212,7 @@ this.DownloadsIPC = {
   },
 
   adoptDownload(aJsonDownload) {
-    debug("adoptDownload");
+    DEBUG && debug("adoptDownload");
     let deferred = Promise.defer();
     let pId = this.promiseId();
     this.downloadPromises[pId] = deferred;

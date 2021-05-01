@@ -123,7 +123,7 @@ interface Document : Node {
 
 // https://html.spec.whatwg.org/multipage/dom.html#the-document-object
 partial interface Document {
-  [PutForwards=href, Unforgeable] readonly attribute Location? location;
+  [PutForwards=href, LegacyUnforgeable] readonly attribute Location? location;
   [SetterThrows]                           attribute DOMString domain;
   readonly attribute DOMString referrer;
   [Throws] attribute DOMString cookie;
@@ -185,7 +185,7 @@ partial interface Document {
   //(Not implemented)readonly attribute HTMLCollection commands;
 
   // special event handler IDL attributes that only apply to Document objects
-  [LenientThis] attribute EventHandler onreadystatechange;
+  [LegacyLenientThis] attribute EventHandler onreadystatechange;
 
   // Gecko extensions?
                 attribute EventHandler onbeforescriptexecute;
@@ -212,6 +212,7 @@ partial interface Document {
    *
    * @see <https://developer.mozilla.org/en/DOM/document.releaseCapture>
    */
+  [Deprecated=DocumentReleaseCapture, Pref="dom.mouse_capture.enabled"]
   void releaseCapture();
   /**
    * Use the given DOM element as the source image of target |-moz-element()|.
@@ -267,11 +268,11 @@ partial interface Document {
 
 // https://html.spec.whatwg.org/multipage/obsolete.html#other-elements%2C-attributes-and-apis
 partial interface Document {
-  [CEReactions] attribute [TreatNullAs=EmptyString] DOMString fgColor;
-  [CEReactions] attribute [TreatNullAs=EmptyString] DOMString linkColor;
-  [CEReactions] attribute [TreatNullAs=EmptyString] DOMString vlinkColor;
-  [CEReactions] attribute [TreatNullAs=EmptyString] DOMString alinkColor;
-  [CEReactions] attribute [TreatNullAs=EmptyString] DOMString bgColor;
+  [CEReactions] attribute [LegacyNullToEmptyString] DOMString fgColor;
+  [CEReactions] attribute [LegacyNullToEmptyString] DOMString linkColor;
+  [CEReactions] attribute [LegacyNullToEmptyString] DOMString vlinkColor;
+  [CEReactions] attribute [LegacyNullToEmptyString] DOMString alinkColor;
+  [CEReactions] attribute [LegacyNullToEmptyString] DOMString bgColor;
 
   [SameObject] readonly attribute HTMLCollection anchors;
   [SameObject] readonly attribute HTMLCollection applets;
@@ -290,11 +291,11 @@ partial interface Document {
 partial interface Document {
   // Note: Per spec the 'S' in these two is lowercase, but the "Moz"
   // versions have it uppercase.
-  [LenientSetter, Unscopable]
+  [LegacyLenientSetter, Unscopable]
   readonly attribute boolean fullscreen;
   [BinaryName="fullscreen"]
   readonly attribute boolean mozFullScreen;
-  [LenientSetter, NeedsCallerType]
+  [LegacyLenientSetter, NeedsCallerType]
   readonly attribute boolean fullscreenEnabled;
   [BinaryName="fullscreenEnabled", NeedsCallerType]
   readonly attribute boolean mozFullScreenEnabled;

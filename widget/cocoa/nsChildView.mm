@@ -115,6 +115,7 @@
 #include "UnitTransforms.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "CustomCocoaEvents.h"
+#include "NativeMenuSupport.h"
 
 using namespace mozilla;
 using namespace mozilla::layers;
@@ -627,24 +628,21 @@ void nsChildView::SetFocus(Raise, mozilla::dom::CallerType aCallerType) {
 }
 
 // Override to set the cursor on the mac
-void nsChildView::SetCursor(nsCursor aDefaultCursor, imgIContainer* aImageCursor,
-                            uint32_t aHotspotX, uint32_t aHotspotY) {
+void nsChildView::SetCursor(const Cursor& aCursor) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
-  if ([mView isDragInProgress]) return;  // Don't change the cursor during dragging.
-
-  if (aImageCursor) {
-    nsresult rv = [[nsCursorManager sharedInstance] setCursorWithImage:aImageCursor
-                                                              hotSpotX:aHotspotX
-                                                              hotSpotY:aHotspotY
-                                                           scaleFactor:BackingScaleFactor()];
-    if (NS_SUCCEEDED(rv)) {
-      return;
-    }
+  if ([mView isDragInProgress]) {
+    return;  // Don't change the cursor during dragging.
   }
 
-  nsBaseWidget::SetCursor(aDefaultCursor, nullptr, 0, 0);
-  [[nsCursorManager sharedInstance] setCursor:aDefaultCursor];
+  nsBaseWidget::SetCursor(aCursor);
+
+  if (NS_SUCCEEDED([[nsCursorManager sharedInstance] setCustomCursor:aCursor
+                                                   widgetScaleFactor:BackingScaleFactor()])) {
+    return;
+  }
+
+  [[nsCursorManager sharedInstance] setNonCustomCursor:aCursor];
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -1050,7 +1048,8 @@ nsresult nsChildView::SynthesizeNativeTouchpadDoubleTap(mozilla::LayoutDeviceInt
                                                         uint32_t aModifierFlags) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
-  DispatchDoubleTapGesture(TimeStamp::Now(), aPoint, static_cast<Modifiers>(aModifierFlags));
+  DispatchDoubleTapGesture(TimeStamp::Now(), aPoint - WidgetToScreenOffset(),
+                           static_cast<Modifiers>(aModifierFlags));
 
   return NS_OK;
 
@@ -2506,9 +2505,9 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
 - (void)maybeInitContextMenuTracking {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
-#ifdef MOZ_USE_NATIVE_POPUP_WINDOWS
-  return;
-#endif /* MOZ_USE_NATIVE_POPUP_WINDOWS */
+  if (mozilla::widget::NativeMenuSupport::ShouldUseNativeContextMenus()) {
+    return;
+  }
 
   nsIRollupListener* rollupListener = nsBaseWidget::GetActiveRollupListener();
   NS_ENSURE_TRUE_VOID(rollupListener);
@@ -3013,8 +3012,8 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
   LayoutDeviceIntPoint pos = geckoEvent.mRefPoint;
 
   // This might destroy our widget (and null out mGeckoChild).
-  bool defaultPrevented =
-      (mGeckoChild->DispatchInputEvent(&geckoEvent) == nsEventStatus_eConsumeNoDefault);
+  bool defaultPrevented = (mGeckoChild->DispatchInputEvent(&geckoEvent).mContentStatus ==
+                           nsEventStatus_eConsumeNoDefault);
 
   if (!mGeckoChild) {
     return;
@@ -3105,10 +3104,11 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
   geckoEvent.mButton = MouseButton::eSecondary;
   geckoEvent.mClickCount = [theEvent clickCount];
 
-  mGeckoChild->DispatchInputEvent(&geckoEvent);
+  nsIWidget::ContentAndAPZEventStatus eventStatus = mGeckoChild->DispatchInputEvent(&geckoEvent);
   if (!mGeckoChild) return;
 
-  if (!StaticPrefs::ui_context_menus_after_mouseup()) {
+  if (!StaticPrefs::ui_context_menus_after_mouseup() &&
+      eventStatus.mApzStatus != nsEventStatus_eConsumeNoDefault) {
     // Let the superclass do the context menu stuff.
     [super rightMouseDown:theEvent];
   }
@@ -3130,10 +3130,11 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
   geckoEvent.mClickCount = [theEvent clickCount];
 
   nsAutoRetainCocoaObject kungFuDeathGrip(self);
-  mGeckoChild->DispatchInputEvent(&geckoEvent);
+  nsIWidget::ContentAndAPZEventStatus eventStatus = mGeckoChild->DispatchInputEvent(&geckoEvent);
   if (!mGeckoChild) return;
 
-  if (StaticPrefs::ui_context_menus_after_mouseup()) {
+  if (StaticPrefs::ui_context_menus_after_mouseup() &&
+      eventStatus.mApzStatus != nsEventStatus_eConsumeNoDefault) {
     // Let the superclass do the context menu stuff, but pretend it's rightMouseDown.
     NSEvent* dupeEvent = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
                                             location:theEvent.locationInWindow
@@ -3459,6 +3460,14 @@ static gfx::IntPoint GetIntegerDeltaForEvent(NSEvent* aEvent) {
   return nil;
 
   NS_OBJC_END_TRY_BLOCK_RETURN(nil);
+}
+
+- (void)willOpenMenu:(NSMenu*)aMenu withEvent:(NSEvent*)aEvent {
+  ChildViewMouseTracker::NativeMenuOpened();
+}
+
+- (void)didCloseMenu:(NSMenu*)aMenu withEvent:(NSEvent*)aEvent {
+  ChildViewMouseTracker::NativeMenuClosed();
 }
 
 - (void)convertCocoaMouseWheelEvent:(NSEvent*)aMouseEvent
@@ -4089,7 +4098,8 @@ static gfx::IntPoint GetIntegerDeltaForEvent(NSEvent* aEvent) {
 
   WidgetMouseEvent geckoEvent(true, eMouseActivate, mGeckoChild, WidgetMouseEvent::eReal);
   [self convertCocoaMouseEvent:aEvent toGeckoEvent:&geckoEvent];
-  return (mGeckoChild->DispatchInputEvent(&geckoEvent) != nsEventStatus_eConsumeNoDefault);
+  return (mGeckoChild->DispatchInputEvent(&geckoEvent).mContentStatus !=
+          nsEventStatus_eConsumeNoDefault);
 }
 
 // We must always call through to our superclass, even when mGeckoChild is
@@ -4954,7 +4964,29 @@ void ChildViewMouseTracker::MouseEnteredWindow(NSEvent* aEvent) {
 void ChildViewMouseTracker::MouseExitedWindow(NSEvent* aEvent) {
   if (sWindowUnderMouse == [aEvent window]) {
     sWindowUnderMouse = nil;
+    [sLastMouseMoveEvent release];
+    sLastMouseMoveEvent = nil;
     ReEvaluateMouseEnterState(aEvent);
+  }
+}
+
+void ChildViewMouseTracker::NativeMenuOpened() {
+  // Send a mouse exit event now.
+  // The menu consumes all mouse events while it's open, and we don't want to be stuck thinking the
+  // mouse is still hovering our window after the mouse has already moved. This could result in
+  // unintended cursor changes or tooltips.
+  sWindowUnderMouse = nil;
+  ReEvaluateMouseEnterState(nil);
+}
+
+void ChildViewMouseTracker::NativeMenuClosed() {
+  // If a window was hovered before the menu opened, re-enter that window at the last known mouse
+  // position.
+  // After -[NSView didCloseMenu:withEvent:] is called, any NSTrackingArea updates that were
+  // buffered while the menu was open will be replayed.
+  if (sLastMouseMoveEvent) {
+    sWindowUnderMouse = sLastMouseMoveEvent.window;
+    ReEvaluateMouseEnterState(sLastMouseMoveEvent);
   }
 }
 
@@ -4969,7 +5001,7 @@ void ChildViewMouseTracker::ReEvaluateMouseEnterState(NSEvent* aEvent, ChildView
     [oldView sendMouseEnterOrExitEvent:aEvent enter:NO exitFrom:exitFrom];
     // After the cursor exits the window set it to a visible regular arrow cursor.
     if (exitFrom == WidgetMouseEvent::ePlatformTopLevel) {
-      [[nsCursorManager sharedInstance] setCursor:eCursor_standard];
+      [[nsCursorManager sharedInstance] setNonCustomCursor:nsIWidget::Cursor{eCursor_standard}];
     }
     [sLastMouseEventView sendMouseEnterOrExitEvent:aEvent enter:YES exitFrom:exitFrom];
   }

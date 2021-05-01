@@ -96,12 +96,14 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "browser.newtabpage.activity-stream.feeds.snippets",
   true
 );
-XPCOMUtils.defineLazyServiceGetter(
-  this,
-  "TrackingDBService",
-  "@mozilla.org/tracking-db-service;1",
-  "nsITrackingDBService"
-);
+
+XPCOMUtils.defineLazyServiceGetters(this, {
+  BrowserHandler: ["@mozilla.org/browser/clh;1", "nsIBrowserHandler"],
+  TrackingDBService: [
+    "@mozilla.org/tracking-db-service;1",
+    "nsITrackingDBService",
+  ],
+});
 
 const FXA_USERNAME_PREF = "services.sync.username";
 
@@ -397,8 +399,6 @@ const TargetingGetters = {
   get browserSettings() {
     const { settings } = TelemetryEnvironment.currentEnvironment;
     return {
-      // This way of getting attribution is deprecated - use atttributionData instead
-      attribution: settings.attribution,
       update: settings.update,
     };
   },
@@ -649,6 +649,10 @@ const TargetingGetters = {
     }
 
     return false;
+  },
+
+  get isMajorUpgrade() {
+    return BrowserHandler.majorUpgrade;
   },
 };
 

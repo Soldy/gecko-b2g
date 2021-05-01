@@ -550,6 +550,8 @@ class DiscoAddonWrapper {
     this.editorialDescription = details.description_text;
     this.iconURL = details.addon.icon_url;
     this.amoListingUrl = details.addon.url;
+
+    this.taarRecommended = details.is_recommendation;
   }
 }
 
@@ -3746,7 +3748,10 @@ class RecommendedAddonCard extends HTMLElement {
     let url = addon.sourceURI.spec;
     let install = await AddonManager.getInstallForURL(url, {
       name: addon.name,
-      telemetryInfo: { source: "disco" },
+      telemetryInfo: {
+        source: "disco",
+        taarRecommended: addon.taarRecommended,
+      },
     });
     // We are hosted in a <browser> in about:addons, but we can just use the
     // main tab's browser since all of it is using the system principal.
@@ -3951,6 +3956,24 @@ class AddonList extends HTMLElement {
     heading.classList.add("list-section-heading");
     document.l10n.setAttributes(heading, headingId);
     return heading;
+  }
+
+  createEmptyListMessage() {
+    let messageContainer = document.createElement("p");
+    messageContainer.id = "empty-addons-message";
+    let a = document.createElement("a");
+    a.href = Services.urlFormatter.formatURLPref(
+      "extensions.getAddons.link.url"
+    );
+    a.setAttribute("target", "_blank");
+    a.setAttribute("data-l10n-name", "get-extensions");
+    document.l10n.setAttributes(
+      messageContainer,
+      "list-empty-get-extensions-message",
+      { domain: a.hostname }
+    );
+    messageContainer.appendChild(a);
+    return messageContainer;
   }
 
   updateSectionIfEmpty(section) {
@@ -4193,6 +4216,13 @@ class AddonList extends HTMLElement {
       this.sections[i].node = this.renderSection(sectionedAddons[i], i);
       frag.appendChild(this.sections[i].node);
     }
+
+    // Render the placeholder that is shown when all sections are empty.
+    // This call is after rendering the sections, because its visibility
+    // is controlled through the general sibling combinator relative to
+    // the sections (section ~).
+    let message = this.createEmptyListMessage();
+    frag.appendChild(message);
 
     // Make sure fluent has set all the strings before we render. This will
     // avoid the height changing as strings go from 0 height to having text.

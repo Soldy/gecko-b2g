@@ -72,6 +72,7 @@ class WidgetOverscrollEffect;
 class GenericOverscrollEffect;
 class AndroidSpecificState;
 struct KeyboardScrollAction;
+struct ZoomTarget;
 
 // Base class for grouping platform-specific APZC state variables.
 class PlatformSpecificStateBase {
@@ -219,18 +220,12 @@ class AsyncPanZoomController {
    * in. The actual animation is done on the sampler thread after being set
    * up.
    */
-  void ZoomToRect(CSSRect aRect, const uint32_t aFlags);
+  void ZoomToRect(const ZoomTarget& aZoomTarget, const uint32_t aFlags);
 
   /**
    * Updates any zoom constraints contained in the <meta name="viewport"> tag.
    */
   void UpdateZoomConstraints(const ZoomConstraints& aConstraints);
-
-  /**
-   * Return the zoom constraints last set for this APZC (in the constructor
-   * or in UpdateZoomConstraints()).
-   */
-  ZoomConstraints GetZoomConstraints() const;
 
   /**
    * Schedules a runnable to run on the controller/UI thread at some time
@@ -519,6 +514,9 @@ class AsyncPanZoomController {
   // overscroll-behavior).
   ScrollDirections GetAllowedHandoffDirections() const;
 
+  // Return the directions in which this APZC allows overscrolling.
+  ScrollDirections GetOverscrollableDirections() const;
+
   // Return whether or not a scroll delta will be able to scroll in either
   // direction.
   bool CanScroll(const ParentLayerPoint& aDelta) const;
@@ -632,11 +630,17 @@ class AsyncPanZoomController {
   nsEventStatus OnPanMayBegin(const PanGestureInput& aEvent);
   nsEventStatus OnPanCancelled(const PanGestureInput& aEvent);
   nsEventStatus OnPanBegin(const PanGestureInput& aEvent);
-  nsEventStatus OnPan(const PanGestureInput& aEvent, bool aFingersOnTouchpad);
+  enum class FingersOnTouchpad {
+    Yes,
+    No,
+  };
+  nsEventStatus OnPan(const PanGestureInput& aEvent,
+                      FingersOnTouchpad aFingersOnTouchpad);
   nsEventStatus OnPanEnd(const PanGestureInput& aEvent);
   nsEventStatus OnPanMomentumStart(const PanGestureInput& aEvent);
   nsEventStatus OnPanMomentumEnd(const PanGestureInput& aEvent);
   nsEventStatus HandleEndOfPan();
+  nsEventStatus OnPanInterrupted(const PanGestureInput& aEvent);
 
   /**
    * Helper methods for handling scroll wheel events.
@@ -803,6 +807,12 @@ class AsyncPanZoomController {
    * Gets the amount by which this APZC is overscrolled along both axes.
    */
   ParentLayerPoint GetOverscrollAmount() const;
+
+  /**
+   * Returns SideBits where this APZC is overscrolled.
+   */
+  SideBits GetOverscrollSideBits() const;
+
   /**
    * Restore the amount by which this APZC is overscrolled along both axes
    * to the specified amount. This is for test-related use; overscrolling
@@ -963,6 +973,13 @@ class AsyncPanZoomController {
 
   PlatformSpecificStateBase* GetPlatformSpecificState();
 
+  /**
+   * Convenience functions to get the corresponding fields of mZoomContraints
+   * while holding mRecursiveMutex.
+   */
+  bool ZoomConstraintsAllowZoom() const;
+  bool ZoomConstraintsAllowDoubleTapZoom() const;
+
  protected:
   // Both |mScrollMetadata| and |mLastContentPaintMetrics| are protected by the
   // monitor. Do not read from or modify them without locking.
@@ -1038,7 +1055,7 @@ class AsyncPanZoomController {
 
   // Most up-to-date constraints on zooming. These should always be reasonable
   // values; for example, allowing a min zoom of 0.0 can cause very bad things
-  // to happen.
+  // to happen. Hold mRecursiveMutex when accessing this.
   ZoomConstraints mZoomConstraints;
 
   // The last time the compositor has sampled the content transform for this
@@ -1242,6 +1259,13 @@ class AsyncPanZoomController {
    */
   CSSRect GetVisibleRect(const RecursiveMutexAutoLock& aProofOfLock) const;
 
+  /**
+   * Returns a pair of displacements both in logical/physical units for
+   * |aEvent|.
+   */
+  std::tuple<ParentLayerPoint, ScreenPoint> GetDisplacementsForPanGesture(
+      const PanGestureInput& aEvent);
+
  private:
   friend class AutoApplyAsyncTestAttributes;
 
@@ -1374,6 +1398,11 @@ class AsyncPanZoomController {
   void ResetTouchInputState();
 
   /**
+     Clear internal state relating to pan gesture input handling.
+   */
+  void ResetPanGestureInputState();
+
+  /**
    * Gets a ref to the input queue that is shared across the entire tree
    * manager.
    */
@@ -1439,17 +1468,16 @@ class AsyncPanZoomController {
   // later in the handoff chain, or if there are no takers, continuing the
   // fling and entering an overscrolled state.
   void HandleFlingOverscroll(
-      const ParentLayerPoint& aVelocity,
+      const ParentLayerPoint& aVelocity, SideBits aOverscrollSideBits,
       const RefPtr<const OverscrollHandoffChain>& aOverscrollHandoffChain,
       const RefPtr<const AsyncPanZoomController>& aScrolledApzc);
 
-  void HandleSmoothScrollOverscroll(const ParentLayerPoint& aVelocity);
+  void HandleSmoothScrollOverscroll(const ParentLayerPoint& aVelocity,
+                                    SideBits aOverscrollSideBits);
 
   // Start an overscroll animation with the given initial velocity.
-  void StartOverscrollAnimation(const ParentLayerPoint& aVelocity);
-
-  // Return the directions in which this APZC allows overscrolling.
-  ScrollDirections GetOverscrollableDirections() const;
+  void StartOverscrollAnimation(const ParentLayerPoint& aVelocity,
+                                SideBits aOverscrollSideBits);
 
   // Start a smooth-scrolling animation to the given destination, with physics
   // based on the prefs for the indicated origin.

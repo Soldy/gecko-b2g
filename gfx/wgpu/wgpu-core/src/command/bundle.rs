@@ -51,7 +51,6 @@ use crate::{
     id,
     memory_init_tracker::{MemoryInitKind, MemoryInitTrackerAction},
     resource::BufferUse,
-    span,
     track::{TrackerSet, UsageConflict},
     validation::check_buffer_usage,
     Label, LabelHelpers, LifeGuard, Stored, MAX_BIND_GROUPS,
@@ -92,7 +91,7 @@ impl RenderBundleEncoder {
         parent_id: id::DeviceId,
         base: Option<BasePass<RenderCommand>>,
     ) -> Result<Self, CreateRenderBundleError> {
-        span!(_guard, INFO, "RenderBundleEncoder::new");
+        profiling::scope!("RenderBundleEncoder::new");
         Ok(Self {
             base: base.unwrap_or_else(|| BasePass::new(&desc.label)),
             parent_id,
@@ -479,7 +478,7 @@ impl RenderBundleEncoder {
                 | RenderCommand::BeginPipelineStatisticsQuery { .. }
                 | RenderCommand::EndPipelineStatisticsQuery => unimplemented!(),
                 RenderCommand::ExecuteBundle(_)
-                | RenderCommand::SetBlendColor(_)
+                | RenderCommand::SetBlendConstant(_)
                 | RenderCommand::SetStencilReference(_)
                 | RenderCommand::SetViewport { .. }
                 | RenderCommand::SetScissor(_) => unreachable!("not supported by a render bundle"),
@@ -512,7 +511,7 @@ impl RenderBundleEncoder {
         offset: wgt::BufferAddress,
         size: Option<wgt::BufferSize>,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::set_index_buffer");
+        profiling::scope!("RenderBundle::set_index_buffer");
         self.base.commands.push(RenderCommand::SetIndexBuffer {
             buffer_id,
             index_format,
@@ -534,6 +533,8 @@ pub enum CreateRenderBundleError {
 pub enum ExecutionError {
     #[error("buffer {0:?} is destroyed")]
     DestroyedBuffer(id::BufferId),
+    #[error("using {0} in a render bundle is not implemented")]
+    Unimplemented(&'static str),
 }
 
 pub type RenderBundleDescriptor<'a> = wgt::RenderBundleDescriptor<Label<'a>>;
@@ -734,15 +735,21 @@ impl RenderBundle {
                     cmd_buf.draw_indexed_indirect(buffer, offset, 1, 0);
                 }
                 RenderCommand::MultiDrawIndirect { .. }
-                | RenderCommand::MultiDrawIndirectCount { .. } => unimplemented!(),
-                RenderCommand::PushDebugGroup { color: _, len: _ } => unimplemented!(),
-                RenderCommand::InsertDebugMarker { color: _, len: _ } => unimplemented!(),
-                RenderCommand::PopDebugGroup => unimplemented!(),
+                | RenderCommand::MultiDrawIndirectCount { .. } => {
+                    return Err(ExecutionError::Unimplemented("multi-draw-indirect"))
+                }
+                RenderCommand::PushDebugGroup { .. }
+                | RenderCommand::InsertDebugMarker { .. }
+                | RenderCommand::PopDebugGroup => {
+                    return Err(ExecutionError::Unimplemented("debug-markers"))
+                }
                 RenderCommand::WriteTimestamp { .. }
                 | RenderCommand::BeginPipelineStatisticsQuery { .. }
-                | RenderCommand::EndPipelineStatisticsQuery => unimplemented!(),
+                | RenderCommand::EndPipelineStatisticsQuery => {
+                    return Err(ExecutionError::Unimplemented("queries"))
+                }
                 RenderCommand::ExecuteBundle(_)
-                | RenderCommand::SetBlendColor(_)
+                | RenderCommand::SetBlendConstant(_)
                 | RenderCommand::SetStencilReference(_)
                 | RenderCommand::SetViewport { .. }
                 | RenderCommand::SetScissor(_) => unreachable!(),
@@ -1150,7 +1157,7 @@ where
 
 pub mod bundle_ffi {
     use super::{RenderBundleEncoder, RenderCommand};
-    use crate::{id, span, RawString};
+    use crate::{id, RawString};
     use std::{convert::TryInto, slice};
     use wgt::{BufferAddress, BufferSize, DynamicOffset};
 
@@ -1158,8 +1165,6 @@ pub mod bundle_ffi {
     ///
     /// This function is unsafe as there is no guarantee that the given pointer is
     /// valid for `offset_length` elements.
-    // TODO: There might be other safety issues, such as using the unsafe
-    // `RawPass::encode` and `RawPass::encode_slice`.
     #[no_mangle]
     pub unsafe extern "C" fn wgpu_render_bundle_set_bind_group(
         bundle: &mut RenderBundleEncoder,
@@ -1168,7 +1173,6 @@ pub mod bundle_ffi {
         offsets: *const DynamicOffset,
         offset_length: usize,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::set_bind_group");
         bundle.base.commands.push(RenderCommand::SetBindGroup {
             index: index.try_into().unwrap(),
             num_dynamic_offsets: offset_length.try_into().unwrap(),
@@ -1187,7 +1191,6 @@ pub mod bundle_ffi {
         bundle: &mut RenderBundleEncoder,
         pipeline_id: id::RenderPipelineId,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::set_pipeline");
         bundle
             .base
             .commands
@@ -1202,7 +1205,6 @@ pub mod bundle_ffi {
         offset: BufferAddress,
         size: Option<BufferSize>,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::set_vertex_buffer");
         bundle.base.commands.push(RenderCommand::SetVertexBuffer {
             slot,
             buffer_id,
@@ -1211,6 +1213,10 @@ pub mod bundle_ffi {
         });
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe as there is no guarantee that the given pointer is
+    /// valid for `data` elements.
     #[no_mangle]
     pub unsafe extern "C" fn wgpu_render_bundle_set_push_constants(
         pass: &mut RenderBundleEncoder,
@@ -1219,7 +1225,6 @@ pub mod bundle_ffi {
         size_bytes: u32,
         data: *const u8,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::set_push_constants");
         assert_eq!(
             offset & (wgt::PUSH_CONSTANT_ALIGNMENT - 1),
             0,
@@ -1257,7 +1262,6 @@ pub mod bundle_ffi {
         first_vertex: u32,
         first_instance: u32,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::draw");
         bundle.base.commands.push(RenderCommand::Draw {
             vertex_count,
             instance_count,
@@ -1275,7 +1279,6 @@ pub mod bundle_ffi {
         base_vertex: i32,
         first_instance: u32,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::draw_indexed");
         bundle.base.commands.push(RenderCommand::DrawIndexed {
             index_count,
             instance_count,
@@ -1291,7 +1294,6 @@ pub mod bundle_ffi {
         buffer_id: id::BufferId,
         offset: BufferAddress,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::draw_indirect");
         bundle.base.commands.push(RenderCommand::MultiDrawIndirect {
             buffer_id,
             offset,
@@ -1306,7 +1308,6 @@ pub mod bundle_ffi {
         buffer_id: id::BufferId,
         offset: BufferAddress,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::draw_indexed_indirect");
         bundle.base.commands.push(RenderCommand::MultiDrawIndirect {
             buffer_id,
             offset,
@@ -1315,27 +1316,32 @@ pub mod bundle_ffi {
         });
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe as there is no guarantee that the given `label`
+    /// is a valid null-terminated string.
     #[no_mangle]
     pub unsafe extern "C" fn wgpu_render_bundle_push_debug_group(
         _bundle: &mut RenderBundleEncoder,
         _label: RawString,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::push_debug_group");
         //TODO
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn wgpu_render_bundle_pop_debug_group(_bundle: &mut RenderBundleEncoder) {
-        span!(_guard, DEBUG, "RenderBundle::pop_debug_group");
+    pub extern "C" fn wgpu_render_bundle_pop_debug_group(_bundle: &mut RenderBundleEncoder) {
         //TODO
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe as there is no guarantee that the given `label`
+    /// is a valid null-terminated string.
     #[no_mangle]
     pub unsafe extern "C" fn wgpu_render_bundle_insert_debug_marker(
         _bundle: &mut RenderBundleEncoder,
         _label: RawString,
     ) {
-        span!(_guard, DEBUG, "RenderBundle::insert_debug_marker");
         //TODO
     }
 }

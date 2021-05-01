@@ -933,6 +933,7 @@ void CodeGenerator::visitOutOfLineICFallback(OutOfLineICFallback* ool) {
     case CacheKind::TypeOf:
     case CacheKind::ToBool:
     case CacheKind::GetIntrinsic:
+    case CacheKind::NewArray:
     case CacheKind::NewObject:
       MOZ_CRASH("Unsupported IC");
   }
@@ -3971,6 +3972,19 @@ void CodeGenerator::visitNewLexicalEnvironmentObject(
   callVM<Fn, BlockLexicalEnvironmentObject::create>(lir);
 }
 
+void CodeGenerator::visitNewClassBodyEnvironmentObject(
+    LNewClassBodyEnvironmentObject* lir) {
+  pushArg(Imm32(gc::DefaultHeap));
+  pushArg(ToRegister(lir->enclosing()));
+  pushArg(ImmGCPtr(lir->mir()->scope()));
+
+  using Fn =
+      ClassBodyLexicalEnvironmentObject* (*)(JSContext*,
+                                             Handle<ClassBodyScope*>,
+                                             HandleObject, gc::InitialHeap);
+  callVM<Fn, ClassBodyLexicalEnvironmentObject::create>(lir);
+}
+
 void CodeGenerator::visitCopyLexicalEnvironmentObject(
     LCopyLexicalEnvironmentObject* lir) {
   pushArg(Imm32(lir->mir()->copySlots()));
@@ -6808,7 +6822,7 @@ void CodeGenerator::visitNewTypedArray(LNewTypedArray* lir) {
 
   TypedArrayObject* ttemplate = &templateObject->as<TypedArrayObject>();
 
-  size_t n = ttemplate->length().get();
+  size_t n = ttemplate->length();
   MOZ_ASSERT(n <= INT32_MAX,
              "Template objects are only created for int32 lengths");
 
@@ -7047,6 +7061,32 @@ void CodeGenerator::visitNewObject(LNewObject* lir) {
 void CodeGenerator::visitOutOfLineNewObject(OutOfLineNewObject* ool) {
   visitNewObjectVMCall(ool->lir());
   masm.jump(ool->rejoin());
+}
+
+void CodeGenerator::visitNewPlainObject(LNewPlainObject* lir) {
+  Register objReg = ToRegister(lir->output());
+  Register temp0Reg = ToRegister(lir->temp0());
+  Register temp1Reg = ToRegister(lir->temp1());
+  Register shapeReg = ToRegister(lir->temp2());
+
+  auto* mir = lir->mir();
+  const Shape* shape = mir->shape();
+  gc::InitialHeap initialHeap = mir->initialHeap();
+  gc::AllocKind allocKind = mir->allocKind();
+
+  using Fn =
+      JSObject* (*)(JSContext*, HandleShape, gc::AllocKind, gc::InitialHeap);
+  OutOfLineCode* ool = oolCallVM<Fn, NewPlainObject>(
+      lir,
+      ArgList(ImmGCPtr(shape), Imm32(int32_t(allocKind)), Imm32(initialHeap)),
+      StoreRegisterTo(objReg));
+
+  masm.movePtr(ImmGCPtr(shape), shapeReg);
+  masm.createPlainGCObject(objReg, shapeReg, temp0Reg, temp1Reg,
+                           mir->numFixedSlots(), mir->numDynamicSlots(),
+                           allocKind, initialHeap, ool->entry());
+
+  masm.bind(ool->rejoin());
 }
 
 void CodeGenerator::visitNewNamedLambdaObject(LNewNamedLambdaObject* lir) {

@@ -144,11 +144,12 @@ class MessageLogger(object):
             "buffering_off",
         ]
     )
+    # Regexes that will be replaced with an empty string if found in a test
+    # name. We do this to normalize test names which may contain URLs and test
+    # package prefixes.
     TEST_PATH_PREFIXES = [
-        "/tests/",
-        "chrome://mochitests/content/a11y/",
-        "chrome://mochitests/content/browser/",
-        "chrome://mochitests/content/chrome/",
+        r"^/tests/",
+        r"^\w+://[\w\.]+(:\d+)?(/\w+)?/(tests?|a11y|chrome|browser)/",
     ]
 
     def __init__(self, logger, buffering=True, structured=True):
@@ -190,9 +191,10 @@ class MessageLogger(object):
         """Normalize a logged test path to match the relative path from the sourcedir."""
         if message.get("test") is not None:
             test = message["test"]
-            for prefix in MessageLogger.TEST_PATH_PREFIXES:
-                if test.startswith(prefix):
-                    message["test"] = test[len(prefix) :]
+            for pattern in MessageLogger.TEST_PATH_PREFIXES:
+                test = re.sub(pattern, "", test)
+                if test != message["test"]:
+                    message["test"] = test
                     break
 
     def _fix_message_format(self, message):
@@ -2549,7 +2551,7 @@ toolbar#nav-bar {
             # record post-test information
             if status:
                 self.message_logger.dump_buffered()
-                msg = ("application terminated with exit code %s" % status,)
+                msg = "application terminated with exit code %s" % status
                 # self.message_logger.is_test_running indicates we need to send a test_end
                 if crashAsPass and self.message_logger.is_test_running:
                     # this works for browser-chrome, mochitest-plain has status=0
@@ -2568,7 +2570,9 @@ toolbar#nav-bar {
                     # this requires a custom message vs log.error/log.warning/etc.
                     self.message_logger.process_message(message)
                 else:
-                    self.log.error(msg)
+                    self.log.error(
+                        "TEST-UNEXPECTED-FAIL | %s | %s" % (self.lastTestSeen, msg)
+                    )
             else:
                 self.lastTestSeen = "Main app process exited normally"
 
@@ -2911,7 +2915,9 @@ toolbar#nav-bar {
 
         # Until we have all green, this does not run on a11y (for perf reasons)
         if not options.runByManifest:
-            return self.runMochitests(options, [t["path"] for t in tests])
+            result = self.runMochitests(options, [t["path"] for t in tests])
+            self.handleShutdownProfile(options)
+            return result
 
         # code for --run-by-manifest
         manifests = set(t["manifest"] for t in tests)
@@ -2985,8 +2991,19 @@ toolbar#nav-bar {
             print("4 INFO Mode:    %s" % e10s_mode)
             print("5 INFO SimpleTest FINISHED")
 
+        self.handleShutdownProfile(options)
+
+        if not result:
+            if self.countfail or not (self.countpass or self.counttodo):
+                # at least one test failed, or
+                # no tests passed, and no tests failed (possibly a crash)
+                result = 1
+
+        return result
+
+    def handleShutdownProfile(self, options):
         # If shutdown profiling was enabled, then the user will want to access the
-        # performance profile. The following code with display helpful log messages
+        # performance profile. The following code will display helpful log messages
         # and automatically open the profile if it is requested.
         if self.browserEnv and "MOZ_PROFILER_SHUTDOWN" in self.browserEnv:
             profile_path = self.browserEnv["MOZ_PROFILER_SHUTDOWN"]
@@ -3013,14 +3030,6 @@ toolbar#nav-bar {
             # Clean up the temporary file if it exists.
             if self.profiler_tempdir:
                 shutil.rmtree(self.profiler_tempdir)
-
-        if not result:
-            if self.countfail or not (self.countpass or self.counttodo):
-                # at least one test failed, or
-                # no tests passed, and no tests failed (possibly a crash)
-                result = 1
-
-        return result
 
     def doTests(self, options, testsToFilter=None):
         # A call to initializeLooping method is required in case of --run-by-dir or --bisect-chunk

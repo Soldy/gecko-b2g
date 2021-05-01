@@ -14,6 +14,12 @@ var gPermissionPanel = {
     if (!this._popupInitialized) {
       let wrapper = document.getElementById("template-permission-popup");
       wrapper.replaceWith(wrapper.content);
+
+      let baseURL = Services.urlFormatter.formatURLPref("app.support.baseURL");
+      document.getElementById(
+        "permission-popup-storage-access-permission-learn-more"
+      ).href = baseURL + "site-information-third-party-access";
+
       this._popupInitialized = true;
     }
   },
@@ -191,9 +197,6 @@ var gPermissionPanel = {
     // Update the popup strings
     this._refreshPermissionPopup();
 
-    // Add the "open" attribute to the button in the identity box for styling
-    this._identityPermissionBox.setAttribute("open", "true");
-
     // Check the panel state of other panels. Hide them if needed.
     let openPanels = Array.from(document.querySelectorAll("panel[openpanel]"));
     for (let panel of openPanels) {
@@ -228,21 +231,39 @@ var gPermissionPanel = {
     let hasSharingIcon = false;
 
     if (this._sharingState) {
-      if (this._sharingState.webRTC?.sharing) {
-        this._webRTCSharingIcon.setAttribute(
-          "sharing",
-          this._sharingState.webRTC.sharing
-        );
-        hasSharingIcon = true;
+      if (this._sharingState.webRTC) {
+        if (this._sharingState.webRTC.sharing) {
+          this._webRTCSharingIcon.setAttribute(
+            "sharing",
+            this._sharingState.webRTC.sharing
+          );
+          hasSharingIcon = true;
 
-        if (this._sharingState.webRTC?.paused) {
-          this._webRTCSharingIcon.setAttribute("paused", "true");
+          if (this._sharingState.webRTC.paused) {
+            this._webRTCSharingIcon.setAttribute("paused", "true");
+          }
+        } else {
+          // Reflect any active permission grace periods
+          let { micGrace, camGrace } = hasMicCamGracePeriodsSolely(
+            gBrowser.selectedBrowser
+          );
+          if (micGrace || camGrace) {
+            // Reuse the "paused sharing" indicator to warn about grace periods
+            this._webRTCSharingIcon.setAttribute(
+              "sharing",
+              camGrace ? "camera" : "microphone"
+            );
+            hasSharingIcon = true;
+            this._webRTCSharingIcon.setAttribute("paused", "true");
+          }
         }
       }
+
       if (this._sharingState.geo) {
         this._geoSharingIcon.setAttribute("sharing", this._sharingState.geo);
         hasSharingIcon = true;
       }
+
       if (this._sharingState.xr) {
         this._xrSharingIcon.setAttribute("sharing", this._sharingState.xr);
         hasSharingIcon = true;
@@ -320,7 +341,6 @@ var gPermissionPanel = {
   onPopupHidden(event) {
     if (event.target == this._permissionPopup) {
       window.removeEventListener("focus", this, true);
-      this._identityPermissionBox.removeAttribute("open");
     }
   },
 
@@ -649,9 +669,9 @@ var gPermissionPanel = {
     container.appendChild(nameLabel);
     let labelledBy = nameLabelId;
 
+    let stateLabel;
     if (showStateLabel) {
-      let stateLabel = this._createStateLabel(permission, idNoSuffix);
-      container.appendChild(stateLabel);
+      stateLabel = this._createStateLabel(permission, idNoSuffix);
       labelledBy += " " + stateLabel.id;
     }
 
@@ -661,6 +681,9 @@ var gPermissionPanel = {
        SCOPE_POLICY or SCOPE_GLOBAL permission. Policy permissions cannot be
        removed/changed for the duration of the browser session. */
     if (isPolicyPermission) {
+      if (stateLabel) {
+        container.appendChild(stateLabel);
+      }
       return container;
     }
 
@@ -676,6 +699,9 @@ var gPermissionPanel = {
           idNoSuffix,
           clearCallback,
         });
+        if (stateLabel) {
+          button.appendChild(stateLabel);
+        }
         container.appendChild(button);
       }
 
@@ -690,6 +716,9 @@ var gPermissionPanel = {
         idNoSuffix,
         clearCallback,
       });
+      if (stateLabel) {
+        button.appendChild(stateLabel);
+      }
       container.appendChild(button);
     }
 
@@ -933,7 +962,6 @@ var gPermissionPanel = {
     );
 
     item.appendChild(text);
-    item.appendChild(stateLabel);
 
     let button = this._createPermissionClearButton({
       permission,
@@ -947,6 +975,7 @@ var gPermissionPanel = {
         }
       },
     });
+    button.appendChild(stateLabel);
     item.appendChild(button);
 
     container.appendChild(item);
@@ -964,18 +993,15 @@ var gPermissionPanel = {
     let icon = document.createXULElement("image");
     icon.setAttribute("class", "popup-subitem");
 
+    MozXULElement.insertFTLIfNeeded("browser/sitePermissions.ftl");
     let text = document.createXULElement("label", { is: "text-link" });
     text.setAttribute("flex", "1");
     text.setAttribute("class", "permission-popup-permission-label");
-
-    let messageBase = gNavigatorBundle.getString(
-      "popupShowBlockedPopupsIndicatorText"
+    text.setAttribute("data-l10n-id", "site-permissions-open-blocked-popups");
+    text.setAttribute(
+      "data-l10n-args",
+      JSON.stringify({ count: aTotalBlockedPopups })
     );
-    let message = PluralForm.get(aTotalBlockedPopups, messageBase).replace(
-      "#1",
-      aTotalBlockedPopups
-    );
-    text.textContent = message;
 
     text.addEventListener("click", () => {
       gBrowser.selectedBrowser.popupBlocker.unblockAllPopups();
@@ -989,3 +1015,44 @@ var gPermissionPanel = {
       .appendChild(indicator);
   },
 };
+
+/**
+ * Returns an object containing two booleans: {camGrace, micGrace},
+ * whether permission grace periods are found for camera/microphone AND
+ * persistent permissions do not exist for said permissions.
+ * @param browser - Browser element to get permissions for.
+ */
+function hasMicCamGracePeriodsSolely(browser) {
+  let perms = SitePermissions.getAllForBrowser(browser);
+  let micGrace = false;
+  let micGrant = false;
+  let camGrace = false;
+  let camGrant = false;
+  for (const perm of perms) {
+    if (perm.state != SitePermissions.ALLOW) {
+      continue;
+    }
+    let [id, key] = perm.id.split(SitePermissions.PERM_KEY_DELIMITER);
+    let temporary = !!key && perm.scope == SitePermissions.SCOPE_TEMPORARY;
+    let persistent = !key && perm.scope == SitePermissions.SCOPE_PERSISTENT;
+
+    if (id == "microphone") {
+      if (temporary) {
+        micGrace = true;
+      }
+      if (persistent) {
+        micGrant = true;
+      }
+      continue;
+    }
+    if (id == "camera") {
+      if (temporary) {
+        camGrace = true;
+      }
+      if (persistent) {
+        camGrant = true;
+      }
+    }
+  }
+  return { micGrace: micGrace && !micGrant, camGrace: camGrace && !camGrant };
+}

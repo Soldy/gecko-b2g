@@ -247,14 +247,6 @@ enum class StyleShapeSourceType : uint8_t {
   Path,  // SVG path function
 };
 
-// text-justify
-enum class StyleTextJustify : uint8_t {
-  None,
-  Auto,
-  InterWord,
-  InterCharacter,
-};
-
 // user-focus
 enum class StyleUserFocus : uint8_t {
   None,
@@ -764,9 +756,6 @@ enum class StyleMaskComposite : uint8_t {
   Intersect,
   Exclude
 };
-
-// See nsStyleText::mControlCharacterVisibility
-enum class StyleControlCharacterVisibility : uint8_t { Hidden = 0, Visible };
 
 // scroll-behavior
 enum class StyleScrollBehavior : uint8_t {

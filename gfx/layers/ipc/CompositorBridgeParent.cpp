@@ -1811,6 +1811,16 @@ PWebRenderBridgeParent* CompositorBridgeParent::AllocPWebRenderBridgeParent(
     return mWrBridge;
   }
 
+#ifdef MOZ_WIDGET_ANDROID
+  // On Android, WebRenderAPI::Resume() call is triggered from Java side. But
+  // Java side does not know about fallback to RenderCompositorOGLSWGL. In this
+  // fallback case, RenderCompositor::Resume() needs to be called from gfx code.
+  if (!mPaused && mWidget->GetCompositorOptions().UseSoftwareWebRender() &&
+      mWidget->GetCompositorOptions().AllowSoftwareWebRenderOGL()) {
+    api->Resume();
+  }
+#endif
+
   wr::TransactionBuilder txn(api);
   txn.SetRootPipeline(aPipelineId);
   api->SendTransaction(txn);
@@ -2038,12 +2048,20 @@ static void UpdateControllerForLayersId(LayersId aLayersId,
 }
 
 ScopedLayerTreeRegistration::ScopedLayerTreeRegistration(
-    APZCTreeManager* aApzctm, LayersId aLayersId, Layer* aRoot,
-    GeckoContentController* aController)
+    LayersId aLayersId, Layer* aRoot, GeckoContentController* aController)
     : mLayersId(aLayersId) {
   EnsureLayerTreeMapReady();
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
   sIndirectLayerTrees[aLayersId].mRoot = aRoot;
+  sIndirectLayerTrees[aLayersId].mController = aController;
+}
+
+ScopedLayerTreeRegistration::ScopedLayerTreeRegistration(
+    LayersId aLayersId, GeckoContentController* aController)
+    : mLayersId(aLayersId) {
+  EnsureLayerTreeMapReady();
+  MonitorAutoLock lock(*sIndirectLayerTreesLock);
+  sIndirectLayerTrees[aLayersId].mRoot = nullptr;
   sIndirectLayerTrees[aLayersId].mController = aController;
 }
 

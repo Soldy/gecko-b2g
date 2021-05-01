@@ -412,6 +412,12 @@ static void GenerateCallablePrologue(MacroAssembler& masm, uint32_t* entry) {
   // constants and assert that they match the actual codegen below. On ARM,
   // this requires AutoForbidPoolsAndNops to prevent a constant pool from being
   // randomly inserted between two instructions.
+
+  // The size of the prologue is constrained to be no larger than the difference
+  // between WasmCheckedTailEntryOffset and WasmCheckedCallEntryOffset; to
+  // conserve code space / avoid excessive padding, this difference is made as
+  // tight as possible.
+
 #if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
   {
     *entry = masm.currentOffset();
@@ -455,7 +461,7 @@ static void GenerateCallablePrologue(MacroAssembler& masm, uint32_t* entry) {
   {
 #  if defined(JS_CODEGEN_ARM)
     AutoForbidPoolsAndNops afp(&masm,
-                               /* number of instructions in scope = */ 6);
+                               /* number of instructions in scope = */ 3);
 
     *entry = masm.currentOffset();
 
@@ -549,35 +555,29 @@ static void GenerateCallableEpilogue(MacroAssembler& masm, unsigned framePushed,
   MOZ_ASSERT_IF(!masm.oom(), PoppedFP == *ret - poppedFP);
 }
 
-static void EnsureOffset(MacroAssembler& masm, uint32_t base,
-                         uint32_t targetOffset) {
-  MOZ_ASSERT(targetOffset % CodeAlignment == 0);
-  MOZ_ASSERT_IF(!masm.oom(), masm.currentOffset() - base <= targetOffset);
-
-  while (masm.currentOffset() - base < targetOffset) {
-    masm.nopAlign(CodeAlignment);
-    if (masm.currentOffset() - base < targetOffset) {
-      masm.nop();
-    }
-  }
-
-  MOZ_ASSERT_IF(!masm.oom(), masm.currentOffset() - base == targetOffset);
-}
-
 void wasm::GenerateFunctionPrologue(MacroAssembler& masm,
                                     const TypeIdDesc& funcTypeId,
                                     const Maybe<uint32_t>& tier1FuncIndex,
                                     FuncOffsets* offsets) {
-  // These constants reflect statically-determined offsets
-  // between a function's checked call entry and a tail's entry.
+  // These constants reflect statically-determined offsets between a function's
+  // checked call entry and the checked tail's entry, see diagram below.  The
+  // Entry is a call target, so must have CodeAlignment, but the TailEntry is
+  // only a jump target from a stub.
+  //
+  // The CheckedCallEntryOffset is normally zero.
+  //
+  // CheckedTailEntryOffset > CheckedCallEntryOffset, and if CPSIZE is the size
+  // of the callable prologue then TailEntryOffset - CallEntryOffset >= CPSIZE.
+  // It is a goal to keep that difference as small as possible to reduce the
+  // amount of padding inserted in the prologue.
   static_assert(WasmCheckedCallEntryOffset % CodeAlignment == 0,
                 "code aligned");
-  static_assert(WasmCheckedTailEntryOffset % CodeAlignment == 0,
-                "code aligned");
+  static_assert(WasmCheckedTailEntryOffset > WasmCheckedCallEntryOffset);
 
   // Flush pending pools so they do not get dumped between the 'begin' and
   // 'uncheckedCallEntry' offsets since the difference must be less than
   // UINT8_MAX to be stored in CodeRange::funcbeginToUncheckedCallEntry_.
+  // (Pending pools can be large.)
   masm.flushBuffer();
   masm.haltingAlign(CodeAlignment);
 
@@ -591,8 +591,10 @@ void wasm::GenerateFunctionPrologue(MacroAssembler& masm,
   // -----------------------------------------------
   // checked call entry - used for call_indirect when we have to check the
   // signature.
-  // checked tail entry - used by trampolines which already had pushed Frame
-  // on the callee’s behalf.
+  //
+  // checked tail entry - used by indirect call trampolines which already
+  // had pushed Frame on the callee’s behalf.
+  //
   // unchecked call entry - used for regular direct same-instance calls.
 
   Label functionBody;
@@ -605,7 +607,20 @@ void wasm::GenerateFunctionPrologue(MacroAssembler& masm,
   uint32_t dummy;
   GenerateCallablePrologue(masm, &dummy);
 
-  EnsureOffset(masm, offsets->begin, WasmCheckedTailEntryOffset);
+  // Check that we did not overshoot the space budget for the prologue.
+  MOZ_ASSERT_IF(!masm.oom(), masm.currentOffset() - offsets->begin <=
+                                 WasmCheckedTailEntryOffset);
+
+  // Pad to WasmCheckedTailEntryOffset.  Don't use nopAlign because the target
+  // offset is not necessarily a power of two.  The expected number of NOPs here
+  // is very small.
+  while (masm.currentOffset() - offsets->begin < WasmCheckedTailEntryOffset) {
+    masm.nop();
+  }
+
+  // Signature check starts at WasmCheckedTailEntryOffset.
+  MOZ_ASSERT_IF(!masm.oom(), masm.currentOffset() - offsets->begin ==
+                                 WasmCheckedTailEntryOffset);
   switch (funcTypeId.kind()) {
     case TypeIdDescKind::Global: {
       Register scratch = WasmTableCallScratchReg0;
@@ -626,13 +641,28 @@ void wasm::GenerateFunctionPrologue(MacroAssembler& masm,
       break;
   }
 
-  // The checked entries might have generated a small constant pool in case of
-  // immediate comparison.
-  masm.flushBuffer();
+  // The preceding code may have generated a small constant pool to support the
+  // comparison in the signature check.  But if we flush the pool here we will
+  // also force the creation of an unused branch veneer in the pool for the jump
+  // to functionBody from the signature check on some platforms, thus needlessly
+  // inflating the size of the prologue.
+  //
+  // On no supported platform that uses a pool (arm, arm64) is there any risk at
+  // present of that branch or other elements in the pool going out of range
+  // while we're generating the following padding and prologue, therefore no
+  // pool elements will be emitted in the prologue, therefore it is safe not to
+  // flush here.
+  //
+  // We assert that this holds at runtime by comparing the expected entry offset
+  // to the recorded ditto; if they are not the same then
+  // GenerateCallablePrologue flushed a pool before the prologue code, contrary
+  // to assumption.
 
   // Generate unchecked call entry:
   masm.nopAlign(CodeAlignment);
+  DebugOnly<uint32_t> expectedEntry = masm.currentOffset();
   GenerateCallablePrologue(masm, &offsets->uncheckedCallEntry);
+  MOZ_ASSERT(expectedEntry == offsets->uncheckedCallEntry);
   masm.bind(&functionBody);
 #ifdef JS_CODEGEN_ARM64
   // GenerateCallablePrologue creates a prologue which operates on the raw

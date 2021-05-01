@@ -216,6 +216,17 @@ var Policies = {
     },
   },
 
+  AutoLaunchProtocolsFromOrigins: {
+    onBeforeAddons(manager, param) {
+      for (let info of param) {
+        addAllowDenyPermissions(
+          `open-protocol-handler^${info.protocol}`,
+          info.allowed_origins
+        );
+      }
+    },
+  },
+
   BackgroundAppUpdate: {
     onBeforeAddons(manager, param) {
       if (param) {
@@ -439,6 +450,11 @@ var Policies = {
 
         setDefaultPref(
           "network.cookie.cookieBehavior",
+          newCookieBehavior,
+          param.Locked
+        );
+        setDefaultPref(
+          "network.cookie.cookieBehavior.pbmode",
           newCookieBehavior,
           param.Locked
         );
@@ -1525,7 +1541,9 @@ var Policies = {
         "general.autoScroll",
         "general.smoothScroll",
         "geo.",
+        "gfx.",
         "intl.",
+        "layers.",
         "layout.",
         "media.",
         "network.",

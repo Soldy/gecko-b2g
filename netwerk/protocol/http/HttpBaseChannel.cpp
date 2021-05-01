@@ -47,7 +47,6 @@
 #include "nsGlobalWindowOuter.h"
 #include "nsHttpChannel.h"
 #include "nsHttpHandler.h"
-#include "nsIApplicationCacheChannel.h"
 #include "nsICacheInfoChannel.h"
 #include "nsICachingChannel.h"
 #include "nsIChannelEventSink.h"
@@ -209,7 +208,6 @@ HttpBaseChannel::HttpBaseChannel()
       mCheckIsOpaqueResponseAllowedAfterSniff(false) {
   StoreApplyConversion(true);
   StoreAllowSTS(true);
-  StoreInheritApplicationCache(true);
   StoreTracingEnabled(true);
   StoreReportTiming(true);
   StoreAllowSpdy(true);
@@ -277,7 +275,6 @@ void HttpBaseChannel::ReleaseMainThreadOnlyReferences() {
   arrayToRelease.AppendElement(mLoadInfo.forget());
   arrayToRelease.AppendElement(mCallbacks.forget());
   arrayToRelease.AppendElement(mProgressSink.forget());
-  arrayToRelease.AppendElement(mApplicationCache.forget());
   arrayToRelease.AppendElement(mPrincipal.forget());
   arrayToRelease.AppendElement(mListener.forget());
   arrayToRelease.AppendElement(mCompressListener.forget());
@@ -2256,6 +2253,10 @@ nsresult HttpBaseChannel::ProcessCrossOriginResourcePolicyHeader() {
     return NS_OK;
   }
 
+  if (mLoadInfo->GetLoadingPrincipal()->IsSystemPrincipal()) {
+    return NS_OK;
+  }
+
   nsAutoCString content;
   Unused << mResponseHead->GetHeader(nsHttp::Cross_Origin_Resource_Policy,
                                      content);
@@ -2372,7 +2373,7 @@ nsresult HttpBaseChannel::ComputeCrossOriginOpenerPolicyMismatch() {
   // If bc's popup sandboxing flag set is not empty and potentialCOOP is
   // non-null, then navigate bc to a network error and abort these steps.
   if (resultPolicy != nsILoadInfo::OPENER_POLICY_UNSAFE_NONE &&
-      GetHasNonEmptySandboxingFlag()) {
+      mLoadInfo->GetSandboxFlags()) {
     LOG((
         "HttpBaseChannel::ComputeCrossOriginOpenerPolicyMismatch network error "
         "for non empty sandboxing and non null COOP"));
@@ -4380,8 +4381,6 @@ nsresult HttpBaseChannel::SetupReplacementChannel(nsIURI* newURI,
     loadFlags &= ~INHIBIT_PERSISTENT_CACHING;
   }
 
-  // Do not pass along LOAD_CHECK_OFFLINE_CACHE
-  loadFlags &= ~nsICachingChannel::LOAD_CHECK_OFFLINE_CACHE;
   newChannel->SetLoadFlags(loadFlags);
 
   nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(newChannel);
@@ -4538,15 +4537,6 @@ nsresult HttpBaseChannel::SetupReplacementChannel(nsIURI* newURI,
     if (LoadDisableAltDataCache()) {
       httpInternal->DisableAltDataCache();
     }
-  }
-
-  // transfer application cache information
-  nsCOMPtr<nsIApplicationCacheChannel> appCacheChannel =
-      do_QueryInterface(newChannel);
-  if (appCacheChannel) {
-    appCacheChannel->SetApplicationCache(mApplicationCache);
-    appCacheChannel->SetInheritApplicationCache(LoadInheritApplicationCache());
-    // We purposely avoid transfering ChooseApplicationCache.
   }
 
   // transfer any properties
@@ -5405,7 +5395,7 @@ HttpBaseChannel::GetNativeServerTiming(
     nsTArray<nsCOMPtr<nsIServerTiming>>& aServerTiming) {
   aServerTiming.Clear();
 
-  if (mURI->SchemeIs("https")) {
+  if (nsContentUtils::ComputeIsSecureContext(this)) {
     ParseServerTimingHeader(mResponseHead, aServerTiming);
     ParseServerTimingHeader(mResponseTrailers, aServerTiming);
   }

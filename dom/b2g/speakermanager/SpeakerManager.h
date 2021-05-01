@@ -56,9 +56,11 @@ class SpeakerManager final : public DOMEventTargetHelper,
       const GlobalObject& aGlobal, const Optional<SpeakerPolicy>& aPolicy,
       ErrorResult& aRv);
 
+  void Shutdown();
+
  protected:
   explicit SpeakerManager(SpeakerPolicy aPolicy);
-  ~SpeakerManager();
+  ~SpeakerManager() = default;
   void DispatchSimpleEvent(const nsAString& aStr);
   void UpdateStatus();
   static bool HasPermission(nsPIDOMWindowInner* aWindow);

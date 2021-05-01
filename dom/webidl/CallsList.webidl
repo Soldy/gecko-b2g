@@ -4,7 +4,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-[NoInterfaceObject, Exposed=Window]
+[LegacyNoInterfaceObject, Exposed=Window]
 interface CallsList {
   iterable<TelephonyCall>;
   getter TelephonyCall item(unsigned long index);

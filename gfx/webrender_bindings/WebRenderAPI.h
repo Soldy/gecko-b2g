@@ -373,8 +373,8 @@ class MOZ_RAII AutoTransactionSender {
  public:
   AutoTransactionSender(WebRenderAPI* aApi, TransactionBuilder* aTxn)
       : mApi(aApi), mTxn(aTxn) {
-    MOZ_ASSERT(mApi);
-    MOZ_ASSERT(aTxn);
+    MOZ_RELEASE_ASSERT(mApi);
+    MOZ_RELEASE_ASSERT(aTxn);
   }
 
   ~AutoTransactionSender() { mApi->SendTransaction(*mTxn); }
@@ -460,7 +460,9 @@ class DisplayListBuilder final {
       const Maybe<wr::WrSpaceAndClip>& aParent, const wr::LayoutRect& aClipRect,
       const nsTArray<wr::ComplexClipRegion>* aComplex = nullptr);
 
-  wr::WrClipId DefineImageMaskClip(const wr::ImageMask& aMask);
+  wr::WrClipId DefineImageMaskClip(const wr::ImageMask& aMask,
+                                   const nsTArray<wr::LayoutPoint>&,
+                                   wr::FillRule);
   wr::WrClipId DefineRoundedRectClip(const wr::ComplexClipRegion& aComplex);
   wr::WrClipId DefineRectClip(wr::LayoutRect aClipRect);
 

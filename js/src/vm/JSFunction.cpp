@@ -36,9 +36,10 @@
 #include "jit/InlinableNatives.h"
 #include "jit/Ion.h"
 #include "js/CallNonGenericMethod.h"
+#include "js/CompilationAndEvaluation.h"
 #include "js/CompileOptions.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/PropertySpec.h"
 #include "js/Proxy.h"
 #include "js/SourceText.h"
@@ -433,18 +434,17 @@ bool JSFunction::hasNonConfigurablePrototypeDataProperty() {
 
   if (isSelfHostedBuiltin()) {
     // Self-hosted constructors other than bound functions have a
-    // non-configurable .prototype data property. See the MakeConstructible
-    // intrinsic.
+    // non-configurable .prototype data property.
     if (!isConstructor() || isBoundFunction()) {
       return false;
     }
 #ifdef DEBUG
     PropertyName* prototypeName =
         runtimeFromMainThread()->commonNames->prototype;
-    Shape* shape = lookupPure(prototypeName);
-    MOZ_ASSERT(shape);
-    MOZ_ASSERT(shape->isDataProperty());
-    MOZ_ASSERT(!shape->configurable());
+    Maybe<ShapeProperty> prop = lookupPure(prototypeName);
+    MOZ_ASSERT(prop.isSome());
+    MOZ_ASSERT(prop->isDataProperty());
+    MOZ_ASSERT(!prop->configurable());
 #endif
     return true;
   }
@@ -455,28 +455,28 @@ bool JSFunction::hasNonConfigurablePrototypeDataProperty() {
   }
 
   PropertyName* prototypeName = runtimeFromMainThread()->commonNames->prototype;
-  Shape* shape = lookupPure(prototypeName);
-  return shape && shape->isDataProperty() && !shape->configurable();
+  Maybe<ShapeProperty> prop = lookupPure(prototypeName);
+  return prop.isSome() && prop->isDataProperty() && !prop->configurable();
 }
 
 static bool fun_mayResolve(const JSAtomState& names, jsid id, JSObject*) {
-  if (!JSID_IS_ATOM(id)) {
+  if (!id.isAtom()) {
     return false;
   }
 
-  JSAtom* atom = JSID_TO_ATOM(id);
+  JSAtom* atom = id.toAtom();
   return atom == names.prototype || atom == names.length || atom == names.name;
 }
 
 static bool fun_resolve(JSContext* cx, HandleObject obj, HandleId id,
                         bool* resolvedp) {
-  if (!JSID_IS_ATOM(id)) {
+  if (!id.isAtom()) {
     return true;
   }
 
   RootedFunction fun(cx, &obj->as<JSFunction>());
 
-  if (JSID_IS_ATOM(id, cx->names().prototype)) {
+  if (id.isAtom(cx->names().prototype)) {
     if (!fun->needsPrototypeProperty()) {
       return true;
     }
@@ -489,8 +489,8 @@ static bool fun_resolve(JSContext* cx, HandleObject obj, HandleId id,
     return true;
   }
 
-  bool isLength = JSID_IS_ATOM(id, cx->names().length);
-  if (isLength || JSID_IS_ATOM(id, cx->names().name)) {
+  bool isLength = id.isAtom(cx->names().length);
+  if (isLength || id.isAtom(cx->names().name)) {
     MOZ_ASSERT(!IsInternalFunctionObject(*obj));
 
     RootedValue v(cx);
@@ -719,7 +719,8 @@ bool JS::OrdinaryHasInstance(JSContext* cx, HandleObject objArg, HandleValue v,
   /* Step 2. */
   if (obj->is<JSFunction>() && obj->isBoundFunction()) {
     /* Steps 2a-b. */
-    if (!CheckRecursionLimit(cx)) {
+    AutoCheckRecursionLimit recursion(cx);
+    if (!recursion.check(cx)) {
       return false;
     }
     obj = obj->as<JSFunction>().getBoundFunctionTarget();
@@ -1144,7 +1145,7 @@ bool js::fun_apply(JSContext* cx, unsigned argc, Value* vp) {
     // Steps 4-5 (note erratum removing steps originally numbered 5 and 7 in
     // original version of ES5).
     RootedObject aobj(cx, &args[1].toObject());
-    uint32_t length;
+    uint64_t length;
     if (!GetLengthProperty(cx, aobj, &length)) {
       return false;
     }
@@ -1675,8 +1676,8 @@ static bool CreateDynamicFunction(JSContext* cx, const CallArgs& args,
       .setFileAndLine(filename, 1)
       .setNoScriptRval(false)
       .setIntroductionInfo(introducerFilename, introductionType, lineno,
-                           maybeScript, pcOffset)
-      .setScriptOrModule(maybeScript);
+                           pcOffset)
+      .setdeferDebugMetadata();
 
   JSStringBuilder sb(cx);
 
@@ -1808,6 +1809,13 @@ static bool CreateDynamicFunction(JSContext* cx, const CallArgs& args,
     }
   }
   if (!fun) {
+    return false;
+  }
+
+  RootedValue undefValue(cx);
+  RootedScript funScript(cx, JS_GetFunctionScript(cx, fun));
+  if (funScript && !UpdateDebugMetadata(cx, funScript, options, undefValue,
+                                        nullptr, maybeScript, maybeScript)) {
     return false;
   }
 
@@ -2289,8 +2297,8 @@ JSAtom* js::IdToFunctionName(
   MOZ_ASSERT(JSID_IS_STRING(id) || JSID_IS_SYMBOL(id) || JSID_IS_INT(id));
 
   // No prefix fastpath.
-  if (JSID_IS_ATOM(id) && prefixKind == FunctionPrefixKind::None) {
-    return JSID_TO_ATOM(id);
+  if (id.isAtom() && prefixKind == FunctionPrefixKind::None) {
+    return id.toAtom();
   }
 
   // Step 3 (implicit).

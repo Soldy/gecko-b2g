@@ -23,10 +23,11 @@ class MessageEvent;
 class PrepareMessageRunnable;
 class GetWebSocketServerInfoRunnable;
 
-class ExternalAPI final : public nsISidlDefaultResponse, public nsWrapperCache {
+class ExternalAPI final : public nsISupports,
+                          public SupportsWeakPtr,
+                          public nsWrapperCache {
  public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_NSISIDLDEFAULTRESPONSE
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(ExternalAPI)
 
   static already_AddRefed<ExternalAPI> Create(nsIGlobalObject* aGlobal);
@@ -43,6 +44,19 @@ class ExternalAPI final : public nsISidlDefaultResponse, public nsWrapperCache {
   friend GetWebSocketServerInfoRunnable;
 
  private:
+  class SidlDefaultResponse final : public nsISidlDefaultResponse {
+   public:
+    NS_DECL_ISUPPORTS
+    NS_DECL_NSISIDLDEFAULTRESPONSE
+
+    SidlDefaultResponse(ExternalAPI* aExternalAPI)
+        : mExternalApi(aExternalAPI) {}
+
+   private:
+    ~SidlDefaultResponse() = default;
+    WeakPtr<ExternalAPI> mExternalApi;
+  };
+
   explicit ExternalAPI(nsIGlobalObject* aGlobal);
   ~ExternalAPI();
 
@@ -52,6 +66,8 @@ class ExternalAPI final : public nsISidlDefaultResponse, public nsWrapperCache {
                              Sequence<nsString>& aPermissions);
   nsresult SendMessage();
   void PopAndRejectPromise();
+  nsresult Resolve();
+  nsresult Reject();
 
   nsCOMPtr<nsIGlobalObject> mGlobal;
   nsCOMPtr<nsIGeckoBridge> mBridge;

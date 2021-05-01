@@ -377,6 +377,87 @@ function synthesizeNativeWheel(aTarget, aX, aY, aDeltaX, aDeltaY, aObserver) {
   return true;
 }
 
+// Synthesizes a native pan gesture event and returns immediately.
+// NOTE: This works only on Mac.
+// You can specify kCGScrollPhaseBegan = 1, kCGScrollPhaseChanged = 2 and
+// kCGScrollPhaseEnded = 4 for |aPhase|.
+function synthesizeNativePanGestureEvent(
+  aTarget,
+  aX,
+  aY,
+  aDeltaX,
+  aDeltaY,
+  aPhase,
+  aObserver
+) {
+  if (getPlatform() != "mac") {
+    throw new Error(
+      `synthesizeNativePanGestureEvent doesn't work on ${getPlatform()}`
+    );
+  }
+
+  var pt = coordinatesRelativeToScreen({
+    offsetX: aX,
+    offsetY: aY,
+    target: aTarget,
+  });
+  if (aDeltaX && aDeltaY) {
+    throw new Error(
+      "Simultaneous panning of horizontal and vertical is not supported."
+    );
+  }
+
+  aDeltaX = nativeScrollUnits(aTarget, aDeltaX);
+  aDeltaY = nativeScrollUnits(aTarget, aDeltaY);
+
+  var element = elementForTarget(aTarget);
+  var utils = utilsForTarget(aTarget);
+  utils.sendNativeMouseScrollEvent(
+    pt.x,
+    pt.y,
+    aPhase,
+    aDeltaX,
+    aDeltaY,
+    0 /* deltaZ */,
+    0 /* modifiers */,
+    0 /* scroll event unit pixel */,
+    element,
+    aObserver
+  );
+
+  return true;
+}
+
+// Synthesizes a native pan gesture event and resolve the returned promise once the
+// request has been successfully made to the OS.
+function promiseNativePanGestureEventAndWaitForObserver(
+  aElement,
+  aX,
+  aY,
+  aDeltaX,
+  aDeltaY,
+  aPhase
+) {
+  return new Promise(resolve => {
+    var observer = {
+      observe(aSubject, aTopic, aData) {
+        if (aTopic == "mousescrollevent") {
+          resolve();
+        }
+      },
+    };
+    synthesizeNativePanGestureEvent(
+      aElement,
+      aX,
+      aY,
+      aDeltaX,
+      aDeltaY,
+      aPhase,
+      observer
+    );
+  });
+}
+
 // Synthesizes a native mousewheel event and resolve the returned promise once the
 // request has been successfully made to the OS. This does not necessarily
 // guarantee that the OS generates the event we requested. See
@@ -772,20 +853,24 @@ function promiseNativeTouchDrag(
   });
 }
 
-function synthesizeNativeTap(aElement, aX, aY, aObserver = null) {
+function synthesizeNativeTap(aTarget, aX, aY, aObserver = null) {
   var pt = coordinatesRelativeToScreen({
     offsetX: aX,
     offsetY: aY,
-    target: aElement,
+    target: aTarget,
   });
-  var utils = SpecialPowers.getDOMWindowUtils(
-    aElement.ownerDocument.defaultView
-  );
+  let utils = utilsForTarget(aTarget);
   utils.sendNativeTouchTap(pt.x, pt.y, false, aObserver);
   return true;
 }
 
+// only currently implemented on macOS
 function synthesizeNativeTouchpadDoubleTap(aTarget, aX, aY) {
+  ok(
+    getPlatform() == "mac",
+    "only implemented on mac. implement sendNativeTouchpadDoubleTap for this platform," +
+      " see bug 1696802 for how it was done on macOS"
+  );
   let pt = coordinatesRelativeToScreen({
     offsetX: aX,
     offsetY: aY,
@@ -920,7 +1005,6 @@ function promiseNativeMouseEventWithAPZAndWaitForEvent(aParams) {
     const targetWindow = windowForTarget(aParams.target);
     const eventType = aParams.eventTypeToWait || aParams.type;
     targetWindow.addEventListener(eventType, resolve, {
-      capture: true,
       once: true,
     });
     synthesizeNativeMouseEventWithAPZ(aParams);
@@ -1350,4 +1434,22 @@ async function pinchZoomOutWithTouchAtCenter() {
   var zoom_out = pinchZoomOutTouchSequenceAtCenter();
   var touchIds = [0, 1];
   await synthesizeNativeTouchAndWaitForTransformEnd(zoom_out, touchIds);
+}
+
+// useTouchpad is only currently implemented on macOS
+async function doubleTapOn(element, x, y, useTouchpad) {
+  let transformEndPromise = promiseTransformEnd();
+
+  if (useTouchpad) {
+    synthesizeNativeTouchpadDoubleTap(element, x, y);
+  } else {
+    synthesizeNativeTap(element, x, y);
+    synthesizeNativeTap(element, x, y);
+  }
+
+  // Wait for the APZ:TransformEnd to fire
+  await transformEndPromise;
+
+  // Flush state so we can query an accurate resolution
+  await promiseApzFlushedRepaints();
 }

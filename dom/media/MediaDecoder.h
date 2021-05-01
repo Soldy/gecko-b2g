@@ -70,6 +70,7 @@ struct MOZ_STACK_CLASS MediaDecoderInit {
   const bool mHasSuspendTaint;
   const bool mLooping;
   const MediaContainerType mContainerType;
+  const nsAutoString mStreamName;
 
   MediaDecoderInit(MediaDecoderOwner* aOwner,
                    TelemetryProbesReporterOwner* aReporterOwner,
@@ -164,6 +165,7 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   void SetPlaybackRate(double aPlaybackRate);
   void SetPreservesPitch(bool aPreservesPitch);
   void SetLooping(bool aLooping);
+  void SetStreamName(const nsAutoString& aStreamName);
 
   // Set the given device as the output device.
   RefPtr<GenericPromise> SetSink(AudioDeviceInfo* aSinkDevice);
@@ -659,6 +661,8 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
 
   Canonical<bool> mLooping;
 
+  Canonical<nsAutoString> mStreamName;
+
   // The device used with SetSink, or nullptr if no explicit device has been
   // set.
   Canonical<RefPtr<AudioDeviceInfo>> mSinkDevice;
@@ -718,6 +722,9 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
     return &mPreservesPitch;
   }
   AbstractCanonical<bool>* CanonicalLooping() { return &mLooping; }
+  AbstractCanonical<nsAutoString>* CanonicalStreamName() {
+    return &mStreamName;
+  }
   AbstractCanonical<RefPtr<AudioDeviceInfo>>* CanonicalSinkDevice() {
     return &mSinkDevice;
   }

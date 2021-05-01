@@ -32,7 +32,7 @@ nsresult FakeMediaTrackGraph::OpenAudioInput(CubebUtils::AudioDeviceID aID,
   return NS_ERROR_FAILURE;
 }
 
-void FakeMediaTrackGraph::CloseAudioInput(Maybe<CubebUtils::AudioDeviceID>& aID,
+void FakeMediaTrackGraph::CloseAudioInput(CubebUtils::AudioDeviceID aID,
                                           AudioDataListener* aListener) {}
 
 Watchable<mozilla::GraphTime>& FakeMediaTrackGraph::CurrentTime() {

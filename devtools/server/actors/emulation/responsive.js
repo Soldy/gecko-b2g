@@ -46,9 +46,8 @@ const ResponsiveActor = protocol.ActorClassWithSpec(responsiveSpec, {
 
   destroy() {
     this.clearNetworkThrottling();
-    this.clearTouchEventsOverride();
+    this.toggleTouchSimulator({ enable: false });
     this.clearMetaViewportOverride();
-    this.clearUserAgentOverride();
 
     this.targetActor.off("window-ready", this.onWindowReady);
 
@@ -201,35 +200,30 @@ const ResponsiveActor = protocol.ActorClassWithSpec(responsiveSpec, {
     this.touchSimulator.setElementPickerState(state, pickerType);
   },
 
-  setTouchEventsOverride(flag) {
-    if (this.getTouchEventsOverride() == flag) {
+  /**
+   * Start or stop the touch simulator depending on the parameter
+   *
+   * @param {Object} options
+   * @param {Boolean} options.enable: Pass true to start the touch simulator. Any other
+   *                  value will stop it. Defaults to false.
+   * @returns {Boolean} Whether or not any action was done on the touch simulator.
+   */
+  toggleTouchSimulator({ enable = false } = {}) {
+    if (enable) {
+      if (this.touchSimulator.enabled) {
+        return false;
+      }
+
+      this.touchSimulator.start();
+      return true;
+    }
+
+    if (!this.touchSimulator.enabled) {
       return false;
     }
-    if (this._previousTouchEventsOverride === undefined) {
-      this._previousTouchEventsOverride = this.getTouchEventsOverride();
-    }
 
-    // Start or stop the touch simulator depending on the override flag
-    // See BrowsingContext.webidl `TouchEventsOverride` enum for values.
-    if (flag == "enabled") {
-      this.touchSimulator.start();
-    } else {
-      this.touchSimulator.stop();
-    }
-
-    this.docShell.browsingContext.touchEventsOverride = flag;
+    this.touchSimulator.stop();
     return true;
-  },
-
-  getTouchEventsOverride() {
-    return this.docShell.browsingContext.touchEventsOverride;
-  },
-
-  clearTouchEventsOverride() {
-    if (this._previousTouchEventsOverride !== undefined) {
-      return this.setTouchEventsOverride(this._previousTouchEventsOverride);
-    }
-    return false;
   },
 
   /* Meta viewport override */
@@ -259,70 +253,12 @@ const ResponsiveActor = protocol.ActorClassWithSpec(responsiveSpec, {
     return false;
   },
 
-  /* User agent override */
-
-  _previousUserAgentOverride: undefined,
-
-  setUserAgentOverride(userAgent) {
-    if (this.getUserAgentOverride() == userAgent) {
-      return false;
-    }
-    if (this._previousUserAgentOverride === undefined) {
-      this._previousUserAgentOverride = this.getUserAgentOverride();
-    }
-    // Bug 1637494: TODO - customUserAgent should only be set from parent
-    // process.
-    this.docShell.customUserAgent = userAgent;
-    return true;
-  },
-
-  getUserAgentOverride() {
-    return this.docShell.browsingContext.customUserAgent;
-  },
-
-  clearUserAgentOverride() {
-    if (this._previousUserAgentOverride !== undefined) {
-      return this.setUserAgentOverride(this._previousUserAgentOverride);
-    }
-    return false;
-  },
-
-  setScreenOrientation(type, angle) {
-    if (
-      this.win.screen.orientation.angle !== angle ||
-      this.win.screen.orientation.type !== type
-    ) {
-      this.docShell.browsingContext.setRDMPaneOrientation(type, angle);
-    }
-  },
-
   /**
-   * Simulates the "orientationchange" event when device screen is rotated.
-   *
-   * @param {String} type
-   *        The orientation type of the rotated device.
-   * @param {Number} angle
-   *        The rotated angle of the device.
-   * @param {Boolean} isViewportRotated
-   *        Whether or not screen orientation change is a result of rotating the viewport.
-   *        If true, then dispatch the "orientationchange" event on the content window.
+   * Dispatches an "orientationchange" event.
    */
-  async simulateScreenOrientationChange(
-    type,
-    angle,
-    isViewportRotated = false
-  ) {
-    // Don't dispatch the "orientationchange" event if orientation change is a result
-    // of switching to a new device, location change, or opening RDM.
-    if (!isViewportRotated) {
-      this.setScreenOrientation(type, angle);
-      return;
-    }
-
+  async dispatchOrientationChangeEvent() {
     const { CustomEvent } = this.win;
     const orientationChangeEvent = new CustomEvent("orientationchange");
-
-    this.setScreenOrientation(type, angle);
     this.win.dispatchEvent(orientationChangeEvent);
   },
 
@@ -353,11 +289,6 @@ const ResponsiveActor = protocol.ActorClassWithSpec(responsiveSpec, {
     }
 
     this.flushStyle();
-  },
-
-  async setMaxTouchPoints(touchSimulationEnabled) {
-    const maxTouchPoints = touchSimulationEnabled ? 1 : 0;
-    this.docShell.browsingContext.setRDMPaneMaxTouchPoints(maxTouchPoints);
   },
 
   flushStyle() {

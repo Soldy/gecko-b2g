@@ -1630,6 +1630,7 @@ Return<void> nsRilResponse::setIndicationFilterResponse(
   rspInfo = info;
   mRIL->processResponse(rspInfo.type);
 
+  defaultResponse(rspInfo, u"setUnsolResponseFilter"_ns);
   return Void();
 }
 

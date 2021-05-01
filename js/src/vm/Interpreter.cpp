@@ -36,7 +36,7 @@
 #include "js/CharacterEncoding.h"
 #include "js/experimental/JitInfo.h"  // JSJitInfo
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/friend/WindowProxy.h"    // js::IsWindowProxy
 #include "util/CheckedArithmetic.h"
 #include "util/StringBuffer.h"
@@ -250,7 +250,7 @@ bool js::GetImportOperation(JSContext* cx, HandleObject envChain,
                             MutableHandleValue vp) {
   RootedObject env(cx), pobj(cx);
   RootedPropertyName name(cx, script->getName(pc));
-  Rooted<PropertyResult> prop(cx);
+  PropertyResult prop;
 
   MOZ_ALWAYS_TRUE(LookupName(cx, name, envChain, &env, &pobj, &prop));
   MOZ_ASSERT(env && env->is<ModuleEnvironmentObject>());
@@ -357,7 +357,8 @@ InterpreterFrame* RunState::pushInterpreterFrame(JSContext* cx) {
 #  pragma optimize("g", off)
 #endif
 bool js::RunScript(JSContext* cx, RunState& state) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -416,7 +417,8 @@ MOZ_ALWAYS_INLINE bool CallJSNative(JSContext* cx, Native native,
   TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
   AutoTraceLog traceLog(logger, TraceLogger_Call);
 
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -712,7 +714,8 @@ bool js::CallGetter(JSContext* cx, HandleValue thisv, HandleValue getter,
                     MutableHandleValue rval) {
   // Invoke could result in another try to get or set the same id again, see
   // bug 355497.
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -723,7 +726,8 @@ bool js::CallGetter(JSContext* cx, HandleValue thisv, HandleValue getter,
 
 bool js::CallSetter(JSContext* cx, HandleValue thisv, HandleValue setter,
                     HandleValue v) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -964,7 +968,7 @@ static void PopEnvironment(JSContext* cx, EnvironmentIter& ei) {
       }
       if (ei.scope().hasEnvironment()) {
         ei.initialFrame()
-            .popOffEnvironmentChain<BlockLexicalEnvironmentObject>();
+            .popOffEnvironmentChain<ScopedLexicalEnvironmentObject>();
       }
       break;
     case ScopeKind::With:
@@ -4038,11 +4042,13 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
 
     CASE(PopLexicalEnv) {
 #ifdef DEBUG
-      // Pop block from scope chain.
       Scope* scope = script->lookupScope(REGS.pc);
       MOZ_ASSERT(scope);
-      MOZ_ASSERT(scope->is<LexicalScope>());
-      MOZ_ASSERT(scope->as<LexicalScope>().hasEnvironment());
+      MOZ_ASSERT(scope->is<LexicalScope>() || scope->is<ClassBodyScope>());
+      MOZ_ASSERT_IF(scope->is<LexicalScope>(),
+                    scope->as<LexicalScope>().hasEnvironment());
+      MOZ_ASSERT_IF(scope->is<ClassBodyScope>(),
+                    scope->as<ClassBodyScope>().hasEnvironment());
 #endif
 
       if (MOZ_UNLIKELY(cx->realm()->isDebuggee())) {
@@ -4050,16 +4056,20 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
       }
 
       // Pop block from scope chain.
-      REGS.fp()->popOffEnvironmentChain<BlockLexicalEnvironmentObject>();
+      REGS.fp()->popOffEnvironmentChain<LexicalEnvironmentObject>();
     }
     END_CASE(PopLexicalEnv)
 
     CASE(DebugLeaveLexicalEnv) {
-      MOZ_ASSERT(script->lookupScope(REGS.pc));
-      MOZ_ASSERT(script->lookupScope(REGS.pc)->is<LexicalScope>());
-      MOZ_ASSERT(
-          !script->lookupScope(REGS.pc)->as<LexicalScope>().hasEnvironment());
-
+#ifdef DEBUG
+      Scope* scope = script->lookupScope(REGS.pc);
+      MOZ_ASSERT(scope);
+      MOZ_ASSERT(scope->is<LexicalScope>() || scope->is<ClassBodyScope>());
+      MOZ_ASSERT_IF(scope->is<LexicalScope>(),
+                    !scope->as<LexicalScope>().hasEnvironment());
+      MOZ_ASSERT_IF(scope->is<ClassBodyScope>(),
+                    !scope->as<ClassBodyScope>().hasEnvironment());
+#endif
       // FIXME: This opcode should not be necessary.  The debugger shouldn't
       // need help from bytecode to do its job.  See bug 927782.
 
@@ -4090,6 +4100,16 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
       }
     }
     END_CASE(RecreateLexicalEnv)
+
+    CASE(PushClassBodyEnv) {
+      ReservedRooted<Scope*> scope(&rootScope0, script->getScope(REGS.pc));
+
+      if (!REGS.fp()->pushClassBodyEnvironment(cx,
+                                               scope.as<ClassBodyScope>())) {
+        goto error;
+      }
+    }
+    END_CASE(PushClassBodyEnv)
 
     CASE(PushVarEnv) {
       ReservedRooted<Scope*> scope(&rootScope0, script->getScope(REGS.pc));
@@ -4815,7 +4835,7 @@ bool js::AtomicIsLockFree(JSContext* cx, HandleValue in, int* out) {
 bool js::DeleteNameOperation(JSContext* cx, HandlePropertyName name,
                              HandleObject scopeObj, MutableHandleValue res) {
   RootedObject scope(cx), pobj(cx);
-  Rooted<PropertyResult> prop(cx);
+  PropertyResult prop;
   if (!LookupName(cx, name, scopeObj, &scope, &pobj, &prop)) {
     return false;
   }
@@ -5049,6 +5069,14 @@ JSObject* js::NewObjectOperationWithTemplate(JSContext* cx,
 
   NewObjectKind newKind = GenericObject;
   return CopyTemplateObject(cx, templateObject.as<PlainObject>(), newKind);
+}
+
+JSObject* js::NewPlainObject(JSContext* cx, HandleShape shape,
+                             gc::AllocKind allocKind,
+                             gc::InitialHeap initialHeap) {
+  MOZ_ASSERT(shape->getObjectClass() == &PlainObject::class_);
+  auto r = NativeObject::create(cx, allocKind, initialHeap, shape);
+  return cx->resultToPtr(r);
 }
 
 JSObject* js::CreateThisWithTemplate(JSContext* cx,

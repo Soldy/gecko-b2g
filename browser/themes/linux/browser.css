@@ -21,7 +21,7 @@
 
   --toolbarbutton-border-radius: 4px;
   --toolbarbutton-vertical-text-padding: calc(var(--toolbarbutton-inner-padding) - 1px);
-  --toolbarbutton-icon-fill-opacity: .85;
+  --toolbarbutton-icon-fill-opacity: 1;
 
   --panel-separator-color: ThreeDShadow;
 
@@ -33,10 +33,21 @@
 @media (-moz-proton) {
 :root:not(:-moz-lwtheme) {
   --focus-outline-color: -moz-accent-color;
+  --toolbarbutton-icon-fill-attention: -moz-accent-color;
 }
+
+#TabsToolbar:not(:-moz-lwtheme),
+#TabsToolbar[brighttext]:not(:-moz-lwtheme) {
+  --attention-icon-color: -moz-accent-color;
+}
+
 } /*** END proton ***/
 
 @media not (-moz-proton) {
+:root {
+  --toolbarbutton-icon-fill-opacity: .85;
+}
+
 #tabbrowser-tabs {
   --tab-line-color: -moz-accent-color;
 }
@@ -207,7 +218,7 @@ menuitem.bookmark-item {
   --autocomplete-popup-highlight-color: HighlightText;
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 :root:not(:-moz-lwtheme) {
   --urlbar-popup-url-color: -moz-nativehyperlinktext;
 }
@@ -435,13 +446,7 @@ menuitem.bookmark-item {
     height: var(--tab-min-height);
   }
   :root[tabsintitlebar][sizemode="normal"] #toolbar-menubar[autohide="true"] {
-    height: calc(var(--tab-min-height) + var(--space-above-tabbar));
-  }
-
-  /* Add extra space to titlebar for dragging */
-  :root[sizemode="normal"][chromehidden~="menubar"] #TabsToolbar > .toolbar-items,
-  :root[sizemode="normal"] #toolbar-menubar[autohide="true"][inactive] + #TabsToolbar > .toolbar-items {
-    padding-top: var(--space-above-tabbar);
+    height: var(--tab-min-height);
   }
 
   /* Make #TabsToolbar transparent as we style underlying #titlebar with

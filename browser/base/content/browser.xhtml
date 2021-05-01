@@ -131,6 +131,9 @@
     <menupopup id="tabContextMenu"
                onpopupshowing="if (event.target == this) TabContextMenu.updateContextMenu(this);"
                onpopuphidden="if (event.target == this) TabContextMenu.contextTab = null;">
+      <menuitem id="context_openANewTab" data-lazy-l10n-id="tab-context-new-tab"
+                oncommand="gBrowser.addAdjacentNewTab(TabContextMenu.contextTab)"/>
+      <menuseparator/>
       <menuitem id="context_reloadTab" data-lazy-l10n-id="reload-tab"
                 oncommand="gBrowser.reloadTab(TabContextMenu.contextTab);"/>
       <menuitem id="context_reloadSelectedTabs" data-lazy-l10n-id="reload-tabs" hidden="true"
@@ -216,14 +219,12 @@
     -->
     <menupopup id="backForwardMenu"
                onpopupshowing="return FillHistoryMenu(event.target);"
-               oncommand="gotoHistoryIndex(event); event.stopPropagation();"
-               onclick="checkForMiddleClick(this, event);"/>
+               oncommand="gotoHistoryIndex(event); event.stopPropagation();"/>
     <tooltip id="aHTMLTooltip" page="true"/>
     <tooltip id="remoteBrowserTooltip"/>
 
     <menupopup id="new-tab-button-popup"
-               onpopupshowing="return CreateContainerTabMenu(event);"
-               onclick="checkForMiddleClick(this, event);"/>
+               onpopupshowing="return CreateContainerTabMenu(event);"/>
     <!-- for search and content formfill/pw manager -->
 
     <panel is="autocomplete-richlistbox-popup"
@@ -302,13 +303,16 @@
             <image/>
           </toolbarbutton>
         </box>
-        <html:div id="editBookmarkPanelInfoArea">
-          <html:div id="editBookmarkPanelRecommendation"></html:div>
-          <html:div id="editBookmarkPanelFaviconContainer">
-            <html:img id="editBookmarkPanelFavicon"/>
+        <toolbarseparator id="editBookmarkHeaderSeparator"></toolbarseparator>
+        <vbox class="panel-subview-body">
+          <html:div id="editBookmarkPanelInfoArea">
+            <html:div id="editBookmarkPanelRecommendation"></html:div>
+            <html:div id="editBookmarkPanelFaviconContainer">
+              <html:img id="editBookmarkPanelFavicon"/>
+            </html:div>
+            <html:div id="editBookmarkPanelImage"></html:div>
           </html:div>
-          <html:div id="editBookmarkPanelImage"></html:div>
-        </html:div>
+          <toolbarseparator id="editBookmarkSeparator"></toolbarseparator>
 #include ../../components/places/content/editBookmarkPanel.inc.xhtml
           <vbox id="editBookmarkPanelBottomContent"
                 flex="1">
@@ -340,6 +344,7 @@
                     oncommand="StarUI.panel.hidePopup();"/>
 #endif
           </hbox>
+        </vbox>
       </panel>
     </html:template>
 
@@ -401,21 +406,18 @@
            orient="vertical"
            position="bottomcenter topleft">
       <toolbarbutton id="sidebar-switcher-bookmarks"
-                     type="checkbox"
                      data-l10n-id="sidebar-menu-bookmarks"
-                     class="subviewbutton subviewbutton-iconic"
+                     class="subviewbutton"
                      key="viewBookmarksSidebarKb"
                      oncommand="SidebarUI.show('viewBookmarksSidebar');"/>
       <toolbarbutton id="sidebar-switcher-history"
-                     type="checkbox"
                      data-l10n-id="sidebar-menu-history"
-                     class="subviewbutton subviewbutton-iconic"
+                     class="subviewbutton"
                      key="key_gotoHistory"
                      oncommand="SidebarUI.show('viewHistorySidebar');"/>
       <toolbarbutton id="sidebar-switcher-tabs"
-                     type="checkbox"
                      data-l10n-id="sidebar-menu-synced-tabs"
-                     class="subviewbutton subviewbutton-iconic sync-ui-item"
+                     class="subviewbutton sync-ui-item"
                      oncommand="SidebarUI.show('viewTabsSidebar');"/>
       <toolbarseparator/>
       <!-- Extension toolbarbuttons go here. -->
@@ -457,6 +459,11 @@
                 data-lazy-l10n-id="toolbar-context-menu-remove-from-toolbar"
                 contexttype="toolbaritem"
                 class="customize-context-removeFromToolbar"/>
+      <menuitem id="toolbar-context-openANewTab"
+                contexttype="tabbar"
+                command="cmd_newNavigatorTab"
+                data-lazy-l10n-id="toolbar-context-menu-new-tab"/>
+      <menuseparator id="toolbarNavigatorItemsMenuSeparator"/>
       <menuitem id="toolbar-context-reloadSelectedTab"
                 contexttype="tabbar"
                 oncommand="gBrowser.reloadMultiSelectedTabs();"
@@ -595,19 +602,6 @@
 
     <menupopup id="pageActionContextMenu"
                onpopupshowing="BrowserPageActions.onContextMenuShowing(event, this);">
-      <menuitem class="pageActionContextMenuItem builtInUnpinned"
-                oncommand="BrowserPageActions.togglePinningForContextAction();"
-                data-l10n-id="page-action-add-to-urlbar"/>
-      <menuitem class="pageActionContextMenuItem builtInPinned"
-                oncommand="BrowserPageActions.togglePinningForContextAction();"
-                data-l10n-id="page-action-remove-from-urlbar"/>
-      <menuitem class="pageActionContextMenuItem extensionUnpinned"
-                oncommand="BrowserPageActions.togglePinningForContextAction();"
-                data-l10n-id="page-action-add-to-urlbar"/>
-      <menuitem class="pageActionContextMenuItem extensionPinned"
-                oncommand="BrowserPageActions.togglePinningForContextAction();"
-                data-l10n-id="page-action-remove-from-urlbar"/>
-      <menuseparator class="pageActionContextMenuItem extensionPinned extensionUnpinned"/>
       <menuitem class="pageActionContextMenuItem extensionPinned extensionUnpinned manageExtensionItem"
                 oncommand="BrowserPageActions.openAboutAddonsForContextAction();"
                 data-l10n-id="page-action-manage-extension"/>
@@ -754,7 +748,7 @@
       <vbox class="panel-subview-body">
         <vbox id="appMenu-addon-banners"/>
         <toolbarbutton id="appMenu-update-banner" class="panel-banner-item"
-                       data-l10n-id="appmenuitem-update-banner2"
+                       data-l10n-id="appmenuitem-update-banner3"
                        data-l10n-attrs="label-update-downloading, label-update-available, label-update-manual, label-update-unsupported, label-update-restart"
                        oncommand="PanelUI._onBannerItemSelected(event)"
                        wrap="true"
@@ -966,7 +960,7 @@
       <vbox class="panel-subview-body">
         <vbox id="appMenu-proton-addon-banners"/>
         <toolbarbutton id="appMenu-proton-update-banner" class="panel-banner-item"
-                       data-l10n-id="appmenuitem-update-banner2"
+                       data-l10n-id="appmenuitem-update-banner3"
                        data-l10n-attrs="label-update-downloading, label-update-available, label-update-manual, label-update-unsupported, label-update-restart"
                        oncommand="PanelUI._onBannerItemSelected(event)"
                        wrap="true"
@@ -1235,7 +1229,8 @@
                    data-l10n-id="profiler-popup-settings" />
             <menulist id="PanelUI-profiler-presets"
                       flex="1"
-                      value="custom">
+                      value="custom"
+                      size="large">
               <menupopup id="PanelUI-profiler-presets-menupopup" presetsbuilt="false">
                 <!-- The rest of the values get dynamically inserted. The "presetsbuilt"
                     attribute will get updated to "true" once the presets have been
@@ -1850,9 +1845,6 @@
                    tooltip="tracking-protection-icon-tooltip">
                 <box id="tracking-protection-icon-box">
                   <image id="tracking-protection-icon"/>
-                  <box id="tracking-protection-icon-animatable-box" flex="1">
-                    <image id="tracking-protection-icon-animatable-image" flex="1"/>
-                  </box>
                 </box>
                 <tooltip id="tracking-protection-icon-tooltip">
                   <description id="tracking-protection-icon-tooltip-label" class="tooltip-label"/>
@@ -2031,10 +2023,6 @@
                   <image id="star-button"
                          class="urlbar-icon"
                          role="button"/>
-                  <hbox id="star-button-animatable-box">
-                    <image id="star-button-animatable-image"
-                           role="presentation"/>
-                  </hbox>
                 </hbox>
               </hbox>
             </hbox>
@@ -2136,10 +2124,6 @@
                        data-l10n-id="browser-window-close-button"
                        oncommand="BrowserTryToCloseWindow();"/>
       </hbox>
-
-      <box id="library-animatable-box" class="toolbarbutton-animatable-box">
-        <image class="toolbarbutton-animatable-image"/>
-      </box>
     </toolbar>
 
     <toolbar id="PersonalToolbar"

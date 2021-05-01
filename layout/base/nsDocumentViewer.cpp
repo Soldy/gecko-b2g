@@ -332,9 +332,6 @@ class nsDocumentViewer final : public nsIContentViewer,
   NS_DECL_NSIWEBBROWSERPRINT
 #endif
 
-  using CallChildFunc = FunctionRef<void(nsDocumentViewer*)>;
-  void CallChildren(CallChildFunc aFunc);
-
   // nsIDocumentViewerPrint Printing Methods
   NS_DECL_NSIDOCUMENTVIEWERPRINT
 
@@ -466,8 +463,8 @@ class nsDocumentViewer final : public nsIContentViewer,
 #endif  // NS_PRINTING
 
   /* character set member data */
-  int32_t mHintCharsetSource;
-  const Encoding* mHintCharset;
+  int32_t mReloadEncodingSource;
+  const Encoding* mReloadEncoding;
 
   bool mIsPageMode;
   bool mInitializedForPrintPreview;
@@ -530,8 +527,8 @@ nsDocumentViewer::nsDocumentViewer()
 #ifdef NS_PRINTING
       mClosingWhilePrinting(false),
 #endif  // NS_PRINTING
-      mHintCharsetSource(kCharsetUninitialized),
-      mHintCharset(nullptr),
+      mReloadEncodingSource(kCharsetUninitialized),
+      mReloadEncoding(nullptr),
       mIsPageMode(false),
       mInitializedForPrintPreview(false),
       mHidden(false) {
@@ -2541,28 +2538,6 @@ NS_IMETHODIMP nsDocumentViewer::SetCommandNode(nsINode* aNode) {
   return NS_OK;
 }
 
-void nsDocumentViewer::CallChildren(CallChildFunc aFunc) {
-  nsCOMPtr<nsIDocShell> docShell(mContainer);
-  if (!docShell) {
-    return;
-  }
-  int32_t n = 0;
-  docShell->GetInProcessChildCount(&n);
-  for (int32_t i = 0; i < n; i++) {
-    nsCOMPtr<nsIDocShellTreeItem> child;
-    docShell->GetInProcessChildAt(i, getter_AddRefs(child));
-    nsCOMPtr<nsIDocShell> childAsShell(do_QueryInterface(child));
-    NS_ASSERTION(childAsShell, "null child in docshell");
-    if (childAsShell) {
-      nsCOMPtr<nsIContentViewer> childCV;
-      childAsShell->GetContentViewer(getter_AddRefs(childCV));
-      if (childCV) {
-        aFunc(static_cast<nsDocumentViewer*>(childCV.get()));
-      }
-    }
-  }
-}
-
 NS_IMETHODIMP
 nsDocumentViewer::GetDeviceFullZoomForTest(float* aDeviceFullZoom) {
   NS_ENSURE_ARG_POINTER(aDeviceFullZoom);
@@ -2589,70 +2564,27 @@ nsDocumentViewer::GetAuthorStyleDisabled(bool* aStyleDisabled) {
   return NS_OK;
 }
 
-NS_IMETHODIMP nsDocumentViewer::GetHintCharacterSet(
-    nsACString& aHintCharacterSet) {
-  auto encoding = nsDocumentViewer::GetHintCharset();
-  if (encoding) {
-    encoding->Name(aHintCharacterSet);
-  } else {
-    aHintCharacterSet.Truncate();
-  }
-  return NS_OK;
-}
-
 /* [noscript,notxpcom] Encoding getHintCharset (); */
 NS_IMETHODIMP_(const Encoding*)
-nsDocumentViewer::GetHintCharset() {
-  if (kCharsetUninitialized == mHintCharsetSource) {
+nsDocumentViewer::GetReloadEncodingAndSource(int32_t* aSource) {
+  *aSource = mReloadEncodingSource;
+  if (kCharsetUninitialized == mReloadEncodingSource) {
     return nullptr;
   }
-  // this can't possibly be right.  we can't set a value just because somebody
-  // got a related value!
-  // mHintCharsetSource = kCharsetUninitialized;
-  return mHintCharset;
+  return mReloadEncoding;
 }
 
-NS_IMETHODIMP nsDocumentViewer::GetHintCharacterSetSource(
-    int32_t* aHintCharacterSetSource) {
-  NS_ENSURE_ARG_POINTER(aHintCharacterSetSource);
-  *aHintCharacterSetSource = mHintCharsetSource;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocumentViewer::SetHintCharacterSetSource(int32_t aHintCharacterSetSource) {
-  mHintCharsetSource = aHintCharacterSetSource;
-  auto childFn = [aHintCharacterSetSource](nsDocumentViewer* aChild) {
-    aChild->SetHintCharacterSetSource(aHintCharacterSetSource);
-  };
-  // now set the force char set on all children of mContainer
-  CallChildren(childFn);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocumentViewer::SetHintCharacterSet(const nsACString& aHintCharacterSet) {
-  // The empty string means no hint.
-  const Encoding* encoding = nullptr;
-  if (!aHintCharacterSet.IsEmpty()) {
-    if (!(encoding = Encoding::ForLabel(aHintCharacterSet))) {
-      // Reject unknown labels
-      return NS_ERROR_INVALID_ARG;
-    }
-  }
-  nsDocumentViewer::SetHintCharset(encoding);
-  return NS_OK;
-}
-
-/* [noscript,notxpcom] void setHintCharset (in Encoding aEncoding); */
 NS_IMETHODIMP_(void)
-nsDocumentViewer::SetHintCharset(const Encoding* aEncoding) {
-  mHintCharset = aEncoding;
-  auto childFn = [aEncoding](nsDocumentViewer* aChild) {
-    aChild->SetHintCharset(aEncoding);
-  };
-  // now set the force char set on all children of mContainer
-  CallChildren(childFn);
+nsDocumentViewer::SetReloadEncodingAndSource(const Encoding* aEncoding,
+                                             int32_t aSource) {
+  mReloadEncoding = aEncoding;
+  mReloadEncodingSource = aSource;
+}
+
+NS_IMETHODIMP_(void)
+nsDocumentViewer::ForgetReloadEncoding() {
+  mReloadEncoding = nullptr;
+  mReloadEncodingSource = kCharsetUninitialized;
 }
 
 nsresult nsDocumentViewer::GetContentSizeInternal(int32_t* aWidth,

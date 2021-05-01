@@ -31,6 +31,7 @@
 #include "mozilla/layers/MatrixMessage.h"
 #include "mozilla/layers/RepaintRequest.h"
 #include "nsSize.h"
+#include "mozilla/layers/DoubleTapToZoom.h"
 
 // For ParamTraits, could be moved to cpp file
 #include "ipc/nsGUIEventIPC.h"
@@ -214,6 +215,7 @@ struct ParamTraits<mozilla::layers::FrameMetrics>
     WriteParam(aMsg, aParam.mScrollId);
     WriteParam(aMsg, aParam.mPresShellResolution);
     WriteParam(aMsg, aParam.mCompositionBounds);
+    WriteParam(aMsg, aParam.mCompositionBoundsWidthIgnoringScrollbars);
     WriteParam(aMsg, aParam.mDisplayPort);
     WriteParam(aMsg, aParam.mCriticalDisplayPort);
     WriteParam(aMsg, aParam.mScrollableRect);
@@ -242,6 +244,8 @@ struct ParamTraits<mozilla::layers::FrameMetrics>
     return (ReadParam(aMsg, aIter, &aResult->mScrollId) &&
             ReadParam(aMsg, aIter, &aResult->mPresShellResolution) &&
             ReadParam(aMsg, aIter, &aResult->mCompositionBounds) &&
+            ReadParam(aMsg, aIter,
+                      &aResult->mCompositionBoundsWidthIgnoringScrollbars) &&
             ReadParam(aMsg, aIter, &aResult->mDisplayPort) &&
             ReadParam(aMsg, aIter, &aResult->mCriticalDisplayPort) &&
             ReadParam(aMsg, aIter, &aResult->mScrollableRect) &&
@@ -443,6 +447,7 @@ struct ParamTraits<mozilla::layers::ScrollMetadata>
     WriteParam(aMsg, aParam.mResolutionUpdated);
     WriteParam(aMsg, aParam.mIsRDMTouchSimulationActive);
     WriteParam(aMsg, aParam.mDidContentGetPainted);
+    WriteParam(aMsg, aParam.mPrefersReducedMotion);
     WriteParam(aMsg, aParam.mDisregardedDirection);
     WriteParam(aMsg, aParam.mOverscrollBehavior);
     WriteParam(aMsg, aParam.mScrollUpdates);
@@ -482,6 +487,8 @@ struct ParamTraits<mozilla::layers::ScrollMetadata>
                                 &paramType::SetIsRDMTouchSimulationActive)) &&
            ReadBoolForBitfield(aMsg, aIter, aResult,
                                &paramType::SetDidContentGetPainted) &&
+           ReadBoolForBitfield(aMsg, aIter, aResult,
+                               &paramType::SetPrefersReducedMotion) &&
            ReadParam(aMsg, aIter, &aResult->mDisregardedDirection) &&
            ReadParam(aMsg, aIter, &aResult->mOverscrollBehavior) &&
            ReadParam(aMsg, aIter, &aResult->mScrollUpdates);
@@ -936,7 +943,7 @@ struct ParamTraits<mozilla::layers::SimpleLayerAttributes> {
     WriteParam(aMsg, aParam.mContentFlags);
     WriteParam(aMsg, aParam.mOpacity);
     WriteParam(aMsg, aParam.mIsFixedPosition);
-    WriteParam(aMsg, aParam.mIsAsyncZoomContainerForViewId);
+    WriteParam(aMsg, aParam.mAsyncZoomContainerId);
     WriteParam(aMsg, aParam.mScrollbarData);
     WriteParam(aMsg, aParam.mMixBlendMode);
     WriteParam(aMsg, aParam.mForceIsolatedGroup);
@@ -954,7 +961,7 @@ struct ParamTraits<mozilla::layers::SimpleLayerAttributes> {
            ReadParam(aMsg, aIter, &aResult->mContentFlags) &&
            ReadParam(aMsg, aIter, &aResult->mOpacity) &&
            ReadParam(aMsg, aIter, &aResult->mIsFixedPosition) &&
-           ReadParam(aMsg, aIter, &aResult->mIsAsyncZoomContainerForViewId) &&
+           ReadParam(aMsg, aIter, &aResult->mAsyncZoomContainerId) &&
            ReadParam(aMsg, aIter, &aResult->mScrollbarData) &&
            ReadParam(aMsg, aIter, &aResult->mMixBlendMode) &&
            ReadParam(aMsg, aIter, &aResult->mForceIsolatedGroup) &&
@@ -999,6 +1006,22 @@ struct ParamTraits<mozilla::RayReferenceData> {
                    paramType* aResult) {
     return (ReadParam(aMsg, aIter, &aResult->mInitialPosition) &&
             ReadParam(aMsg, aIter, &aResult->mContainingBlockRect));
+  }
+};
+
+template <>
+struct ParamTraits<mozilla::layers::ZoomTarget> {
+  typedef mozilla::layers::ZoomTarget paramType;
+
+  static void Write(Message* aMsg, const paramType& aParam) {
+    WriteParam(aMsg, aParam.targetRect);
+    WriteParam(aMsg, aParam.elementBoundingRect);
+  }
+
+  static bool Read(const Message* aMsg, PickleIterator* aIter,
+                   paramType* aResult) {
+    return (ReadParam(aMsg, aIter, &aResult->targetRect) &&
+            ReadParam(aMsg, aIter, &aResult->elementBoundingRect));
   }
 };
 

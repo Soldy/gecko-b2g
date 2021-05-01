@@ -262,6 +262,8 @@ class ChildViewMouseTracker {
                                  BOOL isClickThrough = NO);
   static void MouseExitedWindow(NSEvent* aEvent);
   static void MouseEnteredWindow(NSEvent* aEvent);
+  static void NativeMenuOpened();
+  static void NativeMenuClosed();
   static void ReEvaluateMouseEnterState(NSEvent* aEvent = nil, ChildView* aOldView = nil);
   static void ResendLastMouseMoveEvent();
   static ChildView* ViewForEvent(NSEvent* aEvent);
@@ -354,8 +356,7 @@ class nsChildView final : public nsBaseWidget {
   virtual bool WidgetTypeSupportsAcceleration() override;
   virtual bool ShouldUseOffMainThreadCompositing() override;
 
-  virtual void SetCursor(nsCursor aDefaultCursor, imgIContainer* aCursor, uint32_t aHotspotX,
-                         uint32_t aHotspotY) override;
+  virtual void SetCursor(const Cursor&) override;
 
   virtual nsresult SetTitle(const nsAString& title) override;
 

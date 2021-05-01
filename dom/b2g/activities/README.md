@@ -9,7 +9,7 @@ The `WebActivity` interface exposes to both *Window* and *Worker* scope, in the 
 The constructor of `WebActivity` takes a name of the activity and an optional Object specifying its filter type or other information, for example:
 
 ```javascript
-let activity = new WebActivity("pick", { type: "image/ipeg" });
+let activity = new WebActivity('pick', { type: 'image/ipeg' });
 ```
 
 In this example, we are trying to initiate a "pick" activity, and the handlers should support providing at least jpeg images. Please note that the constructor may throw and return a null object with illegal access.
@@ -18,12 +18,11 @@ Then, start the activity by `start()` method, if an activity handler (i.e. Galle
 
 ```
 activity.start().then(
-  rv => {
-    console.log("Results passed back from activity handler:")
-    console.log(rv);
+  result => {
+    console.log(`Result pass back from activity handler: ${result}`);
   },  
-  err => {
-    console.log(err);
+  error => {
+    console.log(`Failed: ${error}`);
   }
 );
 ```
@@ -40,7 +39,7 @@ activity.cancel();
 
 ## Handle an activity
 
-Once the user has picked an activity handler (or picked by System App secretly), `SystemMessageEvent` with name *activity* will be dispatched to the event handler on its **service worker**, unlike other system messages, `SystemMessageData` has a property `WebActivityRequestHandler`, which provides methods to resolve or reject the pending promise of `activity.start()`.
+Once the user has picked an activity handler (or picked by System App secretly), a `SystemMessageEvent`, which is an ExtendableEvent, with name *activity* will be dispatched to its `ServiceWorkerGlobalScope`. Unlike other system message events, `SystemMessageData` has a property `WebActivityRequestHandler`, which provides methods to resolve or reject the pending promise of `activity.start()`.
 
 Please note that per spec of ServiceWorkerGlobalScope[1], the activity handler is not persisted across the termination/restart cycle of worker. See [ServiceWorkerGlobalScope](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerGlobalScope) for more details.
 
@@ -61,31 +60,58 @@ Use `WebActivityRequestHandler.postError()` to send back an error message if som
 </dl>
 
 ```javascript
-self.onsystemmessage = e => {
-  try {
-    let handler = e.data.webActivityRequestHandler();
-    console.log("activity payload:");
-    console.log(handler.source);
-    let fakeResult = { images: ["a.jpeg", "b.png"], type: "favorite" };
+self.addEventListener('systemmessage', event => {
+  if (event.name === 'activity') {
+    let handler = event.data.webActivityRequestHandler();
+    let fakeResult = { fakedata: 'some fake data.' };
     handler.postResult(fakeResult);
-  } catch (err) {
-    console.log(err);
   }
-};
-
+});
 ```
 <dl>
 <b>WebActivityRequestHandler</b>
     <dt>source</dt>
     <dd>A <code>WebActivityOptions</code> object contains the information about the current activity. Set by the app who starts the activity.</dd>
     <dt>postResult()</dt>
-    <dd>Send back response and resolve the promise of app that starts the activity.</dd>
+    <dd>Send back response and resolve the promise of app that starts the activity, takes a structured clone JS Object.</dd>
     <dt>postError()</dt>
-    <dd>Send back error message and reject the promise of app that starts the activity.</dd>
+    <dd>Send back error message and reject the promise of app that starts the activity, takes a DOMString of error reasons.</dd>
 </dl>
 
 ### Open its window with Clients.openWindow
-TBD
+
+We provide an additional options to the method of `Clients.openWindow`, syntax below:
+
+```javascript
+self.clients.openWindow(url, ClientWindowOptions).then(function(windowClient) {
+  // Do something with your WindowClient
+});
+```
+
+If you like to open your app window in "activity app style", please specify `disposition: 'inline'` in the options of openWindow, for example:
+```javascript
+self.addEventListener('systemmessage', event => {
+  event.waitUntil(
+    clients
+      .openWindow('/page_to_open.html', { disposition: 'inline' })
+      .then(windowClient => {
+        // Success.
+      })  
+  );  
+});
+````
+
+Other typs of disposition:
+<br>
+<code>**window**</code> |default
+<br>Open in a new window.
+
+<code>**inline**</code>
+<br>Open in an activity window.
+
+<code>**attention**</code>
+<br>Open in an attention window.
+
 
 ## Register an App as an activity handler
 
@@ -104,9 +130,11 @@ App can register itself as an activity handler to handle one or more activities.
 ```
 The `options` object is optional, as defined in [ServiceWorkerContainer.register()#Syntax](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerContainer/register#Syntax), for example:
 
+`script_url` refers to the URL of service worker script, relative to the root directory of your site, and by default, the `scope` value for a service worker registration is set to the directory where the service worker script is located. So in the following example, service worker will loaded as `site_root_directory/your_service_worker_script.js`, and will control pages underneath it.
+
 ```javascript
 "serviceworker": {
-  "script_url": "sw.js"
+  "script_url": "your_service_worker_script.js"
 },
 ```
 

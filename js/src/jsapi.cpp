@@ -57,7 +57,7 @@
 #include "js/Conversions.h"
 #include "js/Date.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckSystemRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/Initialization.h"
 #include "js/JSON.h"
 #include "js/LocaleSensitive.h"
@@ -432,44 +432,9 @@ JS::ContextOptions& JS::ContextOptions::setWasmCranelift(bool flag) {
   return *this;
 }
 
-JS::ContextOptions& JS::ContextOptions::setWasmFunctionReferences(bool flag) {
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  wasmFunctionReferences_ = flag;
-#endif
-  return *this;
-}
-
-JS::ContextOptions& JS::ContextOptions::setWasmGc(bool flag) {
-#ifdef ENABLE_WASM_GC
-  wasmGc_ = flag;
-#endif
-  return *this;
-}
-
-JS::ContextOptions& JS::ContextOptions::setWasmMultiValue(bool flag) {
-#ifdef ENABLE_WASM_MULTI_VALUE
-  wasmMultiValue_ = flag;
-#endif
-  return *this;
-}
-
-JS::ContextOptions& JS::ContextOptions::setWasmSimd(bool flag) {
-#ifdef ENABLE_WASM_SIMD
-  wasmSimd_ = flag;
-#endif
-  return *this;
-}
-
 JS::ContextOptions& JS::ContextOptions::setWasmSimdWormhole(bool flag) {
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
   wasmSimdWormhole_ = flag;
-#endif
-  return *this;
-}
-
-JS::ContextOptions& JS::ContextOptions::setWasmExceptions(bool flag) {
-#ifdef ENABLE_WASM_EXCEPTIONS
-  wasmExceptions_ = flag;
 #endif
   return *this;
 }
@@ -831,7 +796,9 @@ JS_FRIEND_API void js::RemapRemoteWindowProxies(
   AutoDisableProxyCheck adpc;
 
   AutoEnterOOMUnsafeRegion oomUnsafe;
-  if (!CheckSystemRecursionLimit(cx)) {
+
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.checkSystem(cx)) {
     oomUnsafe.crash("js::RemapRemoteWindowProxies");
   }
 
@@ -980,12 +947,12 @@ JS_PUBLIC_API bool JS_ResolveStandardClass(JSContext* cx, HandleObject obj,
   Handle<GlobalObject*> global = obj.as<GlobalObject>();
   *resolved = false;
 
-  if (!JSID_IS_ATOM(id)) {
+  if (!id.isAtom()) {
     return true;
   }
 
   /* Check whether we're resolving 'undefined', and define it if so. */
-  JSAtom* idAtom = JSID_TO_ATOM(id);
+  JSAtom* idAtom = id.toAtom();
   if (idAtom == cx->names().undefined) {
     *resolved = true;
     return DefineDataProperty(
@@ -1051,11 +1018,11 @@ JS_PUBLIC_API bool JS_MayResolveStandardClass(const JSAtomState& names, jsid id,
     return true;
   }
 
-  if (!JSID_IS_ATOM(id)) {
+  if (!id.isAtom()) {
     return false;
   }
 
-  JSAtom* atom = JSID_TO_ATOM(id);
+  JSAtom* atom = id.toAtom();
 
   // This will return true even for deselected constructors.  (To do
   // better, we need a JSContext here; it's fine as it is.)
@@ -1207,11 +1174,11 @@ JS_PUBLIC_API JSProtoKey JS_IdToProtoKey(JSContext* cx, HandleId id) {
   CHECK_THREAD(cx);
   cx->check(id);
 
-  if (!JSID_IS_ATOM(id)) {
+  if (!id.isAtom()) {
     return JSProto_Null;
   }
 
-  JSAtom* atom = JSID_TO_ATOM(id);
+  JSAtom* atom = id.toAtom();
   const JSStdName* stdnm =
       LookupStdName(cx->names(), atom, standard_class_names);
   if (!stdnm) {
@@ -1540,21 +1507,28 @@ JS_GetExternalStringCallbacks(JSString* str) {
 
 static void SetNativeStackLimit(JSContext* cx, JS::StackKind kind,
                                 size_t stackSize) {
-#if JS_STACK_GROWTH_DIRECTION > 0
+#ifdef __wasi__
+  // WASI makes this easy: we build with the "stack-first" wasm-ld option, so
+  // the stack grows downward toward zero. Let's set a limit just a bit above
+  // this so that we catch an overflow before a Wasm trap occurs.
+  cx->nativeStackLimit[kind] = 1024;
+#else  // __wasi__
+#  if JS_STACK_GROWTH_DIRECTION > 0
   if (stackSize == 0) {
     cx->nativeStackLimit[kind] = UINTPTR_MAX;
   } else {
     MOZ_ASSERT(cx->nativeStackBase() <= size_t(-1) - stackSize);
     cx->nativeStackLimit[kind] = cx->nativeStackBase() + stackSize - 1;
   }
-#else
+#  else   // stack grows up
   if (stackSize == 0) {
     cx->nativeStackLimit[kind] = 0;
   } else {
     MOZ_ASSERT(cx->nativeStackBase() >= stackSize);
     cx->nativeStackLimit[kind] = cx->nativeStackBase() - (stackSize - 1);
   }
-#endif
+#  endif  // stack grows down
+#endif    // !__wasi__
 }
 
 JS_PUBLIC_API void JS_SetNativeStackQuota(JSContext* cx,
@@ -2024,6 +1998,25 @@ JS_PUBLIC_API bool JS_GetOwnPropertyDescriptorById(
   CHECK_THREAD(cx);
   cx->check(obj, id);
 
+  Rooted<Maybe<PropertyDescriptor>> desc_(cx);
+  if (!GetOwnPropertyDescriptor(cx, obj, id, &desc_)) {
+    return false;
+  }
+
+  if (desc_.isNothing()) {
+    desc.object().set(nullptr);
+  } else {
+    desc.set(*desc_);
+  }
+  return true;
+}
+
+JS_PUBLIC_API bool JS_GetOwnPropertyDescriptorById(
+    JSContext* cx, HandleObject obj, HandleId id,
+    MutableHandle<Maybe<PropertyDescriptor>> desc) {
+  AssertHeapIsIdle();
+  CHECK_THREAD(cx);
+  cx->check(obj, id);
   return GetOwnPropertyDescriptor(cx, obj, id, desc);
 }
 
@@ -2051,31 +2044,31 @@ JS_PUBLIC_API bool JS_GetOwnUCPropertyDescriptor(
 
 JS_PUBLIC_API bool JS_GetPropertyDescriptorById(
     JSContext* cx, HandleObject obj, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) {
+    MutableHandle<Maybe<PropertyDescriptor>> desc, MutableHandleObject holder) {
   cx->check(obj, id);
-  return GetPropertyDescriptor(cx, obj, id, desc);
+  return GetPropertyDescriptor(cx, obj, id, desc, holder);
 }
 
 JS_PUBLIC_API bool JS_GetPropertyDescriptor(
     JSContext* cx, HandleObject obj, const char* name,
-    MutableHandle<PropertyDescriptor> desc) {
+    MutableHandle<Maybe<PropertyDescriptor>> desc, MutableHandleObject holder) {
   JSAtom* atom = Atomize(cx, name, strlen(name));
   if (!atom) {
     return false;
   }
   RootedId id(cx, AtomToId(atom));
-  return JS_GetPropertyDescriptorById(cx, obj, id, desc);
+  return JS_GetPropertyDescriptorById(cx, obj, id, desc, holder);
 }
 
 JS_PUBLIC_API bool JS_GetUCPropertyDescriptor(
     JSContext* cx, HandleObject obj, const char16_t* name, size_t namelen,
-    MutableHandle<PropertyDescriptor> desc) {
+    MutableHandle<Maybe<PropertyDescriptor>> desc, MutableHandleObject holder) {
   JSAtom* atom = AtomizeChars(cx, name, namelen);
   if (!atom) {
     return false;
   }
   RootedId id(cx, AtomToId(atom));
-  return JS_GetPropertyDescriptorById(cx, obj, id, desc);
+  return JS_GetPropertyDescriptorById(cx, obj, id, desc, holder);
 }
 
 static bool DefinePropertyByDescriptor(JSContext* cx, HandleObject obj,
@@ -3490,6 +3483,7 @@ void JS::TransitiveCompileOptions::copyPODTransitiveOptions(
   introductionOffset = rhs.introductionOffset;
   hasIntroductionInfo = rhs.hasIntroductionInfo;
   hideScriptFromDebugger = rhs.hideScriptFromDebugger;
+  deferDebugMetadata = rhs.deferDebugMetadata;
   nonSyntacticScope = rhs.nonSyntacticScope;
   privateClassFields = rhs.privateClassFields;
   privateClassMethods = rhs.privateClassMethods;
@@ -3508,11 +3502,7 @@ void JS::ReadOnlyCompileOptions::copyPODNonTransitiveOptions(
 }
 
 JS::OwningCompileOptions::OwningCompileOptions(JSContext* cx)
-    : ReadOnlyCompileOptions(),
-      elementAttributeNameRoot(cx),
-      introductionScriptRoot(cx),
-      scriptOrModuleRoot(cx),
-      privateValueRoot(cx) {}
+    : ReadOnlyCompileOptions() {}
 
 void JS::OwningCompileOptions::release() {
   // OwningCompileOptions always owns these, so these casts are okay.
@@ -3541,11 +3531,6 @@ bool JS::OwningCompileOptions::copy(JSContext* cx,
   copyPODNonTransitiveOptions(rhs);
   copyPODTransitiveOptions(rhs);
 
-  elementAttributeNameRoot = rhs.elementAttributeName();
-  introductionScriptRoot = rhs.introductionScript();
-  scriptOrModuleRoot = rhs.scriptOrModule();
-  privateValueRoot = rhs.privateValue();
-
   if (rhs.filename()) {
     filename_ = DuplicateString(cx, rhs.filename()).release();
     if (!filename_) {
@@ -3571,12 +3556,7 @@ bool JS::OwningCompileOptions::copy(JSContext* cx,
   return true;
 }
 
-JS::CompileOptions::CompileOptions(JSContext* cx)
-    : ReadOnlyCompileOptions(),
-      elementAttributeNameRoot(cx),
-      introductionScriptRoot(cx),
-      scriptOrModuleRoot(cx),
-      privateValueRoot(cx) {
+JS::CompileOptions::CompileOptions(JSContext* cx) : ReadOnlyCompileOptions() {
   discardSource = cx->realm()->behaviors().discardSource();
   if (!cx->options().asmJS()) {
     asmJSOption = AsmJSOption::Disabled;
@@ -3609,7 +3589,8 @@ JS::CompileOptions::CompileOptions(JSContext* cx)
 }
 
 CompileOptions& CompileOptions::setIntroductionInfoToCaller(
-    JSContext* cx, const char* introductionType) {
+    JSContext* cx, const char* introductionType,
+    MutableHandle<JSScript*> introductionScript) {
   RootedScript maybeScript(cx);
   const char* filename;
   unsigned lineno;
@@ -3618,11 +3599,10 @@ CompileOptions& CompileOptions::setIntroductionInfoToCaller(
   DescribeScriptedCallerForCompilation(cx, &maybeScript, &filename, &lineno,
                                        &pcOffset, &mutedErrors);
   if (filename) {
-    return setIntroductionInfo(filename, introductionType, lineno, maybeScript,
-                               pcOffset);
-  } else {
-    return setIntroductionType(introductionType);
+    introductionScript.set(maybeScript);
+    return setIntroductionInfo(filename, introductionType, lineno, pcOffset);
   }
+  return setIntroductionType(introductionType);
 }
 
 JS_PUBLIC_API JSObject* JS_GetGlobalFromScript(JSScript* script) {
@@ -4595,8 +4575,7 @@ JS_PUBLIC_API bool JS::PropertySpecNameEqualsId(JSPropertySpec::Name name,
   }
 
   MOZ_ASSERT(!PropertySpecNameIsDigits(name));
-  return JSID_IS_ATOM(id) &&
-         JS_LinearStringEqualsAscii(JSID_TO_ATOM(id), name.string());
+  return id.isAtom() && JS_LinearStringEqualsAscii(id.toAtom(), name.string());
 }
 
 JS_PUBLIC_API bool JS_Stringify(JSContext* cx, MutableHandleValue vp,

@@ -19,7 +19,7 @@
 #include "frontend/BytecodeCompiler.h"
 #include "jit/InlinableNatives.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/PropertySpec.h"
 #include "js/UniquePtr.h"
 #include "util/StringBuffer.h"
@@ -145,7 +145,8 @@ bool js::obj_propertyIsEnumerable(JSContext* cx, unsigned argc, Value* vp) {
 static bool obj_toSource(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -864,20 +865,17 @@ static bool CanAddNewPropertyExcludingProtoFast(PlainObject* obj) {
 
   // Get a list of all enumerable |from| properties.
 
-  using ShapeVector = GCVector<Shape*, 8>;
-  Rooted<ShapeVector> shapes(cx, ShapeVector(cx));
+  Rooted<ShapePropertyVector> props(cx, ShapePropertyVector(cx));
 
 #ifdef DEBUG
   RootedShape fromShape(cx, fromPlain->lastProperty());
 #endif
 
   bool hasPropsWithNonDefaultAttrs = false;
-  for (Shape::Range<NoGC> r(fromPlain->lastProperty()); !r.empty();
-       r.popFront()) {
+  for (ShapePropertyIter<NoGC> iter(fromPlain->shape()); !iter.done(); iter++) {
     // Symbol properties need to be assigned last. For now fall back to the
     // slow path if we see a symbol property.
-    Shape& propShape = r.front();
-    jsid id = propShape.propidRaw();
+    jsid id = iter->key();
     if (MOZ_UNLIKELY(JSID_IS_SYMBOL(id))) {
       return true;
     }
@@ -885,20 +883,20 @@ static bool CanAddNewPropertyExcludingProtoFast(PlainObject* obj) {
     if (MOZ_UNLIKELY(id.isAtom(cx->names().proto))) {
       return true;
     }
-    if (MOZ_UNLIKELY(!propShape.isDataProperty())) {
+    if (MOZ_UNLIKELY(!iter->isDataProperty())) {
       return true;
     }
-    if (propShape.attributes() == JSPROP_ENUMERATE) {
-      MOZ_ASSERT(propShape.writable());
-      MOZ_ASSERT(propShape.configurable());
-      MOZ_ASSERT(propShape.enumerable());
+    if (iter->attributes() == JSPROP_ENUMERATE) {
+      MOZ_ASSERT(iter->writable());
+      MOZ_ASSERT(iter->configurable());
+      MOZ_ASSERT(iter->enumerable());
     } else {
       hasPropsWithNonDefaultAttrs = true;
     }
-    if (!propShape.enumerable()) {
+    if (!iter->enumerable()) {
       continue;
     }
-    if (MOZ_UNLIKELY(!shapes.append(&propShape))) {
+    if (MOZ_UNLIKELY(!props.append(*iter))) {
       return false;
     }
   }
@@ -915,9 +913,8 @@ static bool CanAddNewPropertyExcludingProtoFast(PlainObject* obj) {
     if (!toPlain->setLastProperty(cx, newShape)) {
       return false;
     }
-    for (size_t i = shapes.length(); i > 0; i--) {
-      Shape* propShape = shapes[i - 1];
-      size_t slot = propShape->slot();
+    for (size_t i = props.length(); i > 0; i--) {
+      size_t slot = props[i - 1].slot();
       toPlain->initSlot(slot, fromPlain->getSlot(slot));
     }
     return true;
@@ -926,29 +923,29 @@ static bool CanAddNewPropertyExcludingProtoFast(PlainObject* obj) {
   RootedValue propValue(cx);
   RootedId nextKey(cx);
 
-  for (size_t i = shapes.length(); i > 0; i--) {
+  for (size_t i = props.length(); i > 0; i--) {
     // Assert |from| still has the same properties.
     MOZ_ASSERT(fromPlain->lastProperty() == fromShape);
 
-    Shape* fromPropShape = shapes[i - 1];
-    MOZ_ASSERT(fromPropShape->isDataProperty());
-    MOZ_ASSERT(fromPropShape->enumerable());
+    ShapePropertyWithKey fromProp = props[i - 1];
+    MOZ_ASSERT(fromProp.isDataProperty());
+    MOZ_ASSERT(fromProp.enumerable());
 
-    nextKey = fromPropShape->propid();
-    propValue = fromPlain->getSlot(fromPropShape->slot());
+    nextKey = fromProp.key();
+    propValue = fromPlain->getSlot(fromProp.slot());
 
-    Shape* toShape;
+    Maybe<ShapeProperty> toProp;
     if (toWasEmpty) {
       MOZ_ASSERT(!toPlain->containsPure(nextKey));
-      toShape = nullptr;
+      MOZ_ASSERT(toProp.isNothing());
     } else {
-      toShape = toPlain->lookup(cx, nextKey);
+      toProp = toPlain->lookup(cx, nextKey);
     }
 
-    if (toShape) {
-      MOZ_ASSERT(toShape->isDataProperty());
-      MOZ_ASSERT(toShape->writable());
-      toPlain->setSlot(toShape->slot(), propValue);
+    if (toProp.isSome()) {
+      MOZ_ASSERT(toProp->isDataProperty());
+      MOZ_ASSERT(toProp->writable());
+      toPlain->setSlot(toProp->slot(), propValue);
     } else {
       if (!AddDataPropertyNonPrototype(cx, toPlain, nextKey, propValue)) {
         return false;
@@ -977,42 +974,40 @@ static bool TryAssignNative(JSContext* cx, HandleObject to, HandleObject from,
     return true;
   }
 
-  // Get a list of |from| shapes. As long as from->lastProperty() == fromShape
+  // Get a list of |from| properties. As long as from->shape() == fromShape
   // we can use this to speed up both the enumerability check and the GetProp.
 
-  using ShapeVector = GCVector<Shape*, 8>;
-  Rooted<ShapeVector> shapes(cx, ShapeVector(cx));
+  Rooted<ShapePropertyVector> props(cx, ShapePropertyVector(cx));
 
-  RootedShape fromShape(cx, fromNative->lastProperty());
-  for (Shape::Range<NoGC> r(fromShape); !r.empty(); r.popFront()) {
+  RootedShape fromShape(cx, fromNative->shape());
+  for (ShapePropertyIter<NoGC> iter(fromShape); !iter.done(); iter++) {
     // Symbol properties need to be assigned last. For now fall back to the
     // slow path if we see a symbol property.
-    if (MOZ_UNLIKELY(JSID_IS_SYMBOL(r.front().propidRaw()))) {
+    if (MOZ_UNLIKELY(iter->key().isSymbol())) {
       return true;
     }
-    if (MOZ_UNLIKELY(!shapes.append(&r.front()))) {
+    if (MOZ_UNLIKELY(!props.append(*iter))) {
       return false;
     }
   }
 
   *optimized = true;
 
-  RootedShape shape(cx);
   RootedValue propValue(cx);
   RootedId nextKey(cx);
   RootedValue toReceiver(cx, ObjectValue(*to));
 
-  for (size_t i = shapes.length(); i > 0; i--) {
-    shape = shapes[i - 1];
-    nextKey = shape->propid();
+  for (size_t i = props.length(); i > 0; i--) {
+    ShapePropertyWithKey prop = props[i - 1];
+    nextKey = prop.key();
 
     // If |from| still has the same shape, it must still be a NativeObject with
-    // the properties in |shapes|.
-    if (MOZ_LIKELY(from->shape() == fromShape && shape->isDataProperty())) {
-      if (!shape->enumerable()) {
+    // the properties in |props|.
+    if (MOZ_LIKELY(from->shape() == fromShape && prop.isDataProperty())) {
+      if (!prop.enumerable()) {
         continue;
       }
-      propValue = from->as<NativeObject>().getSlot(shape->slot());
+      propValue = from->as<NativeObject>().getSlot(prop.slot());
     } else {
       // |from| changed shape or the property is not a data property, so
       // we have to do the slower enumerability check and GetProp.
@@ -1410,10 +1405,9 @@ static bool HasEnumerableStringNonDataProperties(NativeObject* obj) {
   // We also check for enumerability and symbol properties, so uninteresting
   // non-data properties like |array.length| don't let us fall into the slow
   // path.
-  for (Shape::Range<NoGC> r(obj->lastProperty()); !r.empty(); r.popFront()) {
-    Shape* shape = &r.front();
-    if (!shape->isDataProperty() && shape->enumerable() &&
-        !JSID_IS_SYMBOL(shape->propid())) {
+  for (ShapePropertyIter<NoGC> iter(obj->shape()); !iter.done(); iter++) {
+    if (!iter->isDataProperty() && iter->enumerable() &&
+        !iter->key().isSymbol()) {
       return true;
     }
   }
@@ -1493,7 +1487,7 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
 
   if (obj->is<TypedArrayObject>()) {
     Handle<TypedArrayObject*> tobj = obj.as<TypedArrayObject>();
-    size_t len = tobj->length().get();
+    size_t len = tobj->length();
 
     // Fail early if the typed array contains too many elements for a
     // dense array, because we likely OOM anyway when trying to allocate
@@ -1559,32 +1553,31 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
     constexpr AllowGC allowGC =
         kind != EnumerableOwnPropertiesKind::KeysAndValues ? AllowGC::NoGC
                                                            : AllowGC::CanGC;
-    mozilla::MaybeOneOf<Shape::Range<NoGC>, Shape::Range<CanGC>> m;
+    mozilla::MaybeOneOf<ShapePropertyIter<NoGC>, ShapePropertyIter<CanGC>> m;
     if (allowGC == AllowGC::NoGC) {
-      m.construct<Shape::Range<NoGC>>(nobj->lastProperty());
+      m.construct<ShapePropertyIter<NoGC>>(nobj->shape());
     } else {
-      m.construct<Shape::Range<CanGC>>(cx, nobj->lastProperty());
+      m.construct<ShapePropertyIter<CanGC>>(cx, nobj->shape());
     }
-    for (Shape::Range<allowGC>& r = m.ref<Shape::Range<allowGC>>(); !r.empty();
-         r.popFront()) {
-      Shape* shape = &r.front();
-      jsid id = shape->propid();
-      if ((onlyEnumerable && !shape->enumerable()) || JSID_IS_SYMBOL(id)) {
+    for (ShapePropertyIter<allowGC>& iter = m.ref<ShapePropertyIter<allowGC>>();
+         !iter.done(); iter++) {
+      jsid id = iter->key();
+      if ((onlyEnumerable && !iter->enumerable()) || id.isSymbol()) {
         continue;
       }
       MOZ_ASSERT(!JSID_IS_INT(id), "Unexpected indexed property");
       MOZ_ASSERT_IF(kind == EnumerableOwnPropertiesKind::Values ||
                         kind == EnumerableOwnPropertiesKind::KeysAndValues,
-                    shape->isDataProperty());
+                    iter->isDataProperty());
 
       if (kind == EnumerableOwnPropertiesKind::Keys ||
           kind == EnumerableOwnPropertiesKind::Names) {
         value.setString(JSID_TO_STRING(id));
       } else if (kind == EnumerableOwnPropertiesKind::Values) {
-        value.set(nobj->getSlot(shape->slot()));
+        value.set(nobj->getSlot(iter->slot()));
       } else {
         key.setString(JSID_TO_STRING(id));
-        value.set(nobj->getSlot(shape->slot()));
+        value.set(nobj->getSlot(iter->slot()));
         if (!NewValuePair(cx, key, value, &value)) {
           return false;
         }
@@ -1602,38 +1595,36 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
     MOZ_ASSERT(kind == EnumerableOwnPropertiesKind::Values ||
                kind == EnumerableOwnPropertiesKind::KeysAndValues);
 
-    // Get a list of all |obj| shapes. As long as obj->lastProperty()
+    // Get a list of all |obj| properties. As long as obj->shape()
     // is equal to |objShape|, we can use this to speed up both the
     // enumerability check and GetProperty.
-    using ShapeVector = GCVector<Shape*, 8>;
-    Rooted<ShapeVector> shapes(cx, ShapeVector(cx));
+    Rooted<ShapePropertyVector> props(cx, ShapePropertyVector(cx));
 
     // Collect all non-symbol properties.
-    RootedShape objShape(cx, nobj->lastProperty());
-    for (Shape::Range<NoGC> r(objShape); !r.empty(); r.popFront()) {
-      Shape* shape = &r.front();
-      if (JSID_IS_SYMBOL(shape->propid())) {
+    RootedShape objShape(cx, nobj->shape());
+    for (ShapePropertyIter<NoGC> iter(objShape); !iter.done(); iter++) {
+      if (iter->key().isSymbol()) {
         continue;
       }
-      MOZ_ASSERT(!JSID_IS_INT(shape->propid()), "Unexpected indexed property");
+      MOZ_ASSERT(!JSID_IS_INT(iter->key()), "Unexpected indexed property");
 
-      if (!shapes.append(shape)) {
+      if (!props.append(*iter)) {
         return false;
       }
     }
 
     RootedId id(cx);
-    for (size_t i = shapes.length(); i > 0; i--) {
-      Shape* shape = shapes[i - 1];
-      id = shape->propid();
+    for (size_t i = props.length(); i > 0; i--) {
+      ShapePropertyWithKey prop = props[i - 1];
+      id = prop.key();
 
       // If |obj| still has the same shape, it must still be a NativeObject with
-      // the properties in |shapes|.
-      if (obj->shape() == objShape && shape->isDataProperty()) {
-        if (!shape->enumerable()) {
+      // the properties in |props|.
+      if (obj->shape() == objShape && prop.isDataProperty()) {
+        if (!prop.enumerable()) {
           continue;
         }
-        value = obj->as<NativeObject>().getSlot(shape->slot());
+        value = obj->as<NativeObject>().getSlot(prop.slot());
       } else {
         // |obj| changed shape or the property is not a data property,
         // so we have to do the slower enumerability check and
@@ -1737,14 +1728,12 @@ static bool EnumerableOwnProperties(JSContext* cx, const JS::CallArgs& args) {
       if (JSID_IS_INT(id) && nobj->containsDenseElement(JSID_TO_INT(id))) {
         value.set(nobj->getDenseElement(JSID_TO_INT(id)));
       } else {
-        shape = nobj->lookup(cx, id);
-        if (!shape || !shape->enumerable()) {
+        Maybe<ShapeProperty> prop = nobj->lookup(cx, id);
+        if (prop.isNothing() || !prop->enumerable()) {
           continue;
         }
-        if (shape->isDataProperty()) {
-          if (!NativeGetExistingProperty(cx, nobj, nobj, shape, &value)) {
-            return false;
-          }
+        if (prop->isDataProperty()) {
+          value = nobj->getSlot(prop->slot());
         } else if (!GetProperty(cx, obj, obj, id, &value)) {
           return false;
         }

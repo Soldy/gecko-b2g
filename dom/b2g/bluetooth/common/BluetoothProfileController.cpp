@@ -193,8 +193,9 @@ void BluetoothProfileController::SetupProfiles(bool aAssignServiceClass) {
   // Rendering bit should be set if remote device supports A2DP.
   // However some A2DP sink devices don't. So we match on some other Minor
   // Device Class bits.
-  if (hasRendering || isAudioVideo && (isLoudSpeaker || isHeadPhone ||
-                                       isCarAudio || isHifiAudio)) {
+  bool isAudioSink = isAudioVideo && (isLoudSpeaker || isHeadPhone ||
+                                      isCarAudio || isHifiAudio);
+  if (hasRendering || isAudioSink) {
     AddProfile(BluetoothA2dpManager::Get());
   }
 

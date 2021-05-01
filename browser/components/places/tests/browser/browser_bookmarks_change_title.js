@@ -119,7 +119,7 @@ add_task(async function test_change_title_from_Toolbar() {
       let properties = document.getElementById(
         "placesContext_show_bookmark:info"
       );
-      EventUtils.synthesizeMouseAtCenter(properties, {});
+      placesContext.activateItem(properties, {});
     },
     async function test(dialogWin) {
       // Ensure the dialog has initialized.
@@ -128,10 +128,17 @@ add_task(async function test_change_title_from_Toolbar() {
       let namepicker = dialogWin.document.getElementById(
         "editBMPanel_namePicker"
       );
-      Assert.ok(
-        dialogWin.document.title.includes(titleAfterFirstUpdate),
-        "Dialog window title should include bookmark title."
+
+      let editBookmarkDialogTitle = dialogWin.document.getElementById(
+        "titleText"
       );
+      let bundle = dialogWin.document.getElementById("stringBundle");
+
+      Assert.equal(
+        bundle.getString("dialogTitleEditBookmark2"),
+        editBookmarkDialogTitle.textContent
+      );
+
       Assert.equal(
         namepicker.value,
         titleAfterFirstUpdate,

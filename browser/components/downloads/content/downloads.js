@@ -602,11 +602,6 @@ var DownloadsView = {
   kItemCountLimit: 5,
 
   /**
-   * Indicates whether there is an open contextMenu for a download item.
-   */
-  contextMenuOpen: false,
-
-  /**
    * Indicates whether there is a DownloadsBlockedSubview open.
    */
   subViewOpen: false,
@@ -785,6 +780,8 @@ var DownloadsView = {
     );
 
     let element = document.createXULElement("richlistitem");
+    element.setAttribute("align", "center");
+
     let viewItem = new DownloadsViewItem(download, element);
     this._visibleViewItems.set(download, viewItem);
     this._itemsForElements.set(element, viewItem);
@@ -875,28 +872,20 @@ var DownloadsView = {
     }
   },
 
-  /**
-   * Event handlers to keep track of context menu state (open/closed) for
-   * download items.
-   */
-  onContextPopupShown(aEvent) {
-    // Ignore events raised by nested popups.
-    if (aEvent.target != aEvent.currentTarget) {
-      return;
+  get contextMenu() {
+    let menu = document.getElementById("downloadsContextMenu");
+    if (menu) {
+      delete this.contextMenu;
+      this.contextMenu = menu;
     }
-
-    DownloadsCommon.log("Context menu has shown.");
-    this.contextMenuOpen = true;
+    return menu;
   },
 
-  onContextPopupHidden(aEvent) {
-    // Ignore events raised by nested popups.
-    if (aEvent.target != aEvent.currentTarget) {
-      return;
-    }
-
-    DownloadsCommon.log("Context menu has hidden.");
-    this.contextMenuOpen = false;
+  /**
+   * Indicates whether there is an open contextMenu for a download item.
+   */
+  get contextMenuOpen() {
+    return this.contextMenu.state != "closed";
   },
 
   /**
@@ -946,46 +935,7 @@ var DownloadsView = {
 
     DownloadsViewController.updateCommands();
 
-    let download = element._shell.download;
-    let mimeInfo = DownloadsCommon.getMimeInfo(download);
-    let { preferredAction, useSystemDefault } = mimeInfo ? mimeInfo : {};
-
-    // Set the state attribute so that only the appropriate items are displayed.
-    let contextMenu = document.getElementById("downloadsContextMenu");
-    contextMenu.setAttribute("state", element.getAttribute("state"));
-    if (element.hasAttribute("exists")) {
-      contextMenu.setAttribute("exists", "true");
-    } else {
-      contextMenu.removeAttribute("exists");
-    }
-    contextMenu.classList.toggle(
-      "temporary-block",
-      element.classList.contains("temporary-block")
-    );
-    if (element.hasAttribute("viewable-internally")) {
-      contextMenu.setAttribute("viewable-internally", "true");
-      let alwaysUseSystemViewerItem = contextMenu.querySelector(
-        ".downloadAlwaysUseSystemDefaultMenuItem"
-      );
-      if (preferredAction === useSystemDefault) {
-        alwaysUseSystemViewerItem.setAttribute("checked", "true");
-      } else {
-        alwaysUseSystemViewerItem.removeAttribute("checked");
-      }
-      alwaysUseSystemViewerItem.toggleAttribute(
-        "enabled",
-        DownloadsCommon.alwaysOpenInSystemViewerItemEnabled
-      );
-      let useSystemViewerItem = contextMenu.querySelector(
-        ".downloadUseSystemDefaultMenuItem"
-      );
-      useSystemViewerItem.toggleAttribute(
-        "enabled",
-        DownloadsCommon.openInSystemViewerItemEnabled
-      );
-    } else {
-      contextMenu.removeAttribute("viewable-internally");
-    }
+    DownloadsViewUI.updateContextMenuForElement(this.contextMenu, element);
   },
 
   onDownloadDragStart(aEvent) {
@@ -1486,12 +1436,12 @@ XPCOMUtils.defineConstant(this, "DownloadsSummary", DownloadsSummary);
 
 /**
  * Manages events sent to to the footer vbox, which contains both the
- * DownloadsSummary as well as the "Show All Downloads" button.
+ * DownloadsSummary as well as the "Show all downloads" button.
  */
 var DownloadsFooter = {
   /**
    * Focuses the appropriate element within the footer. If the summary
-   * is visible, focus it. If not, focus the "Show All Downloads"
+   * is visible, focus it. If not, focus the "Show all downloads"
    * button.
    */
   focus() {
@@ -1506,7 +1456,7 @@ var DownloadsFooter = {
 
   /**
    * Sets whether or not the Downloads Summary should be displayed in the
-   * footer. If not, the "Show All Downloads" button is shown instead.
+   * footer. If not, the "Show all downloads" button is shown instead.
    */
   set showingSummary(aValue) {
     if (this._footerNode) {

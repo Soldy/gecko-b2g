@@ -589,8 +589,7 @@ struct MozCrashAnnotator;
 unsafe impl Send for MozCrashAnnotator {}
 
 impl CrashAnnotator for MozCrashAnnotator {
-    fn set(&self, annotation: CrashAnnotation, value: &str) {
-        let value = CString::new(value).unwrap();
+    fn set(&self, annotation: CrashAnnotation, value: &std::ffi::CStr) {
         unsafe {
             gfx_wr_set_crash_annotation(annotation, value.as_ptr());
         }
@@ -1716,6 +1715,11 @@ pub unsafe extern "C" fn wr_api_delete(dh: *mut DocumentHandle) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn wr_api_stop_render_backend(dh: &mut DocumentHandle) {
+    dh.api.stop_render_backend();
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn wr_api_shut_down(dh: &mut DocumentHandle) {
     dh.api.shut_down(true);
 }
@@ -2550,7 +2554,7 @@ pub extern "C" fn wr_dp_push_stacking_context(
         let reference_frame_kind = match params.reference_frame_kind {
             WrReferenceFrameKind::Transform => ReferenceFrameKind::Transform {
                 is_2d_scale_translation,
-                should_snap
+                should_snap,
             },
             WrReferenceFrameKind::Perspective => ReferenceFrameKind::Perspective { scrolling_relative_to },
         };
@@ -2681,13 +2685,21 @@ pub extern "C" fn wr_dp_define_image_mask_clip_with_parent_clip_chain(
     state: &mut WrState,
     parent: &WrSpaceAndClipChain,
     mask: ImageMask,
+    points: *const LayoutPoint,
+    point_count: usize,
+    fill_rule: FillRule,
 ) -> WrClipId {
     debug_assert!(unsafe { is_in_main_thread() });
 
-    let clip_id = state
-        .frame_builder
-        .dl_builder
-        .define_clip_image_mask(&parent.to_webrender(state.pipeline_id), mask);
+    let c_points = unsafe { make_slice(points, point_count) };
+    let points: Vec<LayoutPoint> = c_points.iter().copied().collect();
+
+    let clip_id = state.frame_builder.dl_builder.define_clip_image_mask(
+        &parent.to_webrender(state.pipeline_id),
+        mask,
+        &points,
+        fill_rule,
+    );
     WrClipId::from_webrender(clip_id)
 }
 

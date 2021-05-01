@@ -25,7 +25,6 @@ class SpeakerManagerServiceChild : public SpeakerManagerService {
    * If SpeakerManagerServiceChild is not exist, create and return new one.
    */
   static SpeakerManagerService* GetOrCreateSpeakerManagerService();
-  static void Shutdown();
   virtual void ForceSpeaker(bool aEnable, bool aVisible, bool aChannelActive,
                             uint64_t aWindowID, uint64_t aChildID = 0) override;
   virtual bool GetSpeakerStatus() override;
@@ -34,7 +33,8 @@ class SpeakerManagerServiceChild : public SpeakerManagerService {
 
  protected:
   SpeakerManagerServiceChild();
-  virtual ~SpeakerManagerServiceChild();
+  virtual void Shutdown() override;
+  virtual ~SpeakerManagerServiceChild() = default;
 };
 
 }  // namespace dom

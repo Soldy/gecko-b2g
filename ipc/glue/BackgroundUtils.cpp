@@ -31,14 +31,12 @@
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/WindowGlobalParent.h"
+#include "mozilla/LoadInfo.h"
+
+using namespace mozilla::dom;
+using namespace mozilla::net;
 
 namespace mozilla {
-
-using mozilla::BasePrincipal;
-using mozilla::Maybe;
-using mozilla::dom::BrowsingContext;
-using mozilla::dom::ServiceWorkerDescriptor;
-using namespace mozilla::net;
 
 namespace ipc {
 
@@ -162,7 +160,6 @@ Result<nsCOMPtr<nsIPrincipal>, nsresult> PrincipalInfoToPrincipal(
     default:
       return Err(NS_ERROR_FAILURE);
   }
-  return Err(NS_ERROR_FAILURE);
 }
 
 already_AddRefed<nsIContentSecurityPolicy> CSPInfoToCSP(
@@ -517,7 +514,6 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
       aLoadInfo->GetBrowserWouldUpgradeInsecureRequests(),
       aLoadInfo->GetForceAllowDataURI(),
       aLoadInfo->GetAllowInsecureRedirectToDataURI(),
-      aLoadInfo->GetBypassCORSChecks(),
       aLoadInfo->GetSkipContentPolicyCheckForWebRequest(),
       aLoadInfo->GetOriginalFrameSrcLoad(),
       aLoadInfo->GetForceInheritPrincipalDropped(),
@@ -761,7 +757,7 @@ nsresult LoadInfoArgsToLoadInfo(
     loadingContext = frameBrowsingContext->GetEmbedderElement();
   }
 
-  RefPtr<mozilla::LoadInfo> loadInfo = new mozilla::LoadInfo(
+  RefPtr<mozilla::net::LoadInfo> loadInfo = new mozilla::net::LoadInfo(
       loadingPrincipal, triggeringPrincipal, principalToInherit,
       sandboxedLoadingPrincipal, topLevelPrincipal,
       topLevelStorageAreaPrincipal, resultPrincipalURI, cookieJarSettings,
@@ -776,7 +772,6 @@ nsresult LoadInfoArgsToLoadInfo(
       loadInfoArgs.browserWouldUpgradeInsecureRequests(),
       loadInfoArgs.forceAllowDataURI(),
       loadInfoArgs.allowInsecureRedirectToDataURI(),
-      loadInfoArgs.bypassCORSChecks(),
       loadInfoArgs.skipContentPolicyCheckForWebRequest(),
       loadInfoArgs.originalFrameSrcLoad(),
       loadInfoArgs.forceInheritPrincipalDropped(), loadInfoArgs.innerWindowID(),
@@ -845,8 +840,7 @@ void LoadInfoToParentLoadInfoForwarder(
   }
 
   *aForwarderArgsOut = ParentLoadInfoForwarderArgs(
-      aLoadInfo->GetAllowInsecureRedirectToDataURI(),
-      aLoadInfo->GetBypassCORSChecks(), ipcController, tainting,
+      aLoadInfo->GetAllowInsecureRedirectToDataURI(), ipcController, tainting,
       aLoadInfo->GetSkipContentSniffing(), aLoadInfo->GetHttpsOnlyStatus(),
       aLoadInfo->GetHasValidUserGestureActivation(),
       aLoadInfo->GetAllowDeprecatedSystemRequests(),
@@ -867,9 +861,6 @@ nsresult MergeParentLoadInfoForwarder(
 
   rv = aLoadInfo->SetAllowInsecureRedirectToDataURI(
       aForwarderArgs.allowInsecureRedirectToDataURI());
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  rv = aLoadInfo->SetBypassCORSChecks(aForwarderArgs.bypassCORSChecks());
   NS_ENSURE_SUCCESS(rv, rv);
 
   aLoadInfo->ClearController();

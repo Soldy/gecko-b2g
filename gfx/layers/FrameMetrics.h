@@ -84,6 +84,7 @@ struct FrameMetrics {
       : mScrollId(ScrollableLayerGuid::NULL_SCROLL_ID),
         mPresShellResolution(1),
         mCompositionBounds(0, 0, 0, 0),
+        mCompositionBoundsWidthIgnoringScrollbars(0),
         mDisplayPort(0, 0, 0, 0),
         mCriticalDisplayPort(0, 0, 0, 0),
         mScrollableRect(0, 0, 0, 0),
@@ -111,6 +112,8 @@ struct FrameMetrics {
     return mScrollId == aOther.mScrollId &&
            mPresShellResolution == aOther.mPresShellResolution &&
            mCompositionBounds.IsEqualEdges(aOther.mCompositionBounds) &&
+           mCompositionBoundsWidthIgnoringScrollbars ==
+               aOther.mCompositionBoundsWidthIgnoringScrollbars &&
            mDisplayPort.IsEqualEdges(aOther.mDisplayPort) &&
            mCriticalDisplayPort.IsEqualEdges(aOther.mCriticalDisplayPort) &&
            mScrollableRect.IsEqualEdges(aOther.mScrollableRect) &&
@@ -193,10 +196,7 @@ struct FrameMetrics {
   }
 
   CSSSize CalculateCompositedSizeInCssPixels() const {
-    if (GetZoom() == CSSToParentLayerScale2D(0, 0)) {
-      return CSSSize();  // avoid division by zero
-    }
-    return mCompositionBounds.Size() / GetZoom();
+    return CalculateCompositedSizeInCssPixels(mCompositionBounds, mZoom);
   }
 
   /*
@@ -227,13 +227,7 @@ struct FrameMetrics {
   }
 
   CSSRect CalculateScrollRange() const {
-    CSSSize scrollPortSize = CalculateCompositedSizeInCssPixels();
-    CSSRect scrollRange = mScrollableRect;
-    scrollRange.SetWidth(
-        std::max(scrollRange.Width() - scrollPortSize.width, 0.0f));
-    scrollRange.SetHeight(
-        std::max(scrollRange.Height() - scrollPortSize.height, 0.0f));
-    return scrollRange;
+    return CalculateScrollRange(mScrollableRect, mCompositionBounds, mZoom);
   }
 
   void ScrollBy(const CSSPoint& aPoint) {
@@ -289,6 +283,16 @@ struct FrameMetrics {
 
   const ParentLayerRect& GetCompositionBounds() const {
     return mCompositionBounds;
+  }
+
+  void SetCompositionBoundsWidthIgnoringScrollbars(
+      const ParentLayerCoord aCompositionBoundsWidthIgnoringScrollbars) {
+    mCompositionBoundsWidthIgnoringScrollbars =
+        aCompositionBoundsWidthIgnoringScrollbars;
+  }
+
+  const ParentLayerCoord GetCompositionBoundsWidthIgnoringScrollbars() const {
+    return mCompositionBoundsWidthIgnoringScrollbars;
   }
 
   void SetDisplayPort(const CSSRect& aDisplayPort) {
@@ -478,6 +482,15 @@ struct FrameMetrics {
       const CSSRect& aVisualViewport, const CSSRect& aScrollableRect,
       CSSRect& aLayoutViewport);
 
+  // Helper functions exposed so we can perform operations on copies outside of
+  // frame metrics object.
+  static CSSRect CalculateScrollRange(const CSSRect& aScrollableRect,
+                                      const ParentLayerRect& aCompositionBounds,
+                                      const CSSToParentLayerScale2D& aZoom);
+  static CSSSize CalculateCompositedSizeInCssPixels(
+      const ParentLayerRect& aCompositionBounds,
+      const CSSToParentLayerScale2D& aZoom);
+
  private:
   // A ID assigned to each scrollable frame, unique within each LayersId..
   ViewID mScrollId;
@@ -506,6 +519,13 @@ struct FrameMetrics {
   //
   // This value is provided by Gecko at layout/paint time.
   ParentLayerRect mCompositionBounds;
+
+  // For RCD-RSF this is the width of the composition bounds ignoring
+  // scrollbars. For everything else this will be the same as the width of the
+  // composition bounds. Only needed for the "resolution changed" check in
+  // NotifyLayersUpdated, once that switches to using IsResolutionUpdated we can
+  // remove this.
+  ParentLayerCoord mCompositionBoundsWidthIgnoringScrollbars;
 
   // The area of a scroll frame's contents that has been painted, relative to
   // GetLayoutScrollOffset().
@@ -820,6 +840,7 @@ struct ScrollMetadata {
         mResolutionUpdated(false),
         mIsRDMTouchSimulationActive(false),
         mDidContentGetPainted(true),
+        mPrefersReducedMotion(false),
         mOverscrollBehavior() {}
 
   bool operator==(const ScrollMetadata& aOther) const {
@@ -837,6 +858,7 @@ struct ScrollMetadata {
            mResolutionUpdated == aOther.mResolutionUpdated &&
            mIsRDMTouchSimulationActive == aOther.mIsRDMTouchSimulationActive &&
            mDidContentGetPainted == aOther.mDidContentGetPainted &&
+           mPrefersReducedMotion == aOther.mPrefersReducedMotion &&
            mDisregardedDirection == aOther.mDisregardedDirection &&
            mOverscrollBehavior == aOther.mOverscrollBehavior &&
            mScrollUpdates == aOther.mScrollUpdates;
@@ -923,6 +945,9 @@ struct ScrollMetadata {
   bool GetIsRDMTouchSimulationActive() const {
     return mIsRDMTouchSimulationActive;
   }
+
+  void SetPrefersReducedMotion(bool aValue) { mPrefersReducedMotion = aValue; }
+  bool PrefersReducedMotion() const { return mPrefersReducedMotion; }
 
   bool DidContentGetPainted() const { return mDidContentGetPainted; }
 
@@ -1036,6 +1061,11 @@ struct ScrollMetadata {
   // needs to be able to distinguish these paint-skip transactions so that it
   // can use the correct transforms.
   bool mDidContentGetPainted : 1;
+
+  // Whether the user has requested the system minimze the amount of
+  // non-essential motion it uses (see the prefers-reduced-motion
+  // media query).
+  bool mPrefersReducedMotion : 1;
 
   // The disregarded direction means the direction which is disregarded anyway,
   // even if the scroll frame overflows in that direction and the direction is

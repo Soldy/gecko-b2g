@@ -282,6 +282,7 @@ MediaDecoder::MediaDecoder(MediaDecoderInit& aInit)
       INIT_CANONICAL(mVolume, aInit.mVolume),
       INIT_CANONICAL(mPreservesPitch, aInit.mPreservesPitch),
       INIT_CANONICAL(mLooping, aInit.mLooping),
+      INIT_CANONICAL(mStreamName, aInit.mStreamName),
       INIT_CANONICAL(mSinkDevice, nullptr),
       INIT_CANONICAL(mSecondaryVideoContainer, nullptr),
       INIT_CANONICAL(mOutputCaptureState, OutputCaptureState::None),
@@ -1180,6 +1181,11 @@ void MediaDecoder::SetPreservesPitch(bool aPreservesPitch) {
 void MediaDecoder::SetLooping(bool aLooping) {
   MOZ_ASSERT(NS_IsMainThread());
   mLooping = aLooping;
+}
+
+void MediaDecoder::SetStreamName(const nsAutoString& aStreamName) {
+  MOZ_ASSERT(NS_IsMainThread());
+  mStreamName = aStreamName;
 }
 
 #ifdef MOZ_WIDGET_GONK

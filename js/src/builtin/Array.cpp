@@ -27,7 +27,7 @@
 #include "js/Conversions.h"
 #include "js/experimental/JitInfo.h"  // JSJitGetterOp, JSJitInfo
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/PropertySpec.h"
 #include "util/Poison.h"
 #include "util/StringBuffer.h"
@@ -103,58 +103,6 @@ bool js::IsArrayFromJit(JSContext* cx, HandleObject obj, bool* isArray) {
   return JS::IsArray(cx, obj, isArray);
 }
 
-// ES2017 7.1.15 ToLength, but clamped to the [0,2^32-2] range.
-static bool ToLengthClamped(JSContext* cx, HandleValue v, uint32_t* out) {
-  if (v.isInt32()) {
-    int32_t i = v.toInt32();
-    *out = i < 0 ? 0 : i;
-    return true;
-  }
-  double d;
-  if (v.isDouble()) {
-    d = v.toDouble();
-  } else {
-    if (!ToNumber(cx, v, &d)) {
-      return false;
-    }
-  }
-  d = JS::ToInteger(d);
-  if (d <= 0.0) {
-    *out = 0;
-  } else if (d < double(UINT32_MAX - 1)) {
-    *out = uint32_t(d);
-  } else {
-    *out = UINT32_MAX;
-  }
-  return true;
-}
-
-bool js::GetLengthProperty(JSContext* cx, HandleObject obj, uint32_t* lengthp) {
-  if (obj->is<ArrayObject>()) {
-    *lengthp = obj->as<ArrayObject>().length();
-    return true;
-  }
-
-  if (obj->is<ArgumentsObject>()) {
-    ArgumentsObject& argsobj = obj->as<ArgumentsObject>();
-    if (!argsobj.hasOverriddenLength()) {
-      *lengthp = argsobj.initialLength();
-      return true;
-    }
-  }
-
-  RootedValue value(cx);
-  if (!GetProperty(cx, obj, obj, cx->names().length, &value)) {
-    return false;
-  }
-
-  if (!ToLengthClamped(cx, value, lengthp)) {
-    return false;
-  }
-
-  return true;
-}
-
 // ES2017 7.1.15 ToLength.
 bool js::ToLength(JSContext* cx, HandleValue v, uint64_t* out) {
   if (v.isInt32()) {
@@ -181,8 +129,7 @@ bool js::ToLength(JSContext* cx, HandleValue v, uint64_t* out) {
   return true;
 }
 
-static MOZ_ALWAYS_INLINE bool GetLengthProperty(JSContext* cx, HandleObject obj,
-                                                uint64_t* lengthp) {
+bool js::GetLengthProperty(JSContext* cx, HandleObject obj, uint64_t* lengthp) {
   if (obj->is<ArrayObject>()) {
     *lengthp = obj->as<ArrayObject>().length();
     return true;
@@ -202,6 +149,18 @@ static MOZ_ALWAYS_INLINE bool GetLengthProperty(JSContext* cx, HandleObject obj,
   }
 
   return ToLength(cx, value, lengthp);
+}
+
+// Fast path for array functions where the object is expected to be an array.
+static MOZ_ALWAYS_INLINE bool GetLengthPropertyInlined(JSContext* cx,
+                                                       HandleObject obj,
+                                                       uint64_t* lengthp) {
+  if (obj->is<ArrayObject>()) {
+    *lengthp = obj->as<ArrayObject>().length();
+    return true;
+  }
+
+  return GetLengthProperty(cx, obj, lengthp);
 }
 
 /*
@@ -424,7 +383,7 @@ bool js::GetElements(JSContext* cx, HandleObject aobj, uint32_t length,
 
   if (aobj->is<TypedArrayObject>()) {
     Handle<TypedArrayObject*> typedArray = aobj.as<TypedArrayObject>();
-    if (typedArray->length().get() == length) {
+    if (typedArray->length() == length) {
       return TypedArrayObject::getElements(cx, typedArray, vp);
     }
   }
@@ -674,9 +633,9 @@ bool js::ArraySetLength(JSContext* cx, Handle<ArrayObject*> arr, HandleId id,
   bool lengthIsWritable = arr->lengthIsWritable();
 #ifdef DEBUG
   {
-    RootedShape lengthShape(cx, arr->lookupPure(id));
-    MOZ_ASSERT(lengthShape);
-    MOZ_ASSERT(lengthShape->writable() == lengthIsWritable);
+    mozilla::Maybe<ShapeProperty> lengthProp = arr->lookupPure(id);
+    MOZ_ASSERT(lengthProp.isSome());
+    MOZ_ASSERT(lengthProp->writable() == lengthIsWritable);
   }
 #endif
   uint32_t oldLen = arr->length();
@@ -866,9 +825,10 @@ bool js::ArraySetLength(JSContext* cx, Handle<ArrayObject*> arr, HandleId id,
 
   // Step 20.
   if (attrs & JSPROP_READONLY) {
-    RootedShape lengthShape(cx, arr->lookup(cx, id));
-    MOZ_ASSERT(lengthShape->isCustomDataProperty());
-    unsigned attrs = lengthShape->attributes() | JSPROP_READONLY;
+    Maybe<ShapeProperty> lengthProp = arr->lookup(cx, id);
+    MOZ_ASSERT(lengthProp.isSome());
+    MOZ_ASSERT(lengthProp->isCustomDataProperty());
+    unsigned attrs = lengthProp->attributes() | JSPROP_READONLY;
     if (!NativeObject::changeCustomDataPropAttributes(cx, arr, id, attrs)) {
       return false;
     }
@@ -965,17 +925,9 @@ bool js::ObjectMayHaveExtraIndexedProperties(JSObject* obj) {
 }
 
 static bool AddLengthProperty(JSContext* cx, HandleArrayObject obj) {
-  // Add the 'length' property for a newly created array. Shapes are shared
-  // across realms within a zone and because we update the initial shape with
-  // a Shape that contains the length-property (in NewArray), it's possible
-  // the length property has already been defined.
+  // Add the 'length' property for a newly created array.
 
-  Shape* shape = obj->lastProperty();
-  if (!shape->isEmptyShape()) {
-    MOZ_ASSERT(shape->propidRaw().isAtom(cx->names().length));
-    MOZ_ASSERT(shape->previous()->isEmptyShape());
-    return true;
-  }
+  MOZ_ASSERT(obj->empty());
 
   RootedId lengthId(cx, NameToId(cx->names().length));
   return NativeObject::addCustomDataProperty(
@@ -1101,7 +1053,7 @@ JSString* js::ArrayToSource(JSContext* cx, HandleObject obj) {
   }
 
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return nullptr;
   }
 
@@ -1148,7 +1100,8 @@ JSString* js::ArrayToSource(JSContext* cx, HandleObject obj) {
 }
 
 static bool array_toSource(JSContext* cx, unsigned argc, Value* vp) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -1298,7 +1251,8 @@ static bool ArrayJoinKernel(JSContext* cx, SeparatorOp sepOp, HandleObject obj,
 // ES2017 draft rev 1b0184bc17fc09a8ddcf4aeec9b6d9fcac4eafce
 // 22.1.3.13 Array.prototype.join ( separator )
 bool js::array_join(JSContext* cx, unsigned argc, Value* vp) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -1325,7 +1279,7 @@ bool js::array_join(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return false;
   }
 
@@ -1431,7 +1385,8 @@ bool js::array_join(JSContext* cx, unsigned argc, Value* vp) {
 // ES2017 Intl draft rev 78bbe7d1095f5ff3760ac4017ed366026e4cb276
 // 13.4.1 Array.prototype.toLocaleString ([ locales [ , options ]])
 static bool array_toLocaleString(JSContext* cx, unsigned argc, Value* vp) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
 
@@ -1592,7 +1547,7 @@ static bool array_reverse(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t len;
-  if (!GetLengthProperty(cx, obj, &len)) {
+  if (!GetLengthPropertyInlined(cx, obj, &len)) {
     return false;
   }
 
@@ -2112,7 +2067,7 @@ bool js::intrinsic_ArrayNativeSort(JSContext* cx, unsigned argc, Value* vp) {
   RootedObject obj(cx, &args.thisv().toObject());
 
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return false;
   }
   if (length < 2) {
@@ -2305,7 +2260,7 @@ bool js::array_push(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return false;
   }
 
@@ -2366,7 +2321,7 @@ bool js::array_pop(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t index;
-  if (!GetLengthProperty(cx, obj, &index)) {
+  if (!GetLengthPropertyInlined(cx, obj, &index)) {
     return false;
   }
 
@@ -2470,7 +2425,7 @@ bool js::array_shift(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t len;
-  if (!GetLengthProperty(cx, obj, &len)) {
+  if (!GetLengthPropertyInlined(cx, obj, &len)) {
     return false;
   }
 
@@ -2556,7 +2511,7 @@ static bool array_unshift(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 2.
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return false;
   }
 
@@ -2815,7 +2770,7 @@ static bool array_splice_impl(JSContext* cx, unsigned argc, Value* vp,
 
   /* Step 2. */
   uint64_t len;
-  if (!GetLengthProperty(cx, obj, &len)) {
+  if (!GetLengthPropertyInlined(cx, obj, &len)) {
     return false;
   }
 
@@ -3183,7 +3138,7 @@ static bool GetIndexedPropertiesInRange(JSContext* cx, HandleObject obj,
 
     // Append typed array elements.
     if (nativeObj->is<TypedArrayObject>()) {
-      size_t len = nativeObj->as<TypedArrayObject>().length().get();
+      size_t len = nativeObj->as<TypedArrayObject>().length();
       for (uint32_t i = begin; i < len && i < end; i++) {
         if (!indexes.append(i)) {
           return false;
@@ -3193,10 +3148,9 @@ static bool GetIndexedPropertiesInRange(JSContext* cx, HandleObject obj,
 
     // Append sparse elements.
     if (nativeObj->isIndexed()) {
-      Shape::Range<NoGC> r(nativeObj->lastProperty());
-      for (; !r.empty(); r.popFront()) {
-        Shape& shape = r.front();
-        jsid id = shape.propid();
+      ShapePropertyIter<NoGC> iter(nativeObj->shape());
+      for (; !iter.done(); iter++) {
+        jsid id = iter->key();
         uint32_t i;
         if (!IdIsIndex(id, &i)) {
           continue;
@@ -3207,7 +3161,7 @@ static bool GetIndexedPropertiesInRange(JSContext* cx, HandleObject obj,
         }
 
         // Watch out for getters, they can add new properties.
-        if (!shape.isDataProperty()) {
+        if (!iter->isDataProperty()) {
           return true;
         }
 
@@ -3403,7 +3357,7 @@ bool js::array_slice(JSContext* cx, unsigned argc, Value* vp) {
 
   /* Step 2. */
   uint64_t length;
-  if (!GetLengthProperty(cx, obj, &length)) {
+  if (!GetLengthPropertyInlined(cx, obj, &length)) {
     return false;
   }
 
@@ -4099,15 +4053,16 @@ void js::ArraySpeciesLookup::initialize(JSContext* cx) {
   state_ = State::Disabled;
 
   // Look up Array.prototype[@@iterator] and ensure it's a data property.
-  Shape* ctorShape = arrayProto->lookup(cx, NameToId(cx->names().constructor));
-  if (!ctorShape || !ctorShape->isDataProperty()) {
+  Maybe<ShapeProperty> ctorProp =
+      arrayProto->lookup(cx, NameToId(cx->names().constructor));
+  if (ctorProp.isNothing() || !ctorProp->isDataProperty()) {
     return;
   }
 
   // Get the referred value, and ensure it holds the canonical Array
   // constructor.
   JSFunction* ctorFun;
-  if (!IsFunctionObject(arrayProto->getSlot(ctorShape->slot()), &ctorFun)) {
+  if (!IsFunctionObject(arrayProto->getSlot(ctorProp->slot()), &ctorFun)) {
     return;
   }
   if (ctorFun != arrayCtor) {
@@ -4115,15 +4070,15 @@ void js::ArraySpeciesLookup::initialize(JSContext* cx) {
   }
 
   // Look up the '@@species' value on Array
-  Shape* speciesShape =
+  Maybe<ShapeProperty> speciesProp =
       arrayCtor->lookup(cx, SYMBOL_TO_JSID(cx->wellKnownSymbols().species));
-  if (!speciesShape || !arrayCtor->hasGetter(speciesShape)) {
+  if (speciesProp.isNothing() || !arrayCtor->hasGetter(*speciesProp)) {
     return;
   }
 
   // Get the referred value, ensure it holds the canonical Array[@@species]
   // function.
-  uint32_t speciesGetterSlot = speciesShape->slot();
+  uint32_t speciesGetterSlot = speciesProp->slot();
   JSObject* speciesGetter = arrayCtor->getGetter(speciesGetterSlot);
   if (!speciesGetter || !speciesGetter->is<JSFunction>()) {
     return;
@@ -4138,7 +4093,6 @@ void js::ArraySpeciesLookup::initialize(JSContext* cx) {
   MOZ_ASSERT(!IsInsideNursery(arrayProto));
   MOZ_ASSERT(!IsInsideNursery(arrayCtor));
   MOZ_ASSERT(!IsInsideNursery(arrayCtor->lastProperty()));
-  MOZ_ASSERT(!IsInsideNursery(speciesShape));
   MOZ_ASSERT(!IsInsideNursery(speciesFun));
   MOZ_ASSERT(!IsInsideNursery(arrayProto->lastProperty()));
 
@@ -4149,7 +4103,7 @@ void js::ArraySpeciesLookup::initialize(JSContext* cx) {
   arraySpeciesGetterSlot_ = speciesGetterSlot;
   canonicalSpeciesFunc_ = speciesFun;
   arrayProtoShape_ = arrayProto->lastProperty();
-  arrayProtoConstructorSlot_ = ctorShape->slot();
+  arrayProtoConstructorSlot_ = ctorProp->slot();
 }
 
 void js::ArraySpeciesLookup::reset() {
@@ -4212,12 +4166,15 @@ bool js::ArraySpeciesLookup::tryOptimizeArray(JSContext* cx,
   // non-deletable "length" property. This serves as a quick check to make
   // sure |array| doesn't define an own "constructor" property which may
   // shadow Array.prototype.constructor.
-  Shape* shape = array->shape();
-  if (shape->previous() && !shape->previous()->isEmptyShape()) {
+  ShapePropertyIter<NoGC> iter(array->shape());
+  MOZ_ASSERT(!iter.done(), "Array must have at least one property");
+  DebugOnly<PropertyKey> key = iter->key();
+  iter++;
+  if (!iter.done()) {
     return false;
   }
 
-  MOZ_ASSERT(shape->propidRaw().isAtom(cx->names().length));
+  MOZ_ASSERT(key.inspect().isAtom(cx->names().length));
   return true;
 }
 
@@ -4261,7 +4218,19 @@ JS_PUBLIC_API bool JS::GetArrayLength(JSContext* cx, Handle<JSObject*> obj,
   CHECK_THREAD(cx);
   cx->check(obj);
 
-  return GetLengthProperty(cx, obj, lengthp);
+  uint64_t len = 0;
+  if (!GetLengthProperty(cx, obj, &len)) {
+    return false;
+  }
+
+  if (len > UINT32_MAX) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_BAD_ARRAY_LENGTH);
+    return false;
+  }
+
+  *lengthp = uint32_t(len);
+  return true;
 }
 
 JS_PUBLIC_API bool JS::SetArrayLength(JSContext* cx, Handle<JSObject*> obj,

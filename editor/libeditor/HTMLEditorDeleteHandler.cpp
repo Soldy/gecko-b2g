@@ -46,9 +46,11 @@
 namespace mozilla {
 
 using namespace dom;
+using EmptyCheckOption = HTMLEditUtils::EmptyCheckOption;
 using InvisibleWhiteSpaces = HTMLEditUtils::InvisibleWhiteSpaces;
 using StyleDifference = HTMLEditUtils::StyleDifference;
 using TableBoundary = HTMLEditUtils::TableBoundary;
+using WalkTreeOption = HTMLEditUtils::WalkTreeOption;
 
 template nsresult HTMLEditor::DeleteTextAndTextNodesWithTransaction(
     const EditorDOMPoint& aStartPoint, const EditorDOMPoint& aEndPoint,
@@ -206,7 +208,7 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler final {
       HTMLEditor& aHTMLEditor, nsIEditor::EDirection aDirectionAndAmount,
       AutoRangeArray& aRangesToDelete);
   nsresult ComputeRangesToDeleteTextAroundCollapsedRanges(
-      const HTMLEditor& aHTMLEditor, nsIEditor::EDirection aDirectionAndAmount,
+      Element* aEditingHost, nsIEditor::EDirection aDirectionAndAmount,
       AutoRangeArray& aRangesToDelete) const;
 
   /**
@@ -254,7 +256,7 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler final {
                             const EditorDOMPoint& aCaretPoint,
                             const WSRunScanner& aWSRunScannerAtCaret);
   nsresult ComputeRangesToDeleteAtomicContent(
-      const HTMLEditor& aHTMLEditor, const nsIContent& aAtomicContent,
+      Element* aEditingHost, const nsIContent& aAtomicContent,
       AutoRangeArray& aRangesToDelete) const;
 
   /**
@@ -1265,7 +1267,7 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDelete(
                                           EditorType::HTML)) {
         return NS_SUCCESS_DOM_NO_OPERATION;
       }
-      WSRunScanner wsRunScannerAtCaret(aHTMLEditor, caretPoint);
+      WSRunScanner wsRunScannerAtCaret(editingHost, caretPoint);
       WSScanResult scanFromCaretPointResult =
           aDirectionAndAmount == nsIEditor::eNext
               ? wsRunScannerAtCaret.ScanNextVisibleNodeOrBlockBoundaryFrom(
@@ -1540,7 +1542,7 @@ EditActionResult HTMLEditor::AutoDeleteRangesHandler::Run(
               *caretPoint.ref().ContainerAsContent(), EditorType::HTML)) {
         return EditActionCanceled();
       }
-      WSRunScanner wsRunScannerAtCaret(aHTMLEditor, caretPoint.ref());
+      WSRunScanner wsRunScannerAtCaret(editingHost, caretPoint.ref());
       WSScanResult scanFromCaretPointResult =
           aDirectionAndAmount == nsIEditor::eNext
               ? wsRunScannerAtCaret.ScanNextVisibleNodeOrBlockBoundaryFrom(
@@ -1603,7 +1605,7 @@ EditActionResult HTMLEditor::AutoDeleteRangesHandler::Run(
                   NS_EVENT_BITS_MUTATION_NODEREMOVEDFROMDOCUMENT)) {
             // Let's check whether there is new invisible `<br>` element
             // for avoiding infinit recursive calls.
-            WSRunScanner wsRunScannerAtCaret(aHTMLEditor, caretPoint.ref());
+            WSRunScanner wsRunScannerAtCaret(editingHost, caretPoint.ref());
             WSScanResult scanFromCaretPointResult =
                 aDirectionAndAmount == nsIEditor::eNext
                     ? wsRunScannerAtCaret
@@ -1666,7 +1668,8 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteAroundCollapsedRanges(
       return NS_ERROR_FAILURE;
     }
     rv = ComputeRangesToDeleteTextAroundCollapsedRanges(
-        aHTMLEditor, aDirectionAndAmount, aRangesToDelete);
+        aWSRunScannerAtCaret.GetEditingHost(), aDirectionAndAmount,
+        aRangesToDelete);
     NS_WARNING_ASSERTION(
         NS_SUCCEEDED(rv),
         "AutoDeleteRangesHandler::"
@@ -1689,7 +1692,7 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteAroundCollapsedRanges(
       return NS_ERROR_FAILURE;
     }
     nsresult rv = ComputeRangesToDeleteAtomicContent(
-        aHTMLEditor, *atomicContent, aRangesToDelete);
+        aWSRunScannerAtCaret.GetEditingHost(), *atomicContent, aRangesToDelete);
     NS_WARNING_ASSERTION(
         NS_SUCCEEDED(rv),
         "AutoDeleteRangesHandler::ComputeRangesToDeleteAtomicContent() failed");
@@ -1897,10 +1900,8 @@ HTMLEditor::AutoDeleteRangesHandler::HandleDeleteAroundCollapsedRanges(
 
 nsresult HTMLEditor::AutoDeleteRangesHandler::
     ComputeRangesToDeleteTextAroundCollapsedRanges(
-        const HTMLEditor& aHTMLEditor,
-        nsIEditor::EDirection aDirectionAndAmount,
+        Element* aEditingHost, nsIEditor::EDirection aDirectionAndAmount,
         AutoRangeArray& aRangesToDelete) const {
-  MOZ_ASSERT(aHTMLEditor.IsEditActionDataAvailable());
   MOZ_ASSERT(aDirectionAndAmount == nsIEditor::eNext ||
              aDirectionAndAmount == nsIEditor::ePrevious);
 
@@ -1913,7 +1914,7 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::
   EditorDOMRangeInTexts rangeToDelete;
   if (aDirectionAndAmount == nsIEditor::eNext) {
     Result<EditorDOMRangeInTexts, nsresult> result =
-        WSRunScanner::GetRangeInTextNodesToForwardDeleteFrom(aHTMLEditor,
+        WSRunScanner::GetRangeInTextNodesToForwardDeleteFrom(aEditingHost,
                                                              caretPosition);
     if (result.isErr()) {
       NS_WARNING(
@@ -1926,7 +1927,7 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::
     }
   } else {
     Result<EditorDOMRangeInTexts, nsresult> result =
-        WSRunScanner::GetRangeInTextNodesToBackspaceFrom(aHTMLEditor,
+        WSRunScanner::GetRangeInTextNodesToBackspaceFrom(aEditingHost,
                                                          caretPosition);
     if (result.isErr()) {
       NS_WARNING("WSRunScanner::GetRangeInTextNodesToBackspaceFrom() failed");
@@ -1953,8 +1954,13 @@ HTMLEditor::AutoDeleteRangesHandler::HandleDeleteTextAroundCollapsedRanges(
   MOZ_ASSERT(aDirectionAndAmount == nsIEditor::eNext ||
              aDirectionAndAmount == nsIEditor::ePrevious);
 
+  RefPtr<Element> editingHost = aHTMLEditor.GetActiveEditingHost();
+  if (NS_WARN_IF(!editingHost)) {
+    return EditActionResult(NS_ERROR_FAILURE);
+  }
+
   nsresult rv = ComputeRangesToDeleteTextAroundCollapsedRanges(
-      aHTMLEditor, aDirectionAndAmount, aRangesToDelete);
+      editingHost, aDirectionAndAmount, aRangesToDelete);
   if (NS_FAILED(rv)) {
     return EditActionResult(NS_ERROR_FAILURE);
   }
@@ -2222,8 +2228,8 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteHRElement(
     return canDeleteHRElement.unwrapErr();
   }
   if (canDeleteHRElement.inspect()) {
-    nsresult rv = ComputeRangesToDeleteAtomicContent(aHTMLEditor, aHRElement,
-                                                     aRangesToDelete);
+    nsresult rv = ComputeRangesToDeleteAtomicContent(
+        aWSRunScannerAtCaret.GetEditingHost(), aHRElement, aRangesToDelete);
     NS_WARNING_ASSERTION(
         NS_SUCCEEDED(rv),
         "AutoDeleteRangesHandler::ComputeRangesToDeleteAtomicContent() failed");
@@ -2246,7 +2252,8 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteHRElement(
   // If we'll just move caret position, but if it's followed by a `<br>`
   // element, we'll delete it.
   nsresult rv = ComputeRangesToDeleteAtomicContent(
-      aHTMLEditor, *forwardScanFromCaretResult.ElementPtr(), aRangesToDelete);
+      aWSRunScannerAtCaret.GetEditingHost(),
+      *forwardScanFromCaretResult.ElementPtr(), aRangesToDelete);
   NS_WARNING_ASSERTION(
       NS_SUCCEEDED(rv),
       "AutoDeleteRangesHandler::ComputeRangesToDeleteAtomicContent() failed");
@@ -2360,10 +2367,10 @@ nsIContent* HTMLEditor::AutoDeleteRangesHandler::GetAtomicContentToDelete(
 
 nsresult
 HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteAtomicContent(
-    const HTMLEditor& aHTMLEditor, const nsIContent& aAtomicContent,
+    Element* aEditingHost, const nsIContent& aAtomicContent,
     AutoRangeArray& aRangesToDelete) const {
   EditorDOMRange rangeToDelete =
-      WSRunScanner::GetRangesForDeletingAtomicContent(aHTMLEditor,
+      WSRunScanner::GetRangesForDeletingAtomicContent(aEditingHost,
                                                       aAtomicContent);
   if (!rangeToDelete.IsPositioned()) {
     NS_WARNING("WSRunScanner::GetRangeForDeleteAContentNode() failed");
@@ -2757,12 +2764,20 @@ bool HTMLEditor::AutoDeleteRangesHandler::AutoBlockElementsJoiner::
     return false;
   }
 
+  Element* editingHost = aHTMLEditor.GetActiveEditingHost();
+  if (NS_WARN_IF(!editingHost)) {
+    return false;
+  }
+
   if (aDirectionAndAmount == nsIEditor::ePrevious) {
-    mLeftContent =
-        aHTMLEditor.GetPreviousEditableHTMLNode(aCurrentBlockElement);
+    mLeftContent = HTMLEditUtils::GetPreviousContent(
+        aCurrentBlockElement, {WalkTreeOption::IgnoreNonEditableNode},
+        editingHost);
     mRightContent = aCaretPoint.GetContainerAsContent();
   } else {
-    mRightContent = aHTMLEditor.GetNextEditableHTMLNode(aCurrentBlockElement);
+    mRightContent = HTMLEditUtils::GetNextContent(
+        aCurrentBlockElement, {WalkTreeOption::IgnoreNonEditableNode},
+        editingHost);
     mLeftContent = aCaretPoint.GetContainerAsContent();
   }
 
@@ -2898,7 +2913,8 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteNonCollapsedRanges(
     EditorDOMRange firstRange(aRangesToDelete.FirstRangeRef());
     EditorDOMRange extendedRange =
         WSRunScanner::GetRangeContainingInvisibleWhiteSpacesAtRangeBoundaries(
-            aHTMLEditor, EditorDOMRange(aRangesToDelete.FirstRangeRef()));
+            aHTMLEditor.GetActiveEditingHost(),
+            EditorDOMRange(aRangesToDelete.FirstRangeRef()));
     if (firstRange != extendedRange) {
       nsresult rv = aRangesToDelete.FirstRangeRef()->SetStartAndEnd(
           extendedRange.StartRef().ToRawRangeBoundary(),
@@ -3343,7 +3359,8 @@ bool HTMLEditor::AutoDeleteRangesHandler::AutoBlockElementsJoiner::
   }
   for (const OwningNonNull<nsIContent>& content : aArrayOfContents) {
     if (content->IsText()) {
-      if (aHTMLEditor.IsInVisibleTextFrames(*content->AsText())) {
+      if (HTMLEditUtils::IsInVisibleTextFrames(aHTMLEditor.GetPresContext(),
+                                               *content->AsText())) {
         return false;
       }
       continue;
@@ -3351,7 +3368,9 @@ bool HTMLEditor::AutoDeleteRangesHandler::AutoBlockElementsJoiner::
     // XXX If it's an element node, we should check whether it has visible
     //     frames or not.
     if (!content->IsElement() ||
-        aHTMLEditor.IsEmptyNode(*content->AsElement())) {
+        HTMLEditUtils::IsEmptyNode(
+            *content->AsElement(),
+            {EmptyCheckOption::TreatSingleBRElementAsVisible})) {
       continue;
     }
     if (!content->IsHTMLElement(nsGkAtoms::br) ||
@@ -3675,8 +3694,9 @@ HTMLEditor::AutoDeleteRangesHandler::DeleteNodeIfInvisibleAndEditableTextNode(
     return NS_OK;
   }
 
-  if (aHTMLEditor.IsVisibleTextNode(*text) ||
-      !HTMLEditUtils::IsSimplyEditableNode(*text)) {
+  if (!HTMLEditUtils::IsSimplyEditableNode(*text) ||
+      HTMLEditUtils::IsVisibleTextNode(*text,
+                                       aHTMLEditor.GetActiveEditingHost())) {
     return NS_OK;
   }
 
@@ -3696,7 +3716,7 @@ HTMLEditor::AutoDeleteRangesHandler::DeleteParentBlocksWithTransactionIfEmpty(
   MOZ_ASSERT(aHTMLEditor.mPlaceholderBatch);
 
   // First, check there is visible contents before the point in current block.
-  WSRunScanner wsScannerForPoint(aHTMLEditor, aPoint);
+  WSRunScanner wsScannerForPoint(aHTMLEditor.GetActiveEditingHost(), aPoint);
   if (!wsScannerForPoint.StartsFromCurrentBlockBoundary()) {
     // If there is visible node before the point, we shouldn't remove the
     // parent block.
@@ -3743,8 +3763,9 @@ HTMLEditor::AutoDeleteRangesHandler::DeleteParentBlocksWithTransactionIfEmpty(
     if (wsScannerForPoint.GetEndReasonContent()->GetNextSibling()) {
       WSScanResult scanResult =
           WSRunScanner::ScanNextVisibleNodeOrBlockBoundary(
-              aHTMLEditor, EditorRawDOMPoint::After(
-                               *wsScannerForPoint.GetEndReasonContent()));
+              wsScannerForPoint.GetEditingHost(),
+              EditorRawDOMPoint::After(
+                  *wsScannerForPoint.GetEndReasonContent()));
       if (scanResult.Failed()) {
         NS_WARNING("WSRunScanner::ScanNextVisibleNodeOrBlockBoundary() failed");
         return NS_ERROR_FAILURE;
@@ -3866,6 +3887,7 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteRangesWithTransaction(
                          "nsRange::SetStartAndEnd() failed");
   };
 
+  RefPtr<Element> editingHost = aHTMLEditor.GetActiveEditingHost();
   for (OwningNonNull<nsRange>& range : aRangesToDelete.Ranges()) {
     // If it's not collapsed, `DeleteRangeTransaction::Create()` will be called
     // with it and `DeleteRangeTransaction` won't modify the range.
@@ -3884,8 +3906,9 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteRangesWithTransaction(
     if (howToHandleCollapsedRange ==
             EditorBase::HowToHandleCollapsedRange::ExtendBackward &&
         caretPoint.IsStartOfContainer()) {
-      nsIContent* previousEditableContent =
-          aHTMLEditor.GetPreviousEditableNode(*caretPoint.GetContainer());
+      nsIContent* previousEditableContent = HTMLEditUtils::GetPreviousContent(
+          *caretPoint.GetContainer(), {WalkTreeOption::IgnoreNonEditableNode},
+          editingHost);
       if (!previousEditableContent) {
         continue;
       }
@@ -3906,8 +3929,9 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteRangesWithTransaction(
     if (howToHandleCollapsedRange ==
             EditorBase::HowToHandleCollapsedRange::ExtendForward &&
         caretPoint.IsEndOfContainer()) {
-      nsIContent* nextEditableContent =
-          aHTMLEditor.GetNextEditableNode(*caretPoint.GetContainer());
+      nsIContent* nextEditableContent = HTMLEditUtils::GetNextContent(
+          *caretPoint.GetContainer(), {WalkTreeOption::IgnoreNonEditableNode},
+          editingHost);
       if (!nextEditableContent) {
         continue;
       }
@@ -3942,8 +3966,12 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteRangesWithTransaction(
     nsIContent* editableContent =
         howToHandleCollapsedRange ==
                 EditorBase::HowToHandleCollapsedRange::ExtendBackward
-            ? aHTMLEditor.GetPreviousEditableNode(caretPoint)
-            : aHTMLEditor.GetNextEditableNode(caretPoint);
+            ? HTMLEditUtils::GetPreviousContent(
+                  caretPoint, {WalkTreeOption::IgnoreNonEditableNode},
+                  editingHost)
+            : HTMLEditUtils::GetNextContent(
+                  caretPoint, {WalkTreeOption::IgnoreNonEditableNode},
+                  editingHost);
     if (!editableContent) {
       continue;
     }
@@ -3952,8 +3980,12 @@ HTMLEditor::AutoDeleteRangesHandler::ComputeRangesToDeleteRangesWithTransaction(
       editableContent =
           howToHandleCollapsedRange ==
                   EditorBase::HowToHandleCollapsedRange::ExtendBackward
-              ? aHTMLEditor.GetPreviousEditableNode(*editableContent)
-              : aHTMLEditor.GetNextEditableNode(*editableContent);
+              ? HTMLEditUtils::GetPreviousContent(
+                    *editableContent, {WalkTreeOption::IgnoreNonEditableNode},
+                    editingHost)
+              : HTMLEditUtils::GetNextContent(
+                    *editableContent, {WalkTreeOption::IgnoreNonEditableNode},
+                    editingHost);
     }
     if (!editableContent) {
       continue;
@@ -4284,7 +4316,8 @@ Result<bool, nsresult> HTMLEditor::AutoDeleteRangesHandler::
       mRightBlockElement) {
     mPrecedingInvisibleBRElement =
         WSRunScanner::GetPrecedingBRElementUnlessVisibleContentFound(
-            aHTMLEditor, EditorDOMPoint::AtEndOf(mLeftBlockElement));
+            aHTMLEditor.GetActiveEditingHost(),
+            EditorDOMPoint::AtEndOf(mLeftBlockElement));
     // `WhiteSpaceVisibilityKeeper::
     // MergeFirstLineOfRightBlockElementIntoDescendantLeftBlockElement()`
     // returns ignored when:
@@ -4311,7 +4344,8 @@ Result<bool, nsresult> HTMLEditor::AutoDeleteRangesHandler::
              mLeftBlockElement) {
     mPrecedingInvisibleBRElement =
         WSRunScanner::GetPrecedingBRElementUnlessVisibleContentFound(
-            aHTMLEditor, mPointContainingTheOtherBlockElement);
+            aHTMLEditor.GetActiveEditingHost(),
+            mPointContainingTheOtherBlockElement);
     // `WhiteSpaceVisibilityKeeper::
     // MergeFirstLineOfRightBlockElementIntoAncestorLeftBlockElement()`
     // returns ignored when:
@@ -4345,7 +4379,8 @@ Result<bool, nsresult> HTMLEditor::AutoDeleteRangesHandler::
   } else {
     mPrecedingInvisibleBRElement =
         WSRunScanner::GetPrecedingBRElementUnlessVisibleContentFound(
-            aHTMLEditor, EditorDOMPoint::AtEndOf(mLeftBlockElement));
+            aHTMLEditor.GetActiveEditingHost(),
+            EditorDOMPoint::AtEndOf(mLeftBlockElement));
     // `WhiteSpaceVisibilityKeeper::
     // MergeFirstLineOfRightBlockElementIntoLeftBlockElement()` always
     // return "handled".
@@ -4400,8 +4435,11 @@ nsresult HTMLEditor::AutoDeleteRangesHandler::AutoBlockElementsJoiner::
           atStart.IsEndOfContainer() && range.StartRef().GetChild() &&
                   range.StartRef().GetChild()->IsHTMLElement(nsGkAtoms::br) &&
                   !aHTMLEditor.IsVisibleBRElement(range.StartRef().GetChild())
-              ? aHTMLEditor.GetNextElementOrTextInBlock(
-                    *atStart.ContainerAsContent())
+              ? HTMLEditUtils::GetNextContent(
+                    *atStart.ContainerAsContent(),
+                    {WalkTreeOption::IgnoreDataNodeExceptText,
+                     WalkTreeOption::StopAtBlockBoundary},
+                    aHTMLEditor.GetActiveEditingHost())
               : nullptr;
       if (!nextContent || nextContent != range.StartRef().GetChild()) {
         noNeedToChangeStart = true;
@@ -4523,7 +4561,7 @@ Result<bool, nsresult> HTMLEditor::CanMoveOrDeleteSomethingInHardLine(
       if (Element* blockElement =
               HTMLEditUtils::GetInclusiveAncestorBlockElement(
                   *childContent->GetParent())) {
-        if (IsEmptyNode(*blockElement, true, false)) {
+        if (HTMLEditUtils::IsEmptyNode(*blockElement)) {
           return false;
         }
       }
@@ -4928,7 +4966,10 @@ nsresult HTMLEditor::DeleteMostAncestorMailCiteElementIfEmpty(
     return NS_OK;
   }
   bool seenBR = false;
-  if (!IsEmptyNodeImpl(*mailCiteElement, true, true, false, &seenBR)) {
+  if (!HTMLEditUtils::IsEmptyNode(*mailCiteElement,
+                                  {EmptyCheckOption::TreatListItemAsVisible,
+                                   EmptyCheckOption::TreatTableCellAsVisible},
+                                  &seenBR)) {
     return NS_OK;
   }
   EditorDOMPoint atEmptyMailCiteElement(mailCiteElement);
@@ -4952,16 +4993,15 @@ nsresult HTMLEditor::DeleteMostAncestorMailCiteElementIfEmpty(
     return NS_OK;
   }
 
-  RefPtr<Element> brElement =
+  Result<RefPtr<Element>, nsresult> resultOfInsertingBRElement =
       InsertBRElementWithTransaction(atEmptyMailCiteElement);
-  if (NS_WARN_IF(Destroyed())) {
-    return NS_ERROR_EDITOR_DESTROYED;
-  }
-  if (!brElement) {
+  if (resultOfInsertingBRElement.isErr()) {
     NS_WARNING("HTMLEditor::InsertBRElementWithTransaction() failed");
-    return NS_ERROR_FAILURE;
+    return resultOfInsertingBRElement.unwrapErr();
   }
-  nsresult rv = CollapseSelectionTo(EditorRawDOMPoint(brElement));
+  MOZ_ASSERT(resultOfInsertingBRElement.inspect());
+  nsresult rv = CollapseSelectionTo(
+      EditorRawDOMPoint(resultOfInsertingBRElement.inspect()));
   if (NS_WARN_IF(rv == NS_ERROR_EDITOR_DESTROYED)) {
     return NS_ERROR_EDITOR_DESTROYED;
   }
@@ -4991,7 +5031,7 @@ Element* HTMLEditor::AutoDeleteRangesHandler::AutoEmptyBlockAncestorDeleter::
   }
   while (blockElement && blockElement != &aEditingHostElement &&
          !HTMLEditUtils::IsAnyTableElement(blockElement) &&
-         aHTMLEditor.IsEmptyNode(*blockElement, true, false)) {
+         HTMLEditUtils::IsEmptyNode(*blockElement)) {
     mEmptyInclusiveAncestorBlockElement = blockElement;
     blockElement = HTMLEditUtils::GetAncestorBlockElement(
         *mEmptyInclusiveAncestorBlockElement);
@@ -5114,16 +5154,13 @@ HTMLEditor::AutoDeleteRangesHandler::AutoEmptyBlockAncestorDeleter::
   if (HTMLEditUtils::IsAnyListElement(atParentOfEmptyListItem.GetContainer())) {
     return RefPtr<Element>();
   }
-  RefPtr<Element> brElement =
+  Result<RefPtr<Element>, nsresult> resultOfInsertingBRElement =
       aHTMLEditor.InsertBRElementWithTransaction(atParentOfEmptyListItem);
-  if (NS_WARN_IF(aHTMLEditor.Destroyed())) {
-    return Err(NS_ERROR_EDITOR_DESTROYED);
-  }
-  if (!brElement) {
-    NS_WARNING("HTMLEditor::InsertBRElementWithTransaction() failed");
-    return Err(NS_ERROR_FAILURE);
-  }
-  return brElement;
+  NS_WARNING_ASSERTION(resultOfInsertingBRElement.isOk(),
+                       "HTMLEditor::InsertBRElementWithTransaction() failed");
+  MOZ_ASSERT_IF(resultOfInsertingBRElement.isOk(),
+                resultOfInsertingBRElement.inspect());
+  return resultOfInsertingBRElement;
 }
 
 Result<EditorDOMPoint, nsresult> HTMLEditor::AutoDeleteRangesHandler::
@@ -5143,8 +5180,8 @@ Result<EditorDOMPoint, nsresult> HTMLEditor::AutoDeleteRangesHandler::
       EditorDOMPoint afterEmptyBlock(
           EditorRawDOMPoint::After(mEmptyInclusiveAncestorBlockElement));
       MOZ_ASSERT(afterEmptyBlock.IsSet());
-      if (nsIContent* nextContentOfEmptyBlock =
-              aHTMLEditor.GetNextNode(afterEmptyBlock)) {
+      if (nsIContent* nextContentOfEmptyBlock = HTMLEditUtils::GetNextContent(
+              afterEmptyBlock, {}, aHTMLEditor.GetActiveEditingHost())) {
         EditorDOMPoint pt = aHTMLEditor.GetGoodCaretPointFor(
             *nextContentOfEmptyBlock, aDirectionAndAmount);
         if (!pt.IsSet()) {
@@ -5165,7 +5202,9 @@ Result<EditorDOMPoint, nsresult> HTMLEditor::AutoDeleteRangesHandler::
       // if there is.  Otherwise, to after the empty block.
       EditorRawDOMPoint atEmptyBlock(mEmptyInclusiveAncestorBlockElement);
       if (nsIContent* previousContentOfEmptyBlock =
-              aHTMLEditor.GetPreviousEditableNode(atEmptyBlock)) {
+              HTMLEditUtils::GetPreviousContent(
+                  atEmptyBlock, {WalkTreeOption::IgnoreNonEditableNode},
+                  aHTMLEditor.GetActiveEditingHost())) {
         EditorDOMPoint pt = aHTMLEditor.GetGoodCaretPointFor(
             *previousContentOfEmptyBlock, aDirectionAndAmount);
         if (!pt.IsSet()) {
@@ -5268,7 +5307,7 @@ bool HTMLEditor::AutoDeleteRangesHandler::ExtendRangeToIncludeInvisibleNodes(
   }
 
   // Set up for loops and cache our root element
-  Element* editingHost = aHTMLEditor.GetActiveEditingHost();
+  RefPtr<Element> editingHost = aHTMLEditor.GetActiveEditingHost();
   if (NS_WARN_IF(!editingHost)) {
     return false;
   }
@@ -5278,13 +5317,13 @@ bool HTMLEditor::AutoDeleteRangesHandler::ExtendRangeToIncludeInvisibleNodes(
       atStart.GetContainer() != editingHost) {
     for (;;) {
       WSScanResult backwardScanFromStartResult =
-          WSRunScanner::ScanPreviousVisibleNodeOrBlockBoundary(aHTMLEditor,
+          WSRunScanner::ScanPreviousVisibleNodeOrBlockBoundary(editingHost,
                                                                atStart);
       if (!backwardScanFromStartResult.ReachedCurrentBlockBoundary()) {
         break;
       }
       MOZ_ASSERT(backwardScanFromStartResult.GetContent() ==
-                 WSRunScanner(aHTMLEditor, atStart).GetStartReasonContent());
+                 WSRunScanner(editingHost, atStart).GetStartReasonContent());
       // We want to keep looking up.  But stop if we are crossing table
       // element boundaries, or if we hit the root.
       if (HTMLEditUtils::IsAnyTableElement(
@@ -5311,7 +5350,7 @@ bool HTMLEditor::AutoDeleteRangesHandler::ExtendRangeToIncludeInvisibleNodes(
       atEnd.GetContainer() != editingHost) {
     EditorDOMPoint atFirstInvisibleBRElement;
     for (;;) {
-      WSRunScanner wsScannerAtEnd(aHTMLEditor, atEnd);
+      WSRunScanner wsScannerAtEnd(editingHost, atEnd);
       WSScanResult forwardScanFromEndResult =
           wsScannerAtEnd.ScanNextVisibleNodeOrBlockBoundaryFrom(atEnd);
       if (forwardScanFromEndResult.ReachedBRElement()) {

@@ -800,7 +800,23 @@ void MacroAssembler::flush() { Assembler::flush(); }
 // other routines when that is necessary.  See lengthy comment in
 // Architecture-arm64.h.
 
+// Routines for saving/restoring registers on the stack.  The format is:
+//
+//   (highest address)
+//
+//   integer (X) regs in any order      size: 8 * # regs
+//
+//   double (D) regs in any order       size: 8 * # regs
+//
+//   (lowest address)
+
+size_t MacroAssembler::PushRegsInMaskSizeInBytes(LiveRegisterSet set) {
+  return set.gprs().size() * sizeof(intptr_t) + set.fpus().getPushSizeInBytes();
+}
+
 void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
+  mozilla::DebugOnly<size_t> framePushedInitial = framePushed();
+
   for (GeneralRegisterBackwardIterator iter(set.gprs()); iter.more();) {
     vixl::CPURegister src[4] = {vixl::NoCPUReg, vixl::NoCPUReg, vixl::NoCPUReg,
                                 vixl::NoCPUReg};
@@ -818,20 +834,27 @@ void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
     vixl::CPURegister src[4] = {vixl::NoCPUReg, vixl::NoCPUReg, vixl::NoCPUReg,
                                 vixl::NoCPUReg};
 
-#ifdef JS_CODEGEN_ARM64
     MOZ_ASSERT(sizeof(FloatRegisters::RegisterContent) == 8);
-#endif
     for (size_t i = 0; i < 4 && iter.more(); i++) {
-      src[i] = ARMFPRegister(*iter, 64);
+      FloatRegister reg = *iter;
+#ifdef ENABLE_WASM_SIMD
+      MOZ_RELEASE_ASSERT(reg.isDouble() || reg.isSingle());
+#endif
+      src[i] = ARMFPRegister(reg, 64);
       ++iter;
       adjustFrame(8);
     }
     vixl::MacroAssembler::Push(src[0], src[1], src[2], src[3]);
   }
+
+  MOZ_ASSERT(framePushed() - framePushedInitial ==
+             PushRegsInMaskSizeInBytes(set));
 }
 
 void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
                                      Register scratch) {
+  mozilla::DebugOnly<size_t> offsetInitial = dest.offset;
+
   FloatRegisterSet fpuSet(set.fpus().reduceSetForPush());
   unsigned numFpu = fpuSet.size();
   int32_t diffF = fpuSet.getPushSizeInBytes();
@@ -848,22 +871,21 @@ void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
 
   for (FloatRegisterBackwardIterator iter(fpuSet); iter.more(); ++iter) {
     FloatRegister reg = *iter;
-    diffF -= reg.size();
+#ifdef ENABLE_WASM_SIMD
+    MOZ_RELEASE_ASSERT(reg.isDouble() || reg.isSingle());
+#endif
+    diffF -= sizeof(double);
+    dest.offset -= sizeof(double);
     numFpu -= 1;
-    dest.offset -= reg.size();
-    if (reg.isDouble()) {
-      storeDouble(reg, dest);
-    } else if (reg.isSingle()) {
-      storeFloat32(reg, dest);
-    } else {
-      MOZ_CRASH("Unknown register type.");
-    }
+    storeDouble(reg, dest);
   }
   MOZ_ASSERT(numFpu == 0);
   // Padding to keep the stack aligned, taken from the x64 and mips64
   // implementations.
   diffF -= diffF % sizeof(uintptr_t);
   MOZ_ASSERT(diffF == 0);
+
+  MOZ_ASSERT(offsetInitial - dest.offset == PushRegsInMaskSizeInBytes(set));
 }
 
 void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
@@ -877,8 +899,12 @@ void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
     uint32_t nextOffset = offset;
 
     for (size_t i = 0; i < 2 && iter.more(); i++) {
-      if (!ignore.has(*iter)) {
-        dest[i] = ARMFPRegister(*iter, 64);
+      FloatRegister reg = *iter;
+#ifdef ENABLE_WASM_SIMD
+      MOZ_RELEASE_ASSERT(reg.isDouble() || reg.isSingle());
+#endif
+      if (!ignore.has(reg)) {
+        dest[i] = ARMFPRegister(reg, 64);
       }
       ++iter;
       nextOffset += sizeof(double);
@@ -920,8 +946,7 @@ void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
     offset = nextOffset;
   }
 
-  size_t bytesPushed =
-      set.gprs().size() * sizeof(uint64_t) + set.fpus().getPushSizeInBytes();
+  size_t bytesPushed = PushRegsInMaskSizeInBytes(set);
   MOZ_ASSERT(offset == bytesPushed);
   freeStack(bytesPushed);
 }

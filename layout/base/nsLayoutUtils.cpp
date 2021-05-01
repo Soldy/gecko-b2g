@@ -35,6 +35,7 @@
 #include "mozilla/BasicEvents.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/DisplayPortUtils.h"
+#include "mozilla/GeckoBindings.h"
 #include "mozilla/dom/AnonymousContent.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/CanvasUtils.h"
@@ -3337,8 +3338,6 @@ nsresult nsLayoutUtils::PaintFrame(gfxContext* aRenderingContext,
     AUTO_PROFILER_TRACING_MARKER("Paint", "DisplayList", GRAPHICS);
     PerfStats::AutoMetricRecording<PerfStats::Metric::DisplayListBuilding>
         autoRecording;
-
-    PaintTelemetry::AutoRecord record(PaintTelemetry::Metric::DisplayList);
     {
       // If a scrollable container layer is created in
       // nsDisplayList::PaintForFrame, it will be the scroll parent for display
@@ -5000,10 +4999,13 @@ nscoord nsLayoutUtils::IntrinsicForAxis(
             minContentSize = minISize;
           }
         }
-        if (MOZ_UNLIKELY(aFlags & nsLayoutUtils::MIN_INTRINSIC_ISIZE)) {
+
+        if (MOZ_UNLIKELY(aFlags & nsLayoutUtils::MIN_INTRINSIC_ISIZE) &&
+            aFrame->IsFrameOfType(nsIFrame::eReplaced)) {
           // This is the 'min-width/height:auto' "transferred size" piece of:
-          // https://www.w3.org/TR/css-flexbox-1/#min-width-automatic-minimum-size
+          // https://drafts.csswg.org/css-flexbox-1/#min-size-auto
           // https://drafts.csswg.org/css-grid/#min-size-auto
+          // Per spec, we handle it only for replaced elements.
           result = std::min(result, minContentSize);
         }
       }
@@ -6351,13 +6353,13 @@ ImgDrawResult nsLayoutUtils::DrawSingleUnscaledImage(
 /* static */
 ImgDrawResult nsLayoutUtils::DrawSingleImage(
     gfxContext& aContext, nsPresContext* aPresContext, imgIContainer* aImage,
-    const SamplingFilter aSamplingFilter, const nsRect& aDest,
+    float aResolution, SamplingFilter aSamplingFilter, const nsRect& aDest,
     const nsRect& aDirty, const Maybe<SVGImageContext>& aSVGContext,
     uint32_t aImageFlags, const nsPoint* aAnchorPoint,
     const nsRect* aSourceArea) {
   nscoord appUnitsPerCSSPixel = AppUnitsPerCSSPixel();
   CSSIntSize pixelImageSize(
-      ComputeSizeForDrawingWithFallback(aImage, aDest.Size()));
+      ComputeSizeForDrawingWithFallback(aImage, aResolution, aDest.Size()));
   if (pixelImageSize.width < 1 || pixelImageSize.height < 1) {
     NS_ASSERTION(pixelImageSize.width >= 0 && pixelImageSize.height >= 0,
                  "Image width or height is negative");
@@ -6398,7 +6400,8 @@ ImgDrawResult nsLayoutUtils::DrawSingleImage(
 
 /* static */
 void nsLayoutUtils::ComputeSizeForDrawing(
-    imgIContainer* aImage, /* outparam */ CSSIntSize& aImageSize,
+    imgIContainer* aImage, float aResolution,
+    /* outparam */ CSSIntSize& aImageSize,
     /* outparam */ AspectRatio& aIntrinsicRatio,
     /* outparam */ bool& aGotWidth,
     /* outparam */ bool& aGotHeight) {
@@ -6406,6 +6409,15 @@ void nsLayoutUtils::ComputeSizeForDrawing(
   aGotHeight = NS_SUCCEEDED(aImage->GetHeight(&aImageSize.height));
   Maybe<AspectRatio> intrinsicRatio = aImage->GetIntrinsicRatio();
   aIntrinsicRatio = intrinsicRatio.valueOr(AspectRatio());
+
+  if (aResolution != 0.0f && aResolution != 1.0f) {
+    if (aGotWidth) {
+      aImageSize.width = std::round(float(aImageSize.width) / aResolution);
+    }
+    if (aGotHeight) {
+      aImageSize.height = std::round(float(aImageSize.height) / aResolution);
+    }
+  }
 
   if (!(aGotWidth && aGotHeight) && intrinsicRatio.isNothing()) {
     // We hit an error (say, because the image failed to load or couldn't be
@@ -6417,11 +6429,12 @@ void nsLayoutUtils::ComputeSizeForDrawing(
 
 /* static */
 CSSIntSize nsLayoutUtils::ComputeSizeForDrawingWithFallback(
-    imgIContainer* aImage, const nsSize& aFallbackSize) {
+    imgIContainer* aImage, float aResolution, const nsSize& aFallbackSize) {
   CSSIntSize imageSize;
   AspectRatio imageRatio;
   bool gotHeight, gotWidth;
-  ComputeSizeForDrawing(aImage, imageSize, imageRatio, gotWidth, gotHeight);
+  ComputeSizeForDrawing(aImage, aResolution, imageSize, imageRatio, gotWidth,
+                        gotHeight);
 
   // If we didn't get both width and height, try to compute them using the
   // intrinsic ratio of the image.
@@ -6615,18 +6628,11 @@ already_AddRefed<imgIContainer> nsLayoutUtils::OrientImage(
   MOZ_ASSERT(aContainer, "Should have an image container");
   nsCOMPtr<imgIContainer> img(aContainer);
 
-  bool handledOrientation = img->HandledOrientation();
-
   switch (aOrientation) {
     case StyleImageOrientation::FromImage:
-      if (!handledOrientation) {
-        img = ImageOps::Orient(img, img->GetOrientation());
-      }
       break;
     case StyleImageOrientation::None:
-      if (handledOrientation) {
-        img = ImageOps::Unorient(img);
-      }
+      img = ImageOps::Unorient(img);
       break;
   }
 
@@ -6831,8 +6837,8 @@ nsIFrame* nsLayoutUtils::GetReferenceFrame(nsIFrame* aFrame) {
       aStyleText->mTextJustify == StyleTextJustify::InterCharacter) {
     result |= gfx::ShapedTextFlags::TEXT_DISABLE_OPTIONAL_LIGATURES;
   }
-  if (aStyleText->mControlCharacterVisibility ==
-      StyleControlCharacterVisibility::Hidden) {
+  if (aStyleText->mMozControlCharacterVisibility ==
+      StyleMozControlCharacterVisibility::Hidden) {
     result |= gfx::ShapedTextFlags::TEXT_HIDE_CONTROL_CHARACTERS;
   }
   switch (aComputedStyle->StyleText()->mTextRendering) {
@@ -7056,9 +7062,7 @@ SurfaceFromElementResult nsLayoutUtils::SurfaceFromElement(
   nsCOMPtr<nsIContent> content = do_QueryInterface(aElement);
 
   // Ensure that the image is oriented the same way as it's displayed.
-  auto orientation = StaticPrefs::image_honor_orientation_metadata()
-                         ? StyleImageOrientation::FromImage
-                         : StyleImageOrientation::None;
+  auto orientation = StyleImageOrientation::FromImage;
   if (nsIFrame* f = content->GetPrimaryFrame()) {
     orientation = f->StyleVisibility()->mImageOrientation;
   }
@@ -8745,6 +8749,8 @@ ScrollMetadata nsLayoutUtils::ComputeScrollMetadata(
     }
   }
 
+  metrics.SetCompositionBoundsWidthIgnoringScrollbars(frameBounds.width);
+
   nsMargin sizes = ScrollbarAreaToExcludeFromCompositionBoundsFor(aScrollFrame);
   // Scrollbars are not subject to resolution scaling, so LD pixels = layer
   // pixels for them.
@@ -8808,6 +8814,9 @@ ScrollMetadata nsLayoutUtils::ComputeScrollMetadata(
   if (ShouldDisableApzForElement(aContent)) {
     metadata.SetForceDisableApz(true);
   }
+
+  metadata.SetPrefersReducedMotion(
+      Gecko_MediaFeatures_PrefersReducedMotion(document));
 
   return metadata;
 }
@@ -9033,16 +9042,18 @@ nsBlockFrame* nsLayoutUtils::GetFloatContainingBlock(nsIFrame* aFrame) {
 // Element::GetBoundingClientRect().
 /* static */
 CSSRect nsLayoutUtils::GetBoundingContentRect(
-    const nsIContent* aContent, const nsIScrollableFrame* aRootScrollFrame) {
+    const nsIContent* aContent, const nsIScrollableFrame* aRootScrollFrame,
+    Maybe<CSSRect>* aOutNearestScrollClip) {
   if (nsIFrame* frame = aContent->GetPrimaryFrame()) {
-    return GetBoundingFrameRect(frame, aRootScrollFrame);
+    return GetBoundingFrameRect(frame, aRootScrollFrame, aOutNearestScrollClip);
   }
   return CSSRect();
 }
 
 /* static */
 CSSRect nsLayoutUtils::GetBoundingFrameRect(
-    nsIFrame* aFrame, const nsIScrollableFrame* aRootScrollFrame) {
+    nsIFrame* aFrame, const nsIScrollableFrame* aRootScrollFrame,
+    Maybe<CSSRect>* aOutNearestScrollClip) {
   CSSRect result;
   nsIFrame* relativeTo = aRootScrollFrame->GetScrolledFrame();
   result = CSSRect::FromAppUnits(nsLayoutUtils::GetAllInFlowRectsUnion(
@@ -9058,11 +9069,18 @@ CSSRect nsLayoutUtils::GetBoundingFrameRect(
     MOZ_ASSERT(subFrame);
     // Get the bounds of the scroll frame in the same coordinate space
     // as |result|.
-    CSSRect subFrameRect =
-        CSSRect::FromAppUnits(nsLayoutUtils::TransformFrameRectToAncestor(
-            subFrame, subFrame->GetRectRelativeToSelf(), relativeTo));
+    nsRect subFrameRect = subFrame->GetRectRelativeToSelf();
+    TransformResult res =
+        nsLayoutUtils::TransformRect(subFrame, relativeTo, subFrameRect);
+    MOZ_ASSERT(res == TRANSFORM_SUCCEEDED || res == NONINVERTIBLE_TRANSFORM);
+    if (res == TRANSFORM_SUCCEEDED) {
+      CSSRect subFrameRectCSS = CSSRect::FromAppUnits(subFrameRect);
+      if (aOutNearestScrollClip) {
+        *aOutNearestScrollClip = Some(subFrameRectCSS);
+      }
 
-    result = subFrameRect.Intersect(result);
+      result = subFrameRectCSS.Intersect(result);
+    }
   }
   return result;
 }
@@ -9463,14 +9481,6 @@ nsPoint nsLayoutUtils::ComputeOffsetToUserSpace(nsDisplayListBuilder* aBuilder,
               nsPresContext::CSSPixelsToAppUnits(float(toUserSpaceGfx.y)));
 
   return (offsetToBoundingBox - toUserSpace);
-}
-
-/* static */
-mozilla::StyleControlCharacterVisibility
-nsLayoutUtils::ControlCharVisibilityDefault() {
-  return StaticPrefs::layout_css_control_characters_visible()
-             ? StyleControlCharacterVisibility::Visible
-             : StyleControlCharacterVisibility::Hidden;
 }
 
 /* static */

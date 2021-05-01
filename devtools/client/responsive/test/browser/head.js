@@ -148,7 +148,7 @@ var closeRDM = async function(tab, options) {
  *     async function preTask({ message, browser }) {
  *       // Your pre-task goes here...
  *     },
- *     async function task({ ui, manager, message, browser, preTaskValue }) {
+ *     async function task({ ui, manager, message, browser, preTaskValue, tab }) {
  *       // Your task goes here...
  *     },
  *     async function postTask({ message, browser, preTaskValue, taskValue }) {
@@ -195,6 +195,7 @@ function addRDMTaskWithPreAndPost(url, preTask, task, postTask, options) {
         message,
         browser,
         preTaskValue,
+        tab,
       });
     } catch (err) {
       ok(false, "Got an error: " + DevToolsUtils.safeErrorString(err));
@@ -639,7 +640,8 @@ async function testTouchEventsOverride(ui, expected) {
   const { document } = ui.toolWindow;
   const touchButton = document.getElementById("touch-simulation-button");
 
-  const flag = await ui.responsiveFront.getTouchEventsOverride();
+  const flag = gBrowser.selectedBrowser.browsingContext.touchEventsOverride;
+
   is(
     flag === "enabled",
     expected,

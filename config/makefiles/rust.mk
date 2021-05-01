@@ -208,6 +208,8 @@ endif
 export RUST_BACKTRACE=full
 export MOZ_TOPOBJDIR=$(topobjdir)
 export PYTHON3
+export CARGO_PROFILE_RELEASE_OPT_LEVEL
+export CARGO_PROFILE_DEV_OPT_LEVEL
 
 # Set COREAUDIO_SDK_PATH for third_party/rust/coreaudio-sys/build.rs
 ifeq ($(OS_ARCH), Darwin)
@@ -237,6 +239,11 @@ ifdef MOZ_PROFILE_GENERATE
 # because -C panic=unwind (the compiler default) is not compatible with -C profile-generate
 # (https://github.com/rust-lang/rust/issues/61002).
 rust_pgo_flags := -C panic=abort -C profile-generate=$(topobjdir)
+ifeq (1,$(words $(filter 5.% 6.% 7.% 8.% 9.% 10.% 11.%,$(CC_VERSION) $(RUSTC_LLVM_VERSION))))
+# Disable value profiling when:
+# (RUSTC_LLVM_VERSION < 12 and CC_VERSION >= 12) or (RUSTC_LLVM_VERSION >= 12 and CC_VERSION < 12)
+rust_pgo_flags += -C llvm-args=--disable-vp=true
+endif
 # The C compiler may be passed extra llvm flags for PGO that we also want to pass to rust as well.
 # In PROFILE_GEN_CFLAGS, they look like "-mllvm foo", and we want "-C llvm-args=foo", so first turn
 # "-mllvm foo" into "-mllvm:foo" so that it becomes a unique argument, that we can then filter for,

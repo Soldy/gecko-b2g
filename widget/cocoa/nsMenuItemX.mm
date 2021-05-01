@@ -88,6 +88,19 @@ nsMenuItemX::nsMenuItemX(nsMenuX* aParent, const nsString& aLabel, EMenuItemType
 
   mIcon = MakeUnique<nsMenuItemIconX>(this);
 
+  mIsVisible = !nsMenuUtilsX::NodeIsHiddenOrCollapsed(mContent);
+
+  // All menu items share the same target and action, and are differentiated
+  // be a unique (representedObject, tag) pair.
+  mNativeMenuItem.target = nsMenuBarX::sNativeEventTarget;
+  mNativeMenuItem.action = @selector(menuItemHit:);
+  mNativeMenuItem.representedObject = mMenuGroupOwner->GetRepresentedObject();
+  mNativeMenuItem.tag = mMenuGroupOwner->RegisterForCommand(this);
+
+  if (mIsVisible) {
+    SetupIcon();
+  }
+
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
 
@@ -107,6 +120,8 @@ nsMenuItemX::~nsMenuItemX() {
 
 void nsMenuItemX::DetachFromGroupOwner() {
   if (mMenuGroupOwner) {
+    mMenuGroupOwner->UnregisterCommand(mNativeMenuItem.tag);
+
     if (mContent) {
       mMenuGroupOwner->UnregisterForContentChanges(mContent);
     }
@@ -143,7 +158,7 @@ EMenuItemType nsMenuItemX::GetMenuItemType() { return mType; }
 
 // Executes the "cached" javaScript command.
 // Returns NS_OK if the command was executed properly, otherwise an error code.
-void nsMenuItemX::DoCommand(NSEventModifierFlags aModifierFlags) {
+void nsMenuItemX::DoCommand(NSEventModifierFlags aModifierFlags, int16_t aButton) {
   // flip "checked" state if we're a checkbox menu, or an un-checked radio menu
   if (mType == eCheckboxMenuItemType || (mType == eRadioMenuItemType && !mIsChecked)) {
     if (!mContent->AsElement()->AttrValueIs(kNameSpaceID_None, nsGkAtoms::autocheck,
@@ -153,7 +168,7 @@ void nsMenuItemX::DoCommand(NSEventModifierFlags aModifierFlags) {
     /* the AttributeChanged code will update all the internal state */
   }
 
-  nsMenuUtilsX::DispatchCommandTo(mContent, aModifierFlags);
+  nsMenuUtilsX::DispatchCommandTo(mContent, aModifierFlags, aButton);
 }
 
 nsresult nsMenuItemX::DispatchDOMEvent(const nsString& eventName, bool* preventDefaultCalled) {
@@ -291,6 +306,15 @@ void nsMenuItemX::ObserveAttributeChanged(dom::Document* aDocument, nsIContent* 
       }
       mMenuParent->SetRebuild(true);
     } else if (aAttribute == nsGkAtoms::hidden || aAttribute == nsGkAtoms::collapsed) {
+      bool isVisible = !nsMenuUtilsX::NodeIsHiddenOrCollapsed(mContent);
+      if (isVisible != mIsVisible) {
+        mIsVisible = isVisible;
+        RefPtr<nsMenuItemX> self = this;
+        mMenuParent->MenuChildChangedVisibility(nsMenuParentX::MenuChild(self), isVisible);
+        if (mIsVisible) {
+          SetupIcon();
+        }
+      }
       mMenuParent->SetRebuild(true);
     } else if (aAttribute == nsGkAtoms::label) {
       if (mType != eSeparatorMenuItemType) {

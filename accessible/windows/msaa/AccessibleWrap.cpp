@@ -34,18 +34,15 @@
 #include "nsIScrollableFrame.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/NodeInfo.h"
-#include "mozilla/dom/BrowserBridgeParent.h"
 #include "mozilla/dom/BrowserParent.h"
 #include "nsNameSpaceManager.h"
 #include "nsTextFormatter.h"
 #include "nsView.h"
 #include "nsViewManager.h"
-#include "nsEventMap.h"
 #include "nsArrayUtils.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ReverseIterator.h"
 #include "mozilla/mscom/AsyncInvoker.h"
-#include "mozilla/mscom/Interceptor.h"
 
 #include "oleacc.h"
 
@@ -64,7 +61,6 @@ const uint32_t USE_ROLE_STRING = 0;
 static gAccessibles = 0;
 #endif
 
-MsaaIdGenerator AccessibleWrap::sIDGen;
 StaticAutoPtr<nsTArray<AccessibleWrap::HandlerControllerData>>
     AccessibleWrap::sHandlerControllers;
 
@@ -76,50 +72,14 @@ static const int32_t kIEnumVariantDisconnected = -1;
 // AccessibleWrap
 ////////////////////////////////////////////////////////////////////////////////
 AccessibleWrap::AccessibleWrap(nsIContent* aContent, DocAccessible* aDoc)
-    : LocalAccessible(aContent, aDoc), mID(kNoID) {}
-
-AccessibleWrap::~AccessibleWrap() {
-  if (mID != kNoID) {
-    sIDGen.ReleaseID(WrapNotNull(this));
-  }
-}
+    : LocalAccessible(aContent, aDoc) {}
 
 ITypeInfo* AccessibleWrap::gTypeInfo = nullptr;
 
 NS_IMPL_ISUPPORTS_INHERITED0(AccessibleWrap, LocalAccessible)
 
 void AccessibleWrap::Shutdown() {
-  if (mID != kNoID) {
-    auto doc = static_cast<DocAccessibleWrap*>(mDoc.get());
-    // Accessibles can be shut down twice in some cases. When this happens,
-    // doc will be null.
-    if (doc) {
-      doc->RemoveID(mID);
-    }
-  }
-
-  if (XRE_IsContentProcess()) {
-    // Bug 1434822: To improve performance for cross-process COM, we disable COM
-    // garbage collection. However, this means we never receive Release calls
-    // from clients, so defunct accessibles can never be deleted. Since we
-    // know when an accessible is shutting down, we can work around this by
-    // forcing COM to disconnect this object from all of its remote clients,
-    // which will cause associated references to be released.
-    IUnknown* unk = static_cast<IAccessible*>(this);
-    mscom::Interceptor::DisconnectRemotesForTarget(unk);
-    // If an accessible was retrieved via IAccessibleHypertext::hyperlink*,
-    // it will have a different Interceptor that won't be matched by the above
-    // call, even though it's the same object. Therefore, call it again with
-    // the IAccessibleHyperlink pointer. We can remove this horrible hack once
-    // bug 1440267 is fixed.
-    unk = static_cast<IAccessibleHyperlink*>(this);
-    mscom::Interceptor::DisconnectRemotesForTarget(unk);
-    for (auto& assocUnk : mAssociatedCOMObjectsForDisconnection) {
-      mscom::Interceptor::DisconnectRemotesForTarget(assocUnk);
-    }
-    mAssociatedCOMObjectsForDisconnection.Clear();
-  }
-
+  MsaaShutdown();
   LocalAccessible::Shutdown();
 }
 
@@ -249,62 +209,6 @@ AccessibleWrap::get_accChild(
   }
 
   child.forget(ppdispChild);
-  return S_OK;
-}
-
-/**
- * This function is a helper for implementing IAccessible methods that accept
- * a Child ID as a parameter. If the child ID is CHILDID_SELF, the function
- * returns S_OK but a null *aOutInterface. Otherwise, *aOutInterface points
- * to the resolved IAccessible.
- *
- * The CHILDID_SELF case is special because in that case we actually execute
- * the implementation of the IAccessible method, whereas in the non-self case,
- * we delegate the method call to that object for execution.
- *
- * A sample invocation of this would look like:
- *
- *  RefPtr<IAccessible> accessible;
- *  HRESULT hr = ResolveChild(varChild, getter_AddRefs(accessible));
- *  if (FAILED(hr)) {
- *    return hr;
- *  }
- *
- *  if (accessible) {
- *    return accessible->get_accFoo(kVarChildIdSelf, pszName);
- *  }
- *
- *  // Implementation for CHILDID_SELF case goes here
- */
-HRESULT
-AccessibleWrap::ResolveChild(const VARIANT& aVarChild,
-                             IAccessible** aOutInterface) {
-  MOZ_ASSERT(aOutInterface);
-  *aOutInterface = nullptr;
-
-  if (aVarChild.vt != VT_I4) {
-    return E_INVALIDARG;
-  }
-
-  if (IsDefunct()) {
-    return CO_E_OBJNOTCONNECTED;
-  }
-
-  if (aVarChild.lVal == CHILDID_SELF) {
-    return S_OK;
-  }
-
-  bool isDefunct = false;
-  RefPtr<IAccessible> accessible = GetIAccessibleFor(aVarChild, &isDefunct);
-  if (!accessible) {
-    return E_INVALIDARG;
-  }
-
-  if (isDefunct) {
-    return CO_E_OBJNOTCONNECTED;
-  }
-
-  accessible.forget(aOutInterface);
   return S_OK;
 }
 
@@ -1077,68 +981,6 @@ void AccessibleWrap::GetNativeInterface(void** aOutAccessible) {
   NS_ADDREF_THIS();
 }
 
-void AccessibleWrap::SetID(uint32_t aID) {
-  MOZ_ASSERT(XRE_IsParentProcess() && IsProxy());
-  mID = aID;
-}
-
-static bool IsHandlerInvalidationNeeded(uint32_t aEvent) {
-  // We want to return true for any events that would indicate that something
-  // in the handler cache is out of date.
-  switch (aEvent) {
-    case EVENT_OBJECT_STATECHANGE:
-    case EVENT_OBJECT_LOCATIONCHANGE:
-    case EVENT_OBJECT_NAMECHANGE:
-    case EVENT_OBJECT_DESCRIPTIONCHANGE:
-    case EVENT_OBJECT_VALUECHANGE:
-    case EVENT_OBJECT_FOCUS:
-    case IA2_EVENT_ACTION_CHANGED:
-    case IA2_EVENT_DOCUMENT_LOAD_COMPLETE:
-    case IA2_EVENT_DOCUMENT_LOAD_STOPPED:
-    case IA2_EVENT_DOCUMENT_ATTRIBUTE_CHANGED:
-    case IA2_EVENT_DOCUMENT_CONTENT_CHANGED:
-    case IA2_EVENT_PAGE_CHANGED:
-    case IA2_EVENT_TEXT_ATTRIBUTE_CHANGED:
-    case IA2_EVENT_TEXT_CHANGED:
-    case IA2_EVENT_TEXT_INSERTED:
-    case IA2_EVENT_TEXT_REMOVED:
-    case IA2_EVENT_TEXT_UPDATED:
-    case IA2_EVENT_OBJECT_ATTRIBUTE_CHANGED:
-      return true;
-    default:
-      return false;
-  }
-}
-
-void AccessibleWrap::FireWinEvent(LocalAccessible* aTarget,
-                                  uint32_t aEventType) {
-  MOZ_ASSERT(XRE_IsParentProcess());
-  static_assert(sizeof(gWinEventMap) / sizeof(gWinEventMap[0]) ==
-                    nsIAccessibleEvent::EVENT_LAST_ENTRY,
-                "MSAA event map skewed");
-
-  NS_ASSERTION(aEventType > 0 && aEventType < ArrayLength(gWinEventMap),
-               "invalid event type");
-
-  uint32_t winEvent = gWinEventMap[aEventType];
-  if (!winEvent) return;
-
-  int32_t childID = GetChildIDFor(aTarget);
-  if (!childID) return;  // Can't fire an event without a child ID
-
-  HWND hwnd = GetHWNDFor(aTarget);
-  if (!hwnd) {
-    return;
-  }
-
-  if (IsHandlerInvalidationNeeded(winEvent)) {
-    InvalidateHandlers();
-  }
-
-  // Fire MSAA event for client area window.
-  ::NotifyWinEvent(winEvent, hwnd, OBJID_CLIENT, childID);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // LocalAccessible
 
@@ -1163,7 +1005,7 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
     UpdateSystemCaretFor(accessible);
   }
 
-  FireWinEvent(accessible, eventType);
+  MsaaAccessible::FireWinEvent(accessible, eventType);
 
   return NS_OK;
 }
@@ -1187,100 +1029,6 @@ DocRemoteAccessibleWrap* AccessibleWrap::DocProxyWrapper() const {
 
 //------- Helper methods ---------
 
-int32_t AccessibleWrap::GetChildIDFor(LocalAccessible* aAccessible) {
-  // A child ID of the window is required, when we use NotifyWinEvent,
-  // so that the 3rd party application can call back and get the IAccessible
-  // the event occurred on.
-
-  if (!aAccessible) {
-    return 0;
-  }
-
-  // Chrome should use mID which has been generated by the content process.
-  if (aAccessible->IsProxy()) {
-    const uint32_t id = static_cast<AccessibleWrap*>(aAccessible)->mID;
-    MOZ_ASSERT(id != kNoID);
-    return id;
-  }
-
-  if (!aAccessible->Document()) return 0;
-
-  uint32_t* id = &static_cast<AccessibleWrap*>(aAccessible)->mID;
-  if (*id != kNoID) return *id;
-
-  *id = sIDGen.GetID();
-
-  MOZ_ASSERT(!aAccessible->IsProxy());
-  DocAccessibleWrap* doc =
-      static_cast<DocAccessibleWrap*>(aAccessible->Document());
-  doc->AddID(*id, static_cast<AccessibleWrap*>(aAccessible));
-
-  return *id;
-}
-
-HWND AccessibleWrap::GetHWNDFor(LocalAccessible* aAccessible) {
-  if (!aAccessible) {
-    return nullptr;
-  }
-
-  if (aAccessible->IsProxy()) {
-    RemoteAccessible* proxy = aAccessible->Proxy();
-    if (!proxy) {
-      return nullptr;
-    }
-
-    // If window emulation is enabled, retrieve the emulated window from the
-    // containing document document proxy.
-    if (nsWinUtils::IsWindowEmulationStarted()) {
-      DocAccessibleParent* doc = proxy->Document();
-      HWND hWnd = doc->GetEmulatedWindowHandle();
-      if (hWnd) {
-        return hWnd;
-      }
-    }
-
-    // Accessibles in child processes are said to have the HWND of the window
-    // their tab is within.  Popups are always in the parent process, and so
-    // never proxied, which means this is basically correct.
-    LocalAccessible* outerDoc = proxy->OuterDocOfRemoteBrowser();
-    if (!outerDoc) {
-      // In some cases, the outer document accessible may be unattached from its
-      // document at this point, if it is scheduled for removal. Do not assert
-      // in such case. An example: putting aria-hidden="true" on HTML:iframe
-      // element will destroy iframe's document asynchroniously, but
-      // the document may be a target of selection events until then, and thus
-      // it may attempt to deliever these events to MSAA clients.
-      return nullptr;
-    }
-
-    return GetHWNDFor(outerDoc);
-  }
-
-  DocAccessible* document = aAccessible->Document();
-  if (!document) return nullptr;
-
-  // Popup lives in own windows, use its HWND until the popup window is
-  // hidden to make old JAWS versions work with collapsed comboboxes (see
-  // discussion in bug 379678).
-  nsIFrame* frame = aAccessible->GetFrame();
-  if (frame) {
-    nsIWidget* widget = frame->GetNearestWidget();
-    if (widget && widget->IsVisible()) {
-      if (nsViewManager* vm = document->PresShellPtr()->GetViewManager()) {
-        nsCOMPtr<nsIWidget> rootWidget;
-        vm->GetRootWidget(getter_AddRefs(rootWidget));
-        // Make sure the accessible belongs to popup. If not then use
-        // document HWND (which might be different from root widget in the
-        // case of window emulation).
-        if (rootWidget != widget)
-          return static_cast<HWND>(widget->GetNativeData(NS_NATIVE_WINDOW));
-      }
-    }
-  }
-
-  return static_cast<HWND>(document->GetNativeWindow());
-}
-
 IDispatch* AccessibleWrap::NativeAccessible(LocalAccessible* aAccessible) {
   if (!aAccessible) {
     NS_WARNING("Not passing in an aAccessible");
@@ -1292,294 +1040,15 @@ IDispatch* AccessibleWrap::NativeAccessible(LocalAccessible* aAccessible) {
   return static_cast<IDispatch*>(msaaAccessible);
 }
 
-static LocalAccessible* GetAccessibleInSubtree(DocAccessible* aDoc,
-                                               uint32_t aID) {
-  LocalAccessible* child =
-      static_cast<DocAccessibleWrap*>(aDoc)->GetAccessibleByID(aID);
-  if (child) return child;
-
-  uint32_t childDocCount = aDoc->ChildDocumentCount();
-  for (uint32_t i = 0; i < childDocCount; i++) {
-    child = GetAccessibleInSubtree(aDoc->GetChildDocumentAt(i), aID);
-    if (child) return child;
-  }
-
-  return nullptr;
-}
-
-static already_AddRefed<IDispatch> GetProxiedAccessibleInSubtree(
-    const DocAccessibleParent* aDoc, const VARIANT& aVarChild) {
-  auto wrapper = static_cast<DocRemoteAccessibleWrap*>(WrapperFor(aDoc));
-  RefPtr<IAccessible> comProxy;
-  int32_t docWrapperChildId = AccessibleWrap::GetChildIDFor(wrapper);
-  // Only document accessible proxies at the top level of their content process
-  // are created with a pointer to their COM proxy.
-  if (aDoc->IsTopLevelInContentProcess()) {
-    wrapper->GetNativeInterface(getter_AddRefs(comProxy));
-  } else {
-    auto tab = static_cast<dom::BrowserParent*>(aDoc->Manager());
-    MOZ_ASSERT(tab);
-    DocAccessibleParent* topLevelDoc = tab->GetTopLevelDocAccessible();
-    MOZ_ASSERT(topLevelDoc && topLevelDoc->IsTopLevelInContentProcess());
-    VARIANT docId = {{{VT_I4}}};
-    docId.lVal = docWrapperChildId;
-    RefPtr<IDispatch> disp = GetProxiedAccessibleInSubtree(topLevelDoc, docId);
-    if (!disp) {
-      return nullptr;
-    }
-
-    DebugOnly<HRESULT> hr =
-        disp->QueryInterface(IID_IAccessible, getter_AddRefs(comProxy));
-    MOZ_ASSERT(SUCCEEDED(hr));
-  }
-
-  MOZ_ASSERT(comProxy);
-  if (!comProxy) {
-    return nullptr;
-  }
-
-  if (docWrapperChildId == aVarChild.lVal) {
-    return comProxy.forget();
-  }
-
-  RefPtr<IDispatch> disp;
-  if (FAILED(comProxy->get_accChild(aVarChild, getter_AddRefs(disp)))) {
-    return nullptr;
-  }
-
-  return disp.forget();
-}
-
 bool AccessibleWrap::IsRootForHWND() {
   if (IsRoot()) {
     return true;
   }
-  HWND thisHwnd = GetHWNDFor(this);
+  HWND thisHwnd = MsaaAccessible::GetHWNDFor(this);
   AccessibleWrap* parent = static_cast<AccessibleWrap*>(LocalParent());
   MOZ_ASSERT(parent);
-  HWND parentHwnd = GetHWNDFor(parent);
+  HWND parentHwnd = MsaaAccessible::GetHWNDFor(parent);
   return thisHwnd != parentHwnd;
-}
-
-already_AddRefed<IAccessible> AccessibleWrap::GetIAccessibleFor(
-    const VARIANT& aVarChild, bool* aIsDefunct) {
-  if (aVarChild.vt != VT_I4) return nullptr;
-
-  VARIANT varChild = aVarChild;
-
-  MOZ_ASSERT(aIsDefunct);
-  *aIsDefunct = false;
-
-  RefPtr<IAccessible> result;
-
-  if (varChild.lVal == CHILDID_SELF) {
-    *aIsDefunct = IsDefunct();
-    if (*aIsDefunct) {
-      return nullptr;
-    }
-    GetNativeInterface(getter_AddRefs(result));
-    if (result) {
-      return result.forget();
-    }
-    // If we're not a proxy, there's nothing more we can do to attempt to
-    // resolve the IAccessible, so we just fail.
-    if (!IsProxy()) {
-      return nullptr;
-    }
-    // Otherwise, since we're a proxy and we have a null native interface, this
-    // indicates that we need to obtain a COM proxy. To do this, we'll replace
-    // CHILDID_SELF with our real MSAA ID and continue the search from there.
-    varChild.lVal = GetExistingID();
-  }
-
-  if (varChild.ulVal != GetExistingID() &&
-      (IsProxy() ? nsAccUtils::MustPrune(Proxy())
-                 : nsAccUtils::MustPrune(this))) {
-    // This accessible should have no subtree in platform, return null for its
-    // children.
-    return nullptr;
-  }
-
-  // If the MSAA ID is not a chrome id then we already know that we won't
-  // find it here and should look remotely instead. This handles the case when
-  // accessible is part of the chrome process and is part of the xul browser
-  // window and the child id points in the content documents. Thus we need to
-  // make sure that it is never called on proxies.
-  // Bug 1422674: We must only handle remote ids here (< 0), not child indices.
-  // Child indices (> 0) are handled below for both local and remote children.
-  if (XRE_IsParentProcess() && !IsProxy() && varChild.lVal < 0 &&
-      !sIDGen.IsChromeID(varChild.lVal)) {
-    if (!IsRootForHWND()) {
-      // Bug 1422201, 1424657: accChild with a remote id is only valid on the
-      // root accessible for an HWND.
-      // Otherwise, we might return remote accessibles which aren't descendants
-      // of this accessible. This would confuse clients which use accChild to
-      // check whether something is a descendant of a document.
-      return nullptr;
-    }
-    return GetRemoteIAccessibleFor(varChild);
-  }
-
-  if (varChild.lVal > 0) {
-    // Gecko child indices are 0-based in contrast to indices used in MSAA.
-    MOZ_ASSERT(!IsProxy());
-    LocalAccessible* xpAcc = LocalChildAt(varChild.lVal - 1);
-    if (!xpAcc) {
-      return nullptr;
-    }
-    *aIsDefunct = xpAcc->IsDefunct();
-    static_cast<AccessibleWrap*>(xpAcc)->GetNativeInterface(
-        getter_AddRefs(result));
-    return result.forget();
-  }
-
-  // If lVal negative then it is treated as child ID and we should look for
-  // accessible through whole accessible subtree including subdocuments.
-  // Otherwise we treat lVal as index in parent.
-  // First handle the case that both this accessible and the id'd one are in
-  // this process.
-  if (!IsProxy()) {
-    DocAccessible* document = Document();
-    LocalAccessible* child =
-        GetAccessibleInSubtree(document, static_cast<uint32_t>(varChild.lVal));
-
-    // If it is a document then just return an accessible.
-    if (child && IsDoc()) {
-      *aIsDefunct = child->IsDefunct();
-      static_cast<AccessibleWrap*>(child)->GetNativeInterface(
-          getter_AddRefs(result));
-      return result.forget();
-    }
-
-    // Otherwise check whether the accessible is a child (this path works for
-    // ARIA documents and popups).
-    LocalAccessible* parent = child;
-    while (parent && parent != document) {
-      if (parent == this) {
-        *aIsDefunct = child->IsDefunct();
-        static_cast<AccessibleWrap*>(child)->GetNativeInterface(
-            getter_AddRefs(result));
-        return result.forget();
-      }
-
-      parent = parent->LocalParent();
-    }
-  }
-
-  // Now see about the case that both this accessible and the target one are
-  // proxied.
-  if (IsProxy()) {
-    DocAccessibleParent* proxyDoc = Proxy()->Document();
-    RefPtr<IDispatch> disp = GetProxiedAccessibleInSubtree(proxyDoc, varChild);
-    if (!disp) {
-      return nullptr;
-    }
-
-    MOZ_ASSERT(mscom::IsProxy(disp));
-    DebugOnly<HRESULT> hr =
-        disp->QueryInterface(IID_IAccessible, getter_AddRefs(result));
-    MOZ_ASSERT(SUCCEEDED(hr));
-    return result.forget();
-  }
-
-  return nullptr;
-}
-
-/**
- * Visit DocAccessibleParent descendants of `aBrowser` that are at the top
- * level of their content process.
- * That is, IsTopLevelInContentProcess() will be true for each visited actor.
- * Each visited actor will be an embedded document in a different content
- * process to its embedder.
- * The DocAccessibleParent for `aBrowser` itself is excluded.
- * `aCallback` will be called for each DocAccessibleParent.
- * The callback should return true to continue traversal, false to cease.
- */
-template <typename Callback>
-static bool VisitDocAccessibleParentDescendantsAtTopLevelInContentProcess(
-    dom::BrowserParent* aBrowser, Callback aCallback) {
-  // We can't use BrowserBridgeParent::VisitAllDescendants because it doesn't
-  // provide a way to stop the search.
-  const auto& bridges = aBrowser->ManagedPBrowserBridgeParent();
-  return std::all_of(bridges.cbegin(), bridges.cend(), [&](const auto& key) {
-    auto* bridge = static_cast<dom::BrowserBridgeParent*>(key);
-    dom::BrowserParent* childBrowser = bridge->GetBrowserParent();
-    DocAccessibleParent* childDocAcc = childBrowser->GetTopLevelDocAccessible();
-    if (!childDocAcc || childDocAcc->IsShutdown()) {
-      return true;
-    }
-    if (!aCallback(childDocAcc)) {
-      return false;  // Stop traversal.
-    }
-    if (!VisitDocAccessibleParentDescendantsAtTopLevelInContentProcess(
-            childBrowser, aCallback)) {
-      return false;  // Stop traversal.
-    }
-    return true;  // Continue traversal.
-  });
-}
-
-already_AddRefed<IAccessible> AccessibleWrap::GetRemoteIAccessibleFor(
-    const VARIANT& aVarChild) {
-  a11y::RootAccessible* root = RootAccessible();
-  const nsTArray<DocAccessibleParent*>* remoteDocs =
-      DocManager::TopLevelRemoteDocs();
-  if (!remoteDocs) {
-    return nullptr;
-  }
-
-  RefPtr<IAccessible> result;
-
-  // We intentionally leave the call to remoteDocs->Length() inside the loop
-  // condition because it is possible for reentry to occur in the call to
-  // GetProxiedAccessibleInSubtree() such that remoteDocs->Length() is mutated.
-  for (size_t i = 0; i < remoteDocs->Length(); i++) {
-    DocAccessibleParent* topRemoteDoc = remoteDocs->ElementAt(i);
-
-    LocalAccessible* outerDoc = topRemoteDoc->OuterDocOfRemoteBrowser();
-    if (!outerDoc) {
-      continue;
-    }
-
-    if (outerDoc->RootAccessible() != root) {
-      continue;
-    }
-
-    RefPtr<IDispatch> disp;
-    auto checkDoc = [&aVarChild,
-                     &disp](DocAccessibleParent* aRemoteDoc) -> bool {
-      uint32_t remoteDocMsaaId = WrapperFor(aRemoteDoc)->GetExistingID();
-      if (!sIDGen.IsSameContentProcessFor(aVarChild.lVal, remoteDocMsaaId)) {
-        return true;  // Continue the search.
-      }
-      if ((disp = GetProxiedAccessibleInSubtree(aRemoteDoc, aVarChild))) {
-        return false;  // Found it! Stop traversal!
-      }
-      return true;  // Continue the search.
-    };
-
-    // Check the top level document for this id.
-    checkDoc(topRemoteDoc);
-    if (!disp) {
-      // The top level document doesn't contain this id. Recursively check any
-      // out-of-process iframe documents it embeds.
-      VisitDocAccessibleParentDescendantsAtTopLevelInContentProcess(
-          static_cast<dom::BrowserParent*>(topRemoteDoc->Manager()), checkDoc);
-    }
-
-    if (!disp) {
-      continue;
-    }
-
-    DebugOnly<HRESULT> hr =
-        disp->QueryInterface(IID_IAccessible, getter_AddRefs(result));
-    // QI can fail on rare occasions if the LocalAccessible dies after we
-    // fetched disp but before we QI.
-    NS_WARNING_ASSERTION(SUCCEEDED(hr), "QI failed on remote IDispatch");
-    return result.forget();
-  }
-
-  return nullptr;
 }
 
 void AccessibleWrap::UpdateSystemCaretFor(LocalAccessible* aAccessible) {
@@ -1610,7 +1079,7 @@ void AccessibleWrap::UpdateSystemCaretFor(
   // The HWND should be the real widget HWND, not an emulated HWND.
   // We get the HWND from the proxy's outer doc to bypass window emulation.
   LocalAccessible* outerDoc = aProxy->OuterDocOfRemoteBrowser();
-  UpdateSystemCaretFor(GetHWNDFor(outerDoc), aCaretRect);
+  UpdateSystemCaretFor(MsaaAccessible::GetHWNDFor(outerDoc), aCaretRect);
 }
 
 /* static */
@@ -1646,18 +1115,6 @@ ITypeInfo* AccessibleWrap::GetTI(LCID lcid) {
   if (FAILED(hr)) return nullptr;
 
   return gTypeInfo;
-}
-
-/* static */
-uint32_t AccessibleWrap::GetContentProcessIdFor(
-    dom::ContentParentId aIPCContentId) {
-  return sIDGen.GetContentProcessIDFor(aIPCContentId);
-}
-
-/* static */
-void AccessibleWrap::ReleaseContentProcessIdFor(
-    dom::ContentParentId aIPCContentId) {
-  sIDGen.ReleaseContentProcessIDFor(aIPCContentId);
 }
 
 /* static */
@@ -1720,13 +1177,13 @@ bool AccessibleWrap::DispatchTextChangeToHandler(bool aIsInsert,
     return false;
   }
 
-  HWND hwnd = GetHWNDFor(this);
+  HWND hwnd = MsaaAccessible::GetHWNDFor(this);
   MOZ_ASSERT(hwnd);
   if (!hwnd) {
     return false;
   }
 
-  long msaaId = GetChildIDFor(this);
+  long msaaId = MsaaAccessible::GetChildIDFor(this);
 
   DWORD ourPid = ::GetCurrentProcessId();
 
@@ -1762,14 +1219,4 @@ bool AccessibleWrap::DispatchTextChangeToHandler(bool aIsInsert,
   ::SysFreeString(textSegment.text);
 
   return SUCCEEDED(hr);
-}
-
-/* static */
-void AccessibleWrap::AssignChildIDTo(NotNull<sdnAccessible*> aSdnAcc) {
-  aSdnAcc->SetUniqueID(sIDGen.GetID());
-}
-
-/* static */
-void AccessibleWrap::ReleaseChildID(NotNull<sdnAccessible*> aSdnAcc) {
-  sIDGen.ReleaseID(aSdnAcc);
 }

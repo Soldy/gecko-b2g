@@ -10,62 +10,7 @@ const EXPORTED_SYMBOLS = [
   "NimbusFeatures",
 ];
 
-/**
- * FEATURE MANIFEST
- * =================
- * Features must be added here to be accessible through the ExperimentFeature() API.
- * In the future, this will be moved to a configuration file.
- */
-const MANIFEST = {
-  urlbar: {
-    description: "The Address Bar",
-    variables: {
-      quickSuggestEnabled: {
-        type: "boolean",
-        fallbackPref: "browser.urlbar.quicksuggest.enabled",
-      },
-    },
-  },
-  aboutwelcome: {
-    description: "The about:welcome page",
-    enabledFallbackPref: "browser.aboutwelcome.enabled",
-    variables: {
-      screens: {
-        type: "json",
-        fallbackPref: "browser.aboutwelcome.screens",
-      },
-      design: {
-        type: "string",
-        fallbackPref: "browser.aboutwelcome.design",
-      },
-      skipFocus: {
-        type: "boolean",
-        fallbackPref: "browser.aboutwelcome.skipFocus",
-      },
-    },
-  },
-  newtab: {
-    description: "The about:newtab page",
-    variables: {
-      newNewtabExperienceEnabled: {
-        type: "boolean",
-        fallbackPref:
-          "browser.newtabpage.activity-stream.newNewtabExperience.enabled",
-      },
-      customizationMenuEnabled: {
-        type: "boolean",
-        fallbackPref:
-          "browser.newtabpage.activity-stream.customizationMenu.enabled",
-      },
-      prefsButtonIcon: {
-        type: "string",
-      },
-    },
-  },
-  "password-autocomplete": {
-    description: "A special autocomplete UI for password fields.",
-  },
-};
+// Note: Feature manifest has moved to toolkit/components/nimbus/FeatureManifest.js
 
 function isBooleanValueDefined(value) {
   return typeof value === "boolean";
@@ -80,6 +25,9 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ExperimentStore: "resource://nimbus/lib/ExperimentStore.jsm",
   ExperimentManager: "resource://nimbus/lib/ExperimentManager.jsm",
   RemoteSettings: "resource://services-settings/remote-settings.js",
+  setTimeout: "resource://gre/modules/Timer.jsm",
+  clearTimeout: "resource://gre/modules/Timer.jsm",
+  FeatureManifest: "resource://nimbus/FeatureManifest.js",
 });
 
 const IS_MAIN_PROCESS =
@@ -335,10 +283,10 @@ const ExperimentAPI = {
 
 /**
  * Singleton that holds lazy references to ExperimentFeature instances
- * defined by the MANIFEST.
+ * defined by the FeatureManifest
  */
 const NimbusFeatures = {};
-for (let feature in MANIFEST) {
+for (let feature in FeatureManifest) {
   XPCOMUtils.defineLazyGetter(
     NimbusFeatures,
     feature,
@@ -347,21 +295,22 @@ for (let feature in MANIFEST) {
 }
 
 class ExperimentFeature {
-  static MANIFEST = MANIFEST;
   constructor(featureId, manifest) {
     this.featureId = featureId;
     this.prefGetters = {};
-    this.manifest = manifest || ExperimentFeature.MANIFEST[featureId];
+    this.manifest = manifest || FeatureManifest[featureId];
     if (!this.manifest) {
       Cu.reportError(
-        `No manifest entry for ${featureId}. Please add one to toolkit/components/messaging-system/experiments/ExperimentAPI.jsm`
+        `No manifest entry for ${featureId}. Please add one to toolkit/components/nimbus/FeatureManifest.js`
       );
     }
+    // Prevent the instance from sending multiple exposure events
+    this._sendExposureEventOnce = true;
     this._onRemoteReady = null;
     this._waitForRemote = new Promise(
       resolve => (this._onRemoteReady = resolve)
     );
-    this._remoteReady = false;
+    this._listenForRemoteDefaults = this._listenForRemoteDefaults.bind(this);
     const variables = this.manifest?.variables || {};
 
     // Add special enabled flag
@@ -398,6 +347,36 @@ class ExperimentFeature {
         );
       }
     });
+
+    /**
+     * There are multiple events that can resolve the wait for remote defaults:
+     * 1. The feature can receive data via the RS update cycle
+     * 2. The RS update cycle finished; no record exists for this feature
+     * 3. User was enrolled in an experiment that targets this feature, resolve
+     * because experiments take priority.
+     */
+    ExperimentAPI._store.on(
+      "remote-defaults-finalized",
+      this._listenForRemoteDefaults
+    );
+    this.onUpdate(this._listenForRemoteDefaults);
+  }
+
+  _listenForRemoteDefaults(eventName, reason) {
+    if (
+      // When the update cycle finished
+      eventName === "remote-defaults-finalized" ||
+      // remote default or experiment available
+      reason === "experiment-updated" ||
+      reason === "remote-defaults-update"
+    ) {
+      ExperimentAPI._store.off(
+        "remote-defaults-updated",
+        this._listenForRemoteDefaults
+      );
+      this.off(this._listenForRemoteDefaults);
+      this._onRemoteReady();
+    }
   }
 
   _getUserPrefsValues() {
@@ -416,33 +395,22 @@ class ExperimentFeature {
     return userPrefs;
   }
 
-  async ready() {
+  /**
+   * Wait for ExperimentStore to load giving access to experiment features that
+   * do not have a pref cache and wait for remote defaults to load from Remote
+   * Settings.
+   *
+   * @param {number} timeout Optional timeout parameter
+   */
+  async ready(timeout) {
+    const REMOTE_DEFAULTS_TIMEOUT_MS = 15 * 1000; // 15 seconds
     await ExperimentAPI.ready();
-    // If Remote Defaults or Experiment Value are already available
-    // we can proceed
-    if (
-      // We need to check for remote configs using the store directly
-      // this instance won't do it until `ready()` completed.
-      ExperimentAPI._store.getRemoteConfig(this.featureId) ||
-      ExperimentAPI.activateBranch({ featureId: this.featureId })
-    ) {
-      this._remoteReady = true;
-      this._onRemoteReady();
-    } else {
-      // We need to wait for the updates to come in
-      let resolveEvent = (featureId, reason) => {
-        if (
-          reason === "remote-defaults-update" ||
-          reason === "experiment-updated"
-        ) {
-          this._remoteReady = true;
-          this._onRemoteReady();
-          this.off(resolveEvent);
-        }
-      };
-      this.onUpdate(resolveEvent);
-    }
-    return this._waitForRemote;
+    let remoteTimeoutId = setTimeout(
+      this._onRemoteReady,
+      timeout || REMOTE_DEFAULTS_TIMEOUT_MS
+    );
+    await this._waitForRemote;
+    clearTimeout(remoteTimeoutId);
   }
 
   /**
@@ -454,8 +422,13 @@ class ExperimentFeature {
   isEnabled({ sendExposureEvent, defaultValue = null } = {}) {
     const branch = ExperimentAPI.activateBranch({
       featureId: this.featureId,
-      sendExposureEvent,
+      sendExposureEvent: sendExposureEvent && this._sendExposureEventOnce,
     });
+
+    // Prevent future exposure events if user is enrolled in an experiment
+    if (branch && sendExposureEvent) {
+      this._sendExposureEventOnce = false;
+    }
 
     // First, try to return an experiment value if it exists.
     if (isBooleanValueDefined(branch?.feature.enabled)) {
@@ -486,8 +459,14 @@ class ExperimentFeature {
     let userPrefs = this._getUserPrefsValues();
     const branch = ExperimentAPI.activateBranch({
       featureId: this.featureId,
-      sendExposureEvent,
+      sendExposureEvent: sendExposureEvent && this._sendExposureEventOnce,
     });
+
+    // Prevent future exposure events if user is enrolled in an experiment
+    if (branch && sendExposureEvent) {
+      this._sendExposureEventOnce = false;
+    }
+
     if (branch?.feature?.value) {
       return { ...branch.feature.value, ...userPrefs };
     }
@@ -500,22 +479,26 @@ class ExperimentFeature {
   }
 
   getRemoteConfig() {
-    if (this._remoteReady) {
-      let remoteConfig = ExperimentAPI._store.getRemoteConfig(this.featureId);
-      // Used to select a matching client config
-      delete remoteConfig.targeting;
-
-      return remoteConfig;
+    let remoteConfig = ExperimentAPI._store.getRemoteConfig(this.featureId);
+    if (!remoteConfig) {
+      return null;
     }
 
-    return null;
+    return remoteConfig;
   }
 
   recordExposureEvent() {
-    ExperimentAPI.activateBranch({
-      featureId: this.featureId,
-      sendExposureEvent: true,
-    });
+    if (this._sendExposureEventOnce) {
+      let experimentData = ExperimentAPI.activateBranch({
+        featureId: this.featureId,
+        sendExposureEvent: true,
+      });
+
+      // Exposure only sent if user is enrolled in an experiment
+      if (experimentData) {
+        this._sendExposureEventOnce = false;
+      }
+    }
   }
 
   onUpdate(callback) {
@@ -528,7 +511,6 @@ class ExperimentFeature {
 
   debug() {
     return {
-      _remoteReady: this._remoteReady,
       enabled: this.isEnabled(),
       value: this.getValue(),
       experiment: ExperimentAPI.getExperimentMetaData({

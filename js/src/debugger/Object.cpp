@@ -981,11 +981,11 @@ bool DebuggerObject::CallData::applyMethod() {
 
     RootedObject argsobj(cx, &args[1].toObject());
 
-    unsigned argc = 0;
+    uint64_t argc = 0;
     if (!GetLengthProperty(cx, argsobj, &argc)) {
       return false;
     }
-    argc = unsigned(std::min(argc, ARGS_LENGTH_MAX));
+    argc = std::min(argc, uint64_t(ARGS_LENGTH_MAX));
 
     if (!nargs.growBy(argc) || !GetElements(cx, argsobj, argc, nargs.begin())) {
       return false;
@@ -1368,8 +1368,13 @@ bool DebuggerObject::CallData::setInstrumentationMethod() {
   }
   RootedObject kindsObj(cx, &args[1].toObject());
 
-  unsigned length = 0;
+  uint64_t length = 0;
   if (!GetLengthProperty(cx, kindsObj, &length)) {
+    return false;
+  }
+
+  if (length > UINT32_MAX) {
+    JS_ReportErrorASCII(cx, "Invalid length for instrumentation kinds array");
     return false;
   }
 
@@ -2398,7 +2403,7 @@ bool DebuggerObject::forceLexicalInitializationByName(
 
   RootedObject globalLexical(cx, &referent->lexicalEnvironment());
   RootedObject pobj(cx);
-  Rooted<PropertyResult> prop(cx);
+  PropertyResult prop;
   if (!LookupProperty(cx, globalLexical, id, &pobj, &prop)) {
     return false;
   }
@@ -2406,11 +2411,11 @@ bool DebuggerObject::forceLexicalInitializationByName(
   result = false;
   if (prop.isFound()) {
     MOZ_ASSERT(prop.isNativeProperty());
-    Shape* shape = prop.shape();
-    Value v = globalLexical->as<NativeObject>().getSlot(shape->slot());
-    if (shape->isDataProperty() && v.isMagic() &&
+    ShapeProperty shapeProp = prop.shapeProperty();
+    Value v = globalLexical->as<NativeObject>().getSlot(shapeProp.slot());
+    if (shapeProp.isDataProperty() && v.isMagic() &&
         v.whyMagic() == JS_UNINITIALIZED_LEXICAL) {
-      globalLexical->as<NativeObject>().setSlot(shape->slot(),
+      globalLexical->as<NativeObject>().setSlot(shapeProp.slot(),
                                                 UndefinedValue());
       result = true;
     }

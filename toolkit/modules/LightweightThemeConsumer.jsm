@@ -7,6 +7,8 @@ var EXPORTED_SYMBOLS = ["LightweightThemeConsumer"];
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 const DEFAULT_THEME_ID = "default-theme@mozilla.org";
+const LIGHT_THEME_ID = "firefox-compact-light@mozilla.org";
+const DARK_THEME_ID = "firefox-compact-dark@mozilla.org";
 
 ChromeUtils.defineModuleGetter(
   this,
@@ -94,7 +96,7 @@ const toolkitVariableMap = [
         );
         element.style.setProperty(
           descriptionColorVariable,
-          `rgba(${r}, ${g}, ${b}, 0.65)`
+          `rgba(${r}, ${g}, ${b}, 0.7)`
         );
         return `rgba(${r}, ${g}, ${b}, ${a})`;
       },
@@ -288,6 +290,12 @@ LightweightThemeConsumer.prototype = {
       root.removeAttribute("lwtheme-image");
     }
 
+    root.toggleAttribute(
+      "lwtheme-mozlightdark",
+      theme.id == DEFAULT_THEME_ID ||
+        theme.id == LIGHT_THEME_ID ||
+        theme.id == DARK_THEME_ID
+    );
     this._setExperiment(active, themeData.experiment, theme.experimental);
     _setImage(root, active, "--lwt-header-image", theme.headerURL);
     _setImage(
@@ -470,6 +478,7 @@ function _rgbaToString(parsedColor) {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
+// There is a second copy of this in ThemeVariableMap.jsm.
 function _isColorDark(r, g, b) {
   return 0.2125 * r + 0.7154 * g + 0.0721 * b <= 110;
 }

@@ -37,7 +37,6 @@ include protocol PGMP;
 include protocol PPrinting;
 include protocol PChildToParentStream;
 include protocol PParentToChildStream;
-include protocol POfflineCacheUpdate;
 #ifdef MOZ_WEBSPEECH
 include protocol PSpeechSynthesis;
 #endif
@@ -631,7 +630,6 @@ nested(upto inside_cpow) sync protocol PContent
     manages PRemoteLazyInputStream;
     manages PMedia;
     manages PNecko;
-    manages POfflineCacheUpdate;
     manages PPrinting;
     manages PChildToParentStream;
     manages PParentToChildStream;
@@ -1143,9 +1141,9 @@ child:
 
     async DisplayLoadError(MaybeDiscardedBrowsingContext aContext, nsString aURI);
 
-    async GoBack(MaybeDiscardedBrowsingContext aContext, int32_t? aCancelContentJSEpoch, bool aRequireUserInteraction);
-    async GoForward(MaybeDiscardedBrowsingContext aContext, int32_t? aCancelContentJSEpoch, bool aRequireUserInteraction);
-    async GoToIndex(MaybeDiscardedBrowsingContext aContext, int32_t aIndex, int32_t? aCancelContentJSEpoch);
+    async GoBack(MaybeDiscardedBrowsingContext aContext, int32_t? aCancelContentJSEpoch, bool aRequireUserInteraction, bool aUserActivation);
+    async GoForward(MaybeDiscardedBrowsingContext aContext, int32_t? aCancelContentJSEpoch, bool aRequireUserInteraction, bool aUserActivation);
+    async GoToIndex(MaybeDiscardedBrowsingContext aContext, int32_t aIndex, int32_t? aCancelContentJSEpoch, bool aUserActivation);
     async Reload(MaybeDiscardedBrowsingContext aContext, uint32_t aReloadFlags);
     async StopLoad(MaybeDiscardedBrowsingContext aContext, uint32_t aStopFlags);
 
@@ -1185,8 +1183,10 @@ child:
   async FlushTabState(MaybeDiscardedBrowsingContext aBrowsingContext)
       returns(bool aHadContext);
 
-parent:
+  // Send the list of the supported mimetypes in the given process. GeckoView-specific
+  async DecoderSupportedMimeTypes(nsCString[] supportedTypes);
 
+parent:
 
     async SynchronizeLayoutHistoryState(MaybeDiscardedBrowsingContext aContext,
                                         nsILayoutHistoryState aState);
@@ -1481,36 +1481,6 @@ parent:
     async BackUpXResources(FileDescriptor aXSocketFd);
 
     async RequestAnonymousTemporaryFile(uint64_t aID);
-
-    /**
-     * Starts an offline application cache update.
-     * @param manifestURI
-     *   URI of the manifest to fetch, the application cache group ID
-     * @param documentURI
-     *   URI of the document that referred the manifest
-     * @param loadingPrincipal
-     *   Principal of the document that referred the manifest
-     * @param stickDocument
-     *   True if the update was initiated by a document load that referred
-     *   a manifest.
-     *   False if the update was initiated by applicationCache.update() call.
-     *
-     *   Tells the update to carry the documentURI to a potential separate
-     *   update of implicit (master) items.
-     *
-     *   Why this argument? If the document was not found in an offline cache
-     *   before load and refers a manifest and this manifest itself has not
-     *   been changed since the last fetch, we will not do the application
-     *   cache group update. But we must cache the document (identified by the
-     *   documentURI). This argument will ensure that a previously uncached
-     *   document will get cached and that we don't re-cache a document that
-     *   has already been cached (stickDocument=false).
-     * @param tabId
-     *   To identify which tab owns the app.
-     */
-    async POfflineCacheUpdate(nsIURI manifestURI, nsIURI documentURI,
-                              PrincipalInfo loadingPrincipal, bool stickDocument,
-                              CookieJarSettingsArgs cookieJarSettings);
 
     /**
      * Sets "offline-app" permission for the principal.  Called when we hit
@@ -1997,8 +1967,9 @@ parent:
                         uint64_t aLoadID, nsID aChangeID, uint32_t aLoadType,
                         bool aPersist, bool aCloneEntryChildren);
 
-    async HistoryGo(MaybeDiscardedBrowsingContext aContext,
-                    int32_t aOffset, uint64_t aHistoryEpoch, bool aRequireUserInteraction) returns(int32_t requestedIndex);
+    async HistoryGo(MaybeDiscardedBrowsingContext aContext, int32_t aOffset,
+                    uint64_t aHistoryEpoch, bool aRequireUserInteraction,
+                    bool aUserActivation) returns(int32_t requestedIndex);
 
     async BlobURLDataRequest(nsCString aBlobURL,
                              nsIPrincipal aTriggeringPrincipal,

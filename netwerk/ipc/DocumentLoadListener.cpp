@@ -140,6 +140,12 @@ static auto CreateDocumentLoadInfo(CanonicalBrowsingContext* aBrowsingContext,
                                            attrs, securityFlags, sandboxFlags);
   }
 
+  if (aLoadState->IsExemptFromHTTPSOnlyMode()) {
+    uint32_t httpsOnlyStatus = loadInfo->GetHttpsOnlyStatus();
+    httpsOnlyStatus |= nsILoadInfo::HTTPS_ONLY_EXEMPT;
+    loadInfo->SetHttpsOnlyStatus(httpsOnlyStatus);
+  }
+
   loadInfo->SetTriggeringSandboxFlags(aLoadState->TriggeringSandboxFlags());
   loadInfo->SetHasValidUserGestureActivation(
       aLoadState->HasValidUserGestureActivation());
@@ -1703,7 +1709,6 @@ bool DocumentLoadListener::MaybeTriggerProcessSwitch(
 
   if (mozilla::BFCacheInParent() && nsSHistory::GetMaxTotalViewers() > 0 &&
       !parentWindow && !browsingContext->HadOriginalOpener() &&
-      browsingContext->Group()->Toplevels().Length() == 1 &&
       !options.mRemoteType.IsEmpty() &&
       browsingContext->GetHasLoadedNonInitialDocument() &&
       (mLoadStateLoadType == LOAD_NORMAL ||
@@ -1713,8 +1718,12 @@ bool DocumentLoadListener::MaybeTriggerProcessSwitch(
       (!browsingContext->GetActiveSessionHistoryEntry() ||
        browsingContext->GetActiveSessionHistoryEntry()
            ->GetSaveLayoutStateFlag())) {
-    options.mReplaceBrowsingContext = true;
-    options.mTryUseBFCache = true;
+    MOZ_ASSERT(mIsDocumentLoad);
+    options.mTryUseBFCache =
+        browsingContext->AllowedInBFCache(mDocumentChannelId);
+    if (options.mTryUseBFCache) {
+      options.mReplaceBrowsingContext = true;
+    }
   }
 
   LOG(("GetRemoteTypeForPrincipal -> current:%s remoteType:%s",
@@ -1738,44 +1747,6 @@ bool DocumentLoadListener::MaybeTriggerProcessSwitch(
   // If we're doing a document load, we can immediately perform a process
   // switch.
   if (mIsDocumentLoad) {
-    if (options.mTryUseBFCache && wgp) {
-      if (RefPtr<BrowserParent> browserParent = wgp->GetBrowserParent()) {
-        nsTArray<RefPtr<PContentParent::CanSavePresentationPromise>>
-            canSavePromises;
-        browsingContext->Group()->EachParent([&](ContentParent* aParent) {
-          RefPtr<PContentParent::CanSavePresentationPromise> canSave =
-              aParent->SendCanSavePresentation(browsingContext,
-                                               mDocumentChannelId);
-          canSavePromises.AppendElement(canSave);
-        });
-
-        PContentParent::CanSavePresentationPromise::All(
-            GetCurrentSerialEventTarget(), canSavePromises)
-            ->Then(
-                GetMainThreadSerialEventTarget(), __func__,
-                [self = RefPtr{this}, browsingContext,
-                 options](const nsTArray<bool> aCanSaves) mutable {
-                  bool canSave = !aCanSaves.Contains(false);
-                  MOZ_LOG(gSHIPBFCacheLog, LogLevel::Debug,
-                          ("DocumentLoadListener::MaybeTriggerProcessSwitch "
-                           "saving presentation=%i",
-                           canSave));
-                  options.mTryUseBFCache = canSave;
-                  self->TriggerProcessSwitch(browsingContext, options);
-                },
-                [self = RefPtr{this}, browsingContext,
-                 options](ipc::ResponseRejectReason) mutable {
-                  MOZ_LOG(gSHIPBFCacheLog, LogLevel::Debug,
-                          ("DocumentLoadListener::MaybeTriggerProcessSwitch "
-                           "error in trying to save presentation"));
-                  options.mTryUseBFCache = false;
-                  self->TriggerProcessSwitch(browsingContext, options);
-                });
-        return true;
-      }
-    }
-
-    options.mTryUseBFCache = false;
     TriggerProcessSwitch(browsingContext, options);
     return true;
   }
@@ -2159,6 +2130,17 @@ bool DocumentLoadListener::MaybeHandleLoadErrorWithURIFixup(nsresult aStatus) {
       mLoadStateInternalLoadFlags &
           nsDocShell::INTERNAL_LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP,
       bc->UsePrivateBrowsing(), true, getter_AddRefs(newPostData));
+
+  // If the request failed, the above attempt to fix it failed but it
+  // was upgraded using HTTPS-First, then let's check if we can downgrade
+  // the scheme to HTTP again.
+  bool isHTTPSFirstFixup = false;
+  if (NS_FAILED(aStatus) && !newURI) {
+    newURI = nsHTTPSOnlyUtils::PotentiallyDowngradeHttpsFirstRequest(mChannel,
+                                                                     aStatus);
+    isHTTPSFirstFixup = true;
+  }
+
   if (!newURI) {
     return false;
   }
@@ -2178,6 +2160,12 @@ bool DocumentLoadListener::MaybeHandleLoadErrorWithURIFixup(nsresult aStatus) {
   loadState->SetTriggeringPrincipal(triggeringPrincipal);
 
   loadState->SetPostDataStream(newPostData);
+
+  if (isHTTPSFirstFixup) {
+    // We have to exempt the load from HTTPS-First to prevent a
+    // upgrade-downgrade loop.
+    loadState->SetIsExemptFromHTTPSOnlyMode(true);
+  }
 
   bc->LoadURI(loadState, false);
   return true;
@@ -2543,22 +2531,6 @@ DocumentLoadListener::AsyncOnChannelRedirect(
       ("DocumentLoadListener AsyncOnChannelRedirect [this=%p] "
        "mHaveVisibleRedirect=%c",
        this, mHaveVisibleRedirect ? 'T' : 'F'));
-
-  // If this is a cross-origin redirect, then we should no longer allow
-  // mixed content. The destination docshell checks this in its redirect
-  // handling, but if we deliver to a new docshell (with a process switch)
-  // then this doesn't happen.
-  // Manually remove the allow mixed content flags.
-  nsresult rv = nsContentUtils::CheckSameOrigin(aOldChannel, aNewChannel);
-  if (NS_FAILED(rv)) {
-    if (mLoadStateLoadType == LOAD_NORMAL_ALLOW_MIXED_CONTENT) {
-      mLoadStateLoadType = LOAD_NORMAL;
-    } else if (mLoadStateLoadType == LOAD_RELOAD_ALLOW_MIXED_CONTENT) {
-      mLoadStateLoadType = LOAD_RELOAD_NORMAL;
-    }
-    MOZ_ASSERT(!LOAD_TYPE_HAS_FLAGS(
-        mLoadStateLoadType, nsIWebNavigation::LOAD_FLAGS_ALLOW_MIXED_CONTENT));
-  }
 
   // We need the original URI of the current channel to use to open the real
   // channel in the content process. Unfortunately we overwrite the original

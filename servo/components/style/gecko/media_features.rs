@@ -275,10 +275,6 @@ enum PrefersReducedMotion {
     Reduce,
 }
 
-fn color_scheme_no_preference_enabled(_: &crate::parser::ParserContext) -> bool {
-    static_prefs::pref!("layout.css.prefers-color-scheme-no-preference.enabled")
-}
-
 /// Values for the prefers-color-scheme media feature.
 #[derive(Clone, Copy, Debug, FromPrimitive, Parse, PartialEq, ToCss)]
 #[repr(u8)]
@@ -286,8 +282,6 @@ fn color_scheme_no_preference_enabled(_: &crate::parser::ParserContext) -> bool 
 pub enum PrefersColorScheme {
     Light,
     Dark,
-    #[parse(condition = "color_scheme_no_preference_enabled")]
-    NoPreference,
 }
 
 /// https://drafts.csswg.org/mediaqueries-5/#prefers-reduced-motion
@@ -427,7 +421,46 @@ fn eval_prefers_color_scheme(device: &Device, query_value: Option<PrefersColorSc
         unsafe { bindings::Gecko_MediaFeatures_PrefersColorScheme(device.document()) };
     match query_value {
         Some(v) => prefers_color_scheme == v,
-        None => prefers_color_scheme != PrefersColorScheme::NoPreference,
+        None => true,
+    }
+}
+
+/// Values for the -moz-toolbar-prefers-color-scheme media feature.
+#[derive(Clone, Copy, Debug, FromPrimitive, Parse, PartialEq, ToCss)]
+#[repr(u8)]
+enum ToolbarPrefersColorScheme {
+    Dark,
+    Light,
+    System,
+}
+
+/// The color-scheme of the toolbar in the current Firefox theme. This is based
+/// on a pref managed by the front-end.
+fn eval_toolbar_prefers_color_scheme(d: &Device, query_value: Option<ToolbarPrefersColorScheme>) -> bool {
+    let toolbar_value = match static_prefs::pref!("browser.theme.toolbar-theme") {
+        0 => ToolbarPrefersColorScheme::Dark,
+        1 => ToolbarPrefersColorScheme::Light,
+        _ => ToolbarPrefersColorScheme::System,
+    };
+
+    let query_value = match query_value {
+        Some(v) => v,
+        None => return true,
+    };
+
+    if query_value == toolbar_value {
+        return true;
+    }
+
+    if toolbar_value != ToolbarPrefersColorScheme::System {
+        return false;
+    }
+
+    // System might match light and dark as well.
+    match query_value {
+        ToolbarPrefersColorScheme::Dark => eval_prefers_color_scheme(d, Some(PrefersColorScheme::Dark)),
+        ToolbarPrefersColorScheme::Light => eval_prefers_color_scheme(d, Some(PrefersColorScheme::Light)),
+        ToolbarPrefersColorScheme::System => true,
     }
 }
 
@@ -627,7 +660,7 @@ macro_rules! lnf_int_feature {
 /// In order to use them you need to make sure that the pref defined as a static
 /// pref, with `rust: true`. The feature name needs to be defined in
 /// `StaticAtoms.py` just like the others. In order to support dynamic changes,
-/// you also need to add them to kBoolMediaQueryPrefs in nsXPLookAndFeel.cpp
+/// you also need to add them to kMediaQueryPrefs in nsXPLookAndFeel.cpp
 macro_rules! bool_pref_feature {
     ($feature_name:expr, $pref:tt) => {{
         fn __eval(_: &Device, query_value: Option<bool>, _: Option<RangeOrOperator>) -> bool {
@@ -649,7 +682,7 @@ macro_rules! bool_pref_feature {
 /// to support new types in these entries and (2) ensuring that either
 /// nsPresContext::MediaFeatureValuesChanged is called when the value that
 /// would be returned by the evaluator function could change.
-pub static MEDIA_FEATURES: [MediaFeatureDescription; 64] = [
+pub static MEDIA_FEATURES: [MediaFeatureDescription; 63] = [
     feature!(
         atom!("width"),
         AllowsRanges::Yes,
@@ -866,6 +899,12 @@ pub static MEDIA_FEATURES: [MediaFeatureDescription; 64] = [
         Evaluator::BoolInteger(eval_moz_non_native_content_theme),
         ParsingRequirements::CHROME_AND_UA_ONLY,
     ),
+    feature!(
+        atom!("-moz-toolbar-prefers-color-scheme"),
+        AllowsRanges::No,
+        keyword_evaluator!(eval_toolbar_prefers_color_scheme, ToolbarPrefersColorScheme),
+        ParsingRequirements::CHROME_AND_UA_ONLY,
+    ),
 
     lnf_int_feature!(atom!("-moz-scrollbar-start-backward"), ScrollArrowStyle, get_scrollbar_start_backward),
     lnf_int_feature!(atom!("-moz-scrollbar-start-forward"), ScrollArrowStyle, get_scrollbar_start_forward),
@@ -892,10 +931,8 @@ pub static MEDIA_FEATURES: [MediaFeatureDescription; 64] = [
     lnf_int_feature!(atom!("-moz-system-dark-theme"), SystemUsesDarkTheme),
 
     bool_pref_feature!(atom!("-moz-proton"), "browser.proton.enabled"),
-    bool_pref_feature!(atom!("-moz-proton-urlbar"), "browser.proton.urlbar.enabled"),
     bool_pref_feature!(atom!("-moz-proton-modals"), "browser.proton.modals.enabled"),
     bool_pref_feature!(atom!("-moz-proton-contextmenus"), "browser.proton.contextmenus.enabled"),
     bool_pref_feature!(atom!("-moz-proton-doorhangers"), "browser.proton.doorhangers.enabled"),
-    bool_pref_feature!(atom!("-moz-proton-infobars"), "browser.proton.infobars.enabled"),
     bool_pref_feature!(atom!("-moz-proton-places-tooltip"), "browser.proton.places-tooltip.enabled"),
 ];

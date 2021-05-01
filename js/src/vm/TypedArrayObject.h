@@ -92,21 +92,19 @@ class TypedArrayObject : public ArrayBufferViewObject {
 
   static bool ensureHasBuffer(JSContext* cx, Handle<TypedArrayObject*> tarray);
 
-  BufferSize byteLength() const {
-    return BufferSize(length().get() * bytesPerElement());
-  }
+  size_t byteLength() const { return length() * bytesPerElement(); }
 
-  BufferSize length() const {
-    return BufferSize(size_t(getFixedSlot(LENGTH_SLOT).toPrivate()));
+  size_t length() const {
+    return size_t(getFixedSlot(LENGTH_SLOT).toPrivate());
   }
 
   Value byteLengthValue() const {
-    size_t len = byteLength().get();
+    size_t len = byteLength();
     return NumberValue(len);
   }
 
   Value lengthValue() const {
-    size_t len = length().get();
+    size_t len = length();
     return NumberValue(len);
   }
 
@@ -256,7 +254,7 @@ inline bool CanStartTypedArrayIndex(CharT ch) {
   }
 
   JS::AutoCheckCannotGC nogc;
-  JSAtom* atom = JSID_TO_ATOM(id);
+  JSAtom* atom = id.toAtom();
 
   if (atom->empty() || !CanStartTypedArrayIndex(atom->latin1OrTwoByteChar(0))) {
     MOZ_ASSERT(indexp->isNothing());

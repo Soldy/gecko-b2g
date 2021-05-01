@@ -19,8 +19,8 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   Log: "chrome://marionette/content/log.js",
   MessageManagerDestroyedPromise: "chrome://marionette/content/sync.js",
   waitForEvent: "chrome://marionette/content/sync.js",
-  waitForObserverTopic: "chrome://marionette/content/sync.js",
   WebElementEventTarget: "chrome://marionette/content/dom.js",
+  windowManager: "chrome://marionette/content/window-manager.js",
 });
 
 XPCOMUtils.defineLazyGetter(this, "logger", () => Log.get());
@@ -34,6 +34,8 @@ this.browser = {};
  * Choosing a context through the <tt>Marionette:SetContext</tt>
  * command directs all subsequent browsing context scoped commands
  * to that context.
+ *
+ * @class Marionette.Context
  */
 class Context {
   /**
@@ -180,9 +182,6 @@ browser.Context = class {
     this.tab = null;
 
     this.frameRegsPending = 0;
-
-    this.getIdForBrowser = driver.getIdForBrowser.bind(driver);
-    this.updateIdForBrowser = driver.updateIdForBrowser.bind(driver);
   }
 
   /**
@@ -225,19 +224,6 @@ browser.Context = class {
   }
 
   /**
-   * The current frame ID is managed per browser element on desktop in
-   * case the ID needs to be refreshed. The currently selected window is
-   * identified by a tab.
-   */
-  get curFrameId() {
-    let rv = null;
-    if (this.tab || this.driver.isReftestBrowser(this.contentBrowser)) {
-      rv = this.getIdForBrowser(this.contentBrowser);
-    }
-    return rv;
-  }
-
-  /**
    * Gets the position and dimensions of the top-level browsing context.
    *
    * @return {Map.<string, number>}
@@ -276,13 +262,7 @@ browser.Context = class {
    *     A promise which is resolved when the current window has been closed.
    */
   async closeWindow() {
-    const destroyed = waitForObserverTopic("xul-window-destroyed", {
-      checkFn: () => this.window && this.window.closed,
-    });
-
-    this.window.close();
-
-    return destroyed;
+    return windowManager.closeWindow(this.window);
   }
 
   /**
@@ -292,14 +272,7 @@ browser.Context = class {
    *     A promise which is resolved when the current window has been focused.
    */
   async focusWindow() {
-    if (Services.focus.activeWindow != this.window) {
-      let activated = waitForEvent(this.window, "activate");
-      let focused = waitForEvent(this.window, "focus", { capture: true });
-
-      this.window.focus();
-
-      await Promise.all([activated, focused]);
-    }
+    return windowManager.focusWindow(this.window);
   }
 
   /**
@@ -309,38 +282,7 @@ browser.Context = class {
    *     A promise resolving to the newly created chrome window.
    */
   async openBrowserWindow(focus = false, isPrivate = false) {
-    switch (AppInfo.name) {
-      case "Firefox":
-        // Open new browser window, and wait until it is fully loaded.
-        // Also wait for the window to be focused and activated to prevent a
-        // race condition when promptly focusing to the original window again.
-        const win = this.window.OpenBrowserWindow({ private: isPrivate });
-
-        const activated = waitForEvent(win, "activate");
-        const focused = waitForEvent(win, "focus", { capture: true });
-        const startup = waitForObserverTopic(
-          "browser-delayed-startup-finished",
-          {
-            checkFn: subject => subject == win,
-          }
-        );
-
-        win.focus();
-        await Promise.all([activated, focused, startup]);
-
-        // The new window shouldn't get focused. As such set the
-        // focus back to the opening window.
-        if (!focus) {
-          await this.focusWindow();
-        }
-
-        return win;
-
-      default:
-        throw new error.UnsupportedOperationError(
-          `openWindow() not supported in ${AppInfo.name}`
-        );
-    }
+    return windowManager.openBrowserWindow(this.window, focus, isPrivate);
   }
 
   /**
@@ -484,7 +426,7 @@ browser.Context = class {
       // Note that browsing contexts can be swapped during navigation in which
       // case this id would no longer match the target. See Bug 1680479.
       const uid = target.browsingContext.id;
-      this.updateIdForBrowser(this.contentBrowser, uid);
+      windowManager.updateIdForBrowser(this.contentBrowser, uid);
     }
   }
 };

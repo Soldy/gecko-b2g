@@ -17,6 +17,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   TippyTopProvider: "resource://activity-stream/lib/TippyTopProvider.jsm",
   AboutWelcomeDefaults:
     "resource://activity-stream/aboutwelcome/lib/AboutWelcomeDefaults.jsm",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.jsm",
 });
 
 XPCOMUtils.defineLazyGetter(this, "log", () => {
@@ -24,13 +25,6 @@ XPCOMUtils.defineLazyGetter(this, "log", () => {
     "resource://messaging-system/lib/Logger.jsm"
   );
   return new Logger("AboutWelcomeChild");
-});
-
-XPCOMUtils.defineLazyGetter(this, "aboutWelcomeFeature", () => {
-  const { ExperimentFeature } = ChromeUtils.import(
-    "resource://nimbus/ExperimentAPI.jsm"
-  );
-  return new ExperimentFeature("aboutwelcome");
 });
 
 XPCOMUtils.defineLazyGetter(this, "tippyTopProvider", () =>
@@ -222,7 +216,7 @@ class AboutWelcomeChild extends JSWindowActorChild {
       ExperimentAPI.getExperimentMetaData({
         featureId: "aboutwelcome",
       }) || {};
-    let featureConfig = aboutWelcomeFeature.getValue() || {};
+    let featureConfig = NimbusFeatures.aboutwelcome.getValue() || {};
 
     if (experimentMetadata?.slug) {
       log.debug(
@@ -231,12 +225,15 @@ class AboutWelcomeChild extends JSWindowActorChild {
     } else {
       log.debug("Loading about:welcome without experiment");
       let attributionData = await this.sendQuery("AWPage:GET_ATTRIBUTION_DATA");
-      if (attributionData) {
-        log.debug("Loading about:welcome with attribution data");
+
+      if (attributionData && attributionData.template) {
+        log.debug("Loading about:welcome with RTAMO attribution data");
         featureConfig = { ...attributionData, ...featureConfig };
       } else {
-        log.debug("Loading about:welcome with default data");
-        let defaults = AboutWelcomeDefaults.getDefaults(featureConfig);
+        log.debug("Loading about:welcome with default data and UA attribution");
+        let ua = attributionData ? attributionData.ua : "";
+        featureConfig = { ...featureConfig, ua };
+        let defaults = await AboutWelcomeDefaults.getDefaults(featureConfig);
         // FeatureConfig (from prefs or experiments) has higher precendence
         // to defaults. But the `screens` property isn't defined we shouldn't
         // override the default with `null`
@@ -250,7 +247,10 @@ class AboutWelcomeChild extends JSWindowActorChild {
     }
 
     return Cu.cloneInto(
-      { ...experimentMetadata, ...featureConfig },
+      AboutWelcomeDefaults.prepareContentForReact({
+        ...experimentMetadata,
+        ...featureConfig,
+      }),
       this.contentWindow
     );
   }

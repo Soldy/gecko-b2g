@@ -231,7 +231,7 @@ class MultiTouchInput : public InputData {
 
   void Translate(const ScreenPoint& aTranslation);
 
-  WidgetTouchEvent ToWidgetTouchEvent(nsIWidget* aWidget) const;
+  WidgetTouchEvent ToWidgetEvent(nsIWidget* aWidget) const;
 
   // Return the index into mTouches of the SingleTouchData with the given
   // identifier, or -1 if there is no such SingleTouchData.
@@ -362,7 +362,12 @@ class PanGestureInput : public InputData {
       // MomentumEnd: The momentum animation has ended, for example because the
       // momentum velocity has gone below the stopping threshold, or because the
       // user has stopped the animation by putting their fingers on a touchpad.
-      PANGESTURE_MOMENTUMEND
+      PANGESTURE_MOMENTUMEND,
+
+      // Interrupted:: A pan gesture started being handled by an APZC but
+      // subsequent pan events might have been consumed by other operations
+      // which haven't been handled by the APZC (e.g. full zoom).
+      PANGESTURE_INTERRUPTED
   ));
 
   MOZ_DEFINE_ENUM_AT_CLASS_SCOPE(

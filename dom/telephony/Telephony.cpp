@@ -579,6 +579,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(Telephony)
   // Telephony does not expose nsITelephonyListener.  mListener is the exposed
   // nsITelephonyListener and forwards the calls it receives to us.
+  NS_INTERFACE_MAP_ENTRY(nsIAudioChannelAgentCallback)
 NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 NS_IMPL_ADDREF_INHERITED(Telephony, DOMEventTargetHelper)

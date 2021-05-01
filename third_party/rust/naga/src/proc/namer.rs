@@ -14,6 +14,7 @@ pub enum NameKey {
     FunctionLocal(Handle<crate::Function>, Handle<crate::LocalVariable>),
     EntryPoint(EntryPointIndex),
     EntryPointLocal(EntryPointIndex, Handle<crate::LocalVariable>),
+    EntryPointArgument(EntryPointIndex, u32),
 }
 
 /// This processor assigns names to all the things in a module
@@ -76,11 +77,7 @@ impl Namer {
             let ty_name = self.call_or(&ty.name, "type");
             output.insert(NameKey::Type(ty_handle), ty_name);
 
-            if let crate::TypeInner::Struct {
-                block: _,
-                ref members,
-            } = ty.inner
-            {
+            if let crate::TypeInner::Struct { ref members, .. } = ty.inner {
                 for (index, member) in members.iter().enumerate() {
                     let name = self.call_or(&member.name, "member");
                     output.insert(NameKey::StructMember(ty_handle, index as u32), name);
@@ -157,9 +154,16 @@ impl Namer {
             }
         }
 
-        for (ep_index, (&(_, ref base_name), ep)) in module.entry_points.iter().enumerate() {
-            let ep_name = self.call(base_name);
+        for (ep_index, ep) in module.entry_points.iter().enumerate() {
+            let ep_name = self.call(&ep.name);
             output.insert(NameKey::EntryPoint(ep_index as _), ep_name);
+            for (index, arg) in ep.function.arguments.iter().enumerate() {
+                let name = self.call_or(&arg.name, "param");
+                output.insert(
+                    NameKey::EntryPointArgument(ep_index as _, index as u32),
+                    name,
+                );
+            }
             for (handle, var) in ep.function.local_variables.iter() {
                 let name = self.call_or(&var.name, "local");
                 output.insert(NameKey::EntryPointLocal(ep_index as _, handle), name);

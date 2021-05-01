@@ -518,7 +518,7 @@ bool ScriptedProxyHandler::isExtensible(JSContext* cx, HandleObject proxy,
 // 9.5.5 Proxy.[[GetOwnProperty]](P)
 bool ScriptedProxyHandler::getOwnPropertyDescriptor(
     JSContext* cx, HandleObject proxy, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) const {
+    MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc) const {
   // Steps 2-4.
   RootedObject handler(cx, ScriptedProxyHandler::handlerObject(proxy));
   if (!handler) {
@@ -569,7 +569,7 @@ bool ScriptedProxyHandler::getOwnPropertyDescriptor(
   if (trapResult.isUndefined()) {
     // Step 11a.
     if (targetDesc.isNothing()) {
-      desc.object().set(nullptr);
+      desc.reset();
       return true;
     }
 
@@ -590,7 +590,7 @@ bool ScriptedProxyHandler::getOwnPropertyDescriptor(
     }
 
     // Step 11f.
-    desc.object().set(nullptr);
+    desc.reset();
     return true;
   }
 
@@ -638,8 +638,8 @@ bool ScriptedProxyHandler::getOwnPropertyDescriptor(
   }
 
   // Step 18.
-  desc.set(resultDesc);
-  desc.object().set(proxy);
+  resultDesc.object().set(proxy);
+  desc.set(mozilla::Some(resultDesc.get()));
   return true;
 }
 
@@ -777,7 +777,7 @@ static bool CreateFilteredListFromArrayLike(JSContext* cx, HandleValue v,
   }
 
   // Step 3.
-  uint32_t len;
+  uint64_t len;
   if (!GetLengthProperty(cx, obj, &len)) {
     return false;
   }
@@ -785,10 +785,10 @@ static bool CreateFilteredListFromArrayLike(JSContext* cx, HandleValue v,
   // Steps 4-6.
   RootedValue next(cx);
   RootedId id(cx);
-  uint32_t index = 0;
+  uint64_t index = 0;
   while (index < len) {
     // Steps 6a-b.
-    if (!GetElement(cx, obj, obj, index, &next)) {
+    if (!GetElementLargeIndex(cx, obj, obj, index, &next)) {
       return false;
     }
 

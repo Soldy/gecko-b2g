@@ -129,13 +129,8 @@ nsresult CameraControlWrapper::Start(webrtc::CaptureCapability aCapability) {
   }
   mHardwareState = kHardwareUninitialized;
 
-  ICameraControl::Configuration config;
-  config.mMode = ICameraControl::kPictureMode;
-  config.mPreviewSize.width = aCapability.width;
-  config.mPreviewSize.height = aCapability.height;
-  config.mPictureSize.width = aCapability.width;
-  config.mPictureSize.height = aCapability.height;
-  mCameraControl->Start(&config);
+  // Start camera without starting preview.
+  mCameraControl->Start();
 
   // Wait for hardware state change.
   while (mHardwareState == kHardwareUninitialized) {
@@ -158,6 +153,21 @@ nsresult CameraControlWrapper::Start(webrtc::CaptureCapability aCapability) {
       break;
     }
   }
+
+  auto width = aCapability.width;
+  auto height = aCapability.height;
+  if (mCameraAngle == 90 || mCameraAngle == 270) {
+    std::swap(width, height);
+  }
+
+  // Start preview.
+  ICameraControl::Configuration config;
+  config.mMode = ICameraControl::kPictureMode;
+  config.mPreviewSize.width = width;
+  config.mPreviewSize.height = height;
+  config.mPictureSize.width = width;
+  config.mPictureSize.height = height;
+  mCameraControl->Start(&config);
   return NS_OK;
 }
 
@@ -320,13 +330,15 @@ size_t MediaEngineGonkVideoSource::NumCapabilities() const {
   // TODO: Match with actual hardware or add code to query hardware.
 
   if (mHardcodedCapabilities.IsEmpty()) {
+    // Preview sizes supported by GF5:
     const struct {
       int width, height;
-    } hardcodes[] = {
-        {800, 1280}, {720, 1280}, {600, 1024}, {540, 960}, {480, 854},
-        {480, 800},  {320, 480},  {240, 320},  // sole mode supported by
-                                               // emulator on try
-    };
+    } hardcodes[] = {{1080, 1440}, {960, 1280}, {720, 1280}, {480, 1280},
+                     {400, 1280},  {480, 864},  {480, 800},  {432, 768},
+                     {480, 720},   {640, 640},  {480, 640},  {640, 480},
+                     {360, 640},   {432, 576},  {360, 480},  {320, 480},
+                     {288, 384},   {288, 352},  {240, 320},  {320, 240},
+                     {160, 240},   {144, 176},  {176, 144},  {120, 160}};
     const int framerates[] = {15, 30};
 
     for (auto& hardcode : hardcodes) {
@@ -335,13 +347,7 @@ size_t MediaEngineGonkVideoSource::NumCapabilities() const {
       c.height = hardcode.height;
       for (int framerate : framerates) {
         c.maxFPS = framerate;
-        mHardcodedCapabilities.AppendElement(c);  // portrait
-      }
-      c.width = hardcode.height;
-      c.height = hardcode.width;
-      for (int framerate : framerates) {
-        c.maxFPS = framerate;
-        mHardcodedCapabilities.AppendElement(c);  // landscape
+        mHardcodedCapabilities.AppendElement(c);
       }
     }
   }
@@ -650,9 +656,6 @@ static uint32_t ConvertPixelFormatToFOURCC(android::PixelFormat aFormat) {
     case HAL_PIXEL_FORMAT_RGBA_8888:
       return libyuv::FOURCC_BGRA;
     case HAL_PIXEL_FORMAT_YCrCb_420_SP:
-#ifdef PRODUCT_MANUFACTURER_QUALCOMM
-    case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-#endif
       return libyuv::FOURCC_NV21;
     case HAL_PIXEL_FORMAT_YV12:
       return libyuv::FOURCC_YV12;
@@ -667,9 +670,6 @@ static uint32_t ConvertPixelFormatToFOURCC(android::PixelFormat aFormat) {
 static bool IsYUVFormat(android::PixelFormat aFormat) {
   switch (aFormat) {
     case HAL_PIXEL_FORMAT_YCrCb_420_SP:
-#ifdef PRODUCT_MANUFACTURER_QUALCOMM
-    case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-#endif
     case HAL_PIXEL_FORMAT_YV12:
       return true;
     default:
@@ -686,9 +686,6 @@ static int ConvertYUVToI420(android_ycbcr& aSrcYUV, android_ycbcr& aDstYUV,
                             android::PixelFormat aSrcFormat, int aRotation) {
   switch (aSrcFormat) {
     case HAL_PIXEL_FORMAT_YCrCb_420_SP:
-#ifdef PRODUCT_MANUFACTURER_QUALCOMM
-    case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-#endif
       // NV21, but call NV12 rotate API with destination U plane and V plane
       // swapped. Note that for this format, |aSrcYUV.cr| is the starting
       // address of source UV plane, and |aSrcYUV.cr| + 1 == |aSrcYUV.cb|.
@@ -702,12 +699,11 @@ static int ConvertYUVToI420(android_ycbcr& aSrcYUV, android_ycbcr& aDstYUV,
           aSrcWidth, aSrcHeight, static_cast<libyuv::RotationMode>(aRotation));
       // clang-format on
     case HAL_PIXEL_FORMAT_YV12:
-      // Call I420 rotate API with source U plane and V plane swapped.
       // clang-format off
       return libyuv::I420Rotate(
           static_cast<uint8_t*>(aSrcYUV.y),  static_cast<int>(aSrcYUV.ystride),
-          static_cast<uint8_t*>(aSrcYUV.cr), static_cast<int>(aSrcYUV.cstride),
           static_cast<uint8_t*>(aSrcYUV.cb), static_cast<int>(aSrcYUV.cstride),
+          static_cast<uint8_t*>(aSrcYUV.cr), static_cast<int>(aSrcYUV.cstride),
           static_cast<uint8_t*>(aDstYUV.y),  static_cast<int>(aDstYUV.ystride),
           static_cast<uint8_t*>(aDstYUV.cb), static_cast<int>(aDstYUV.cstride),
           static_cast<uint8_t*>(aDstYUV.cr), static_cast<int>(aDstYUV.cstride),

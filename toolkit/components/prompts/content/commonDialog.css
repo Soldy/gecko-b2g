@@ -6,6 +6,10 @@
   min-width: 29em;
 }
 
+dialog[insecureauth] {
+  --icon-url: url("chrome://global/skin/icons/security-broken.svg");
+}
+
 #dialogGrid {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -89,10 +93,15 @@ dialog[subdialog] .dialogRow:not([hidden]) {
 
 dialog[subdialog] #infoContainer {
   max-height: 100%;
+}
+
+dialog[subdialog] #infoContainer,
+dialog[subdialog] #checkboxContainer {
   /* Needed to ensure text wrapping happens correctly. Without this, when
    * text wraps unexpectedly, the overall dialog height is off by the height
-   * of a line of text. */
-  max-width: calc(100vw - 32px);
+   * of a line of text. This is 100% of the width, minus the grid padding, 8px
+   * of which is inline padding on the contents of these containers. */
+  max-width: calc(100vw - 2 * var(--grid-padding) + 8px);
 }
 
 .sizeDetermined #infoRow {
@@ -105,9 +114,10 @@ dialog[subdialog] #iconContainer {
 
 /* Fix padding/spacing */
 dialog[subdialog] {
-  /* All the inner items should have 4px inline margin, leading to 16px spacing
+  --grid-padding: 16px;
+  /* All the inner items should have 4px inline margin, leading to 1.16em spacing
    * between the dialog and its contents, and 8px horizontal spacing between items. */
-  padding: 16px 12px;
+  padding: var(--grid-padding) calc(var(--grid-padding) - 4px);
 }
 
 /* Use an ID selector for the dialog to win on specificity... */
@@ -116,8 +126,28 @@ dialog[subdialog] {
   margin: 0 4px;
 }
 
+#commonDialog[subdialog] checkbox {
+  /* Align the checkbox to the first line of text using "baseline" to be less
+   * sensitive than "start" to the label's font-size and line-height. */
+  -moz-box-align: baseline;
+}
+
 #commonDialog[subdialog] label {
-  margin: 4px;
+  margin: 4px; /* Labels for input boxes should get block as well as the regular inline margin. */
+}
+
+#commonDialog[subdialog] .checkbox-label {
+  /* The checkbox already has the horizontal margin, so override the rule
+   * above. */
+  margin: 0;
+}
+
+#commonDialog[subdialog] .checkbox-check {
+  margin-block: 0;
+  /* With "baseline" alignment, if the checkbox is larger than the label, it
+   * behaves like "start" positioned to the top; otherwise, it is positioned to
+   * the bottom edge of the label, so shift back up to center it with text.  */
+  translate: 0 calc(-0.35 * max(1em - 100%, 0px) + 1px);
 }
 
 #commonDialog[subdialog] input {
@@ -126,11 +156,20 @@ dialog[subdialog] {
 
 /* Add vertical spaces between rows: */
 dialog[subdialog] .dialogRow {
-  margin-block: 0 16px;
+  margin-block: 0 var(--grid-padding);
 }
 
 /* Start-align labels: */
 #loginLabel, #password1Label {
   text-align: start;
+}
+
+/* Fix spacing in the `prompt()` case: */
+dialog[subdialog] #loginLabel[value=""] {
+  display: none;
+}
+
+dialog[subdialog][windowtype="prompt:prompt"] #infoRow {
+  margin-bottom: 4px;
 }
 }

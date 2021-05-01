@@ -13,16 +13,16 @@ const SERVER_TARGET_SWITCHING_ENABLED =
 
 const {
   LegacyProcessesWatcher,
-} = require("devtools/shared/resources/legacy-target-watchers/legacy-processes-watcher");
+} = require("devtools/shared/commands/target/legacy-target-watchers/legacy-processes-watcher");
 const {
   LegacyServiceWorkersWatcher,
-} = require("devtools/shared/resources/legacy-target-watchers/legacy-serviceworkers-watcher");
+} = require("devtools/shared/commands/target/legacy-target-watchers/legacy-serviceworkers-watcher");
 const {
   LegacySharedWorkersWatcher,
-} = require("devtools/shared/resources/legacy-target-watchers/legacy-sharedworkers-watcher");
+} = require("devtools/shared/commands/target/legacy-target-watchers/legacy-sharedworkers-watcher");
 const {
   LegacyWorkersWatcher,
-} = require("devtools/shared/resources/legacy-target-watchers/legacy-workers-watcher");
+} = require("devtools/shared/commands/target/legacy-target-watchers/legacy-workers-watcher");
 
 class TargetCommand extends EventEmitter {
   /**
@@ -249,6 +249,14 @@ class TargetCommand extends EventEmitter {
     this._targets.delete(targetFront);
 
     if (shouldDestroyTargetFront) {
+      // When calling targetFront.destroy(), we will first call TargetFrontMixin.destroy,
+      // which will try to call `detach` RDP method.
+      // Unfortunately, this request will never complete in some cases like bfcache navigations.
+      // Because of that, the target front will never be completely destroy as it will prevent
+      // calling super.destroy and Front.destroy.
+      // Workaround that by manually calling Front class destroy method:
+      targetFront.baseFrontClassDestroy();
+
       targetFront.destroy();
     }
   }

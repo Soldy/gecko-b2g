@@ -468,8 +468,8 @@ Result<nsCOMPtr<mozIStorageConnection>, nsresult> CreateStorageConnection(
       MOZ_TO_RESULT_INVOKE_TYPED(nsCOMPtr<mozIStorageConnection>,
                                  storageService, OpenDatabase, &aDBFile)
           .orElse([&aUsageFile, &aDBFile, &aCorruptedFileHandler,
-                    &storageService](const nsresult rv)
-                       -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
+                   &storageService](const nsresult rv)
+                      -> Result<nsCOMPtr<mozIStorageConnection>, nsresult> {
             if (IsDatabaseCorruptionError(rv)) {
               // Remove the usage file first (it might not exist at all due
               // to corrupted state, which is ignored here).
@@ -8182,7 +8182,7 @@ nsresult QuotaClient::InitOriginWithoutTracking(
     const AtomicBool& aCanceled) {
   AssertIsOnIOThread();
 
-  // This is called when a storage/permanent/chrome/ls directory exists. Even
+  // This is called when a storage/permanent/${origin}/ls directory exists. Even
   // though this shouldn't happen with a "good" profile, we shouldn't return an
   // error here, since that would cause origin initialization to fail. We just
   // warn and otherwise ignore that.

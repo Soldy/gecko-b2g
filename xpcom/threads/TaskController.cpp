@@ -14,6 +14,7 @@
 #include "mozilla/EventQueue.h"
 #include "mozilla/BackgroundHangMonitor.h"
 #include "mozilla/InputTaskManager.h"
+#include "mozilla/VsyncTaskManager.h"
 #include "mozilla/IOInterposer.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/SchedulerGroup.h"
@@ -24,6 +25,9 @@
 #include "nsThread.h"
 #include "prenv.h"
 #include "prsystem.h"
+#ifdef XP_WIN
+#  include "objbase.h"
+#endif
 
 #ifdef XP_WIN
 typedef HRESULT(WINAPI* SetThreadDescriptionPtr)(HANDLE hThread,
@@ -69,7 +73,7 @@ bool TaskManager::
         const MutexAutoLock& aProofOfLock, IterationType aIterationType) {
   mCurrentSuspended = IsSuspended(aProofOfLock);
 
-  if (aIterationType == IterationType::EVENT_LOOP_TURN) {
+  if (aIterationType == IterationType::EVENT_LOOP_TURN && !mCurrentSuspended) {
     int32_t oldModifier = mCurrentPriorityModifier;
     mCurrentPriorityModifier =
         GetPriorityModifierForEventLoopTurn(aProofOfLock);
@@ -128,6 +132,7 @@ static SetThreadDescriptionPtr sSetThreadDescriptionFunc = nullptr;
 
 bool TaskController::InitializeInternal() {
   InputTaskManager::Init();
+  VsyncTaskManager::Init();
   mMTProcessingRunnable = NS_NewRunnableFunction(
       "TaskController::ExecutePendingMTTasks()",
       []() { TaskController::Get()->ProcessPendingMTTask(); });
@@ -171,6 +176,7 @@ void TaskController::SetPerformanceCounterState(
 /* static */
 void TaskController::Shutdown() {
   InputTaskManager::Cleanup();
+  VsyncTaskManager::Cleanup();
   if (sSingleton) {
     sSingleton->ShutdownThreadPoolInternal();
     sSingleton->ShutdownInternal();
@@ -211,7 +217,9 @@ void TaskController::RunPoolThread() {
         ::GetCurrentThread(),
         reinterpret_cast<const WCHAR*>(threadWName.BeginReading()));
   }
+  ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 #endif
+
   nsAutoCString threadName;
   threadName.AppendLiteral("TaskController Thread #");
   threadName.AppendInt(static_cast<int64_t>(mThreadPoolIndex));
@@ -314,6 +322,10 @@ void TaskController::RunPoolThread() {
       mThreadPoolCV.Wait();
     }
   }
+
+#ifdef XP_WIN
+  ::CoUninitialize();
+#endif
 }
 
 void TaskController::AddTask(already_AddRefed<Task>&& aTask) {
@@ -576,7 +588,7 @@ bool TaskController::HasMainThreadPendingTasks() {
       }
     }
 
-    // Thi would break down if we have a non-suspended task depending on a
+    // This would break down if we have a non-suspended task depending on a
     // suspended task. This is why for the moment we do not allow tasks
     // to be dependent on tasks managed by another taskmanager.
     if (mMainThreadTasks.size() > totalSuspended) {

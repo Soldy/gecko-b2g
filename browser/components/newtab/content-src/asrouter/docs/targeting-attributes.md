@@ -50,6 +50,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [newtabSettings](#newtabsettings)
 * [isFissionExperimentEnabled](#isfissionexperimentenabled)
 * [activeNotifications](#activenotifications)
+* [isMajorUpgrade](#ismajorupgrade)
 
 ## Detailed usage
 
@@ -124,16 +125,18 @@ interface AttributionCode {
 
 ### `browserSettings`
 
-Includes two properties:
-* `attribution`, which indicates how Firefox was downloaded - DEPRECATED - please use [attributionData](#attributiondata)
-* `update`, which has information about how Firefox updates
-
-Note that attribution can be `undefined`, so you should check that it exists first.
+* `update`, which has information about Firefox update channel
 
 #### Examples
+
 * Is updating enabled?
 ```java
 browserSettings.update.enabled
+```
+
+* Is beta channel?
+```js
+browserSettings.update.channel == 'beta'
 ```
 
 #### Definition
@@ -826,3 +829,7 @@ A boolean. `true` if we're running Fission experiment, `false` otherwise.
 
 True when an infobar style message is displayed or when the awesomebar is
 expanded to show a message (for example onboarding tips).
+
+### `isMajorUpgrade`
+
+A boolean. `true` is the browser just updated to a new major version.

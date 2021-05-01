@@ -97,11 +97,11 @@
             </div>
             <div class="import-items-no-change import-items-row" data-l10n-id="about-logins-import-dialog-items-no-change" data-l10n-name="no-change" data-l10n-args='{"count": 0}'>
               <span data-l10n-name="count" class="result-count"></span>
-              <span data-l10n-name="meta" class="result-meta"></span>
+              <span hidden data-l10n-name="meta" class="result-meta"></span>
             </div>
             <div class="import-items-errors import-items-row" data-l10n-id="about-logins-import-dialog-items-error" data-l10n-args='{"count": 0}'>
               <span data-l10n-name="count" class="result-count"></span>
-              <span data-l10n-name="meta" class="result-meta"></span>
+              <span hidden data-l10n-name="meta" class="result-meta"></span>
             </div>
           </div>
           <a class="open-detailed-report" href="about:loginsimportreport" target="_blank" data-l10n-id="about-logins-alert-import-message"></a>
@@ -123,7 +123,7 @@
           <span class="error-title" data-l10n-id="about-logins-import-dialog-error-unable-to-read-title"></span>
           <span class="error-description" data-l10n-id="about-logins-import-dialog-error-unable-to-read-description"></span>
           <span class="no-logins" data-l10n-id="about-logins-import-dialog-error-no-logins-imported"></span>
-          <a href="https://support.mozilla.org/kb/import-login-data-file"
+          <a class="error-learn-more-link" href="https://support.mozilla.org/kb/import-login-data-file"
             data-l10n-id="about-logins-import-dialog-error-learn-more" target="_blank" rel="noreferrer"></a>
         </div>
         <div slot="buttons" class="buttons">

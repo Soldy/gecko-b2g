@@ -3,6 +3,9 @@
 
 "use strict";
 
+const kDevPanelID =
+  gProton && gProtonDoorhangers ? "appmenu-moreTools" : "PanelUI-developer";
+
 /**
  * Test the behavior of key presses on various toolbar buttons.
  */
@@ -89,7 +92,7 @@ add_task(async function testDeveloperButtonPress() {
   let button = document.getElementById("developer-button");
   forceFocus(button);
   EventUtils.synthesizeKey(" ");
-  let view = document.getElementById("PanelUI-developer");
+  let view = document.getElementById(kDevPanelID);
   let focused = BrowserTestUtils.waitForEvent(view, "focus", true);
   await focused;
   ok(true, "Focus inside Developer menu after toolbar button pressed");
@@ -110,7 +113,7 @@ add_task(async function testDeveloperButtonWrongKey() {
   forceFocus(button);
   EventUtils.synthesizeKey("KEY_Tab");
   await TestUtils.waitForTick();
-  let panel = document.getElementById("PanelUI-developer").closest("panel");
+  let panel = document.getElementById(kDevPanelID).closest("panel");
   ok(!panel || panel.state == "closed", "Developer menu not open after tab");
   CustomizableUI.reset();
 });
@@ -118,6 +121,14 @@ add_task(async function testDeveloperButtonWrongKey() {
 // Test activation of the Page actions button from the keyboard.
 // The Page Actions menu should appear and focus should move inside it.
 add_task(async function testPageActionsButtonPress() {
+  // In Proton the page actions button is not normally visible, so we must
+  // unhide it.
+  if (gProton) {
+    BrowserPageActions.mainButtonNode.style.visibility = "visible";
+    registerCleanupFunction(() => {
+      BrowserPageActions.mainButtonNode.style.removeProperty("visibility");
+    });
+  }
   await BrowserTestUtils.withNewTab("https://example.com", async function() {
     let button = document.getElementById("pageActionButton");
     forceFocus(button);
@@ -160,6 +171,10 @@ add_task(async function testBackForwardButtonPress() {
 // This is a page action button built at runtime by PageActions.
 // The Send Tab to Device menu should appear and focus should move inside it.
 add_task(async function testSendTabToDeviceButtonPress() {
+  // There's no Send to Device page action in proton.
+  if (gProton) {
+    return;
+  }
   await BrowserTestUtils.withNewTab("https://example.com", async function() {
     PageActions.actionForID("sendToDevice").pinnedToUrlbar = true;
     let button = document.getElementById("pageAction-urlbar-sendToDevice");
@@ -186,14 +201,18 @@ add_task(async function testSendTabToDeviceButtonPress() {
 // This is a toolbarbutton with a click handler and no command handler, but
 // the toolbar keyboard navigation code should handle keyboard activation.
 add_task(async function testReloadButtonPress() {
-  await BrowserTestUtils.withNewTab("https://example.com", async function(
+  await BrowserTestUtils.withNewTab("https://example.com/1", async function(
     aBrowser
   ) {
     let button = document.getElementById("reload-button");
+    info("Waiting for button to be enabled.");
     await TestUtils.waitForCondition(() => !button.disabled);
-    forceFocus(button);
     let loaded = BrowserTestUtils.browserLoaded(aBrowser);
+    info("Focusing button");
+    forceFocus(button);
+    info("Pressing space on the button");
     EventUtils.synthesizeKey(" ");
+    info("Waiting for load.");
     await loaded;
     ok(true, "Page loaded after Reload button pressed");
   });

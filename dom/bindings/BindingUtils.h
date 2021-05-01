@@ -667,7 +667,7 @@ struct JSNativeHolder {
   const NativePropertyHooks* mPropertyHooks;
 };
 
-struct NamedConstructor {
+struct LegacyFactoryFunction {
   const char* mName;
   const JSNativeHolder mHolder;
   unsigned mNargs;
@@ -732,7 +732,7 @@ void CreateInterfaceObjects(
     JS::Handle<JSObject*> protoProto, const JSClass* protoClass,
     JS::Heap<JSObject*>* protoCache, JS::Handle<JSObject*> constructorProto,
     const JSClass* constructorClass, unsigned ctorNargs,
-    const NamedConstructor* namedConstructors,
+    const LegacyFactoryFunction* namedConstructors,
     JS::Heap<JSObject*>* constructorCache, const NativeProperties* properties,
     const NativeProperties* chromeOnlyProperties, const char* name,
     bool defineOnGlobal, const char* const* unscopableNames, bool isGlobal,
@@ -756,16 +756,18 @@ bool DefineProperties(JSContext* cx, JS::Handle<JSObject*> obj,
                       const NativeProperties* chromeOnlyProperties);
 
 /*
- * Define the unforgeable methods on an object.
+ * Define the legacy unforgeable methods on an object.
  */
-bool DefineUnforgeableMethods(JSContext* cx, JS::Handle<JSObject*> obj,
-                              const Prefable<const JSFunctionSpec>* props);
+bool DefineLegacyUnforgeableMethods(
+    JSContext* cx, JS::Handle<JSObject*> obj,
+    const Prefable<const JSFunctionSpec>* props);
 
 /*
- * Define the unforgeable attributes on an object.
+ * Define the legacy unforgeable attributes on an object.
  */
-bool DefineUnforgeableAttributes(JSContext* cx, JS::Handle<JSObject*> obj,
-                                 const Prefable<const JSPropertySpec>* props);
+bool DefineLegacyUnforgeableAttributes(
+    JSContext* cx, JS::Handle<JSObject*> obj,
+    const Prefable<const JSPropertySpec>* props);
 
 #define HAS_MEMBER_TYPEDEFS \
  private:                   \
@@ -2337,7 +2339,7 @@ inline bool UseDOMXray(JSObject* obj) {
 
 inline bool IsDOMConstructor(JSObject* obj) {
   if (JS_IsNativeFunction(obj, dom::Constructor)) {
-    // NamedConstructor, like Image
+    // LegacyFactoryFunction, like Image
     return true;
   }
 
@@ -2589,14 +2591,15 @@ inline size_t BindingJSObjectMallocBytes(void* aNativePtr) { return 0; }
 
 // The BindingJSObjectCreator class is supposed to be used by a caller that
 // wants to create and initialise a binding JSObject. After initialisation has
-// been successfully completed it should call ForgetObject().
-// The BindingJSObjectCreator object will root the JSObject until ForgetObject()
-// is called on it. If the native object for the binding is refcounted it will
-// also hold a strong reference to it, that reference is transferred to the
-// JSObject (which holds the native in a slot) when ForgetObject() is called. If
-// the BindingJSObjectCreator object is destroyed and ForgetObject() was never
-// called on it then the JSObject's slot holding the native will be set to
-// undefined, and for a refcounted native the strong reference will be released.
+// been successfully completed it should call InitializationSucceeded().
+// The BindingJSObjectCreator object will root the JSObject until
+// InitializationSucceeded() is called on it. If the native object for the
+// binding is refcounted it will also hold a strong reference to it, that
+// reference is transferred to the JSObject (which holds the native in a slot)
+// when InitializationSucceeded() is called. If the BindingJSObjectCreator
+// object is destroyed and InitializationSucceeded() was never called on it then
+// the JSObject's slot holding the native will be set to undefined, and for a
+// refcounted native the strong reference will be released.
 template <class T>
 class MOZ_STACK_CLASS BindingJSObjectCreator {
  public:

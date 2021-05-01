@@ -41,9 +41,9 @@ namespace {
 StaticRefPtr<BluetoothHfpManager> sBluetoothHfpManager;
 static BluetoothHandsfreeInterface* sBluetoothHfpInterface = nullptr;
 
-// Wait for 2 seconds for Dialer processing event 'BLDN'. '2' seconds is a
+// Wait for 3 seconds for Dialer processing event 'BLDN'. '3' seconds is a
 // magic number. The mechanism should be revised once we can get call history.
-static int sWaitingForDialingInterval = 2000;  // unit: ms
+static int sWaitingForDialingInterval = 3000;  // unit: ms
 
 // Wait 3.7 seconds until Dialer stops playing busy tone. '3' seconds is the
 // time window set in Dialer and the extra '0.7' second is a magic number.
@@ -951,6 +951,14 @@ void BluetoothHfpManager::HandleCallStateChanged(
     return;
   }
 
+  // We've send Dialer a dialing request and this is the response sent to
+  // HF when SLC is connected.
+  if (aCallState == nsITelephonyService::CALL_STATE_DIALING && IsConnected() &&
+      !mDialingRequestProcessed) {
+    SendResponse(HFP_AT_RESPONSE_OK);
+    mDialingRequestProcessed = true;
+  }
+
   // Update call state only
   while (aCallIndex >= mCurrentCallArray.Length()) {
     Call call;
@@ -967,36 +975,24 @@ void BluetoothHfpManager::HandleCallStateChanged(
     UpdatePhoneCIND(aCallIndex);
   }
 
-  switch (aCallState) {
-    case nsITelephonyService::CALL_STATE_DIALING:
-      // We've send Dialer a dialing request and this is the response sent to
-      // HF when SLC is connected.
-      if (IsConnected() && !mDialingRequestProcessed) {
-        SendResponse(HFP_AT_RESPONSE_OK);
-        mDialingRequestProcessed = true;
+  if (aCallState == nsITelephonyService::CALL_STATE_DISCONNECTED) {
+    // -1 is necessary because call 0 is an invalid (padding) call object.
+    if (mCurrentCallArray.Length() - 1 ==
+        GetNumberOfCalls(nsITelephonyService::CALL_STATE_DISCONNECTED)) {
+      // When SLC is connected, in order to let user hear busy tone via
+      // connected Bluetooth headset, we postpone the timing of dropping SCO.
+      if (IsConnected() && aError.EqualsLiteral("BusyError")) {
+        // FIXME: UpdatePhoneCIND later since it causes SCO close but
+        // Dialer is still playing busy tone via HF.
+        NS_DispatchToMainThread(new CloseScoRunnable());
       }
-      break;
-    case nsITelephonyService::CALL_STATE_DISCONNECTED:
-      // -1 is necessary because call 0 is an invalid (padding) call object.
-      if (mCurrentCallArray.Length() - 1 ==
-          GetNumberOfCalls(nsITelephonyService::CALL_STATE_DISCONNECTED)) {
-        // When SLC is connected, in order to let user hear busy tone via
-        // connected Bluetooth headset, we postpone the timing of dropping SCO.
-        if (IsConnected() && aError.EqualsLiteral("BusyError")) {
-          // FIXME: UpdatePhoneCIND later since it causes SCO close but
-          // Dialer is still playing busy tone via HF.
-          NS_DispatchToMainThread(new CloseScoRunnable());
-        }
 
-        // We need to make sure the ResetCallArray() is executed after
-        // UpdatePhoneCIND(), because after resetting mCurrentCallArray,
-        // the mCurrentCallArray[aCallIndex] may be meaningless in
-        // UpdatePhoneCIND().
-        ResetCallArray();
-      }
-      break;
-    default:
-      break;
+      // We need to make sure the ResetCallArray() is executed after
+      // UpdatePhoneCIND(), because after resetting mCurrentCallArray,
+      // the mCurrentCallArray[aCallIndex] may be meaningless in
+      // UpdatePhoneCIND().
+      ResetCallArray();
+    }
   }
 }
 

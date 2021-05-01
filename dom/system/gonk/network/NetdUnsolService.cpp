@@ -50,8 +50,14 @@ void NetdUnsolService::sendBroadcast(UnsolEvent evt, char* reason) {
     case InterfaceAddressRemoved:
       result.mTopic = NS_ConvertUTF8toUTF16("interface-address-change");
       break;
-    case InterfaceChanged:
+    case InterfaceLinkStatusChanged:
       result.mTopic = NS_ConvertUTF8toUTF16("netd-interface-change");
+      break;
+    case InterfaceAdded:
+      result.mTopic = NS_ConvertUTF8toUTF16("netd-interface-add");
+      break;
+    case InterfaceRemoved:
+      result.mTopic = NS_ConvertUTF8toUTF16("netd-interface-remove");
       break;
     case RouteChanged:
       result.mTopic = NS_ConvertUTF8toUTF16("route-change");
@@ -76,7 +82,7 @@ Status NetdUnsolService::onInterfaceDnsServerInfo(
   char message[BUF_SIZE];
 
   SprintfLiteral(message, "DnsInfo servers %s %" PRId64 " %s", ifName.c_str(),
-                 lifetime, android::base::Join(servers, " ").c_str());
+                 lifetime, android::base::Join(servers, ",").c_str());
   NUS_DBG("%s", message);
   sendBroadcast(InterfaceDnsServersAdded, message);
   return Status::ok();
@@ -145,10 +151,18 @@ Status NetdUnsolService::onQuotaLimitReached(const std::string& alertName,
 
 // TODO: Implement notify if we need these.
 Status NetdUnsolService::onInterfaceAdded(const std::string& ifName) {
+  char message[BUF_SIZE];
+  SprintfLiteral(message, "Iface added %s", ifName.c_str());
+  NUS_DBG("%s", message);
+  sendBroadcast(InterfaceAdded, message);
   return Status::ok();
 }
 
 Status NetdUnsolService::onInterfaceRemoved(const std::string& ifName) {
+  char message[BUF_SIZE];
+  SprintfLiteral(message, "Iface removed %s", ifName.c_str());
+  NUS_DBG("%s", message);
+  sendBroadcast(InterfaceRemoved, message);
   return Status::ok();
 }
 

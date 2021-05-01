@@ -48,8 +48,11 @@ enum class ScrollSource {
   // scrollTo() or something similar.
   DOM,
 
-  // Touch-screen or trackpad with gesture support.
-  Touch,
+  // Touch-screen.
+  Touchscreen,
+
+  // Touchpad with gesture support.
+  Touchpad,
 
   // Mouse wheel.
   Wheel,
@@ -58,6 +61,15 @@ enum class ScrollSource {
   Keyboard,
 };
 // clang-format on
+
+inline bool ScrollSourceRespectsDisregardedDirections(ScrollSource aSource) {
+  return aSource == ScrollSource::Wheel || aSource == ScrollSource::Touchpad;
+}
+
+inline bool ScrollSourceAllowsOverscroll(ScrollSource aSource) {
+  return aSource == ScrollSource::Touchpad ||
+         aSource == ScrollSource::Touchscreen;
+}
 
 // Epsilon to be used when comparing 'float' coordinate values
 // with FuzzyEqualsAdditive. The rationale is that 'float' has 7 decimal
@@ -205,6 +217,12 @@ bool AboutToCheckerboard(const FrameMetrics& aPaintedMetrics,
  * using the StaticPrefs getter directly.
  */
 bool ShouldUseProgressivePaint();
+
+/**
+ * Returns SideBits where the given |aOverscrollAmount| overscrolls.
+ */
+SideBits GetOverscrollSideBits(const ParentLayerPoint& aOverscrollAmount);
+
 }  // namespace apz
 
 }  // namespace layers

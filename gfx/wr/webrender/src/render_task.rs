@@ -5,7 +5,8 @@
 use api::{CompositeOperator, FilterPrimitive, FilterPrimitiveInput, FilterPrimitiveKind};
 use api::{LineStyle, LineOrientation, ClipMode, MixBlendMode, ColorF, ColorSpace};
 use api::units::*;
-use crate::clip::{ClipDataStore, ClipItemKind, ClipStore, ClipNodeRange, ClipNodeFlags};
+use crate::batch::BatchFilter;
+use crate::clip::{ClipDataStore, ClipItemKind, ClipStore, ClipNodeRange};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::filterdata::SFilterData;
 use crate::frame_builder::FrameBuilderConfig;
@@ -15,8 +16,8 @@ use crate::internal_types::{CacheTextureId, FastHashMap, TextureSource, Swizzle}
 use crate::picture::{ResolvedSurfaceTexture, SurfaceInfo};
 use crate::prim_store::{ClipData, PictureIndex};
 use crate::prim_store::gradient::{
-    GRADIENT_FP_STOPS, GradientStopKey, FastLinearGradientTask, RadialGradientTask,
-    ConicGradientTask,
+    FastLinearGradientTask, RadialGradientTask,
+    ConicGradientTask, LinearGradientTask,
 };
 #[cfg(feature = "debugger")]
 use crate::print_tree::{PrintTreePrinter};
@@ -174,8 +175,7 @@ pub struct PictureTask {
     pub content_origin: DevicePoint,
     pub surface_spatial_node_index: SpatialNodeIndex,
     pub device_pixel_scale: DevicePixelScale,
-    /// A dirty rect defining which prims should be built for this picture task.
-    pub dirty_rect: Option<PictureRect>,
+    pub batch_filter: Option<BatchFilter>,
     pub scissor_rect: Option<DeviceIntRect>,
     pub valid_rect: Option<DeviceIntRect>,
 }
@@ -307,6 +307,7 @@ pub enum RenderTaskKind {
     Border(BorderTask),
     LineDecoration(LineDecorationTask),
     FastLinearGradient(FastLinearGradientTask),
+    LinearGradient(LinearGradientTask),
     RadialGradient(RadialGradientTask),
     ConicGradient(ConicGradientTask),
     SvgFilter(SvgFilterTask),
@@ -338,6 +339,7 @@ impl RenderTaskKind {
             RenderTaskKind::Border(..) => "Border",
             RenderTaskKind::LineDecoration(..) => "LineDecoration",
             RenderTaskKind::FastLinearGradient(..) => "FastLinearGradient",
+            RenderTaskKind::LinearGradient(..) => "LinearGradient",
             RenderTaskKind::RadialGradient(..) => "RadialGradient",
             RenderTaskKind::ConicGradient(..) => "ConicGradient",
             RenderTaskKind::SvgFilter(..) => "SvgFilter",
@@ -353,6 +355,7 @@ impl RenderTaskKind {
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::FastLinearGradient(..) |
+            RenderTaskKind::LinearGradient(..) |
             RenderTaskKind::RadialGradient(..) |
             RenderTaskKind::ConicGradient(..) |
             RenderTaskKind::Picture(..) |
@@ -391,7 +394,7 @@ impl RenderTaskKind {
         content_origin: DevicePoint,
         surface_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
-        dirty_rect: Option<PictureRect>,
+        batch_filter: Option<BatchFilter>,
         scissor_rect: Option<DeviceIntRect>,
         valid_rect: Option<DeviceIntRect>,
     ) -> Self {
@@ -406,23 +409,9 @@ impl RenderTaskKind {
             can_merge,
             surface_spatial_node_index,
             device_pixel_scale,
-            dirty_rect,
+            batch_filter,
             scissor_rect,
             valid_rect,
-        })
-    }
-
-    pub fn new_gradient(
-        stops: [GradientStopKey; GRADIENT_FP_STOPS],
-        orientation: LineOrientation,
-        start_point: f32,
-        end_point: f32,
-    ) -> Self {
-        RenderTaskKind::FastLinearGradient(FastLinearGradientTask {
-            stops,
-            orientation,
-            start_point,
-            end_point,
         })
     }
 
@@ -568,24 +557,7 @@ impl RenderTaskKind {
                         }
                     ));
                 }
-                ClipItemKind::Rectangle { mode: ClipMode::Clip, .. } => {
-                    if !clip_instance.flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
-                        // This is conservative - it's only the case that we actually need
-                        // a clear here if we end up adding this mask via add_tiled_clip_mask,
-                        // but for simplicity we will just clear if any of these are encountered,
-                        // since they are rare.
-                        let clip_task = rg_builder.get_task_mut(clip_task_id);
-                        match clip_task.kind {
-                            RenderTaskKind::CacheMask(ref mut task) => {
-                                task.clear_to_one = true;
-                            }
-                            _ => {
-                                unreachable!();
-                            }
-                        }
-                    }
-                }
-                ClipItemKind::Rectangle { mode: ClipMode::ClipOut, .. } |
+                ClipItemKind::Rectangle { .. } |
                 ClipItemKind::RoundedRectangle { .. } |
                 ClipItemKind::Image { .. } => {}
             }
@@ -651,6 +623,7 @@ impl RenderTaskKind {
             RenderTaskKind::Border(..) |
             RenderTaskKind::LineDecoration(..) |
             RenderTaskKind::FastLinearGradient(..) |
+            RenderTaskKind::LinearGradient(..) |
             RenderTaskKind::RadialGradient(..) |
             RenderTaskKind::ConicGradient(..) |
             RenderTaskKind::Blit(..) => {
@@ -1476,6 +1449,9 @@ impl RenderTask {
             }
             RenderTaskKind::FastLinearGradient(..) => {
                 pt.new_level("FastLinearGradient".to_owned());
+            }
+            RenderTaskKind::LinearGradient(..) => {
+                pt.new_level("LinearGradient".to_owned());
             }
             RenderTaskKind::RadialGradient(..) => {
                 pt.new_level("RadialGradient".to_owned());

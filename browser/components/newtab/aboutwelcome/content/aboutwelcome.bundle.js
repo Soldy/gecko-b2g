@@ -128,7 +128,14 @@ class AboutWelcome extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComp
   }
 
   componentDidMount() {
-    this.fetchFxAFlowUri(); // Record impression with performance data after allowing the page to load
+    this.fetchFxAFlowUri(); // Rely on shared proton in-content styling for consistency.
+
+    if (this.props.design === "proton") {
+      const sheet = document.head.appendChild(document.createElement("link"));
+      sheet.rel = "stylesheet";
+      sheet.href = "chrome://global/skin/in-content/common.css";
+    } // Record impression with performance data after allowing the page to load
+
 
     const recordImpression = domState => {
       const {
@@ -184,7 +191,8 @@ class AboutWelcome extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComp
       metricsFlowUri: this.state.metricsFlowUri,
       message_id: props.messageId,
       utm_term: props.UTMTerm,
-      design: props.design
+      design: props.design,
+      background_url: props.background_url
     });
   }
 
@@ -371,7 +379,10 @@ const MultiStageAboutWelcome = props => {
     })();
   }, [useImportable, region]);
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(react__WEBPACK_IMPORTED_MODULE_0___default.a.Fragment, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
-    className: `outer-wrapper onboardingContainer ${props.design}`
+    className: `outer-wrapper onboardingContainer ${props.design}`,
+    style: {
+      backgroundImage: `url(${props.background_url})`
+    }
   }, props.screens.map(screen => {
     return index === screen.order ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(WelcomeScreen, {
       key: screen.id,
@@ -400,7 +411,7 @@ const SecondaryCTA = props => {
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("span", null)), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__["Localized"], {
     text: props.content[targetElement].label
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("button", {
-    className: "secondary",
+    className: "secondary text-link",
     value: targetElement,
     onClick: props.handleAction
   })));
@@ -544,7 +555,7 @@ class WelcomeScreen extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureCom
         id: this.props.id,
         order: this.props.order,
         activeTheme: this.props.activeTheme,
-        totalNumberOfScreens: this.props.totalNumberOfScreens,
+        totalNumberOfScreens: this.props.totalNumberOfScreens - 1,
         handleAction: this.handleAction,
         design: this.props.design
       });
@@ -1080,7 +1091,8 @@ __webpack_require__.r(__webpack_exports__);
 class MultiStageProtonScreen extends react__WEBPACK_IMPORTED_MODULE_0___default.a.PureComponent {
   render() {
     const {
-      content
+      content,
+      totalNumberOfScreens: total
     } = this.props;
     const isWelcomeScreen = this.props.order === 0;
     return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("main", {
@@ -1097,6 +1109,22 @@ class MultiStageProtonScreen extends react__WEBPACK_IMPORTED_MODULE_0___default.
       className: "attrib-text"
     })) : null) : null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
       className: "section-main"
+    }, content.secondary_button_top ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(_MultiStageAboutWelcome__WEBPACK_IMPORTED_MODULE_3__["SecondaryCTA"], {
+      content: content,
+      handleAction: this.props.handleAction,
+      position: "top"
+    }) : null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: `noodle orange-L`
+    }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: `noodle purple-C`
+    }), isWelcomeScreen ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: `noodle solid-L`
+    }) : null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: `noodle outline-L`
+    }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: `noodle yellow-circle`
+    }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
+      className: "main-content"
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
       className: "brand-logo"
     }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("div", {
@@ -1119,14 +1147,17 @@ class MultiStageProtonScreen extends react__WEBPACK_IMPORTED_MODULE_0___default.
     }))), content.secondary_button ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(_MultiStageAboutWelcome__WEBPACK_IMPORTED_MODULE_3__["SecondaryCTA"], {
       content: content,
       handleAction: this.props.handleAction
-    }) : null, !isWelcomeScreen ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("nav", {
+    }) : null, !isWelcomeScreen && total > 1 ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("nav", {
       className: "steps",
       "data-l10n-id": "onboarding-welcome-steps-indicator",
-      "data-l10n-args": `{"current": ${parseInt(this.props.order, 10) + 1}, "total": ${this.props.totalNumberOfScreens}}`
+      "data-l10n-args": JSON.stringify({
+        current: this.props.order,
+        total
+      })
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("br", null), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement("p", null), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default.a.createElement(_MultiStageAboutWelcome__WEBPACK_IMPORTED_MODULE_3__["StepsIndicator"], {
-      order: this.props.order,
-      totalNumberOfScreens: this.props.totalNumberOfScreens
-    })) : null));
+      order: this.props.order - 1,
+      totalNumberOfScreens: total
+    })) : null)));
   }
 
 }

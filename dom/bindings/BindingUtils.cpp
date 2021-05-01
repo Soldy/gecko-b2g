@@ -22,7 +22,7 @@
 
 #include "AccessCheck.h"
 #include "js/experimental/JitInfo.h"  // JSJit{Getter,Setter,Method}CallArgs, JSJit{Getter,Setter}Op, JSJitInfo
-#include "js/friend/StackLimits.h"  // js::CheckRecursionLimitConservative
+#include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit
 #include "js/Id.h"
 #include "js/JSON.h"
 #include "js/Object.h"  // JS::GetClass, JS::GetCompartment, JS::GetReservedSlot, JS::SetReservedSlot
@@ -735,13 +735,15 @@ bool DefinePrefable(JSContext* cx, JS::Handle<JSObject*> obj,
   return true;
 }
 
-bool DefineUnforgeableMethods(JSContext* cx, JS::Handle<JSObject*> obj,
-                              const Prefable<const JSFunctionSpec>* props) {
+bool DefineLegacyUnforgeableMethods(
+    JSContext* cx, JS::Handle<JSObject*> obj,
+    const Prefable<const JSFunctionSpec>* props) {
   return DefinePrefable(cx, obj, props);
 }
 
-bool DefineUnforgeableAttributes(JSContext* cx, JS::Handle<JSObject*> obj,
-                                 const Prefable<const JSPropertySpec>* props) {
+bool DefineLegacyUnforgeableAttributes(
+    JSContext* cx, JS::Handle<JSObject*> obj,
+    const Prefable<const JSPropertySpec>* props) {
   return DefinePrefable(cx, obj, props);
 }
 
@@ -802,7 +804,7 @@ static bool DefineConstructor(JSContext* cx, JS::Handle<JSObject*> global,
 static JSObject* CreateInterfaceObject(
     JSContext* cx, JS::Handle<JSObject*> global,
     JS::Handle<JSObject*> constructorProto, const JSClass* constructorClass,
-    unsigned ctorNargs, const NamedConstructor* namedConstructors,
+    unsigned ctorNargs, const LegacyFactoryFunction* namedConstructors,
     JS::Handle<JSObject*> proto, const NativeProperties* properties,
     const NativeProperties* chromeOnlyProperties, const char* name,
     bool isChrome, bool defineOnGlobal, const char* const* legacyWindowAliases,
@@ -1020,7 +1022,7 @@ void CreateInterfaceObjects(
     JS::Handle<JSObject*> protoProto, const JSClass* protoClass,
     JS::Heap<JSObject*>* protoCache, JS::Handle<JSObject*> constructorProto,
     const JSClass* constructorClass, unsigned ctorNargs,
-    const NamedConstructor* namedConstructors,
+    const LegacyFactoryFunction* namedConstructors,
     JS::Heap<JSObject*>* constructorCache, const NativeProperties* properties,
     const NativeProperties* chromeOnlyProperties, const char* name,
     bool defineOnGlobal, const char* const* unscopableNames, bool isGlobal,
@@ -2153,7 +2155,8 @@ void UpdateReflectorGlobal(JSContext* aCx, JS::Handle<JSObject*> aObjArg,
   // transplanting code, since it has no good way to handle errors. This uses
   // the untrusted script limit, which is not strictly necessary since no
   // actual script should run.
-  if (!js::CheckRecursionLimitConservative(aCx)) {
+  js::AutoCheckRecursionLimit recursion(aCx);
+  if (!recursion.checkConservative(aCx)) {
     aError.StealExceptionFromJSContext(aCx);
     return;
   }

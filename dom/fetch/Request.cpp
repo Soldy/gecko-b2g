@@ -267,6 +267,84 @@ SafeRefPtr<Request> Request::Constructor(const GlobalObject& aGlobal,
   return Constructor(global, aGlobal.Context(), aInput, aInit, aRv);
 }
 
+// Helper class to check if a worker has the systemXHR permission.
+class RequestCheckPermissionRunnable : public WorkerMainThreadRunnable {
+ public:
+  RequestCheckPermissionRunnable(WorkerPrivate* aWorkerPrivate)
+      : WorkerMainThreadRunnable(aWorkerPrivate,
+                                 "Request :: CheckPermission"_ns),
+        mAllowed(false) {}
+
+  bool MainThreadRun() override {
+    nsCOMPtr<nsIPermissionManager> permissionManager =
+        services::GetPermissionManager();
+    if (NS_WARN_IF(!permissionManager)) {
+      return false;
+    }
+
+    nsCOMPtr<nsIPrincipal> principal = mWorkerPrivate->GetPrincipal();
+    if (NS_WARN_IF(!principal)) {
+      return false;
+    }
+
+    uint32_t permission = nsIPermissionManager::DENY_ACTION;
+    nsresult rv = permissionManager->TestPermissionFromPrincipal(
+        principal, "systemXHR"_ns, &permission);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return false;
+    }
+
+    mAllowed = permission == nsIPermissionManager::ALLOW_ACTION;
+
+    return true;
+  }
+
+  bool mAllowed;
+
+ private:
+  ~RequestCheckPermissionRunnable() = default;
+};
+
+nsresult HasSystemXHRPermission(nsIGlobalObject* aGlobal, bool& aResult) {
+  aResult = false;
+
+  // When on a worker thread, dispatch a runnable to check the permission.
+  if (!NS_IsMainThread()) {
+    WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+    MOZ_ASSERT(worker);
+    worker->AssertIsOnWorkerThread();
+
+    ErrorResult rv;
+    RefPtr<RequestCheckPermissionRunnable> runnable =
+        new RequestCheckPermissionRunnable(worker);
+    runnable->Dispatch(Canceling, rv);
+    if (NS_WARN_IF(rv.Failed())) {
+      return NS_ERROR_UNEXPECTED;
+    }
+
+    aResult = runnable->mAllowed;
+    return NS_OK;
+  }
+
+  nsCOMPtr<nsIPrincipal> principal = aGlobal->PrincipalOrNull();
+  if (!principal) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIPermissionManager> permissionManager =
+      services::GetPermissionManager();
+  if (NS_WARN_IF(!permissionManager)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  uint32_t perm = nsIPermissionManager::DENY_ACTION;
+  nsresult rv = permissionManager->TestPermissionFromPrincipal(
+      principal, "systemXHR"_ns, &perm);
+  aResult = NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION;
+
+  return rv;
+}
+
 /*static*/
 SafeRefPtr<Request> Request::Constructor(nsIGlobalObject* aGlobal,
                                          JSContext* aCx,
@@ -550,20 +628,9 @@ SafeRefPtr<Request> Request::Constructor(nsIGlobalObject* aGlobal,
 
     // Check if the systemXHR permission is set and configure the headers
     // accordingly.
-    nsCOMPtr<nsIPrincipal> principal = aGlobal->PrincipalOrNull();
-    if (principal) {
-      nsresult rv;
-      nsCOMPtr<nsIPermissionManager> permMgr =
-          do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
-      bool isSystemXHR = false;
-      if (NS_SUCCEEDED(rv)) {
-        uint32_t perm;
-        rv = permMgr->TestPermissionFromPrincipal(principal, "systemXHR"_ns,
-                                                  &perm);
-        isSystemXHR =
-            NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION;
-        requestHeaders->SetHasSystemXHRPerm(isSystemXHR);
-      }
+    bool isSystemXHR;
+    if NS_SUCCEEDED (HasSystemXHRPermission(aGlobal, isSystemXHR)) {
+      requestHeaders->SetHasSystemXHRPerm(isSystemXHR);
     }
 
     requestHeaders->SetGuard(HeadersGuardEnum::Request_no_cors, aRv);

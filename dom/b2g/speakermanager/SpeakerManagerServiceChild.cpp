@@ -70,6 +70,13 @@ bool SpeakerManagerServiceChild::GetSpeakerStatus() {
 }
 
 void SpeakerManagerServiceChild::Shutdown() {
+  SpeakerManagerService::Shutdown();
+  RefPtr<AudioChannelService> audioChannelService =
+      AudioChannelService::GetOrCreate();
+  if (audioChannelService) {
+    audioChannelService->UnregisterSpeakerManager(this);
+  }
+
   if (gSpeakerManagerServiceChild) {
     gSpeakerManagerServiceChild = nullptr;
   }
@@ -91,14 +98,6 @@ SpeakerManagerServiceChild::SpeakerManagerServiceChild() {
       AudioChannelService::GetOrCreate();
   if (audioChannelService) {
     audioChannelService->RegisterSpeakerManager(this);
-  }
-}
-
-SpeakerManagerServiceChild::~SpeakerManagerServiceChild() {
-  RefPtr<AudioChannelService> audioChannelService =
-      AudioChannelService::GetOrCreate();
-  if (audioChannelService) {
-    audioChannelService->UnregisterSpeakerManager(this);
   }
 }
 

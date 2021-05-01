@@ -184,6 +184,12 @@ interface nsIGleanMemoryDistribution : nsISupports
 	jsval testGetValue([optional] in ACString aPingName);
 };
 
+[scriptable, function, uuid(e5447f62-4b03-497c-81e9-6ab683d20380)]
+interface nsIGleanPingTestCallback : nsISupports
+{
+  void call(in ACString aReason);
+};
+
 [scriptable, uuid(5223a48b-687d-47ff-a629-fd4a72d1ecfa)]
 interface nsIGleanPing : nsISupports
 {
@@ -207,6 +213,20 @@ interface nsIGleanPing : nsISupports
    *                  Must match one of the configured `reason_codes`.
    */
 	void submit([optional] in ACString aReason);
+
+  /**
+   * **Test-only API**
+   *
+   * Register a callback to be called right before this ping is next submitted.
+   * The provided function is called exactly once before submitting.
+   *
+   * Note: The callback will be called on any call to submit.
+   * A ping might not be sent afterwards, e.g. if the ping is empty and
+   * `send_if_empty` is `false`.
+   *
+   * @param aCallback - The callback to call on the next submit.
+   */
+  void testBeforeNextSubmit(in nsIGleanPingTestCallback aCallback);
 };
 
 [scriptable, uuid(d84a3555-46f1-48c1-9122-e8e88b069d2b)]
@@ -311,6 +331,17 @@ interface nsIGleanTimespan : nsISupports
    * Does not record an error if there was no previous call to start.
    */
   void cancel();
+
+  /**
+   * Explicitly sets the timespan value.
+   *
+   * This API should only be used if you cannot make use of
+   * `start`/`stop`/`cancel`.
+   *
+   * @param aDuration The duration of this timespan, in units matching the
+   *        `time_unit` of this metric's definition.
+   */
+  void setRaw(in uint32_t aDuration);
 
   /**
    * **Test-only API**
@@ -419,5 +450,35 @@ interface nsIGleanEvent : nsISupports
    * (This is probably not an issue with the current clock implementation. Probably.)
    */
   [implicit_jscontext]
+  jsval testGetValue([optional] in AUTF8String aPingName);
+};
+
+[scriptable, uuid(0558c1b2-2cb1-4e21-a0a0-6a91a35ef219)]
+interface nsIGleanQuantity : nsISupports
+{
+  /**
+   * Set to the specified value.
+   *
+   * @param value the value to set.
+   */
+  void set(in int64_t value);
+
+  /**
+   * **Test-only API**
+   *
+   * Gets the currently stored value.
+   *
+   * This function will attempt to await the last parent-process task (if any)
+   * writing to the the metric's storage engine before returning a value.
+   * This function will not wait for data from child processes.
+   *
+   * This doesn't clear the stored value.
+   * Parent process only. Panics in child processes.
+   *
+   * @param aPingName The (optional) name of the ping to retrieve the metric
+   *        for. Defaults to the first value in `send_in_pings`.
+   *
+   * @return value of the stored metric, or undefined if there is no value.
+   */
   jsval testGetValue([optional] in AUTF8String aPingName);
 };

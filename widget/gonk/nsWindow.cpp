@@ -308,7 +308,7 @@ void nsWindow::DispatchTouchEventForAPZ(
   UserActivity();
 
   // Convert it to an event we can send to Gecko
-  WidgetTouchEvent event = aInput.ToWidgetTouchEvent(this);
+  WidgetTouchEvent event = aInput.ToWidgetEvent(this);
 
   // Dispatch the event into the gecko root process for "normal" flow.
   // The event might get sent to a child process,
@@ -609,12 +609,11 @@ void nsWindow::EnsureGLCursorImageManager() {
   mGLCursorImageManager = mozilla::MakeUnique<GLCursorImageManager>();
 }
 
-void nsWindow::SetCursor(nsCursor aDefaultCursor, imgIContainer* aCursorImage,
-                         uint32_t aHotspotX, uint32_t aHotspotY) {
-  nsBaseWidget::SetCursor(aDefaultCursor, aCursorImage, aHotspotX, aHotspotY);
+void nsWindow::SetCursor(const Cursor& aCursor) {
+  nsBaseWidget::SetCursor(aCursor);
   if (mGLCursorImageManager) {
     // Prepare GLCursor if it doesn't exist
-    mGLCursorImageManager->PrepareCursorImage(aDefaultCursor, this);
+    mGLCursorImageManager->PrepareCursorImage(aCursor.mDefaultCursor, this);
     mGLCursorImageManager->HasSetCursor();
     KickOffComposition();
   }
@@ -697,9 +696,9 @@ void nsWindow::DrawWindowOverlay(LayerManagerComposite* aManager,
         static_cast<CompositorOGL*>(aManager->GetCompositor());
     if (compositor) {
       if (mGLCursorImageManager->ShouldDrawGLCursor() &&
-          mGLCursorImageManager->IsCursorImageReady(mCursor)) {
+          mGLCursorImageManager->IsCursorImageReady(mCursor.mDefaultCursor)) {
         GLCursorImageManager::GLCursorImage cursorImage =
-            mGLCursorImageManager->GetGLCursorImage(mCursor);
+            mGLCursorImageManager->GetGLCursorImage(mCursor.mDefaultCursor);
         LayoutDeviceIntPoint position =
             mGLCursorImageManager->GetGLCursorPosition();
         compositor->DrawGLCursor(aRect, position, cursorImage.mSurface,

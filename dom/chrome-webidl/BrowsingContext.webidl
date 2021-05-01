@@ -6,6 +6,7 @@
 interface URI;
 interface nsIDocShell;
 interface nsISecureBrowserUI;
+interface nsIPrintSettings;
 interface nsIWebProgress;
 
 interface mixin LoadContextMixin {
@@ -102,9 +103,9 @@ interface BrowsingContext {
 
   readonly attribute boolean ancestorsAreCurrent;
 
-  [SetterThrows] attribute [TreatNullAs=EmptyString] DOMString customPlatform;
+  [SetterThrows] attribute [LegacyNullToEmptyString] DOMString customPlatform;
 
-  [SetterThrows] attribute [TreatNullAs=EmptyString] DOMString customUserAgent;
+  [SetterThrows] attribute [LegacyNullToEmptyString] DOMString customUserAgent;
 
   readonly attribute DOMString embedderElementType;
 
@@ -257,12 +258,23 @@ interface CanonicalBrowsingContext : BrowsingContext {
   [Throws]
   void loadURI(DOMString aURI, optional LoadURIOptions aOptions = {});
 
+   /**
+    * Print the current document.
+    *
+    * @param aOuterWindowID the ID of the outer window to print
+    * @param aPrintSettings print settings to use; printSilent can be
+    *                       set to prevent prompting.
+    * @return A Promise that resolves once printing is finished.
+    */
+  [Throws]
+  Promise<void> print(nsIPrintSettings aPrintSettings);
+
   /**
    * These methods implement the nsIWebNavigation methods of the same names
    */
-  void goBack(optional long aCancelContentJSEpoch, optional boolean aRequireUserInteraction = false);
-  void goForward(optional long aCancelContentJSEpoch, optional boolean aRequireUserInteraction  = false);
-  void goToIndex(long aIndex, optional long aCancelContentJSEpoch);
+  void goBack(optional long aCancelContentJSEpoch, optional boolean aRequireUserInteraction = false, optional boolean aUserActivation = false);
+  void goForward(optional long aCancelContentJSEpoch, optional boolean aRequireUserInteraction  = false, optional boolean aUserActivation = false);
+  void goToIndex(long aIndex, optional long aCancelContentJSEpoch, optional boolean aUserActivation = false);
   void reload(unsigned long aReloadFlags);
   void stop(unsigned long aStopFlags);
 

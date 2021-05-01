@@ -3642,7 +3642,7 @@ bool WarpCacheIRTranspiler::emitNewTypedArrayFromLengthResult(
   if (length->isConstant()) {
     int32_t len = length->toConstant()->toInt32();
     if (len > 0 &&
-        uint32_t(len) == templateObj->as<TypedArrayObject>().length().get()) {
+        uint32_t(len) == templateObj->as<TypedArrayObject>().length()) {
       auto* templateConst = constant(ObjectValue(*templateObj));
       auto* obj = MNewTypedArray::New(alloc(), templateConst, heap);
       add(obj);
@@ -4776,6 +4776,37 @@ bool WarpCacheIRTranspiler::emitAssertRecoveredOnBailoutResult(
 
   pushResult(constant(UndefinedValue()));
   return true;
+}
+
+bool WarpCacheIRTranspiler::emitGuardNoAllocationMetadataBuilder(
+    uint32_t builderAddrOffset) {
+  // This is a no-op because we discard all JIT code when set an allocation
+  // metadata callback.
+  return true;
+}
+
+bool WarpCacheIRTranspiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
+                                                     uint32_t numDynamicSlots,
+                                                     gc::AllocKind allocKind,
+                                                     uint32_t shapeOffset) {
+  Shape* shape = shapeStubField(shapeOffset);
+
+  // TODO: support pre-tenuring.
+  gc::InitialHeap heap = gc::DefaultHeap;
+
+  auto* shapeConstant = MConstant::NewShape(alloc(), shape);
+  if (!shapeConstant) {
+    return false;
+  }
+
+  add(shapeConstant);
+
+  auto* obj = MNewPlainObject::New(alloc(), shapeConstant, numFixedSlots,
+                                   numDynamicSlots, allocKind, heap);
+  addEffectful(obj);
+
+  pushResult(obj);
+  return resumeAfter(obj);
 }
 
 static void MaybeSetImplicitlyUsed(uint32_t numInstructionIdsBefore,

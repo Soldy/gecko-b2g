@@ -467,18 +467,19 @@ bool nsXULElement::HasMenu() {
 }
 
 void nsXULElement::OpenMenu(bool aOpenFlag) {
-  nsMenuFrame* menu = do_QueryFrame(GetPrimaryFrame(FlushType::Frames));
+  // Flush frames first. It's not clear why this is needed, see bug 1704670.
+  if (Document* doc = GetComposedDoc()) {
+    doc->FlushPendingNotifications(FlushType::Frames);
+  }
 
   nsXULPopupManager* pm = nsXULPopupManager::GetInstance();
   if (pm) {
     if (aOpenFlag) {
       // Nothing will happen if this element isn't a menu.
       pm->ShowMenu(this, false, false);
-    } else if (menu) {
-      nsMenuPopupFrame* popupFrame = menu->GetPopup();
-      if (popupFrame) {
-        pm->HidePopup(popupFrame->GetContent(), false, true, false, false);
-      }
+    } else {
+      // Nothing will happen if this element isn't a menu.
+      pm->HideMenu(this);
     }
   }
 }
@@ -942,12 +943,14 @@ nsresult nsXULElement::DispatchXULCommand(const EventChainVisitor& aVisitor,
     // handling.
     RefPtr<Event> event = aVisitor.mDOMEvent;
     uint16_t inputSource = MouseEvent_Binding::MOZ_SOURCE_UNKNOWN;
+    int16_t button = 0;
     while (event) {
       NS_ENSURE_STATE(event->GetOriginalTarget() != commandElt);
       RefPtr<XULCommandEvent> commandEvent = event->AsXULCommandEvent();
       if (commandEvent) {
         event = commandEvent->GetSourceEvent();
         inputSource = commandEvent->InputSource();
+        button = commandEvent->Button();
       } else {
         event = nullptr;
       }
@@ -956,7 +959,7 @@ nsresult nsXULElement::DispatchXULCommand(const EventChainVisitor& aVisitor,
     nsContentUtils::DispatchXULCommand(
         commandElt, orig->IsTrusted(), MOZ_KnownLive(aVisitor.mDOMEvent),
         nullptr, orig->IsControl(), orig->IsAlt(), orig->IsShift(),
-        orig->IsMeta(), inputSource);
+        orig->IsMeta(), inputSource, button);
   } else {
     NS_WARNING("A XUL element is attached to a command that doesn't exist!\n");
   }

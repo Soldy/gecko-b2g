@@ -840,7 +840,9 @@ nsresult nsPrintJob::Print(Document* aSourceDoc,
       nsCOMPtr<nsIPrintSettingsService> printSettingsService =
           do_GetService("@mozilla.org/gfx/printsettings-service;1");
       printSettingsService->SavePrintSettingsToPrefs(
-          aPrintSettings, true, nsIPrintSettings::kInitSaveAll);
+          aPrintSettings, true,
+          nsIPrintSettings::kInitSaveAll &
+              ~nsIPrintSettings::kInitSaveToFileName);
       printSettingsService->SavePrintSettingsToPrefs(
           aPrintSettings, false, nsIPrintSettings::kInitSavePrinterName);
     }
@@ -2121,6 +2123,9 @@ nsresult nsPrintJob::DoPrint(const UniquePtr<nsPrintObject>& aPO) {
   // because it might be cleared if other modules called from here may fire
   // events, notifying observers and/or listeners.
   RefPtr<nsPrintData> printData = mPrt;
+  if (NS_WARN_IF(!printData)) {
+    return NS_ERROR_FAILURE;
+  }
 
   if (printData->mPrintProgressParams) {
     SetURLAndTitleOnProgressParams(aPO, printData->mPrintProgressParams);

@@ -61,6 +61,7 @@
 #endif
 
 #include "nsXULAppAPI.h"
+#include "nsIXULAppInfo.h"
 #include "nsDirectoryServiceUtils.h"
 #include "nsDirectoryServiceDefs.h"
 
@@ -2024,6 +2025,12 @@ void gfxPlatform::InitBackendPrefs(BackendPrefsData&& aPrefsData) {
     mSoftwareBackend = BackendType::SKIA;
   }
 
+  // If we don't have a fallback canvas backend then use the same software
+  // fallback as content.
+  if (mFallbackCanvasBackend == BackendType::NONE) {
+    mFallbackCanvasBackend = mSoftwareBackend;
+  }
+
   if (XRE_IsParentProcess()) {
     gfxVars::SetContentBackend(mContentBackend);
     gfxVars::SetSoftwareBackend(mSoftwareBackend);
@@ -2710,7 +2717,7 @@ void gfxPlatform::InitWebRenderConfig() {
   }
 #endif
 
-  if (Preferences::GetBool("gfx.webrender.program-binary-disk", false)) {
+  if (gfxConfig::IsEnabled(Feature::WEBRENDER_SHADER_CACHE)) {
     gfxVars::SetUseWebRenderProgramBinaryDisk(hasWebRender);
   }
 
@@ -3077,6 +3084,40 @@ void gfxPlatform::ReInitFrameRate() {
   }
 }
 
+const char* gfxPlatform::GetAzureCanvasBackend() const {
+  BackendType backend{};
+
+  if (gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
+    // Assume content process' backend prefs.
+    BackendPrefsData data = GetBackendPrefs();
+    backend = GetCanvasBackendPref(data.mCanvasBitmask);
+    if (backend == BackendType::NONE) {
+      backend = data.mCanvasDefault;
+    }
+  } else {
+    backend = mPreferredCanvasBackend;
+  }
+
+  return GetBackendName(backend);
+}
+
+const char* gfxPlatform::GetAzureContentBackend() const {
+  BackendType backend{};
+
+  if (gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
+    // Assume content process' backend prefs.
+    BackendPrefsData data = GetBackendPrefs();
+    backend = GetContentBackendPref(data.mContentBitmask);
+    if (backend == BackendType::NONE) {
+      backend = data.mContentDefault;
+    }
+  } else {
+    backend = mContentBackend;
+  }
+
+  return GetBackendName(backend);
+}
+
 void gfxPlatform::GetAzureBackendInfo(mozilla::widget::InfoObject& aObj) {
   if (gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
     aObj.DefineProperty("AzureCanvasBackend (UI Process)",
@@ -3085,26 +3126,13 @@ void gfxPlatform::GetAzureBackendInfo(mozilla::widget::InfoObject& aObj) {
                         GetBackendName(mFallbackCanvasBackend));
     aObj.DefineProperty("AzureContentBackend (UI Process)",
                         GetBackendName(mContentBackend));
-
-    // Assume content process' backend prefs.
-    BackendPrefsData data = GetBackendPrefs();
-    BackendType canvasBackend = GetCanvasBackendPref(data.mCanvasBitmask);
-    if (canvasBackend == BackendType::NONE) {
-      canvasBackend = data.mCanvasDefault;
-    }
-    BackendType contentBackend = GetContentBackendPref(data.mContentBitmask);
-    if (contentBackend == BackendType::NONE) {
-      contentBackend = data.mContentDefault;
-    }
-    aObj.DefineProperty("AzureCanvasBackend", GetBackendName(canvasBackend));
-    aObj.DefineProperty("AzureContentBackend", GetBackendName(contentBackend));
   } else {
-    aObj.DefineProperty("AzureCanvasBackend",
-                        GetBackendName(mPreferredCanvasBackend));
     aObj.DefineProperty("AzureFallbackCanvasBackend",
                         GetBackendName(mFallbackCanvasBackend));
-    aObj.DefineProperty("AzureContentBackend", GetBackendName(mContentBackend));
   }
+
+  aObj.DefineProperty("AzureCanvasBackend", GetAzureCanvasBackend());
+  aObj.DefineProperty("AzureContentBackend", GetAzureContentBackend());
 }
 
 void gfxPlatform::GetApzSupportInfo(mozilla::widget::InfoObject& aObj) {
@@ -3342,6 +3370,14 @@ void gfxPlatform::NotifyCompositorCreated(LayersBackend aBackend) {
         Telemetry::ScalarID::GFX_COMPOSITOR,
         NS_ConvertUTF8toUTF16(GetLayersBackendName(mCompositorBackend)));
 
+    nsCString geckoVersion;
+    nsCOMPtr<nsIXULAppInfo> app = do_GetService("@mozilla.org/xre/app-info;1");
+    if (app) {
+      app->GetVersion(geckoVersion);
+    }
+    Telemetry::ScalarSet(Telemetry::ScalarID::GFX_LAST_COMPOSITOR_GECKO_VERSION,
+                         NS_ConvertASCIItoUTF16(geckoVersion));
+
     Telemetry::ScalarSet(
         Telemetry::ScalarID::GFX_FEATURE_WEBRENDER,
         NS_ConvertUTF8toUTF16(gfxConfig::GetFeature(gfx::Feature::WEBRENDER)
@@ -3440,15 +3476,21 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
     return false;
   }
 
-  if (gfxVars::UseSoftwareWebRender()) {
-    // Continue using Software WebRender (disabled fallback to Basic).
-    gfxCriticalNoteOnce << "Fallback remains SW-WR";
-  } else {
-    // Continue using WebRender (disabled fallback to Basic and Software
-    // WebRender).
-    gfxCriticalNoteOnce << "Fallback remains WR";
-  }
   MOZ_ASSERT(gfxVars::UseWebRender());
+
+  if (!gfxVars::UseSoftwareWebRender()) {
+    // Software WebRender may be disabled due to a startup issue with the
+    // blocklist, despite it being our only fallback option based on the prefs.
+    // If WebRender is unable to be initialized, this means that user would
+    // otherwise get stuck with WebRender. As such, force a switch to Software
+    // WebRender in this case.
+    gfxCriticalNoteOnce << "Fallback WR to SW-WR, forced";
+    gfxVars::SetUseSoftwareWebRender(true);
+    return true;
+  }
+
+  // Continue using Software WebRender (disabled fallback to Basic).
+  gfxCriticalNoteOnce << "Fallback remains SW-WR";
   return false;
 }
 

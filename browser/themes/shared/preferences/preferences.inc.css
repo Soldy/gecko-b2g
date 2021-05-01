@@ -113,7 +113,10 @@ button > hbox > label {
 }
 
 .indent {
-  margin-inline-start: 28px !important;
+  /* This should match the checkboxes/radiobuttons' width and inline margin,
+     such that when we have a toggle with a label followed by another element
+     with this class, the other element's text aligns with the toggle label. */
+  margin-inline-start: 22px !important;
 }
 
 checkbox {
@@ -144,7 +147,6 @@ checkbox {
 .spotlight {
   background-color: color-mix(in srgb, var(--in-content-accent-color) 15%, transparent);
   outline: var(--in-content-accent-color) 1px dotted;
-  -moz-outline-radius: 2px;
   animation: fade-out 0.5s ease-out 2s forwards;
   /* Show the border to spotlight the components in high-contrast mode. */
   border: 1px solid transparent;
@@ -286,8 +288,17 @@ checkbox {
   font-size: 90%;
 }
 
+#FontsDialog menulist:empty {
+  /* When there's no menupopup, while the font builder is running,
+   * the height of the menulist would otherwise shrink. This throws
+   * off the height determination SubDialog.jsm does, which then
+   * leads to content being cut off. Fix by enforcing a minimum height
+   * when there's no content: */
+  min-height: max(32px, calc(1.4em + 16px));
+}
+
 #useDocumentColors {
-  margin: 0;
+  margin: 4px 0;
 }
 
 #translationAttributionImage {
@@ -427,10 +438,10 @@ checkbox {
   margin-inline-end: 0;
 }
 
-#homeContentsGroup checkbox[src] .checkbox-icon {
+#homeContentsGroup .checkbox-icon[src] {
   -moz-context-properties: fill;
   fill: currentColor;
-  margin-inline: 4px 8px;
+  margin-inline: 2px 8px;
   width: 16px;
 }
 
@@ -608,7 +619,7 @@ checkbox {
 }
 
 .dialogFrame {
-  margin: 20px;
+  margin: 10px;
   -moz-box-flex: 1;
   /* Default dialog dimensions */
   width: 66ch;
@@ -763,7 +774,7 @@ dialog > .sync-engines-list + hbox {
 
 .sync-engines-list checkbox .checkbox-icon,
 .sync-engine-image {
-  margin-inline: 4px 8px;
+  margin-inline: 2px 8px;
   width: 16px;
   height: 16px;
   -moz-context-properties: fill;
@@ -1145,6 +1156,8 @@ richlistitem .text-link:hover {
   padding-inline-start: 38px;
   display: flex;
   align-items: center;
+  -moz-context-properties: fill;
+  fill: #FFBF00;
 }
 
 #pane-experimental-search-results-header:-moz-locale-dir(rtl),

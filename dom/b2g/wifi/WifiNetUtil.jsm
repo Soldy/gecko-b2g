@@ -38,6 +38,10 @@ this.WifiNetUtil = function(controlMessage) {
   util.runDhcp = function(ifname, gen, callback) {
     util.stopDhcp(ifname, function() {
       gNetworkService.dhcpRequest(ifname, function(success, dhcpInfo) {
+        if (!success) {
+          callback({ info: null }, gen);
+          return;
+        }
         util.runIpConfig(ifname, dhcpInfo, function(data) {
           callback(data, gen);
         });

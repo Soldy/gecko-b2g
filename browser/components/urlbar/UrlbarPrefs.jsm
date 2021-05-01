@@ -165,6 +165,12 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // Whether results will include QuickSuggest suggestions.
   ["suggest.quicksuggest", true],
 
+  // Whether the user has seen the onboarding dialog.
+  ["quicksuggest.showedOnboardingDialog", false],
+
+  // Count the restarts before showing the onboarding dialog.
+  ["quicksuggest.seenRestarts", 0],
+
   // The index where we show QuickSuggest results, -1 means they
   // will be shown as the last result.
   ["quicksuggest.suggestedIndex", -1],
@@ -192,6 +198,12 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // If true, top sites may include sponsored ones.
   ["sponsoredTopSites", false],
 
+  // Whether unit conversion is enabled.
+  ["unitConversion.enabled", false],
+
+  // The index where we show unit conversion results.
+  ["unitConversion.suggestedIndex", 1],
+
   // Results will include a built-in set of popular domains when this is true.
   ["usepreloadedtopurls.enabled", false],
 
@@ -207,11 +219,6 @@ const PREF_URLBAR_DEFAULTS = new Map([
 ]);
 const PREF_OTHER_DEFAULTS = new Map([
   ["browser.fixup.dns_first_for_single_words", false],
-  // The Proton pref is here so it can follow a browser.proton.* structure like
-  // the other Proton subprefs, rather than a browser.urlbar.* structure.
-  // Once the address bar changes are stable, this pref will be replaed by the
-  // global Proton pref, browser.proton.enabled.
-  ["browser.proton.urlbar.enabled", false],
   ["browser.search.suggest.enabled", true],
   ["browser.search.suggest.enabled.private", false],
   ["keyword.enabled", true],

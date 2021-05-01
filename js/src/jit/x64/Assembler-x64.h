@@ -103,9 +103,9 @@ static constexpr FloatRegister ReturnDoubleReg =
     FloatRegister(X86Encoding::xmm0, FloatRegisters::Double);
 static constexpr FloatRegister ReturnSimd128Reg =
     FloatRegister(X86Encoding::xmm0, FloatRegisters::Simd128);
-static constexpr FloatRegister ScratchFloat32Reg =
+static constexpr FloatRegister ScratchFloat32Reg_ =
     FloatRegister(X86Encoding::xmm15, FloatRegisters::Single);
-static constexpr FloatRegister ScratchDoubleReg =
+static constexpr FloatRegister ScratchDoubleReg_ =
     FloatRegister(X86Encoding::xmm15, FloatRegisters::Double);
 static constexpr FloatRegister ScratchSimd128Reg =
     FloatRegister(X86Encoding::xmm15, FloatRegisters::Simd128);
@@ -270,10 +270,10 @@ static_assert(JitStackAlignment % SimdMemoryAlignment == 0,
 static constexpr uint32_t WasmStackAlignment = SimdMemoryAlignment;
 static constexpr uint32_t WasmTrapInstructionLength = 2;
 
-// The offsets are dynamically asserted during
-// code generation in the prologue/epilogue.
+// See comments in wasm::GenerateFunctionPrologue.  The difference between these
+// is the size of the largest callable prologue on the platform.
 static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
-static constexpr uint32_t WasmCheckedTailEntryOffset = 16u;
+static constexpr uint32_t WasmCheckedTailEntryOffset = 4u;
 
 static constexpr Scale ScalePointer = TimesEight;
 

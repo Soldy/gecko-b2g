@@ -19,12 +19,13 @@ const { OS } = ChromeUtils.import("resource://gre/modules/osfile.jsm");
  * shell.js
  */
 
+const DEBUG = Services.prefs.getBoolPref("dom.downloads.debug", false);
 function debug(aStr) {
   dump("-*- DownloadService.jsm : " + aStr + "\n");
 }
 
 function sendPromiseMessage(aMm, aMessageName, aData, aError) {
-  debug("sendPromiseMessage " + aMessageName);
+  DEBUG && debug("sendPromiseMessage " + aMessageName);
   let msg = {
     id: aData.id,
     promiseId: aData.promiseId,
@@ -39,7 +40,7 @@ function sendPromiseMessage(aMm, aMessageName, aData, aError) {
 
 var DownloadService = {
   init() {
-    debug("init");
+    DEBUG && debug("init");
 
     this._ids = new WeakMap(); // Maps toolkit download objects to ids.
     this._index = {}; // Maps ids to downloads.
@@ -67,17 +68,18 @@ var DownloadService = {
       let downloads = await list.getAll();
       downloads.forEach(aDownload => {
         if (!aDownload.succeeded && !aDownload.canceled && !aDownload.error) {
-          debug(
-            `cancel download on init ${JSON.stringify(
-              self.jsonDownload(aDownload)
-            )}`
-          );
+          DEBUG &&
+            debug(
+              `cancel download on init ${JSON.stringify(
+                self.jsonDownload(aDownload)
+              )}`
+            );
           aDownload.cancel();
         }
       });
 
       await list.addView(self);
-      debug("view added to download list.");
+      DEBUG && debug("view added to download list.");
     })().then(null, Cu.reportError);
 
     this._currentId = 0;
@@ -161,12 +163,14 @@ var DownloadService = {
 
   onDownloadChanged(aDownload) {
     let download = this.jsonDownload(aDownload);
-    debug("onDownloadChanged " + uneval(download));
+    if (DEBUG || download.state !== "downloading") {
+      debug("onDownloadChanged " + uneval(download));
+    }
     Services.ppmm.broadcastAsyncMessage("Downloads:Changed", download);
   },
 
   receiveMessage(aMessage) {
-    debug("message: " + aMessage.name);
+    DEBUG && debug("message: " + aMessage.name);
 
     switch (aMessage.name) {
       case "Downloads:GetList":
@@ -188,12 +192,12 @@ var DownloadService = {
         this.adoptDownload(aMessage.data, aMessage.target);
         break;
       default:
-        debug("Invalid message: " + aMessage.name);
+        DEBUG && debug("Invalid message: " + aMessage.name);
     }
   },
 
   getList(aData, aMm) {
-    debug("getList called!");
+    DEBUG && debug("getList");
     let self = this;
     (async function() {
       let list = await Downloads.getList(Downloads.ALL);
@@ -207,7 +211,7 @@ var DownloadService = {
   },
 
   clearAllDone(aData, aMm) {
-    debug("clearAllDone called!");
+    debug("clearAllDone");
     (async function() {
       let list = await Downloads.getList(Downloads.ALL);
       list.removeFinished();
@@ -215,7 +219,7 @@ var DownloadService = {
   },
 
   remove(aData, aMm) {
-    debug("remove id " + aData.id);
+    DEBUG && debug("remove id " + aData.id);
     let download = this.getDownloadById(aData.id);
     if (!download) {
       sendPromiseMessage(
@@ -302,10 +306,11 @@ var DownloadService = {
    * our "jsonDownload" normalizer and add it to the list of downloads.
    */
   adoptDownload(aData, aMm) {
-    let adoptJsonRep = aData.jsonDownload;
-    debug("adoptDownload " + uneval(adoptJsonRep));
-
     (async function() {
+      let adoptJsonRep = aData.jsonDownload;
+      debug("adoptDownload " + adoptJsonRep?.path + " " + adoptJsonRep?.url);
+      DEBUG && debug(uneval(adoptJsonRep));
+
       // Verify that the file exists on disk.  This will result in a rejection
       // if the file does not exist.  We will also use this information for the
       // file size to avoid weird inconsistencies.  We ignore the filesystem
@@ -353,7 +358,7 @@ var DownloadService = {
       // subscribed to the PUBLIC list and will save the download.
       await allDownloadList.add(download);
 
-      debug("download adopted");
+      DEBUG && debug("download adopted");
       // The notification above occurred synchronously, and so we will have
       // already dispatched an added notification for our download to the child
       // process in question.  As such, we only need to relay the download id

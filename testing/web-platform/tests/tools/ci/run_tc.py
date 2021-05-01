@@ -139,9 +139,9 @@ def install_certificates():
 def install_chrome(channel):
     deb_prefix = "https://dl.google.com/linux/direct/"
     if channel in ("experimental", "dev"):
-        # Pinned since 91.0.4455.2-1 began crashing on startup.
+        # Pinned since 92.0.4484.7 began crashing on startup.
         # See https://github.com/web-platform-tests/wpt/issues/28209.
-        deb_archive = "google-chrome-unstable_91.0.4449.6-1_amd64.deb"
+        deb_archive = "google-chrome-unstable_91.0.4472.19-1_amd64.deb"
         deb_prefix = "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-unstable/"
     elif channel == "beta":
         deb_archive = "google-chrome-beta_current_amd64.deb"

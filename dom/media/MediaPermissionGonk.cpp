@@ -34,8 +34,6 @@
 constexpr auto kAUDIO_PERMISSION_NAME = "audio-capture"_ns;
 constexpr auto kVIDEO_PERMISSION_NAME = "video-capture"_ns;
 
-using namespace mozilla::dom;
-
 namespace mozilla {
 
 /* static */
@@ -108,15 +106,15 @@ namespace {
  * MediaPermissionRequest will send a prompt ipdl request to b2g process
  * according to its owned type.
  */
-class MediaPermissionRequest : public nsIContentPermissionRequest {
+class MediaPermissionRequest : public dom::ContentPermissionRequestBase {
  public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSICONTENTPERMISSIONREQUEST
-
-  MediaPermissionRequest(RefPtr<dom::GetUserMediaRequest>& aRequest,
+  MediaPermissionRequest(nsPIDOMWindowInner* aWindow,
+                         dom::GetUserMediaRequest* aRequest,
                          nsTArray<nsCOMPtr<nsIMediaDevice>>& aDevices);
 
-  already_AddRefed<nsPIDOMWindowInner> GetOwner();
+  NS_IMETHOD GetTypes(nsIArray** aTypes) override;
+  NS_IMETHOD Cancel() override;
+  NS_IMETHOD Allow(JS::HandleValue choices) override;
 
  protected:
   virtual ~MediaPermissionRequest() {}
@@ -131,13 +129,12 @@ class MediaPermissionRequest : public nsIContentPermissionRequest {
   nsTArray<nsCOMPtr<nsIMediaDevice>> mVideoDevices;  // candidate video devices
 };
 
-// MediaPermissionRequest
-NS_IMPL_ISUPPORTS(MediaPermissionRequest, nsIContentPermissionRequest)
-
 MediaPermissionRequest::MediaPermissionRequest(
-    RefPtr<dom::GetUserMediaRequest>& aRequest,
+    nsPIDOMWindowInner* aWindow, dom::GetUserMediaRequest* aRequest,
     nsTArray<nsCOMPtr<nsIMediaDevice>>& aDevices)
-    : mRequest(aRequest) {
+    : dom::ContentPermissionRequestBase(aWindow->GetDoc()->NodePrincipal(),
+                                        aWindow, ""_ns, "getusermedia"_ns),
+      mRequest(aRequest) {
   dom::MediaStreamConstraints constraints;
   mRequest->GetConstraints(constraints);
 
@@ -155,8 +152,6 @@ MediaPermissionRequest::MediaPermissionRequest(
       mVideoDevices.AppendElement(device);
     }
   }
-
-  nsCOMPtr<nsPIDOMWindowInner> window = GetOwner();
 }
 
 // nsIContentPermissionRequest methods
@@ -167,77 +162,19 @@ MediaPermissionRequest::GetTypes(nsIArray** aTypes) {
   if (mAudio) {
     nsTArray<nsString> audioDeviceNames;
     CreateDeviceNameList(mAudioDevices, audioDeviceNames);
-    nsCOMPtr<nsISupports> AudioType =
-        new ContentPermissionType(kAUDIO_PERMISSION_NAME, audioDeviceNames);
+    nsCOMPtr<nsISupports> AudioType = new dom::ContentPermissionType(
+        kAUDIO_PERMISSION_NAME, audioDeviceNames);
     types->AppendElement(AudioType);
   }
   if (mVideo) {
     nsTArray<nsString> videoDeviceNames;
     CreateDeviceNameList(mVideoDevices, videoDeviceNames);
-    nsCOMPtr<nsISupports> VideoType =
-        new ContentPermissionType(kVIDEO_PERMISSION_NAME, videoDeviceNames);
+    nsCOMPtr<nsISupports> VideoType = new dom::ContentPermissionType(
+        kVIDEO_PERMISSION_NAME, videoDeviceNames);
     types->AppendElement(VideoType);
   }
   NS_IF_ADDREF(*aTypes = types);
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetPrincipal(nsIPrincipal** aRequestingPrincipal) {
-  NS_ENSURE_ARG_POINTER(aRequestingPrincipal);
-
-  nsCOMPtr<nsPIDOMWindowInner> window =
-      nsGlobalWindowInner::GetInnerWindowWithId(mRequest->InnerWindowID());
-  NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
-
-  nsCOMPtr<Document> doc = window->GetExtantDoc();
-  NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
-
-  NS_ADDREF(*aRequestingPrincipal = doc->NodePrincipal());
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetWindow(mozIDOMWindow** aRequestingWindow) {
-  NS_ENSURE_ARG_POINTER(aRequestingWindow);
-  nsCOMPtr<nsPIDOMWindowInner> window =
-      nsGlobalWindowInner::GetInnerWindowWithId(mRequest->InnerWindowID());
-  window.forget(aRequestingWindow);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetElement(dom::Element** aRequestingElement) {
-  NS_ENSURE_ARG_POINTER(aRequestingElement);
-  *aRequestingElement = nullptr;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetTopLevelPrincipal(
-    nsIPrincipal** aTopLevelPrincipal) {
-  // FIXME
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetIsHandlingUserInput(bool* aIsHandlingUserInput) {
-  // FIXME
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetMaybeUnsafePermissionDelegate(
-    bool* aMaybeUnsafePermissionDelegate) {
-  // FIXME
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-MediaPermissionRequest::GetDelegatePrincipal(const nsACString& aType,
-                                             nsIPrincipal** _retval) {
-  // FIXME
   return NS_OK;
 }
 
@@ -257,7 +194,7 @@ MediaPermissionRequest::Allow(JS::HandleValue aChoices) {
     return NS_ERROR_INVALID_ARG;
   }
   // iterate through audio-capture and video-capture
-  AutoJSAPI jsapi;
+  dom::AutoJSAPI jsapi;
   if (!jsapi.Init(&aChoices.toObject())) {
     return NS_ERROR_UNEXPECTED;
   }
@@ -318,12 +255,6 @@ nsresult MediaPermissionRequest::DoAllow(const nsString& audioDevice,
   nsString callID;
   mRequest->GetCallID(callID);
   return AllowGetUserMediaRequest(callID, selectedDevices);
-}
-
-already_AddRefed<nsPIDOMWindowInner> MediaPermissionRequest::GetOwner() {
-  nsCOMPtr<nsPIDOMWindowInner> window =
-      nsGlobalWindowInner::GetInnerWindowWithId(mRequest->InnerWindowID());
-  return window.forget();
 }
 
 }  // namespace
@@ -416,10 +347,8 @@ nsresult MediaPermissionManager::HandleRequest(
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Trigger permission prompt UI
-  RefPtr<MediaPermissionRequest> req =
-      new MediaPermissionRequest(aRequest, devices);
-  nsCOMPtr<nsPIDOMWindowInner> window(req->GetOwner());
-  return dom::nsContentPermissionUtils::AskPermission(req, window);
+  auto req = MakeRefPtr<MediaPermissionRequest>(innerWindow, aRequest, devices);
+  return dom::nsContentPermissionUtils::AskPermission(req, innerWindow);
 }
 
 }  // namespace mozilla

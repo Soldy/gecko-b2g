@@ -86,6 +86,8 @@ CommonDialog.prototype = {
         this.initTextbox("login", this.args.value);
         // Clear the label, since this isn't really a username prompt.
         this.ui.loginLabel.setAttribute("value", "");
+        // Ensure the labeling for the prompt is correct.
+        this.ui.loginTextbox.setAttribute("aria-labelledby", "infoBody");
         break;
       case "promptUserAndPass":
         this.numButtons = 2;
@@ -308,7 +310,10 @@ CommonDialog.prototype = {
 
     if (!this.hasInputField) {
       let isOSX = "nsILocalFileMac" in Ci;
-      if (isOSX) {
+      // If the infoRow exists and is is hidden, then the infoBody is also hidden,
+      // which means it can't be focused. At that point, we fall back to focusing
+      // the default button, regardless of platform.
+      if (isOSX && !(this.ui.infoRow && this.ui.infoRow.hidden)) {
         this.ui.infoBody.focus();
       } else {
         button.focus({ preventFocusRing: true });

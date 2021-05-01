@@ -29,20 +29,21 @@ using namespace layers;
 namespace wr {
 
 UniquePtr<RenderCompositor> RenderCompositorLayersSWGL::Create(
-    RefPtr<widget::CompositorWidget>&& aWidget, nsACString& aError) {
+    const RefPtr<widget::CompositorWidget>& aWidget, nsACString& aError) {
 #ifdef XP_WIN
-  return RenderCompositorD3D11SWGL::Create(std::move(aWidget), aError);
+  return RenderCompositorD3D11SWGL::Create(aWidget, aError);
 #else
-  return RenderCompositorOGLSWGL::Create(std::move(aWidget), aError);
+  return RenderCompositorOGLSWGL::Create(aWidget, aError);
 #endif
 }
 
 RenderCompositorLayersSWGL::RenderCompositorLayersSWGL(
-    Compositor* aCompositor, RefPtr<widget::CompositorWidget>&& aWidget,
+    Compositor* aCompositor, const RefPtr<widget::CompositorWidget>& aWidget,
     void* aContext)
-    : RenderCompositor(std::move(aWidget)),
+    : RenderCompositor(aWidget),
       mCompositor(aCompositor),
-      mContext(aContext) {
+      mContext(aContext),
+      mCurrentTileId(wr::NativeTileId()) {
   MOZ_ASSERT(mCompositor);
   MOZ_ASSERT(mContext);
 }
@@ -75,21 +76,23 @@ void RenderCompositorLayersSWGL::CancelFrame() {
 void RenderCompositorLayersSWGL::StartCompositing(
     const wr::DeviceIntRect* aDirtyRects, size_t aNumDirtyRects,
     const wr::DeviceIntRect* aOpaqueRects, size_t aNumOpaqueRects) {
-  if (!mInFrame) {
+  MOZ_RELEASE_ASSERT(!mCompositingStarted);
+
+  if (!mInFrame || aNumDirtyRects == 0) {
     return;
   }
+
   gfx::IntRect bounds(gfx::IntPoint(0, 0), GetBufferSize().ToUnknownSize());
   nsIntRegion dirty;
-  if (aNumDirtyRects) {
-    for (size_t i = 0; i < aNumDirtyRects; i++) {
-      const auto& rect = aDirtyRects[i];
-      dirty.OrWith(gfx::IntRect(rect.origin.x, rect.origin.y, rect.size.width,
-                                rect.size.height));
-    }
-    dirty.AndWith(bounds);
-  } else {
-    dirty = bounds;
+
+  MOZ_RELEASE_ASSERT(aNumDirtyRects > 0);
+  for (size_t i = 0; i < aNumDirtyRects; i++) {
+    const auto& rect = aDirtyRects[i];
+    dirty.OrWith(gfx::IntRect(rect.origin.x, rect.origin.y, rect.size.width,
+                              rect.size.height));
   }
+  dirty.AndWith(bounds);
+
   nsIntRegion opaque(bounds);
   opaque.SubOut(mWidget->GetTransparentRegion().ToUnknownRegion());
   for (size_t i = 0; i < aNumOpaqueRects; i++) {

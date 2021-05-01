@@ -83,7 +83,10 @@ Voicemail::Voicemail(nsIGlobalObject* aGlobal, nsIVoicemailService* aService)
   }
 }
 
-Voicemail::~Voicemail() { MOZ_ASSERT(!mService && !mListener); }
+Voicemail::~Voicemail() {
+  Shutdown();
+  MOZ_ASSERT(!mService && !mListener);
+}
 
 void Voicemail::Shutdown() {
   mListener->Disconnect();

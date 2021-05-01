@@ -28,7 +28,7 @@ AudioChannelManager::AudioChannelManager() : mVolumeChannel(-1) {
   hal::RegisterSwitchObserver(hal::SWITCH_HEADPHONES, this);
 }
 
-AudioChannelManager::~AudioChannelManager() {
+void AudioChannelManager::Shutdown() {
   hal::UnregisterSwitchObserver(hal::SWITCH_HEADPHONES, this);
 
   nsCOMPtr<EventTarget> target = do_QueryInterface(GetOwner());

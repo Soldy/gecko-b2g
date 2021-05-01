@@ -123,34 +123,51 @@ add_task(async () => {
       // 3. Content area (#tabbrowser-tabpanels)
       // 4. Some fullscreen pointer grabber (#fullscreen-and-pointerlock-wrapper)
       // 5. Accessibility announcements dialog (#a11y-announcement)
-      // 6. Tab notification deck (#tab-notification-deck) (proton only)
-      let baseRootChildCount = Services.prefs.getBoolPref(
-        "browser.proton.infobars.enabled",
-        false
-      )
-        ? 6
-        : 5;
+      let baseRootChildCount = 5;
       is(
         rootChildCount(),
         baseRootChildCount,
-        "Root with no popups has 6 children"
+        "Root with no popups has 5 children"
       );
 
       // Open a context menu
       const menu = document.getElementById("contentAreaContextMenu");
-      EventUtils.synthesizeMouseAtCenter(document.body, {
-        type: "contextmenu",
-      });
-      await waitForMacEvent("AXMenuOpened");
+      if (
+        Services.prefs.getBoolPref("widget.macos.native-context-menus", false)
+      ) {
+        // Native context menu - do not expect accessibility notifications.
+        let popupshown = BrowserTestUtils.waitForPopupEvent(menu, "shown");
+        EventUtils.synthesizeMouseAtCenter(document.body, {
+          type: "contextmenu",
+        });
+        await popupshown;
 
-      // Now root has 1 more child
-      is(rootChildCount(), baseRootChildCount + 1, "Root has 1 more child");
+        is(
+          rootChildCount(),
+          baseRootChildCount,
+          "Native context menus do not show up in the root children"
+        );
 
-      // Close context menu
-      let closed = waitForMacEvent("AXMenuClosed", "contentAreaContextMenu");
-      EventUtils.synthesizeKey("KEY_Escape");
-      await BrowserTestUtils.waitForPopupEvent(menu, "hidden");
-      await closed;
+        // Close context menu
+        let popuphidden = BrowserTestUtils.waitForPopupEvent(menu, "hidden");
+        menu.hidePopup();
+        await popuphidden;
+      } else {
+        // Non-native menu
+        EventUtils.synthesizeMouseAtCenter(document.body, {
+          type: "contextmenu",
+        });
+        await waitForMacEvent("AXMenuOpened");
+
+        // Now root has 1 more child
+        is(rootChildCount(), baseRootChildCount + 1, "Root has 1 more child");
+
+        // Close context menu
+        let closed = waitForMacEvent("AXMenuClosed", "contentAreaContextMenu");
+        EventUtils.synthesizeKey("KEY_Escape");
+        await BrowserTestUtils.waitForPopupEvent(menu, "hidden");
+        await closed;
+      }
 
       // We're back to base child count
       is(rootChildCount(), baseRootChildCount, "Root has original child count");
@@ -197,6 +214,11 @@ add_task(async () => {
  * Test context menu
  */
 add_task(async () => {
+  if (Services.prefs.getBoolPref("widget.macos.native-context-menus", false)) {
+    ok(true, "We cannot inspect native context menu contents; skip this test.");
+    return;
+  }
+
   await BrowserTestUtils.withNewTab(
     {
       gBrowser,

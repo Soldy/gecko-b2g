@@ -127,6 +127,7 @@
   MACRO_(dotThis, dotThis, ".this")                                            \
   MACRO_(dotInitializers, dotInitializers, ".initializers")                    \
   MACRO_(dotFieldKeys, dotFieldKeys, ".fieldKeys")                             \
+  MACRO_(dotPrivateBrand, dotPrivateBrand, ".privateBrand")                    \
   MACRO_(dotStaticInitializers, dotStaticInitializers, ".staticInitializers")  \
   MACRO_(dotStaticFieldKeys, dotStaticFieldKeys, ".staticFieldKeys")           \
   MACRO_(each, each, "each")                                                   \
@@ -411,6 +412,8 @@
   MACRO_(setBigInt64, setBigInt64, "setBigInt64")                              \
   MACRO_(setBigUint64, setBigUint64, "setBigUint64")                           \
   MACRO_(SetConstructorInit, SetConstructorInit, "SetConstructorInit")         \
+  MACRO_(SetIsInlinableLargeFunction, SetIsInlinableLargeFunction,             \
+         "_SetIsInlinableLargeFunction")                                       \
   MACRO_(SetIterator, SetIterator, "Set Iterator")                             \
   MACRO_(setPrototypeOf, setPrototypeOf, "setPrototypeOf")                     \
   MACRO_(shape, shape, "shape")                                                \

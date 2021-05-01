@@ -46,7 +46,7 @@ class IccManager final : public DOMEventTargetHelper {
                                JS::Handle<JSObject*> aGivenProto) override;
 
  private:
-  ~IccManager();
+  ~IccManager() = default;
 
  private:
   nsTArray<RefPtr<IccListener>> mIccListeners;

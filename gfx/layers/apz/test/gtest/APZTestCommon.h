@@ -292,6 +292,11 @@ class TestAsyncPanZoomController : public AsyncPanZoomController {
     Metrics() = metrics;
   }
 
+  void SetScrollMetadata(const ScrollMetadata& aMetadata) {
+    RecursiveMutexAutoLock lock(mRecursiveMutex);
+    mScrollMetadata = aMetadata;
+  }
+
   FrameMetrics& GetFrameMetrics() {
     RecursiveMutexAutoLock lock(mRecursiveMutex);
     return mScrollMetadata.GetMetrics();
@@ -307,6 +312,7 @@ class TestAsyncPanZoomController : public AsyncPanZoomController {
     return mScrollMetadata.GetMetrics();
   }
 
+  using AsyncPanZoomController::GetOverscrollAmount;
   using AsyncPanZoomController::GetVelocityVector;
 
   void AssertStateIsReset() const {

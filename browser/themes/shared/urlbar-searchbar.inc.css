@@ -12,7 +12,7 @@
   --toolbar-field-border-color: hsla(240,5%,5%,.25);
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 :root {
   --toolbar-field-focus-border-color: -moz-accent-color;
   /* px because it's used in calc */
@@ -20,7 +20,7 @@
 }
 } /*** END !proton ***/
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 :root {
   --toolbar-field-focus-border-color: var(--focus-outline-color);
   --urlbar-container-padding: 1px;
@@ -50,7 +50,7 @@
 #searchbar {
   min-height: var(--urlbar-min-height);
   text-shadow: none;
-  color: FieldText;
+  color: var(--toolbar-field-non-lwt-color, FieldText);
 }
 
 @media not (-moz-proton) {
@@ -68,20 +68,20 @@
   border-radius: var(--toolbarbutton-border-radius);
 }
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #urlbar-background,
 #searchbar {
   border-color: transparent;
   background-clip: border-box;
 }
 
-#urlbar:not([focused="true"]) > #urlbar-background,
+#urlbar:not([focused="true"], [open]) > #urlbar-background,
 #searchbar:not(:focus-within) {
   background-color: var(--toolbar-field-non-lwt-bgcolor, Field);
 }
 } /*** END proton ***/
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar-background,
 #searchbar {
   box-shadow: 0 1px 4px rgba(0,0,0,.05);
@@ -106,7 +106,7 @@
   outline: none;
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar:not([focused="true"]):hover > #urlbar-background,
 #searchbar:not(:focus-within):hover {
   border-color: @fieldHoverBorderColor@;
@@ -119,7 +119,7 @@
 }
 } /*** END !proton ***/
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #urlbar[focused="true"]:not([suppress-focus-border]) > #urlbar-background {
   border: var(--focus-outline);
   /* We used --focus-outline above to inherit its width and style properties,
@@ -130,10 +130,10 @@
 }
 
 #urlbar[focused="true"] > #urlbar-background {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.13);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.23);
 }
 
-#urlbar[focused="true"][open] > #urlbar-background {
+#urlbar[open] > #urlbar-background {
   border-color: var(--arrowpanel-border-color);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.13);
 }
@@ -146,45 +146,51 @@
    positioned absolutely. We don't plan on changing the searchbar's UX
    significantly, so it's better to avoid that extra complexity. */
 #searchbar:focus-within {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.13),
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.23),
               0 0 0 1px var(--toolbar-field-focus-border-color) inset;
   border-color: var(--toolbar-field-focus-border-color);
 }
 } /*** END proton ***/
 
 #urlbar:-moz-lwtheme,
-#navigator-toolbox #searchbar:-moz-lwtheme {
+#searchbar:-moz-lwtheme {
   color: var(--lwt-toolbar-field-color, black);
 }
 
 #urlbar:-moz-lwtheme > #urlbar-background,
-#navigator-toolbox #searchbar:-moz-lwtheme {
+#searchbar:-moz-lwtheme {
   background-color: var(--lwt-toolbar-field-background-color, hsla(0,0%,100%,.8));
 }
 
-#urlbar:not([focused="true"]):-moz-lwtheme > #urlbar-background,
-#navigator-toolbox #searchbar:not(:focus-within):-moz-lwtheme {
+#urlbar:not([focused="true"], [open]):-moz-lwtheme > #urlbar-background,
+#searchbar:not(:focus-within):-moz-lwtheme {
   border-color: var(--lwt-toolbar-field-border-color, var(--toolbar-field-border-color));
 }
 
-#urlbar:not([focused="true"]):-moz-lwtheme:hover > #urlbar-background,
-#navigator-toolbox #searchbar:not(:focus-within):-moz-lwtheme:hover {
+#urlbar:not([focused="true"], [open]):-moz-lwtheme:hover > #urlbar-background,
+#searchbar:not(:focus-within):-moz-lwtheme:hover {
   border-color: var(--lwt-toolbar-field-border-color, @fieldHoverBorderColor@);
 }
 
 #urlbar:-moz-lwtheme:hover > #urlbar-background,
-#navigator-toolbox #searchbar:-moz-lwtheme:hover {
+#searchbar:-moz-lwtheme:hover {
   background-color: var(--lwt-toolbar-field-background-color, white);
 }
 
-#urlbar[focused="true"]:-moz-lwtheme,
-#navigator-toolbox #searchbar:focus-within:-moz-lwtheme {
+#urlbar:is([focused="true"], [open]):-moz-lwtheme,
+#searchbar:focus-within:-moz-lwtheme {
   color: var(--lwt-toolbar-field-focus-color);
 }
 
-#urlbar[focused="true"]:-moz-lwtheme > #urlbar-background,
-#navigator-toolbox #searchbar:focus-within:-moz-lwtheme {
+#urlbar:is([focused="true"], [open]):-moz-lwtheme > #urlbar-background,
+#searchbar:focus-within:-moz-lwtheme {
   background-color: var(--lwt-toolbar-field-focus);
+}
+
+#TabsToolbar #searchbar:not(:focus-within) {
+  /* The tabs toolbar is usually a different color than the other toolbars, and
+     we can't predict it, to avoid a transparent field we enforce a border. */
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 :root[lwt-selection] #urlbar-input:-moz-lwtheme::selection,
@@ -203,7 +209,7 @@
   background-repeat: no-repeat;
   background-position: center;
   -moz-context-properties: fill, fill-opacity;
-  fill: var(--lwt-toolbarbutton-icon-fill, var(--toolbar-color));
+  fill: var(--toolbarbutton-icon-fill);
   fill-opacity: var(--toolbarbutton-icon-fill-opacity);
 }
 
@@ -278,7 +284,7 @@
   width: calc(100% + 2 * @urlbarMarginInline@ + 2 * @urlbarBreakoutExtend@);
 }
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #urlbar[breakout][breakout-extend] {
   top: 0;
   left: -@urlbarMarginInline@;
@@ -286,7 +292,7 @@
 }
 } /*** END proton ***/
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar[breakout][breakout-extend] > #urlbar-background {
   box-shadow: 0 3px 8px 0 rgba(0,0,0,.15)
 }
@@ -302,7 +308,7 @@
   padding-inline: calc(@urlbarMarginInline@ + @urlbarBreakoutExtend@);
 }
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #urlbar[breakout][breakout-extend] > #urlbar-input-container {
   height: var(--urlbar-toolbar-height);
   padding-block: calc((var(--urlbar-toolbar-height) - var(--urlbar-height)) / 2 + var(--urlbar-container-padding));
@@ -366,18 +372,16 @@
   background-color: var(--urlbar-box-bgcolor);
   margin-inline-end: 8px;
   align-items: center;
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-icon-border-radius);
   padding-inline: 8px 3px;
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar-search-mode-indicator {
-  -moz-outline-radius: 2px;
   min-width: 16px; /* So the close button never causes motion */
   background-color: #d6ebff;
   outline: 1px solid #0060df; /* Blue 60 */
   color: #0060df; /* Blue 60 */
-  border-radius: 0;
   padding-inline: 0;
 }
 
@@ -389,9 +393,21 @@
 }
 } /*** END !proton ***/
 
+@media (-moz-proton) {
+#urlbar[searchmode] > #urlbar-input-container > #urlbar-search-mode-indicator {
+  display: inline-flex;
+}
+
+#urlbar[searchmode] > #urlbar-input-container > #urlbar-label-box {
+  display: none;
+}
+} /*** END proton ***/
+
+@media not (-moz-proton) {
 #urlbar[searchmode][breakout-extend] > #urlbar-input-container > #urlbar-search-mode-indicator {
   display: inline-flex;
 }
+} /*** END !proton ***/
 
 /* Use system colors for low/high contrast mode */
 @media (prefers-contrast) {
@@ -406,7 +422,7 @@
   padding-inline: 0 4px;
   opacity: var(--identity-box-label-opacity);
 }
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar-search-mode-indicator-title {
   padding-inline: 5px;
   opacity: 1;
@@ -424,10 +440,10 @@
   fill: var(--lwt-toolbar-field-focus-color);
 }
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #urlbar-search-mode-indicator-close {
   height: 16px;
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-icon-border-radius);
 }
 #urlbar-search-mode-indicator-close:hover {
   background-color: hsla(0,0%,70%,.2);
@@ -444,14 +460,14 @@
     fill: FieldText;
     fill-opacity: 1.0;
   }
-  @media (-moz-proton-urlbar) {
+  @media (-moz-proton) {
   #urlbar-search-mode-indicator-close {
     fill: HighlightText;
   }
   } /*** END proton ***/
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar-search-mode-indicator-close {
   display: none;
   margin-inline-start: -16px;
@@ -565,21 +581,37 @@
 
 /* URL bar and page action buttons */
 
-@media (-moz-proton-urlbar) {
+@media (-moz-proton) {
 #pageActionSeparator {
   /* Just remove this element once Proton is released */
   display: none;
 }
+
+/* The background can be very dark and if the add-on uses a black-ish svg it
+   will be barely visible. In the future we should have a standardized SVG
+   solution we can apply to add-on icons, for now we can only try to make them
+   visible through some filtering tricks */
+:root[lwt-toolbar-field-brighttext] #urlbar:not([focused="true"]) .urlbar-addon-page-action[style*=".svg"],
+:root[lwt-toolbar-field-focus-brighttext] #urlbar[focused="true"] .urlbar-addon-page-action[style*=".svg"] {
+  filter: grayscale(100%) brightness(20%) invert();
+}
+
+@media (prefers-color-scheme: dark) {
+  /* As above, but for the default theme in dark mode, which suffers from the same issue */
+  :root:not(:-moz-lwtheme) .urlbar-addon-page-action[style*=".svg"] {
+    filter: grayscale(100%) brightness(20%) invert();
+  }
+}
 } /*** END proton ***/
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #pageActionSeparator {
   /* This draws the separator the same way that #urlbar-label-box draws its
      left and right borders, which end up looking like separators.  It might not
      be the best way in this case, but it makes sure that all these vertical
      lines in the urlbar look the same: same height, vertical position, etc. */
-  border-inline-start: 1px solid var(--urlbar-separator-color);
-  border-image: linear-gradient(transparent 15%, var(--urlbar-separator-color) 15%, var(--urlbar-separator-color) 85%, transparent 85%);
+  border-inline-start: 1px solid var(--autocomplete-popup-separator-color);
+  border-image: linear-gradient(transparent 15%, var(--autocomplete-popup-separator-color) 15%, var(--autocomplete-popup-separator-color) 85%, transparent 85%);
   border-image-slice: 1;
   width: 1px;
   visibility: hidden;
@@ -604,35 +636,30 @@
   padding: var(--urlbar-icon-padding);
   -moz-context-properties: fill, fill-opacity;
   fill: currentColor;
-  fill-opacity: 0.6;
+  fill-opacity: var(--urlbar-icon-fill-opacity);
   color: inherit;
 }
 
 .urlbar-icon,
 .urlbar-icon-wrapper {
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-icon-border-radius);
 }
 
 :root[uidensity=compact] .urlbar-icon {
   margin-inline: 1px;
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 .urlbar-icon {
   width: calc(var(--urlbar-min-height) - 2px);
   height: calc(var(--urlbar-min-height) - 2px);
   margin-inline: 0;
 }
 
-.urlbar-icon,
-.urlbar-icon-wrapper {
-  border-radius: 0;
-}
-} /*** END !proton ***/
-
 .urlbar-page-action[disabled] {
   fill-opacity: 0.3;
 }
+} /*** END !proton ***/
 
 :not(.urlbar-icon-wrapper) > .urlbar-icon:not([disabled]):hover,
 .urlbar-icon-wrapper:not([disabled]):hover {
@@ -650,7 +677,6 @@
 .urlbar-icon-wrapper:-moz-focusring {
   outline: var(--toolbarbutton-focus-outline);
   outline-offset: -2px;
-  -moz-outline-radius: var(--toolbarbutton-border-radius);
 }
 
 #urlbar-go-button,
@@ -667,77 +693,6 @@
 .share-more-button {
   list-style-image: url("chrome://global/skin/icons/more.svg");
 }
-
-@media (prefers-reduced-motion: no-preference) {
-  @keyframes bookmark-animation {
-    from {
-      transform: translateX(0);
-    }
-    to {
-      transform: translateX(-627px);
-    }
-  }
-
-  #star-button-box {
-    position: relative;
-  }
-
-  /* Preload the bookmark animations to prevent a flicker during the first playing
-     of the animations. */
-  #star-button[preloadanimations] + #star-button-animatable-box > #star-button-animatable-image {
-    background-image: url("chrome://browser/skin/bookmark-animation.svg"),
-                      url("chrome://browser/skin/library-bookmark-animation.svg");
-    background-size: 0, 0;
-  }
-
-  #star-button[starred][animate] {
-    fill: transparent;
-    position: relative;
-  }
-
-  #star-button[starred][animate] + #star-button-animatable-box {
-    display: block;
-    position: absolute;
-    overflow: hidden;
-    top: calc(50% - 16.5px); /* 16.5px is half the height of the sprite */
-    /* .urlbar-icon has width 28px. Each frame is 33px wide. Set margin-inline-start
-       to be half the difference, -2.5px. */
-    margin-inline-start: -2.5px;
-    width: 33px; /* Width of each frame within the SVG sprite */
-    height: 33px; /* Height of each frame within the SVG sprite */
-  }
-
-  :root[uidensity=compact] #star-button[starred][animate] + #star-button-animatable-box {
-    /* .urlbar-icon has width 24px in this case */
-    margin-inline-start: -4.5px;
-  }
-
-  :root[uidensity=touch] #star-button[starred][animate] + #star-button-animatable-box {
-    /* .urlbar-icon has width 30px in this case */
-    margin-inline-start: -1.5px;
-  }
-
-  #star-button[starred][animate] + #star-button-animatable-box > #star-button-animatable-image {
-    background-image: url("chrome://browser/skin/bookmark-animation.svg");
-    background-size: auto;
-    list-style-image: none;
-    height: var(--toolbarbutton-height);
-    min-height: 33px; /* Minimum height must be equal to the height of the SVG sprite */
-    animation-name: bookmark-animation;
-    animation-fill-mode: forwards;
-    animation-iteration-count: 1;
-    animation-timing-function: steps(19);
-    animation-duration: 317ms;
-    width: 660px;
-    -moz-context-properties: fill, stroke;
-    stroke: var(--toolbarbutton-icon-fill-attention);
-  }
-
-  #star-button[starred][animate]:-moz-locale-dir(rtl) + #star-button-animatable-box > #star-button-animatable-image {
-    scale: -1 1;
-  }
-}
-
 
 /**
  * Contextual Feature Recommendation
@@ -890,7 +845,7 @@
   color: inherit;
   font-size: .8em;
   padding: 3px 7px;
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-icon-border-radius);
   background-color: var(--urlbar-box-bgcolor);
   margin-block: calc((var(--urlbar-min-height) - 20px) / 2 - 1px /* border */ - var(--urlbar-container-padding));
   overflow: hidden;
@@ -921,7 +876,7 @@
   animation-duration: 250ms;
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 #urlbar-zoom-button {
   background-color: hsla(0,0%,0%,.05);
   border: 1px solid hsla(210,4%,50%,.3);
@@ -942,7 +897,6 @@
 #urlbar-zoom-button:-moz-focusring {
   outline: var(--toolbarbutton-focus-outline);
   outline-offset: calc(var(--focus-outline-width) * -1);
-  -moz-outline-radius: 1em;
 }
 
 #urlbar-zoom-button > .toolbarbutton-text {
@@ -967,9 +921,14 @@
 .searchbar-search-icon {
   list-style-image: url(chrome://global/skin/icons/search-glass.svg);
   -moz-context-properties: fill, fill-opacity;
+  fill-opacity: var(--urlbar-icon-fill-opacity);
   pointer-events: none;
   margin-inline: 8px 6px;
   width: 16px;
+}
+
+@media not (-moz-proton) {
+.searchbar-search-icon {
   fill-opacity: .4;
 }
 
@@ -980,6 +939,7 @@
 .searchbar-search-button:hover:active > .searchbar-search-icon {
   fill-opacity: .8;
 }
+} /*** END !proton ***/
 
 .searchbar-search-icon-overlay {
   pointer-events: none;
@@ -1052,3 +1012,10 @@ moz-input-box > menupopup .context-menu-add-engine > .menu-iconic-left::after {
 .searchbar-engine-one-off-add-engine[image]:hover > .button-box > .button-icon {
   opacity: 1;
 }
+
+@media (-moz-proton) {
+#urlbar-input::placeholder,
+.searchbar-textbox::placeholder {
+  opacity: 0.69;
+}
+} /*** END !proton ***/

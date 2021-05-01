@@ -32,7 +32,7 @@ menupopup {
 
     /* Prevent any background or border around the outside of the shadow. */
     background-color: transparent;
-    border-color: transparent;
+    border: none;
     border-radius: 4px;
 
     /* Set this here rather than on the scrollbox so it is more easily
@@ -59,7 +59,7 @@ menupopup {
     padding-block: 4px;
 
     /* Prevent contained items from drawing over the border-radius. */
-    overflow: hidden;
+    overflow: clip;
   }
 }
 }

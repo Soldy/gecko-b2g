@@ -86,6 +86,7 @@
 #include "mozilla/dom/VideoTrack.h"
 #include "mozilla/dom/VideoTrackList.h"
 #include "mozilla/dom/WakeLock.h"
+#include "mozilla/dom/WindowGlobalChild.h"
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "nsAttrValueInlines.h"
@@ -2333,6 +2334,10 @@ void HTMLMediaElement::AbortExistingLoads() {
     EndSrcMediaStreamPlayback();
   }
 
+  if (mMediaSource) {
+    OwnerDoc()->RemoveMediaElementWithMSE();
+  }
+
   RemoveMediaElementFromURITable();
   mLoadingSrcTriggeringPrincipal = nullptr;
   DDLOG(DDLogCategory::Property, "loading_src", "");
@@ -2643,6 +2648,10 @@ void HTMLMediaElement::SelectResource() {
           !mIsLoadingFromSourceChildren,
           "Should think we're not loading from source children by default");
 
+      if (!mMediaSource) {
+        OwnerDoc()->AddMediaElementWithMSE();
+      }
+
       RemoveMediaElementFromURITable();
       if (!mSrcMediaSource) {
         mLoadingSrc = uri;
@@ -2904,6 +2913,10 @@ void HTMLMediaElement::LoadFromSourceChildren() {
       ReportLoadError("MediaLoadInvalidURI", params);
       DealWithFailedElement(child);
       return;
+    }
+
+    if (!mMediaSource) {
+      OwnerDoc()->AddMediaElementWithMSE();
     }
 
     RemoveMediaElementFromURITable();
@@ -4202,6 +4215,49 @@ class HTMLMediaElement::ShutdownObserver : public nsIObserver {
 
 NS_IMPL_ISUPPORTS(HTMLMediaElement::ShutdownObserver, nsIObserver)
 
+class HTMLMediaElement::TitleChangeObserver final : public nsIObserver {
+ public:
+  NS_DECL_ISUPPORTS
+
+  explicit TitleChangeObserver(HTMLMediaElement* aElement)
+      : mElement(aElement) {
+    MOZ_ASSERT(NS_IsMainThread());
+    MOZ_ASSERT(aElement);
+  }
+
+  NS_IMETHOD Observe(nsISupports*, const char* aTopic,
+                     const char16_t*) override {
+    if (mElement) {
+      mElement->UpdateStreamName();
+    }
+
+    return NS_OK;
+  }
+
+  void Subscribe() {
+    nsCOMPtr<nsIObserverService> observerService =
+        mozilla::services::GetObserverService();
+    if (observerService) {
+      observerService->AddObserver(this, "document-title-changed", false);
+    }
+  }
+
+  void Unsubscribe() {
+    nsCOMPtr<nsIObserverService> observerService =
+        mozilla::services::GetObserverService();
+    if (observerService) {
+      observerService->RemoveObserver(this, "document-title-changed");
+    }
+  }
+
+ private:
+  ~TitleChangeObserver() = default;
+
+  WeakPtr<HTMLMediaElement> mElement;
+};
+
+NS_IMPL_ISUPPORTS(HTMLMediaElement::TitleChangeObserver, nsIObserver)
+
 HTMLMediaElement::HTMLMediaElement(
     already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
     : nsGenericHTMLElement(std::move(aNodeInfo)),
@@ -4211,6 +4267,7 @@ HTMLMediaElement::HTMLMediaElement(
       mAbstractMainThread(
           OwnerDoc()->AbstractMainThreadFor(TaskCategory::Other)),
       mShutdownObserver(new ShutdownObserver),
+      mTitleChangeObserver(new TitleChangeObserver(this)),
       mEventBlocker(new EventBlocker(this)),
       mPlayed(new TimeRanges(ToSupports(OwnerDoc()))),
       mTracksCaptured(nullptr, "HTMLMediaElement::mTracksCaptured"),
@@ -4292,6 +4349,8 @@ HTMLMediaElement::~HTMLMediaElement() {
   mWatchManager.Shutdown();
 
   mShutdownObserver->Unsubscribe();
+
+  mTitleChangeObserver->Unsubscribe();
 
   if (mVideoFrameContainer) {
     mVideoFrameContainer->ForgetElement();
@@ -7394,6 +7453,13 @@ void HTMLMediaElement::SetMediaInfo(const MediaInfo& aInfo) {
   if ((aInfo.HasAudio() != oldHasAudio) && mResumeDelayedPlaybackAgent) {
     mResumeDelayedPlaybackAgent->UpdateAudibleState(this, IsAudible());
   }
+  nsILoadContext* loadContext = OwnerDoc()->GetLoadContext();
+  if (HasAudio() && loadContext && !loadContext->UsePrivateBrowsing()) {
+    mTitleChangeObserver->Subscribe();
+    UpdateStreamName();
+  } else {
+    mTitleChangeObserver->Unsubscribe();
+  }
   if (mAudioChannelWrapper) {
     mAudioChannelWrapper->AudioCaptureTrackChangeIfNeeded();
   }
@@ -7842,6 +7908,11 @@ bool HTMLMediaElement::ShouldStartMediaControlKeyListener() const {
     return false;
   }
 
+  if (mSrcStream) {
+    MEDIACONTROL_LOG("Not listening because media is real-time");
+    return false;
+  }
+
   if (IsBeingUsedInPictureInPictureMode()) {
     MEDIACONTROL_LOG("Start listener because of being used in PiP mode");
     return true;
@@ -7880,6 +7951,17 @@ void HTMLMediaElement::StartMediaControlKeyListenerIfNeeded() {
     return;
   }
   mMediaControlKeyListener->Start();
+}
+
+void HTMLMediaElement::UpdateStreamName() {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  nsAutoString aTitle;
+  OwnerDoc()->GetTitle(aTitle);
+
+  if (mDecoder) {
+    mDecoder->SetStreamName(aTitle);
+  }
 }
 
 void HTMLMediaElement::SetSecondaryMediaStreamRenderer(
@@ -7923,6 +8005,15 @@ bool HTMLMediaElement::IsBeingUsedInPictureInPictureMode() const {
     return false;
   }
   return static_cast<const HTMLVideoElement*>(this)->IsCloningElementVisually();
+}
+
+void HTMLMediaElement::NodeInfoChanged(Document* aOldDoc) {
+  if (mMediaSource) {
+    OwnerDoc()->AddMediaElementWithMSE();
+    aOldDoc->RemoveMediaElementWithMSE();
+  }
+
+  nsGenericHTMLElement::NodeInfoChanged(aOldDoc);
 }
 
 }  // namespace mozilla::dom

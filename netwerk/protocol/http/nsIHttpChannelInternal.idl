@@ -85,11 +85,6 @@ interface nsIHttpChannelInternal : nsISupports
     [must_use] void setCookie(in ACString aCookieHeader);
 
     /**
-     * Setup this channel as an application cache fallback channel.
-     */
-    [must_use] void setupFallbackChannel(in string aFallbackKey);
-
-    /**
      * Returns true in case this channel is used for auth;
      * (the response header includes 'www-authenticate').
      */
@@ -427,8 +422,6 @@ interface nsIHttpChannelInternal : nsISupports
 
     [noscript]
     nsILoadInfo_CrossOriginEmbedderPolicy getResponseEmbedderPolicy();
-
-    [notxpcom, nostdcall] attribute boolean hasNonEmptySandboxingFlag;
 
     [noscript, notxpcom, nostdcall]
     void DoDiagnosticAssertWhenOnStopNotCalledOnDestroy();

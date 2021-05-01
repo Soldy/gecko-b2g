@@ -237,6 +237,9 @@ static const char* GetPrefNameForFeature(int32_t aFeature) {
     case nsIGfxInfo::FEATURE_DMABUF:
       name = BLOCKLIST_PREF_BRANCH "dmabuf";
       break;
+    case nsIGfxInfo::FEATURE_WEBRENDER_SHADER_CACHE:
+      name = BLOCKLIST_PREF_BRANCH "webrender.program-binary-disk";
+      break;
     default:
       MOZ_ASSERT_UNREACHABLE("Unexpected nsIGfxInfo feature?!");
       break;
@@ -1796,6 +1799,22 @@ GfxInfoBase::GetContentBackend(nsAString& aContentBackend) {
   }
 
   aContentBackend.Assign(outStr);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GfxInfoBase::GetAzureCanvasBackend(nsAString& aBackend) {
+  CopyASCIItoUTF16(mozilla::MakeStringSpan(
+                       gfxPlatform::GetPlatform()->GetAzureCanvasBackend()),
+                   aBackend);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GfxInfoBase::GetAzureContentBackend(nsAString& aBackend) {
+  CopyASCIItoUTF16(mozilla::MakeStringSpan(
+                       gfxPlatform::GetPlatform()->GetAzureContentBackend()),
+                   aBackend);
   return NS_OK;
 }
 

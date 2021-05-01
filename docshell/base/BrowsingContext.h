@@ -197,6 +197,7 @@ enum class ExplicitActiveStatus : uint8_t {
   /* The number of entries added to the session history because of this       \
    * browsing context. */                                                     \
   FIELD(HistoryEntryCount, uint32_t)                                          \
+  /* Don't use the getter of the field, but IsInBFCache() method */           \
   FIELD(IsInBFCache, bool)                                                    \
   FIELD(HasRestoreData, bool)                                                 \
   FIELD(SessionStoreEpoch, uint32_t)
@@ -810,7 +811,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   GetTriggeringAndInheritPrincipalsForCurrentLoad();
 
   void HistoryGo(int32_t aOffset, uint64_t aHistoryEpoch,
-                 bool aRequireUserInteraction,
+                 bool aRequireUserInteraction, bool aUserActivation,
                  std::function<void(int32_t&&)>&& aResolver);
 
   bool ShouldUpdateSessionHistory(uint32_t aLoadType);
@@ -850,6 +851,8 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   }
 
   void FlushSessionStore();
+
+  bool IsInBFCache() const { return mIsInBFCache; }
 
  protected:
   virtual ~BrowsingContext();
@@ -1179,6 +1182,11 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   // True if this BrowsingContext is for a frame that was added dynamically.
   bool mCreatedDynamically : 1;
+
+  // Set to true if the browsing context is in the bfcache and pagehide has been
+  // dispatched. When coming out from the bfcache, the value is set to false
+  // before dispatching pageshow.
+  bool mIsInBFCache : 1;
 
   // The original offset of this context in its container. This property is -1
   // if this BrowsingContext is for a frame that was added dynamically.

@@ -21,6 +21,13 @@ class AboutWelcome extends React.PureComponent {
   componentDidMount() {
     this.fetchFxAFlowUri();
 
+    // Rely on shared proton in-content styling for consistency.
+    if (this.props.design === "proton") {
+      const sheet = document.head.appendChild(document.createElement("link"));
+      sheet.rel = "stylesheet";
+      sheet.href = "chrome://global/skin/in-content/common.css";
+    }
+
     // Record impression with performance data after allowing the page to load
     const recordImpression = domState => {
       const { domComplete, domInteractive } = performance
@@ -75,6 +82,7 @@ class AboutWelcome extends React.PureComponent {
         message_id={props.messageId}
         utm_term={props.UTMTerm}
         design={props.design}
+        background_url={props.background_url}
       />
     );
   }

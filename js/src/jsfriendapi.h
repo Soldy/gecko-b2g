@@ -180,6 +180,10 @@ extern JS_FRIEND_API bool JS_CopyOwnPropertiesAndPrivateFields(
 extern JS_FRIEND_API bool JS_WrapPropertyDescriptor(
     JSContext* cx, JS::MutableHandle<JS::PropertyDescriptor> desc);
 
+extern JS_FRIEND_API bool JS_WrapPropertyDescriptor(
+    JSContext* cx,
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc);
+
 struct JSFunctionSpecWithHelp {
   const char* name;
   JSNative call;
@@ -690,7 +694,8 @@ JS_FRIEND_API bool ForwardToNative(JSContext* cx, JSNative native,
  */
 JS_FRIEND_API bool SetPropertyIgnoringNamedGetter(
     JSContext* cx, JS::HandleObject obj, JS::HandleId id, JS::HandleValue v,
-    JS::HandleValue receiver, JS::Handle<JS::PropertyDescriptor> ownDesc,
+    JS::HandleValue receiver,
+    JS::Handle<mozilla::Maybe<JS::PropertyDescriptor>> ownDesc,
     JS::ObjectOpResult& result);
 
 // This function is for one specific use case, please don't use this for

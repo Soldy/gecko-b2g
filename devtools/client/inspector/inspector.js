@@ -231,9 +231,8 @@ Inspector.prototype = {
       return;
     }
 
-    await this.initInspectorFront(targetFront);
-
     targetFront.on("will-navigate", this._onBeforeNavigate);
+    await this.initInspectorFront(targetFront);
 
     await Promise.all([
       this._getCssProperties(),
@@ -1740,20 +1739,14 @@ Inspector.prototype = {
   },
 
   _destroyMarkup: function() {
-    let destroyPromise;
-
     if (this.markup) {
-      destroyPromise = this.markup.destroy();
+      this.markup.destroy();
       this.markup = null;
-    } else {
-      destroyPromise = promise.resolve();
     }
 
     if (this._markupBox) {
       this._markupBox.style.visibility = "hidden";
     }
-
-    return destroyPromise;
   },
 
   onEyeDropperButtonClicked: function() {

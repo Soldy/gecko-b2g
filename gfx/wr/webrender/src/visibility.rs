@@ -11,6 +11,7 @@ use api::{ColorF, DebugFlags};
 use api::units::*;
 use euclid::Scale;
 use std::{usize, mem};
+use crate::batch::BatchFilter;
 use crate::clip::{ClipStore, ClipChainStack};
 use crate::composite::CompositeState;
 use crate::spatial_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialTree, SpatialNodeIndex};
@@ -78,7 +79,7 @@ bitflags! {
     // TODO(gw): We should also move `is_compositor_surface` to be part of
     //           this flags struct.
     #[cfg_attr(feature = "capture", derive(Serialize))]
-    pub struct PrimitiveVisibilityFlags: u16 {
+    pub struct PrimitiveVisibilityFlags: u8 {
         /// Implies that this primitive covers the entire picture cache slice,
         /// and can thus be dropped during batching and drawn with clear color.
         const IS_BACKDROP = 1;
@@ -93,18 +94,29 @@ pub enum VisibilityState {
     Unset,
     /// Culled for being off-screen, or not possible to render (e.g. missing image resource)
     Culled,
+    /// A picture that doesn't have a surface - primitives are composed into the
+    /// parent picture with a surface.
+    PassThrough,
     /// During picture cache dependency update, was found to be intersecting with one
     /// or more visible tiles. The rect in picture cache space is stored here to allow
     /// the detailed calculations below.
     Coarse {
-        rect_in_pic_space: PictureRect,
+        /// Information about which tile batchers this prim should be added to
+        filter: BatchFilter,
+
+        /// A set of flags that define how this primitive should be handled
+        /// during batching of visible primitives.
+        vis_flags: PrimitiveVisibilityFlags,
     },
     /// Once coarse visibility is resolved, this will be set if the primitive
     /// intersected any dirty rects, otherwise prim will be culled.
     Detailed {
-        // TODO(gw): Intersecting Box2D is more efficient than Rect. Consider
-        //           storing here (and perhaps above) as a Box2D.
-        rect_in_pic_space: PictureRect,
+        /// Information about which tile batchers this prim should be added to
+        filter: BatchFilter,
+
+        /// A set of flags that define how this primitive should be handled
+        /// during batching of visible primitives.
+        vis_flags: PrimitiveVisibilityFlags,
     },
 }
 
@@ -128,10 +140,6 @@ pub struct PrimitiveVisibility {
     /// a list of clip task ids (one per segment).
     pub clip_task_index: ClipTaskIndex,
 
-    /// A set of flags that define how this primitive should be handled
-    /// during batching of visibile primitives.
-    pub flags: PrimitiveVisibilityFlags,
-
     /// The current combined local clip for this primitive, from
     /// the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
@@ -143,7 +151,6 @@ impl PrimitiveVisibility {
             state: VisibilityState::Unset,
             clip_chain: ClipChainInstance::empty(),
             clip_task_index: ClipTaskIndex::INVALID,
-            flags: PrimitiveVisibilityFlags::empty(),
             combined_local_clip_rect: LayoutRect::zero(),
         }
     }
@@ -151,7 +158,6 @@ impl PrimitiveVisibility {
     pub fn reset(&mut self) {
         self.state = VisibilityState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
-        self.flags = PrimitiveVisibilityFlags::empty();
     }
 }
 
@@ -165,6 +171,7 @@ pub fn update_primitive_visibility(
     frame_context: &FrameVisibilityContext,
     frame_state: &mut FrameVisibilityState,
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
+    is_root_tile_cache: bool,
 ) -> Option<PictureRect> {
     profile_scope!("update_visibility");
     let (mut prim_list, surface_index, apply_local_clip_rect, world_culling_rect, is_composite) = {
@@ -293,6 +300,7 @@ pub fn update_primitive_visibility(
                         frame_context,
                         frame_state,
                         tile_caches,
+                        false,
                     );
 
                     if is_passthrough {
@@ -338,9 +346,7 @@ pub fn update_primitive_visibility(
 
             if is_passthrough {
                 // Pass through pictures are always considered visible in all dirty tiles.
-                prim_instance.vis.state = VisibilityState::Detailed {
-                    rect_in_pic_space: PictureRect::max_rect(),
-                };
+                prim_instance.vis.state = VisibilityState::PassThrough;
             } else {
                 if prim_local_rect.size.width <= 0.0 || prim_local_rect.size.height <= 0.0 {
                     if prim_instance.is_chased() {
@@ -468,13 +474,14 @@ pub fn update_primitive_visibility(
                         &frame_state.surface_stack,
                         &mut frame_state.composite_state,
                         &mut frame_state.gpu_cache,
+                        is_root_tile_cache,
                 );
 
                 // Skip post visibility prim update if this primitive was culled above.
                 match prim_instance.vis.state {
                     VisibilityState::Unset => panic!("bug: invalid state"),
                     VisibilityState::Culled => continue,
-                    VisibilityState::Coarse { .. } | VisibilityState::Detailed { .. } => {}
+                    VisibilityState::Coarse { .. } | VisibilityState::Detailed { .. } | VisibilityState::PassThrough => {}
                 }
 
                 // When the debug display is enabled, paint a colored rectangle around each
@@ -490,6 +497,7 @@ pub fn update_primitive_visibility(
                         PrimitiveInstanceKind::YuvImage { .. } => debug_colors::BLUE,
                         PrimitiveInstanceKind::Image { .. } => debug_colors::BLUE,
                         PrimitiveInstanceKind::LinearGradient { .. } => debug_colors::PINK,
+                        PrimitiveInstanceKind::CachedLinearGradient { .. } => debug_colors::PINK,
                         PrimitiveInstanceKind::RadialGradient { .. } => debug_colors::PINK,
                         PrimitiveInstanceKind::ConicGradient { .. } => debug_colors::PINK,
                         PrimitiveInstanceKind::Clear { .. } => debug_colors::CYAN,

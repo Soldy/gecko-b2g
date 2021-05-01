@@ -2466,6 +2466,8 @@ MobileMessageDB.prototype = {
     if (aMessage.type == "mms") {
       if (aMessage.headers.from) {
         aMessage.sender = aMessage.headers.from.address;
+      } else if (aMessage.sourceAddress) {
+        aMessage.sender = aMessage.sourceAddress;
       } else {
         aMessage.sender = "";
       }

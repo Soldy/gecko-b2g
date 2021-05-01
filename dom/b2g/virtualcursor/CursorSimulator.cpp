@@ -775,23 +775,20 @@ void CursorSimulator::AdjustMoveOffset(CSSIntSize& aWindowSize,
 nsIScrollableFrame* CursorSimulator::FindScrollableFrame(nsIFrame* aFrame) {
   // Depends on direction to compute ScrollTarget
   CSSPoint directionPt(0, 0);
-  EventStateManager::ComputeScrollTargetOptions options;
+  EventStateManager::ComputeScrollTargetOptions options =
+    EventStateManager::COMPUTE_SCROLLABLE_TARGET_ALONG_X_Y_AXIS;
   switch (mDirection) {
     case CursorDirection::UP:
       directionPt.y = -1;
-      options = EventStateManager::COMPUTE_SCROLLABLE_ANCESTOR_ALONG_Y_AXIS;
       break;
     case CursorDirection::DOWN:
       directionPt.y = 1;
-      options = EventStateManager::COMPUTE_SCROLLABLE_ANCESTOR_ALONG_Y_AXIS;
       break;
     case CursorDirection::LEFT:
       directionPt.x = -1;
-      options = EventStateManager::COMPUTE_SCROLLABLE_ANCESTOR_ALONG_X_AXIS;
       break;
     case CursorDirection::RIGHT:
       directionPt.x = 1;
-      options = EventStateManager::COMPUTE_SCROLLABLE_ANCESTOR_ALONG_X_AXIS;
       break;
     default:
       break;

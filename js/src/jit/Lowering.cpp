@@ -200,6 +200,12 @@ void LIRGenerator::visitNewObject(MNewObject* ins) {
   assignSafepoint(lir, ins);
 }
 
+void LIRGenerator::visitNewPlainObject(MNewPlainObject* ins) {
+  LNewPlainObject* lir = new (alloc()) LNewPlainObject(temp(), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitNewNamedLambdaObject(MNewNamedLambdaObject* ins) {
   LNewNamedLambdaObject* lir = new (alloc()) LNewNamedLambdaObject(temp());
   define(lir, ins);
@@ -2769,6 +2775,18 @@ void LIRGenerator::visitCopyLexicalEnvironmentObject(
 
   LCopyLexicalEnvironmentObject* lir =
       new (alloc()) LCopyLexicalEnvironmentObject(useRegisterAtStart(env));
+
+  defineReturn(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGenerator::visitNewClassBodyEnvironmentObject(
+    MNewClassBodyEnvironmentObject* ins) {
+  MDefinition* enclosing = ins->enclosing();
+  MOZ_ASSERT(enclosing->type() == MIRType::Object);
+
+  LNewClassBodyEnvironmentObject* lir = new (alloc())
+      LNewClassBodyEnvironmentObject(useRegisterAtStart(enclosing));
 
   defineReturn(lir, ins);
   assignSafepoint(lir, ins);
@@ -5598,6 +5616,9 @@ void LIRGenerator::visitConstant(MConstant* ins) {
       break;
     case MIRType::Object:
       define(new (alloc()) LPointer(&ins->toObject()), ins);
+      break;
+    case MIRType::Shape:
+      MOZ_ASSERT(ins->isEmittedAtUses());
       break;
     default:
       // Constants of special types (undefined, null) should never flow into

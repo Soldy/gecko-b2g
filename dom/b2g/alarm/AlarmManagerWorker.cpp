@@ -46,7 +46,7 @@ class AlarmGetAllReturnedRunnable final : public WorkerRunnable,
         mProxy(std::move(aProxy)),
         mStatus(aStatus) {
     LOG("AlarmGetAllReturnedRunnable constructor. aWorkerPrivate:[%p] "
-        "aStatus:[%u]",
+        "aStatus:[%x]",
         aWorkerPrivate, uint(aStatus));
   }
 
@@ -195,7 +195,7 @@ class AlarmAddReturnedRunnable final : public WorkerRunnable,
         mProxy(std::move(aProxy)),
         mStatus(aStatus) {
     LOG("AlarmAddReturnedRunnable constructor. aWorkerPrivate:[%p] "
-        "aStatus:[%u]",
+        "aStatus:[%x]",
         aWorkerPrivate, uint(aStatus));
   }
 
@@ -381,6 +381,27 @@ class AlarmRemoveRunnable final : public Runnable {
   nsCString mUrl;
 };
 
+class AlarmInitRunnable final : public WorkerMainThreadRunnable {
+ public:
+  explicit AlarmInitRunnable()
+      : WorkerMainThreadRunnable(GetCurrentThreadWorkerPrivate(),
+                                 "dom::AlarmInitRunnable"_ns) {
+    LOG("AlarmInitRunnable constructor.");
+  }
+
+  bool MainThreadRun() override {
+    nsCOMPtr<nsIPrincipal> principal = mWorkerPrivate->GetPrincipal();
+    mRv = alarm::SetupUrlFromPrincipal(principal, mUrl);
+    return true;
+  }
+
+  nsCString mUrl;
+  nsresult mRv;
+
+ private:
+  ~AlarmInitRunnable() = default;
+};
+
 class AlarmCheckPermissionRunnable final : public WorkerMainThreadRunnable {
  public:
   explicit AlarmCheckPermissionRunnable(const nsCString& aUrl)
@@ -403,13 +424,32 @@ class AlarmCheckPermissionRunnable final : public WorkerMainThreadRunnable {
   nsCString mUrl;
 };
 
-AlarmManagerWorker::AlarmManagerWorker(nsCString aUrl,
-                                       nsIGlobalObject* aOuterGlobal)
-    : AlarmManagerImpl(aUrl, aOuterGlobal) {
+AlarmManagerWorker::AlarmManagerWorker(nsIGlobalObject* aOuterGlobal)
+    : AlarmManagerImpl(aOuterGlobal) {
   LOG("AlarmManagerWorker constructor.");
   if (NS_WARN_IF(NS_IsMainThread())) {
     LOG("Error! AlarmManagerWorker should NOT be on main thread.");
   }
+}
+
+nsresult AlarmManagerWorker::Init() {
+  LOG("AlarmManagerWorker::Init");
+  if (NS_WARN_IF(NS_IsMainThread())) {
+    LOG("Error! AlarmManagerWorker should NOT be on main thread.");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  RefPtr<AlarmInitRunnable> r = new AlarmInitRunnable();
+
+  ErrorResult rv;
+  r->Dispatch(Canceling, rv);
+  if (NS_WARN_IF(rv.Failed())) {
+    LOG("Dispatch failed. rv:[%u]", rv.ErrorCodeAsInt());
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  mUrl = r->mUrl;
+  return r->mRv;
 }
 
 already_AddRefed<Promise> AlarmManagerWorker::GetAll() {
@@ -444,7 +484,7 @@ already_AddRefed<Promise> AlarmManagerWorker::GetAll() {
   RefPtr<AlarmGetAllRunnable> r = new AlarmGetAllRunnable(proxy, mUrl);
   nsresult dispatchNSResult = NS_DispatchToMainThread(r);
   if (NS_WARN_IF(NS_FAILED(dispatchNSResult))) {
-    LOG("NS_DispatchToMainThread failed. [%u]", uint(dispatchNSResult));
+    LOG("NS_DispatchToMainThread failed. [%x]", uint(dispatchNSResult));
     promise->MaybeReject(NS_ERROR_DOM_OPERATION_ERR);
     return promise.forget();
   }
@@ -500,7 +540,7 @@ already_AddRefed<Promise> AlarmManagerWorker::Add(
 
   nsresult dispatchNSResult = NS_DispatchToMainThread(r);
   if (NS_WARN_IF(NS_FAILED(dispatchNSResult))) {
-    LOG("NS_DispatchToMainThread failed. [%u]", uint(dispatchNSResult));
+    LOG("NS_DispatchToMainThread failed. [%x]", uint(dispatchNSResult));
     promise->MaybeReject(NS_ERROR_DOM_OPERATION_ERR);
     return promise.forget();
   }
@@ -512,7 +552,7 @@ void AlarmManagerWorker::Remove(long aId) {
   RefPtr<AlarmRemoveRunnable> r = new AlarmRemoveRunnable(aId, mUrl);
   nsresult dispatchNSResult = NS_DispatchToMainThread(r);
   if (NS_WARN_IF(NS_FAILED(dispatchNSResult))) {
-    LOG("NS_DispatchToMainThread failed. [%u]", uint(dispatchNSResult));
+    LOG("NS_DispatchToMainThread failed. [%x]", uint(dispatchNSResult));
   }
 
   return;

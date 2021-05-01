@@ -143,5 +143,7 @@ rustc --version
 
 export ANDROID_PLATFORM=$ANDROID_PLATFORM
 export PRODUCTION_OS_NAME=$PRODUCTION_OS_NAME
+# force mach to use system python installation
+export MACH_USE_SYSTEM_PYTHON=${MACH_USE_SYSTEM_PYTHON-1}
 
 ./mach build $@

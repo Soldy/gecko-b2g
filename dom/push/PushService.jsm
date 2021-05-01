@@ -486,11 +486,33 @@ var PushService = {
       return;
     }
 
-    this._db.getByKeyID(record.keyID, "unsubscribeDb").then(isExist => {
-      if (!isExist) {
-        this._db.put(record, "unsubscribeDb");
-      }
-    });
+    this._db
+      .getByKeyID(record.keyID, "unsubscribeDb")
+      .then(isExist => {
+        if (!isExist) {
+          this._db
+            .put(record, "unsubscribeDb")
+            .then(
+              _ => {},
+              reason => {
+                console.error(
+                  "backgroundUnregister: Reject putting unsubscribeDb",
+                  reason
+                );
+              }
+            )
+            .catch(_ => {
+              console.error(
+                "backgroundUnregister: Error putting unsubscribeDb"
+              );
+            });
+        }
+      })
+      .catch(_ => {
+        console.error(
+          "backgroundUnregister: Error getting a record by ID from unsubscribeDb"
+        );
+      });
 
     if (!this._service.isConnected()) {
       return;
@@ -507,8 +529,6 @@ var PushService = {
       .catch(e => {
         console.error("backgroundUnregister: Error notifying server", e);
       });
-    // Try to unregister all records still pending in queue.
-    this.executeAllPendingUnregistering(record.keyID);
   },
 
   // utility function used to add/remove observers in startObservers() and
@@ -825,7 +845,11 @@ var PushService = {
    * once the permission is reinstated.
    */
   dropUnexpiredRegistrations() {
-    this._db.drop("unsubscribeDb");
+    this._db.drop("unsubscribeDb").catch(_ => {
+      console.error(
+        "dropUnexpiredRegistrations: Error dropping records of unsubscribeDb"
+      );
+    });
     return this._db.clearIf(record => {
       if (record.isExpired()) {
         return false;
@@ -844,7 +868,11 @@ var PushService = {
   },
 
   removePendingUnsubscribe(aKeyID) {
-    return this._db.delete(aKeyID, "unsubscribeDb");
+    return this._db.delete(aKeyID, "unsubscribeDb").catch(_ => {
+      console.error(
+        "removePendingUnsubscribe: Error deleting a record of unsubscribeDb"
+      );
+    });
   },
 
   /**
@@ -1428,27 +1456,42 @@ var PushService = {
       if (record === null) {
         return false;
       }
-      this._db.getByKeyID(record.keyID, "unsubscribeDb").then(isExist => {
-        if (!isExist) {
-          this._db.put(record, "unsubscribeDb");
-        }
-      });
-
-      let reason = Ci.nsIPushErrorReporter.UNSUBSCRIBE_MANUAL;
-      return Promise.all([
-        this._sendUnregister(record, reason),
-        this._db.delete(record.keyID).then(rec => {
-          if (rec) {
-            gPushNotifier.notifySubscriptionModified(rec.scope, rec.principal);
+      return this._db
+        .getByKeyID(record.keyID, "unsubscribeDb")
+        .then(isExist => {
+          if (!isExist) {
+            this._db.put(record, "unsubscribeDb").catch(_ => {
+              console.error(
+                "unregister: Error putting a record into unsubscribeDb"
+              );
+            });
           }
-          if (this._service.isConnected()) {
-            // Try to unregister all records still pending in queue
-            // if websocket is connected.
-            this.executeAllPendingUnregistering(record.keyID);
-          }
-          this._deleteRecordID(record);
-        }),
-      ]).then(([success]) => success);
+        })
+        .catch(_ => {
+          console.error(
+            "unregister: Error getting a record by ID from unsubscribeDb"
+          );
+        })
+        .then(_ => {
+          let reason = Ci.nsIPushErrorReporter.UNSUBSCRIBE_MANUAL;
+          return Promise.all([
+            this._sendUnregister(record, reason),
+            this._db.delete(record.keyID).then(rec => {
+              if (rec) {
+                gPushNotifier.notifySubscriptionModified(
+                  rec.scope,
+                  rec.principal
+                );
+              }
+              if (this._service.isConnected()) {
+                // Try to unregister all records still pending in queue
+                // if websocket is connected.
+                this.executeAllPendingUnregistering(record.keyID);
+              }
+              this._deleteRecordID(record);
+            }),
+          ]).then(([success]) => success);
+        });
     });
   },
 
@@ -1531,18 +1574,31 @@ var PushService = {
       }
       console.debug("channel ID: ", record.keyID);
       if (!record.reachMaxUnregisterTries()) {
-        this._db.update(
-          record.keyID,
-          record => {
-            record.unregisterTries++;
-            return record;
-          },
-          "unsubscribeDb"
-        );
-        this._sendUnregister(
-          record,
-          Ci.nsIPushErrorReporter.UNSUBSCRIBE_PENDING_RECORD
-        );
+        this._db
+          .update(
+            record.keyID,
+            record => {
+              record.unregisterTries++;
+              return record;
+            },
+            "unsubscribeDb"
+          )
+          .catch(_ => {
+            console.error(
+              "executeAllPendingUnregistering: Error updating a record unregister retry count in unsubscribeDb"
+            );
+          })
+          .then(_ => {
+            this._sendUnregister(
+              record,
+              Ci.nsIPushErrorReporter.UNSUBSCRIBE_PENDING_RECORD
+            ).catch(e => {
+              console.error(
+                "executePendingUnregisteringByKeyID: Error notifying server",
+                e
+              );
+            });
+          });
       } else {
         console.error("Retry count exceeded, drop the record");
         this.removePendingUnsubscribe(record.keyID);
@@ -1552,7 +1608,7 @@ var PushService = {
 
   executeAllPendingUnregistering(aNewKeyID = null) {
     console.debug("executeAllPendingUnregistering()");
-    return this._db.getAllKeyIDs("unsubscribeDb").then(records => {
+    this._db.getAllKeyIDs("unsubscribeDb").then(records => {
       return Promise.all(
         records.map(record => {
           if (aNewKeyID && record.keyID == aNewKeyID) {
@@ -1561,18 +1617,31 @@ var PushService = {
           }
           console.debug("channel ID: ", record.keyID);
           if (!record.reachMaxUnregisterTries()) {
-            this._db.update(
-              record.keyID,
-              record => {
-                record.unregisterTries++;
-                return record;
-              },
-              "unsubscribeDb"
-            );
-            this._sendUnregister(
-              record,
-              Ci.nsIPushErrorReporter.UNSUBSCRIBE_PENDING_RECORD
-            );
+            this._db
+              .update(
+                record.keyID,
+                record => {
+                  record.unregisterTries++;
+                  return record;
+                },
+                "unsubscribeDb"
+              )
+              .catch(_ => {
+                console.error(
+                  "executeAllPendingUnregistering: Error updating a record unregister retry count in unsubscribeDb"
+                );
+              })
+              .then(_ => {
+                this._sendUnregister(
+                  record,
+                  Ci.nsIPushErrorReporter.UNSUBSCRIBE_PENDING_RECORD
+                ).catch(e => {
+                  console.error(
+                    "executePendingUnregisteringByKeyID: Error notifying server",
+                    e
+                  );
+                });
+              });
           } else {
             console.error("Retry count exceeded, drop the record");
             this.removePendingUnsubscribe(record.keyID);

@@ -52,6 +52,7 @@
   __android_log_print(ANDROID_LOG_ERROR, "NetworkUtils", ##args)
 
 #define PREF_NETWORK_DEBUG_ENABLED "network.debugging.enabled"
+#define PREF_IPV6_ADDR_GEN_MODE "dom.b2g_ipv6_addr_mode"
 
 namespace binder = android::binder;
 using android::IBinder;
@@ -81,6 +82,9 @@ static const uint32_t DNS_RESOLVER_DEFAULT_MAX_SAMPLES = 64;
 // Wake up event for driver specific constants.
 static const int32_t WAKEUP_PACKET_MARK = 0x80000000;
 static const int32_t WAKEUP_PACKET_MASK = 0x80000000;
+
+// IPv6 addressing mode.
+static int32_t IPV6_ADDR_GEN_MODE = INetd::IPV6_ADDR_GEN_MODE_DEFAULT;
 
 static const char RADVD_CONF_FILE[] = "/data/misc/radvd/radvd.conf";
 
@@ -289,6 +293,10 @@ class NetdInitRunnable : public mozilla::Runnable {
       if (IsNetdRunning()) {
         Property::Set("ctl.stop", "netd");
       }
+    }
+
+    if (gNetworkUtils) {
+      gNetworkUtils->updateDebug();
     }
     return NS_OK;
   }
@@ -584,6 +592,27 @@ void NetworkUtils::destroyNetwork(CommandChain* aChain,
   next(aChain, !networkStatus.isOk(), aResult);
 }
 
+void NetworkUtils::setIpv6AddrGenMode(CommandChain* aChain,
+                                      CommandCallback aCallback,
+                                      NetworkResultOptions& aResult) {
+  Status status = gNetd->setIPv6AddrGenMode(std::string(GET_CHAR(mIfname)),
+                                            IPV6_ADDR_GEN_MODE);
+  NU_DBG("setIpv6AddrGenMode %d %s", IPV6_ADDR_GEN_MODE,
+         status.isOk() ? "success" : "failed but continue");
+  next(aChain, false, aResult);
+}
+
+void NetworkUtils::setIpv6PrivacyExtensions(CommandChain* aChain,
+                                            CommandCallback aCallback,
+                                            NetworkResultOptions& aResult) {
+  bool enable = GET_FIELD(mEnable);
+  Status status = gNetd->interfaceSetIPv6PrivacyExtensions(
+      std::string(GET_CHAR(mIfname)), enable);
+  NU_DBG("setIpv6PrivacyExtensions %s %s", enable ? "enable" : "disable",
+         status.isOk() ? "success" : "failed but continue");
+  next(aChain, false, aResult);
+}
+
 void NetworkUtils::setIpv6Enabled(CommandChain* aChain,
                                   CommandCallback aCallback,
                                   NetworkResultOptions& aResult) {
@@ -591,36 +620,8 @@ void NetworkUtils::setIpv6Enabled(CommandChain* aChain,
   Status status =
       gNetd->interfaceSetEnableIPv6(std::string(GET_CHAR(mIfname)), enable);
   NU_DBG("setIpv6Enabled %s %s", enable ? "enable" : "disable",
-         status.isOk() ? "success" : "failed but continue");
-  aCallback(aChain, false, aResult);
-}
-
-void NetworkUtils::enableIpv6(CommandChain* aChain, CommandCallback aCallback,
-                              NetworkResultOptions& aResult) {
-  // Check the interface while cmd came from create/destroy network.
-  if (nsINetworkInfo::NETWORK_TYPE_WIFI != GET_FIELD(mNetworkType)) {
-    NU_DBG("%s : ignore network type = %ld", __FUNCTION__,
-           GET_FIELD(mNetworkType));
-    aCallback(aChain, false, aResult);
-    return;
-  }
-
-  GET_FIELD(mEnable) = true;
-  setIpv6Enabled(aChain, aCallback, aResult);
-}
-
-void NetworkUtils::disableIpv6(CommandChain* aChain, CommandCallback aCallback,
-                               NetworkResultOptions& aResult) {
-  // Check the interface while cmd came from create/destroy network.
-  if (nsINetworkInfo::NETWORK_TYPE_WIFI != GET_FIELD(mNetworkType)) {
-    NU_DBG("%s : ignore network type = %ld", __FUNCTION__,
-           GET_FIELD(mNetworkType));
-    aCallback(aChain, false, aResult);
-    return;
-  }
-
-  GET_FIELD(mEnable) = false;
-  setIpv6Enabled(aChain, aCallback, aResult);
+         status.isOk() ? "success" : "failed");
+  aCallback(aChain, !status.isOk(), aResult);
 }
 
 void NetworkUtils::wakeupAddInterface(CommandChain* aChain,
@@ -876,15 +877,6 @@ void NetworkUtils::setDefaultNetwork(CommandChain* aChain,
                                      NetworkResultOptions& aResult) {
   Status status = gNetd->networkSetDefault(GET_FIELD(mNetId));
   NU_DBG("setDefaultNetwork %s", status.isOk() ? "success" : "failed");
-  next(aChain, !status.isOk(), aResult);
-}
-
-void NetworkUtils::setIpv6PrivacyExtensions(CommandChain* aChain,
-                                            CommandCallback aCallback,
-                                            NetworkResultOptions& aResult) {
-  Status status = gNetd->interfaceSetIPv6PrivacyExtensions(
-      std::string(GET_CHAR(mIfname)), GET_FIELD(mPrivacyExtensions));
-  NU_DBG("setIpv6PrivacyExtensions %s", status.isOk() ? "success" : "failed");
   next(aChain, !status.isOk(), aResult);
 }
 
@@ -1531,6 +1523,9 @@ NetworkUtils::NetworkUtils(MessageCallback aCallback)
   NU_DBG("Start Netd Service");
   setupNetd(true);
 
+  IPV6_ADDR_GEN_MODE = mozilla::Preferences::GetInt(
+      PREF_IPV6_ADDR_GEN_MODE, INetd::IPV6_ADDR_GEN_MODE_EUI64);
+
   updateDebug();
 
   gNetworkUtils = this;
@@ -1584,7 +1579,6 @@ void NetworkUtils::ExecuteCommand(NetworkParams aOptions) {
       BUILD_ENTRY(addInterfaceToNetwork),
       BUILD_ENTRY(removeInterfaceToNetwork),
       BUILD_ENTRY(setIpv6Status),
-      BUILD_ENTRY(setIpv6PrivacyExtensions),
       BUILD_ENTRY(dhcpRequest),
       BUILD_ENTRY(stopDhcp),
       BUILD_ENTRY(getInterfaces),
@@ -1682,7 +1676,6 @@ CommandResult NetworkUtils::getNetId(NetworkParams& aOptions) {
 CommandResult NetworkUtils::createNetwork(NetworkParams& aOptions) {
   static CommandFunc COMMAND_CHAIN[] = {
       createNetwork,
-      enableIpv6,
       addInterfaceToNetwork,
       wakeupAddInterface,
       defaultAsyncSuccessHandler,
@@ -1712,8 +1705,10 @@ CommandResult NetworkUtils::createNetwork(NetworkParams& aOptions) {
  */
 CommandResult NetworkUtils::destroyNetwork(NetworkParams& aOptions) {
   static CommandFunc COMMAND_CHAIN[] = {
-      disableIpv6,    wakeupDelInterface,         removeInterfaceToNetwork,
-      destroyNetwork, defaultAsyncSuccessHandler,
+      wakeupDelInterface,
+      removeInterfaceToNetwork,
+      destroyNetwork,
+      defaultAsyncSuccessHandler,
   };
 
   NetIdManager::NetIdInfo netIdInfo;
@@ -1982,22 +1977,22 @@ CommandResult NetworkUtils::removeInterfaceToNetwork(NetworkParams& aOptions) {
 }
 
 CommandResult NetworkUtils::setIpv6Status(NetworkParams& aOptions) {
-  static CommandFunc COMMAND_CHAIN[] = {
-      setIpv6Enabled,
-      defaultAsyncSuccessHandler,
-  };
-
-  runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
-  return CommandResult(CommandResult::Pending());
-}
-
-CommandResult NetworkUtils::setIpv6PrivacyExtensions(NetworkParams& aOptions) {
-  static CommandFunc COMMAND_CHAIN[] = {
-      setIpv6PrivacyExtensions,
-      defaultAsyncSuccessHandler,
-  };
-
-  runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
+  bool enable = aOptions.mEnable;
+  if (enable) {
+    static CommandFunc COMMAND_CHAIN[] = {
+        setIpv6PrivacyExtensions,
+        setIpv6AddrGenMode,
+        setIpv6Enabled,
+        defaultAsyncSuccessHandler,
+    };
+    runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
+  } else {
+    static CommandFunc COMMAND_CHAIN[] = {
+        setIpv6Enabled,
+        defaultAsyncSuccessHandler,
+    };
+    runChain(aOptions, COMMAND_CHAIN, defaultAsyncFailureHandler);
+  }
   return CommandResult(CommandResult::Pending());
 }
 
@@ -2170,7 +2165,7 @@ CommandResult NetworkUtils::startClatd(NetworkParams& aOptions) {
 
   std::string clatAddress;
   Status status =
-      gNetd->clatdStart(GET_CHAR(mIfname), GET_CHAR(mIPv6Prefix), &clatAddress);
+      gNetd->clatdStart(GET_CHAR(mIfname), GET_CHAR(mNat64Prefix), &clatAddress);
   result.mResult = status.isOk();
 
   if (result.mResult) {

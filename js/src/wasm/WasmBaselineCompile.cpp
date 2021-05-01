@@ -35,6 +35,7 @@
  *   and surrounding functions; most functions fall into this class) where the
  *   meaning is obvious:
  *
+ *   Old school:
  *   - if there is a single source + destination register, it is called 'r'
  *   - if there is one source and a different destination, they are called 'rs'
  *     and 'rd'
@@ -42,6 +43,10 @@
  *     they are called 'r' and 'rs'
  *   - if there are two source registers and a destination register they are
  *     called 'rs0', 'rs1', and 'rd'.
+ *
+ *   The new thing:
+ *   - what is called 'r' in the old-school naming scheme is increasingly called
+ *     'rsd' in source+dest cases.
  *
  * - Generic temp registers are named /temp[0-9]?/ not /tmp[0-9]?/.
  *
@@ -230,8 +235,8 @@ static constexpr FloatRegister RabaldrScratchV128{FloatRegisters::d30,
                                                   FloatRegisters::Simd128};
 #  endif
 
-static_assert(RabaldrScratchF32 != ScratchFloat32Reg, "Too busy");
-static_assert(RabaldrScratchF64 != ScratchDoubleReg, "Too busy");
+static_assert(RabaldrScratchF32 != ScratchFloat32Reg_, "Too busy");
+static_assert(RabaldrScratchF64 != ScratchDoubleReg_, "Too busy");
 #  ifdef ENABLE_WASM_SIMD
 static_assert(RabaldrScratchV128 != ScratchSimd128Reg, "Too busy");
 #  endif
@@ -3135,9 +3140,39 @@ struct StackMapGenerator {
   }
 };
 
+class BaseCompiler;
+
+static void ClzI64(BaseCompiler& bc, RegI64 rsd);
+static void CtzI64(BaseCompiler& bc, RegI64 rsd);
+static RegI32 PopcntTemp(BaseCompiler& bc);
+static void PopcntI32(BaseCompiler& bc, RegI32 rsd, RegI32 temp);
+static void PopcntI64(BaseCompiler& bc, RegI64 rsd, RegI32 temp);
+static void ShlI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+static void ShrI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+static void ShrUI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+static void MinF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd);
+static void MaxF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd);
+static void MinF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd);
+static void MaxF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd);
+static void ExtendI32_8(BaseCompiler& bc, RegI32 rsd);
+
 // The baseline compiler proper.
 
 class BaseCompiler final : public BaseCompilerInterface {
+  friend void ClzI64(BaseCompiler& bc, RegI64 rsd);
+  friend void CtzI64(BaseCompiler& bc, RegI64 rsd);
+  friend RegI32 PopcntTemp(BaseCompiler& bc);
+  friend void PopcntI32(BaseCompiler& bc, RegI32 rsd, RegI32 temp);
+  friend void PopcntI64(BaseCompiler& bc, RegI64 rsd, RegI32 temp);
+  friend void ShlI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+  friend void ShrI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+  friend void ShrUI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd);
+  friend void MinF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd);
+  friend void MaxF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd);
+  friend void MinF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd);
+  friend void MaxF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd);
+  friend void ExtendI32_8(BaseCompiler& bc, RegI32 rsd);
+
   using Local = BaseStackFrame::Local;
   using LabelVector = Vector<NonAssertingLabel, 8, SystemAllocPolicy>;
 
@@ -3459,19 +3494,19 @@ class BaseCompiler final : public BaseCompilerInterface {
 #endif
   }
 
-  void maybeFreeI32(RegI32 r) {
+  void maybeFree(RegI32 r) {
     if (r.isValid()) {
       freeI32(r);
     }
   }
 
-  void maybeFreeI64(RegI64 r) {
+  void maybeFree(RegI64 r) {
     if (r.isValid()) {
       freeI64(r);
     }
   }
 
-  void maybeFreeF64(RegF64 r) {
+  void maybeFree(RegF64 r) {
     if (r.isValid()) {
       freeF64(r);
     }
@@ -4914,7 +4949,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return specific;
   }
 
-  [[nodiscard]] bool popConstI32(int32_t* c) {
+  [[nodiscard]] bool popConst(int32_t* c) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI32) {
       return false;
@@ -4924,7 +4959,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool popConstI64(int64_t* c) {
+  [[nodiscard]] bool popConst(int64_t* c) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI64) {
       return false;
@@ -4934,7 +4969,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool peekConstI32(int32_t* c) {
+  [[nodiscard]] bool peekConst(int32_t* c) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI32) {
       return false;
@@ -4943,7 +4978,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool peekConstI64(int64_t* c) {
+  [[nodiscard]] bool peekConst(int64_t* c) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI64) {
       return false;
@@ -4952,7 +4987,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool peek2xI32(int32_t* c0, int32_t* c1) {
+  [[nodiscard]] bool peek2xConst(int32_t* c0, int32_t* c1) {
     MOZ_ASSERT(stk_.length() >= 2);
     const Stk& v0 = *(stk_.end() - 1);
     const Stk& v1 = *(stk_.end() - 2);
@@ -4964,9 +4999,8 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool popConstPositivePowerOfTwoI32(int32_t* c,
-                                                   uint_fast8_t* power,
-                                                   int32_t cutoff) {
+  [[nodiscard]] bool popConstPositivePowerOfTwo(int32_t* c, uint_fast8_t* power,
+                                                int32_t cutoff) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI32) {
       return false;
@@ -4980,9 +5014,8 @@ class BaseCompiler final : public BaseCompilerInterface {
     return true;
   }
 
-  [[nodiscard]] bool popConstPositivePowerOfTwoI64(int64_t* c,
-                                                   uint_fast8_t* power,
-                                                   int64_t cutoff) {
+  [[nodiscard]] bool popConstPositivePowerOfTwo(int64_t* c, uint_fast8_t* power,
+                                                int64_t cutoff) {
     Stk& v = stk_.back();
     if (v.kind() != Stk::ConstI64) {
       return false;
@@ -6318,10 +6351,6 @@ class BaseCompiler final : public BaseCompilerInterface {
 
   void moveImmRef(intptr_t v, RegRef dest) { masm.movePtr(ImmWord(v), dest); }
 
-  void moveImmF32(float f, RegF32 dest) { masm.loadConstantFloat32(f, dest); }
-
-  void moveImmF64(double d, RegF64 dest) { masm.loadConstantDouble(d, dest); }
-
   [[nodiscard]] bool addInterruptCheck() {
     ScratchI32 tmp(*this);
     fr.loadTlsPtr(tmp);
@@ -6627,34 +6656,6 @@ class BaseCompiler final : public BaseCompilerInterface {
 #endif
   }
 
-  void maskShiftCount32(RegI32 r) {
-#if defined(JS_CODEGEN_ARM)
-    masm.and32(Imm32(31), r);
-#endif
-  }
-
-  RegI32 needPopcnt32Temp() {
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-    return AssemblerX86Shared::HasPOPCNT() ? RegI32::Invalid() : needI32();
-#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
-    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    return needI32();
-#else
-    MOZ_CRASH("BaseCompiler platform hook: needPopcnt32Temp");
-#endif
-  }
-
-  RegI32 needPopcnt64Temp() {
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-    return AssemblerX86Shared::HasPOPCNT() ? RegI32::Invalid() : needI32();
-#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
-    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    return needI32();
-#else
-    MOZ_CRASH("BaseCompiler platform hook: needPopcnt64Temp");
-#endif
-  }
-
   class OutOfLineTruncateCheckF32OrF64ToI32 : public OutOfLineCode {
     AnyReg src;
     RegI32 dest;
@@ -6836,15 +6837,6 @@ class BaseCompiler final : public BaseCompilerInterface {
     masm.bind(&condTrue);
     moveImm32(1, dest);
     masm.bind(&done);
-#endif
-  }
-
-  void eqz64(RegI64 src, RegI32 dest) {
-#ifdef JS_PUNBOX64
-    masm.cmpPtrSet(Assembler::Equal, src.reg, ImmWord(0), dest);
-#else
-    masm.or32(src.high, src.low);
-    masm.cmp32Set(Assembler::Equal, src.low, Imm32(0), dest);
 #endif
   }
 
@@ -7279,7 +7271,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     }
     void maybeFree(BaseCompiler* bc) {
       for (size_t i = 0; i < Count; ++i) {
-        bc->maybeFreeI32(this->operator[](i));
+        bc->maybeFree(this->operator[](i));
       }
     }
   };
@@ -7483,56 +7475,55 @@ class BaseCompiler final : public BaseCompilerInterface {
 #endif
   }
 
-  void pop2xI32ForShift(RegI32* r0, RegI32* r1) {
+  RegI32 popI32RhsForShift() {
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
     // r1 must be ecx for a variable shift, unless BMI2 is available.
     if (!Assembler::HasBMI2()) {
-      *r1 = popI32(specific_.ecx);
-      *r0 = popI32();
-      return;
+      return popI32(specific_.ecx);
     }
 #endif
-    pop2xI32(r0, r1);
+    RegI32 r = popI32();
+#if defined(JS_CODEGEN_ARM)
+    masm.and32(Imm32(31), r);
+#endif
+    return r;
   }
 
-  void pop2xI64ForShift(RegI64* r0, RegI64* r1) {
+  RegI64 popI64RhsForShift() {
 #if defined(JS_CODEGEN_X86)
     // r1 must be ecx for a variable shift.
     needI32(specific_.ecx);
-    *r1 = popI64ToSpecific(widenI32(specific_.ecx));
-    *r0 = popI64();
+    return popI64ToSpecific(widenI32(specific_.ecx));
 #else
 #  if defined(JS_CODEGEN_X64)
     // r1 must be rcx for a variable shift, unless BMI2 is available.
     if (!Assembler::HasBMI2()) {
       needI64(specific_.rcx);
-      *r1 = popI64ToSpecific(specific_.rcx);
-      *r0 = popI64();
-      return;
+      return popI64ToSpecific(specific_.rcx);
     }
 #  endif
-    pop2xI64(r0, r1);
+    // No masking is necessary on 64-bit platforms, and on arm32 the masm
+    // implementation masks.
+    return popI64();
 #endif
   }
 
-  void pop2xI32ForRotate(RegI32* r0, RegI32* r1) {
+  RegI32 popI32RhsForRotate() {
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
     // r1 must be ecx for a variable rotate.
-    *r1 = popI32(specific_.ecx);
-    *r0 = popI32();
+    return popI32(specific_.ecx);
 #else
-    pop2xI32(r0, r1);
+    return popI32();
 #endif
   }
 
-  void pop2xI64ForRotate(RegI64* r0, RegI64* r1) {
+  RegI64 popI64RhsForRotate() {
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
     // r1 must be ecx for a variable rotate.
     needI32(specific_.ecx);
-    *r1 = popI64ToSpecific(widenI32(specific_.ecx));
-    *r0 = popI64();
+    return popI64ToSpecific(widenI32(specific_.ecx));
 #else
-    pop2xI64(r0, r1);
+    return popI64();
 #endif
   }
 
@@ -7572,8 +7563,8 @@ class BaseCompiler final : public BaseCompilerInterface {
   class PopBase {
     T rd_;
 
-    void maybeFree(RegI32 r) { bc->maybeFreeI32(r); }
-    void maybeFree(RegI64 r) { bc->maybeFreeI64(r); }
+    void maybeFree(RegI32 r) { bc->maybeFree(r); }
+    void maybeFree(RegI64 r) { bc->maybeFree(r); }
 
    protected:
     BaseCompiler* const bc;
@@ -7910,7 +7901,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       }
     }
     ~PopAtomicRMW64Regs() {
-      bc->maybeFreeI64(temp);
+      bc->maybeFree(temp);
       if (op != AtomicFetchAddOp && op != AtomicFetchSubOp) {
         bc->freeI64(rv);
       }
@@ -8182,8 +8173,14 @@ class BaseCompiler final : public BaseCompilerInterface {
   RegType pop();
   template <typename RegType>
   RegType need();
-  template <typename RegType>
-  void free(RegType r);
+
+  void free(RegI32 r) { freeI32(r); }
+  void free(RegI64 r) { freeI64(r); }
+  void free(RegF32 r) { freeF32(r); }
+  void free(RegF64 r) { freeF64(r); }
+#ifdef ENABLE_WASM_SIMD
+  void free(RegV128 r) { freeV128(r); }
+#endif
 
   ////////////////////////////////////////////////////////////
   //
@@ -8565,18 +8562,63 @@ class BaseCompiler final : public BaseCompilerInterface {
                       ValType compareType);
   void emitCompareRef(Assembler::Condition compareOp, ValType compareType);
 
-  void emitAddI32();
-  void emitAddI64();
-  void emitAddF64();
-  void emitAddF32();
-  void emitSubtractI32();
-  void emitSubtractI64();
-  void emitSubtractF32();
-  void emitSubtractF64();
+  template <typename CompilerType>
+  CompilerType& selectCompiler();
+
+  template <typename SourceType, typename DestType>
+  void emitUnop(void (*op)(MacroAssembler& masm, SourceType rs, DestType rd));
+
+  template <typename SourceType, typename DestType, typename TempType>
+  void emitUnop(void (*op)(MacroAssembler& masm, SourceType rs, DestType rd,
+                           TempType temp));
+
+  template <typename SourceType, typename DestType, typename ImmType>
+  void emitUnop(ImmType immediate,
+                void (*op)(MacroAssembler&, ImmType, SourceType, DestType));
+
+  template <typename CompilerType, typename RegType>
+  void emitUnop(void (*op)(CompilerType& compiler, RegType rsd));
+
+  template <typename RegType, typename TempType>
+  void emitUnop(void (*op)(BaseCompiler& bc, RegType rsd, TempType rt),
+                TempType (*getSpecializedTemp)(BaseCompiler& bc));
+
+  template <typename CompilerType, typename RhsType, typename LhsDestType>
+  void emitBinop(void (*op)(CompilerType& masm, RhsType src,
+                            LhsDestType srcDest));
+
+  template <typename RhsDestType, typename LhsType>
+  void emitBinop(void (*op)(MacroAssembler& masm, RhsDestType src,
+                            LhsType srcDest, RhsDestOp));
+
+  template <typename RhsType, typename LhsDestType, typename TempType>
+  void emitBinop(void (*)(MacroAssembler& masm, RhsType rs, LhsDestType rsd,
+                          TempType temp));
+
+  template <typename RhsType, typename LhsDestType, typename TempType1,
+            typename TempType2>
+  void emitBinop(void (*)(MacroAssembler& masm, RhsType rs, LhsDestType rsd,
+                          TempType1 temp1, TempType2 temp2));
+
+  template <typename RhsType, typename LhsDestType, typename ImmType>
+  void emitBinop(ImmType immediate,
+                 void (*op)(MacroAssembler&, ImmType, RhsType, LhsDestType));
+
+  template <typename RhsType, typename LhsDestType, typename ImmType,
+            typename TempType1, typename TempType2>
+  void emitBinop(ImmType immediate,
+                 void (*op)(MacroAssembler&, ImmType, RhsType, LhsDestType,
+                            TempType1 temp1, TempType2 temp2));
+
+  template <typename CompilerType1, typename CompilerType2, typename RegType,
+            typename ImmType>
+  void emitBinop(void (*op)(CompilerType1& compiler1, RegType rs, RegType rd),
+                 void (*opConst)(CompilerType2& compiler2, ImmType c,
+                                 RegType rd),
+                 RegType (BaseCompiler::*rhsPopper)() = nullptr);
+
   void emitMultiplyI32();
   void emitMultiplyI64();
-  void emitMultiplyF32();
-  void emitMultiplyF64();
   void emitQuotientI32();
   void emitQuotientU32();
   void emitRemainderI32();
@@ -8590,44 +8632,10 @@ class BaseCompiler final : public BaseCompilerInterface {
   void emitRemainderI64();
   void emitRemainderU64();
 #endif
-  void emitDivideF32();
-  void emitDivideF64();
-  void emitMinF32();
-  void emitMaxF32();
-  void emitMinF64();
-  void emitMaxF64();
-  void emitCopysignF32();
-  void emitCopysignF64();
-  void emitOrI32();
-  void emitOrI64();
-  void emitAndI32();
-  void emitAndI64();
-  void emitXorI32();
-  void emitXorI64();
-  void emitShlI32();
-  void emitShlI64();
-  void emitShrI32();
-  void emitShrI64();
-  void emitShrU32();
-  void emitShrU64();
-  void emitRotrI32();
   void emitRotrI64();
-  void emitRotlI32();
   void emitRotlI64();
   void emitEqzI32();
   void emitEqzI64();
-  void emitClzI32();
-  void emitClzI64();
-  void emitCtzI32();
-  void emitCtzI64();
-  void emitPopcntI32();
-  void emitPopcntI64();
-  void emitAbsF32();
-  void emitAbsF64();
-  void emitNegateF32();
-  void emitNegateF64();
-  void emitSqrtF32();
-  void emitSqrtF64();
   template <TruncFlags flags>
   [[nodiscard]] bool emitTruncateF32ToI32();
   template <TruncFlags flags>
@@ -8642,34 +8650,19 @@ class BaseCompiler final : public BaseCompilerInterface {
   template <TruncFlags flags>
   [[nodiscard]] bool emitTruncateF64ToI64();
 #endif
-  void emitWrapI64ToI32();
-  void emitExtendI32_8();
-  void emitExtendI32_16();
   void emitExtendI64_8();
   void emitExtendI64_16();
   void emitExtendI64_32();
   void emitExtendI32ToI64();
   void emitExtendU32ToI64();
-  void emitReinterpretF32AsI32();
-  void emitReinterpretF64AsI64();
-  void emitConvertF64ToF32();
-  void emitConvertI32ToF32();
-  void emitConvertU32ToF32();
-  void emitConvertF32ToF64();
-  void emitConvertI32ToF64();
-  void emitConvertU32ToF64();
 #ifdef RABALDR_I64_TO_FLOAT_CALLOUT
   [[nodiscard]] bool emitConvertInt64ToFloatingCallout(SymbolicAddress callee,
                                                        ValType operandType,
                                                        ValType resultType);
 #else
-  void emitConvertI64ToF32();
   void emitConvertU64ToF32();
-  void emitConvertI64ToF64();
   void emitConvertU64ToF64();
 #endif
-  void emitReinterpretI32AsF32();
-  void emitReinterpretI64AsF64();
   void emitRound(RoundingMode roundingMode, ValType operandType);
   [[nodiscard]] bool emitInstanceCall(uint32_t lineOrBytecode,
                                       const SymbolicAddressSignature& builtin,
@@ -8704,13 +8697,11 @@ class BaseCompiler final : public BaseCompilerInterface {
   [[nodiscard]] bool emitMemFillCall(uint32_t lineOrBytecode);
   [[nodiscard]] bool emitMemFillInline();
   [[nodiscard]] bool emitMemOrTableInit(bool isMem);
-#ifdef ENABLE_WASM_REFTYPES
   [[nodiscard]] bool emitTableFill();
   [[nodiscard]] bool emitTableGet();
   [[nodiscard]] bool emitTableGrow();
   [[nodiscard]] bool emitTableSet();
   [[nodiscard]] bool emitTableSize();
-#endif
   [[nodiscard]] bool emitStructNewWithRtt();
   [[nodiscard]] bool emitStructNewDefaultWithRtt();
   [[nodiscard]] bool emitStructGet(FieldExtension extension);
@@ -8740,47 +8731,6 @@ class BaseCompiler final : public BaseCompilerInterface {
                                     const ArrayType& array, AnyReg value);
 
 #ifdef ENABLE_WASM_SIMD
-  template <typename SourceType, typename DestType>
-  void emitVectorUnop(void (*op)(MacroAssembler& masm, SourceType rs,
-                                 DestType rd));
-
-  template <typename SourceType, typename DestType, typename TempType>
-  void emitVectorUnop(void (*op)(MacroAssembler& masm, SourceType rs,
-                                 DestType rd, TempType temp));
-
-  template <typename SourceType, typename DestType, typename ImmType>
-  void emitVectorUnop(ImmType immediate, void (*op)(MacroAssembler&, ImmType,
-                                                    SourceType, DestType));
-
-  template <typename RhsType, typename LhsDestType>
-  void emitVectorBinop(void (*op)(MacroAssembler& masm, RhsType src,
-                                  LhsDestType srcDest));
-
-  template <typename RhsDestType, typename LhsType>
-  void emitVectorBinop(void (*op)(MacroAssembler& masm, RhsDestType src,
-                                  LhsType srcDest, RhsDestOp));
-
-  template <typename RhsType, typename LhsDestType, typename TempType>
-  void emitVectorBinop(void (*)(MacroAssembler& masm, RhsType rs,
-                                LhsDestType rsd, TempType temp));
-
-  template <typename RhsType, typename LhsDestType, typename TempType1,
-            typename TempType2>
-  void emitVectorBinop(void (*)(MacroAssembler& masm, RhsType rs,
-                                LhsDestType rsd, TempType1 temp1,
-                                TempType2 temp2));
-
-  template <typename RhsType, typename LhsDestType, typename ImmType>
-  void emitVectorBinop(ImmType immediate, void (*op)(MacroAssembler&, ImmType,
-                                                     RhsType, LhsDestType));
-
-  template <typename RhsType, typename LhsDestType, typename ImmType,
-            typename TempType1, typename TempType2>
-  void emitVectorBinop(ImmType immediate,
-                       void (*op)(MacroAssembler&, ImmType, RhsType,
-                                  LhsDestType, TempType1 temp1,
-                                  TempType2 temp2));
-
   void emitVectorAndNot();
 
   [[nodiscard]] bool emitLoadSplat(Scalar::Type viewType);
@@ -8831,23 +8781,6 @@ RegF64 BaseCompiler::pop<RegF64>() {
   return popF64();
 }
 
-template <>
-void BaseCompiler::free<RegI32>(RegI32 r) {
-  freeI32(r);
-}
-template <>
-void BaseCompiler::free<RegI64>(RegI64 r) {
-  freeI64(r);
-}
-template <>
-void BaseCompiler::free<RegF32>(RegF32 r) {
-  freeF32(r);
-}
-template <>
-void BaseCompiler::free<RegF64>(RegF64 r) {
-  freeF64(r);
-}
-
 #ifdef ENABLE_WASM_SIMD
 template <>
 RegV128 BaseCompiler::need<RegV128>() {
@@ -8857,109 +8790,586 @@ template <>
 RegV128 BaseCompiler::pop<RegV128>() {
   return popV128();
 }
+#endif
+
 template <>
-void BaseCompiler::free<RegV128>(RegV128 r) {
-  freeV128(r);
+BaseCompiler& BaseCompiler::selectCompiler<BaseCompiler>() {
+  return *this;
+}
+
+template <>
+MacroAssembler& BaseCompiler::selectCompiler<MacroAssembler>() {
+  return masm;
+}
+
+template <typename SourceType, typename DestType>
+void BaseCompiler::emitUnop(void (*op)(MacroAssembler& masm, SourceType rs,
+                                       DestType rd)) {
+  SourceType rs = pop<SourceType>();
+  DestType rd = need<DestType>();
+  op(masm, rs, rd);
+  free(rs);
+  push(rd);
+}
+
+// Specialize narrowing reuse.  Consumers may assume that rs.reg==rd on 64-bit
+// platforms, or rs.low==rd on 32-bit platforms.
+template <>
+void BaseCompiler::emitUnop(void (*op)(MacroAssembler& masm, RegI64 rs,
+                                       RegI32 rd)) {
+  RegI64 rs = pop<RegI64>();
+  RegI32 rd = fromI64(rs);
+  op(masm, rs, rd);
+  freeI64Except(rs, rd);
+  push(rd);
+}
+
+template <typename CompilerType, typename RegType>
+void BaseCompiler::emitUnop(void (*op)(CompilerType& compiler, RegType rsd)) {
+  RegType rsd = pop<RegType>();
+  op(selectCompiler<CompilerType>(), rsd);
+  push(rsd);
+}
+
+template <typename RegType, typename TempType>
+void BaseCompiler::emitUnop(void (*op)(BaseCompiler& bc, RegType rsd,
+                                       TempType rt),
+                            TempType (*getSpecializedTemp)(BaseCompiler& bc)) {
+  RegType rsd = pop<RegType>();
+  TempType temp = getSpecializedTemp(*this);
+  op(*this, rsd, temp);
+  maybeFree(temp);
+  push(rsd);
+}
+
+template <typename SourceType, typename DestType, typename TempType>
+void BaseCompiler::emitUnop(void (*op)(MacroAssembler& masm, SourceType rs,
+                                       DestType rd, TempType temp)) {
+  SourceType rs = pop<SourceType>();
+  DestType rd = need<DestType>();
+  TempType temp = need<TempType>();
+  op(masm, rs, rd, temp);
+  free(rs);
+  free(temp);
+  push(rd);
+}
+
+template <typename SourceType, typename DestType, typename ImmType>
+void BaseCompiler::emitUnop(ImmType immediate,
+                            void (*op)(MacroAssembler&, ImmType, SourceType,
+                                       DestType)) {
+  SourceType rs = pop<SourceType>();
+  DestType rd = need<DestType>();
+  op(masm, immediate, rs, rd);
+  free(rs);
+  push(rd);
+}
+
+template <typename CompilerType, typename RhsType, typename LhsDestType>
+void BaseCompiler::emitBinop(void (*op)(CompilerType& masm, RhsType src,
+                                        LhsDestType srcDest)) {
+  RhsType rs = pop<RhsType>();
+  LhsDestType rsd = pop<LhsDestType>();
+  op(selectCompiler<CompilerType>(), rs, rsd);
+  free(rs);
+  push(rsd);
+}
+
+template <typename RhsDestType, typename LhsType>
+void BaseCompiler::emitBinop(void (*op)(MacroAssembler& masm, RhsDestType src,
+                                        LhsType srcDest, RhsDestOp)) {
+  RhsDestType rsd = pop<RhsDestType>();
+  LhsType rs = pop<LhsType>();
+  op(masm, rsd, rs, RhsDestOp::True);
+  free(rs);
+  push(rsd);
+}
+
+template <typename RhsType, typename LhsDestType, typename TempType>
+void BaseCompiler::emitBinop(void (*op)(MacroAssembler& masm, RhsType rs,
+                                        LhsDestType rsd, TempType temp)) {
+  RhsType rs = pop<RhsType>();
+  LhsDestType rsd = pop<LhsDestType>();
+  TempType temp = need<TempType>();
+  op(masm, rs, rsd, temp);
+  free(rs);
+  free(temp);
+  push(rsd);
+}
+
+template <typename RhsType, typename LhsDestType, typename TempType1,
+          typename TempType2>
+void BaseCompiler::emitBinop(void (*op)(MacroAssembler& masm, RhsType rs,
+                                        LhsDestType rsd, TempType1 temp1,
+                                        TempType2 temp2)) {
+  RhsType rs = pop<RhsType>();
+  LhsDestType rsd = pop<LhsDestType>();
+  TempType1 temp1 = need<TempType1>();
+  TempType2 temp2 = need<TempType2>();
+  op(masm, rs, rsd, temp1, temp2);
+  free(rs);
+  free(temp1);
+  free(temp2);
+  push(rsd);
+}
+
+template <typename RhsType, typename LhsDestType, typename ImmType>
+void BaseCompiler::emitBinop(ImmType immediate,
+                             void (*op)(MacroAssembler&, ImmType, RhsType,
+                                        LhsDestType)) {
+  RhsType rs = pop<RhsType>();
+  LhsDestType rsd = pop<LhsDestType>();
+  op(masm, immediate, rs, rsd);
+  free(rs);
+  push(rsd);
+}
+
+template <typename RhsType, typename LhsDestType, typename ImmType,
+          typename TempType1, typename TempType2>
+void BaseCompiler::emitBinop(ImmType immediate,
+                             void (*op)(MacroAssembler&, ImmType, RhsType,
+                                        LhsDestType, TempType1 temp1,
+                                        TempType2 temp2)) {
+  RhsType rs = pop<RhsType>();
+  LhsDestType rsd = pop<LhsDestType>();
+  TempType1 temp1 = need<TempType1>();
+  TempType2 temp2 = need<TempType2>();
+  op(masm, immediate, rs, rsd, temp1, temp2);
+  free(rs);
+  free(temp1);
+  free(temp2);
+  push(rsd);
+}
+
+template <typename CompilerType1, typename CompilerType2, typename RegType,
+          typename ImmType>
+void BaseCompiler::emitBinop(void (*op)(CompilerType1& compiler, RegType rs,
+                                        RegType rsd),
+                             void (*opConst)(CompilerType2& compiler, ImmType c,
+                                             RegType rsd),
+                             RegType (BaseCompiler::*rhsPopper)()) {
+  ImmType c;
+  if (popConst(&c)) {
+    RegType rsd = pop<RegType>();
+    opConst(selectCompiler<CompilerType2>(), c, rsd);
+    push(rsd);
+  } else {
+    RegType rs = rhsPopper ? (this->*rhsPopper)() : pop<RegType>();
+    RegType rsd = pop<RegType>();
+    op(selectCompiler<CompilerType1>(), rs, rsd);
+    free(rs);
+    push(rsd);
+  }
+}
+
+static void AddI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.add32(rs, rsd);
+}
+
+static void AddImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.add32(Imm32(c), rsd);
+}
+
+static void SubI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.sub32(rs, rsd);
+}
+
+static void SubImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.sub32(Imm32(c), rsd);
+}
+
+static void OrI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.or32(rs, rsd);
+}
+
+static void OrImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.or32(Imm32(c), rsd);
+}
+
+static void AndI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.and32(rs, rsd);
+}
+
+static void AndImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.and32(Imm32(c), rsd);
+}
+
+static void XorI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.xor32(rs, rsd);
+}
+
+static void XorImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.xor32(Imm32(c), rsd);
+}
+
+static void ClzI32(MacroAssembler& masm, RegI32 rsd) {
+  masm.clz32(rsd, rsd, IsKnownNotZero(false));
+}
+
+static void CtzI32(MacroAssembler& masm, RegI32 rsd) {
+  masm.ctz32(rsd, rsd, IsKnownNotZero(false));
+}
+
+// Currently common to PopcntI32 and PopcntI64
+static RegI32 PopcntTemp(BaseCompiler& bc) {
+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+  return AssemblerX86Shared::HasPOPCNT() ? RegI32::Invalid() : bc.needI32();
+#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
+    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+  return bc.needI32();
+#else
+  MOZ_CRASH("BaseCompiler platform hook: PopcntTemp");
+#endif
+}
+
+static void PopcntI32(BaseCompiler& bc, RegI32 rsd, RegI32 temp) {
+  bc.masm.popcnt32(rsd, rsd, temp);
+}
+
+static void ShlI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.lshift32(rs, rsd);
+}
+
+static void ShlImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.lshift32(Imm32(c & 31), rsd);
+}
+
+static void ShrI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.rshift32Arithmetic(rs, rsd);
+}
+
+static void ShrImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.rshift32Arithmetic(Imm32(c & 31), rsd);
+}
+
+static void ShrUI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.rshift32(rs, rsd);
+}
+
+static void ShrUImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.rshift32(Imm32(c & 31), rsd);
+}
+
+static void RotlI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.rotateLeft(rs, rsd, rsd);
+}
+
+static void RotlImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.rotateLeft(Imm32(c & 31), rsd, rsd);
+}
+
+static void RotrI32(MacroAssembler& masm, RegI32 rs, RegI32 rsd) {
+  masm.rotateRight(rs, rsd, rsd);
+}
+
+static void RotrImmI32(MacroAssembler& masm, int32_t c, RegI32 rsd) {
+  masm.rotateRight(Imm32(c & 31), rsd, rsd);
+}
+
+static void EqzI32(MacroAssembler& masm, RegI32 rsd) {
+  masm.cmp32Set(Assembler::Equal, rsd, Imm32(0), rsd);
+}
+
+static void WrapI64ToI32(MacroAssembler& masm, RegI64 rs, RegI32 rd) {
+  masm.move64To32(rs, rd);
+}
+
+static void AddI64(MacroAssembler& masm, RegI64 rs, RegI64 rsd) {
+  masm.add64(rs, rsd);
+}
+
+static void AddImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.add64(Imm64(c), rsd);
+}
+
+static void SubI64(MacroAssembler& masm, RegI64 rs, RegI64 rsd) {
+  masm.sub64(rs, rsd);
+}
+
+static void SubImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.sub64(Imm64(c), rsd);
+}
+
+static void OrI64(MacroAssembler& masm, RegI64 rs, RegI64 rsd) {
+  masm.or64(rs, rsd);
+}
+
+static void OrImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.or64(Imm64(c), rsd);
+}
+
+static void AndI64(MacroAssembler& masm, RegI64 rs, RegI64 rsd) {
+  masm.and64(rs, rsd);
+}
+
+static void AndImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.and64(Imm64(c), rsd);
+}
+
+static void XorI64(MacroAssembler& masm, RegI64 rs, RegI64 rsd) {
+  masm.xor64(rs, rsd);
+}
+
+static void XorImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.xor64(Imm64(c), rsd);
+}
+
+static void ClzI64(BaseCompiler& bc, RegI64 rsd) {
+  bc.masm.clz64(rsd, bc.lowPart(rsd));
+  bc.maybeClearHighPart(rsd);
+}
+
+static void CtzI64(BaseCompiler& bc, RegI64 rsd) {
+  bc.masm.ctz64(rsd, bc.lowPart(rsd));
+  bc.maybeClearHighPart(rsd);
+}
+
+static void PopcntI64(BaseCompiler& bc, RegI64 rsd, RegI32 temp) {
+  bc.masm.popcnt64(rsd, rsd, temp);
+}
+
+static void ShlI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd) {
+  bc.masm.lshift64(bc.lowPart(rs), rsd);
+}
+
+static void ShlImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.lshift64(Imm32(c & 63), rsd);
+}
+
+static void ShrI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd) {
+  bc.masm.rshift64Arithmetic(bc.lowPart(rs), rsd);
+}
+
+static void ShrImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.rshift64Arithmetic(Imm32(c & 63), rsd);
+}
+
+static void ShrUI64(BaseCompiler& bc, RegI64 rs, RegI64 rsd) {
+  bc.masm.rshift64(bc.lowPart(rs), rsd);
+}
+
+static void ShrUImmI64(MacroAssembler& masm, int64_t c, RegI64 rsd) {
+  masm.rshift64(Imm32(c & 63), rsd);
+}
+
+static void EqzI64(MacroAssembler& masm, RegI64 rs, RegI32 rd) {
+#ifdef JS_PUNBOX64
+  masm.cmpPtrSet(Assembler::Equal, rs.reg, ImmWord(0), rd);
+#else
+  MOZ_ASSERT(rs.low == rd);
+  masm.or32(rs.high, rs.low);
+  masm.cmp32Set(Assembler::Equal, rs.low, Imm32(0), rd);
+#endif
+}
+
+static void AddF64(MacroAssembler& masm, RegF64 rs, RegF64 rsd) {
+  masm.addDouble(rs, rsd);
+}
+
+static void SubF64(MacroAssembler& masm, RegF64 rs, RegF64 rsd) {
+  masm.subDouble(rs, rsd);
+}
+
+static void MulF64(MacroAssembler& masm, RegF64 rs, RegF64 rsd) {
+  masm.mulDouble(rs, rsd);
+}
+
+static void DivF64(MacroAssembler& masm, RegF64 rs, RegF64 rsd) {
+  masm.divDouble(rs, rsd);
+}
+
+static void MinF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd) {
+  // Convert signaling NaN to quiet NaNs.
+  //
+  // TODO / OPTIMIZE (bug 1316824): see comment in MinF32.
+#ifdef RABALDR_SCRATCH_F64
+  ScratchF64 zero(bc.ra);
+#else
+  ScratchF64 zero(bc.masm);
+#endif
+  bc.masm.loadConstantDouble(0, zero);
+  bc.masm.subDouble(zero, rsd);
+  bc.masm.subDouble(zero, rs);
+  bc.masm.minDouble(rs, rsd, HandleNaNSpecially(true));
+}
+
+static void MaxF64(BaseCompiler& bc, RegF64 rs, RegF64 rsd) {
+  // Convert signaling NaN to quiet NaNs.
+  //
+  // TODO / OPTIMIZE (bug 1316824): see comment in MinF32.
+#ifdef RABALDR_SCRATCH_F64
+  ScratchF64 zero(bc.ra);
+#else
+  ScratchF64 zero(bc.masm);
+#endif
+  bc.masm.loadConstantDouble(0, zero);
+  bc.masm.subDouble(zero, rsd);
+  bc.masm.subDouble(zero, rs);
+  bc.masm.maxDouble(rs, rsd, HandleNaNSpecially(true));
+}
+
+static void CopysignF64(MacroAssembler& masm, RegF64 rs, RegF64 rsd,
+                        RegI64 temp0, RegI64 temp1) {
+  masm.moveDoubleToGPR64(rsd, temp0);
+  masm.moveDoubleToGPR64(rs, temp1);
+  masm.and64(Imm64(INT64_MAX), temp0);
+  masm.and64(Imm64(INT64_MIN), temp1);
+  masm.or64(temp1, temp0);
+  masm.moveGPR64ToDouble(temp0, rsd);
+}
+
+static void AbsF64(MacroAssembler& masm, RegF64 rsd) {
+  masm.absDouble(rsd, rsd);
+}
+
+static void NegateF64(MacroAssembler& masm, RegF64 rsd) {
+  masm.negateDouble(rsd);
+}
+
+static void SqrtF64(MacroAssembler& masm, RegF64 rsd) {
+  masm.sqrtDouble(rsd, rsd);
+}
+
+static void AddF32(MacroAssembler& masm, RegF32 rs, RegF32 rsd) {
+  masm.addFloat32(rs, rsd);
+}
+
+static void SubF32(MacroAssembler& masm, RegF32 rs, RegF32 rsd) {
+  masm.subFloat32(rs, rsd);
+}
+
+static void MulF32(MacroAssembler& masm, RegF32 rs, RegF32 rsd) {
+  masm.mulFloat32(rs, rsd);
+}
+
+static void DivF32(MacroAssembler& masm, RegF32 rs, RegF32 rsd) {
+  masm.divFloat32(rs, rsd);
+}
+
+static void MinF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd) {
+  // Convert signaling NaN to quiet NaNs.
+  //
+  // TODO / OPTIMIZE (bug 1316824): Don't do this if one of the operands
+  // is known to be a constant.
+#ifdef RABALDR_SCRATCH_F32
+  ScratchF32 zero(bc.ra);
+#else
+  ScratchF32 zero(bc.masm);
+#endif
+  bc.masm.loadConstantFloat32(0.f, zero);
+  bc.masm.subFloat32(zero, rsd);
+  bc.masm.subFloat32(zero, rs);
+  bc.masm.minFloat32(rs, rsd, HandleNaNSpecially(true));
+}
+
+static void MaxF32(BaseCompiler& bc, RegF32 rs, RegF32 rsd) {
+  // Convert signaling NaN to quiet NaNs.
+  //
+  // TODO / OPTIMIZE (bug 1316824): see comment in MinF32.
+#ifdef RABALDR_SCRATCH_F32
+  ScratchF32 zero(bc.ra);
+#else
+  ScratchF32 zero(bc.masm);
+#endif
+  bc.masm.loadConstantFloat32(0.f, zero);
+  bc.masm.subFloat32(zero, rsd);
+  bc.masm.subFloat32(zero, rs);
+  bc.masm.maxFloat32(rs, rsd, HandleNaNSpecially(true));
+}
+
+static void CopysignF32(MacroAssembler& masm, RegF32 rs, RegF32 rsd,
+                        RegI32 temp0, RegI32 temp1) {
+  masm.moveFloat32ToGPR(rsd, temp0);
+  masm.moveFloat32ToGPR(rs, temp1);
+  masm.and32(Imm32(INT32_MAX), temp0);
+  masm.and32(Imm32(INT32_MIN), temp1);
+  masm.or32(temp1, temp0);
+  masm.moveGPRToFloat32(temp0, rsd);
+}
+
+static void AbsF32(MacroAssembler& masm, RegF32 rsd) {
+  masm.absFloat32(rsd, rsd);
+}
+
+static void NegateF32(MacroAssembler& masm, RegF32 rsd) {
+  masm.negateFloat(rsd);
+}
+
+static void SqrtF32(MacroAssembler& masm, RegF32 rsd) {
+  masm.sqrtFloat32(rsd, rsd);
+}
+
+#ifndef RABALDR_I64_TO_FLOAT_CALLOUT
+static void ConvertI64ToF32(MacroAssembler& masm, RegI64 rs, RegF32 rd) {
+  masm.convertInt64ToFloat32(rs, rd);
+}
+
+static void ConvertI64ToF64(MacroAssembler& masm, RegI64 rs, RegF64 rd) {
+  masm.convertInt64ToDouble(rs, rd);
 }
 #endif
 
-void BaseCompiler::emitAddI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.add32(Imm32(c), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32(&r, &rs);
-    masm.add32(rs, r);
-    freeI32(rs);
-    pushI32(r);
+static void ReinterpretF32AsI32(MacroAssembler& masm, RegF32 rs, RegI32 rd) {
+  masm.moveFloat32ToGPR(rs, rd);
+}
+
+static void ReinterpretF64AsI64(MacroAssembler& masm, RegF64 rs, RegI64 rd) {
+  masm.moveDoubleToGPR64(rs, rd);
+}
+
+static void ConvertF64ToF32(MacroAssembler& masm, RegF64 rs, RegF32 rd) {
+  masm.convertDoubleToFloat32(rs, rd);
+}
+
+static void ConvertI32ToF32(MacroAssembler& masm, RegI32 rs, RegF32 rd) {
+  masm.convertInt32ToFloat32(rs, rd);
+}
+
+static void ConvertU32ToF32(MacroAssembler& masm, RegI32 rs, RegF32 rd) {
+  masm.convertUInt32ToFloat32(rs, rd);
+}
+
+static void ConvertF32ToF64(MacroAssembler& masm, RegF32 rs, RegF64 rd) {
+  masm.convertFloat32ToDouble(rs, rd);
+}
+
+static void ConvertI32ToF64(MacroAssembler& masm, RegI32 rs, RegF64 rd) {
+  masm.convertInt32ToDouble(rs, rd);
+}
+
+static void ConvertU32ToF64(MacroAssembler& masm, RegI32 rs, RegF64 rd) {
+  masm.convertUInt32ToDouble(rs, rd);
+}
+
+static void ReinterpretI32AsF32(MacroAssembler& masm, RegI32 rs, RegF32 rd) {
+  masm.moveGPRToFloat32(rs, rd);
+}
+
+static void ReinterpretI64AsF64(MacroAssembler& masm, RegI64 rs, RegF64 rd) {
+  masm.moveGPR64ToDouble(rs, rd);
+}
+
+static void ExtendI32_8(BaseCompiler& bc, RegI32 rsd) {
+#ifdef JS_CODEGEN_X86
+  if (!bc.ra.isSingleByteI32(rsd)) {
+    ScratchI8 scratch(bc.ra);
+    bc.masm.move32(rsd, scratch);
+    bc.masm.move8SignExtend(scratch, rsd);
+    return;
   }
+#endif
+  bc.masm.move8SignExtend(rsd, rsd);
 }
 
-void BaseCompiler::emitAddI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.add64(Imm64(c), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64(&r, &rs);
-    masm.add64(rs, r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitAddF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  masm.addDouble(rs, r);
-  freeF64(rs);
-  pushF64(r);
-}
-
-void BaseCompiler::emitAddF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  masm.addFloat32(rs, r);
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitSubtractI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.sub32(Imm32(c), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32(&r, &rs);
-    masm.sub32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitSubtractI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.sub64(Imm64(c), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64(&r, &rs);
-    masm.sub64(rs, r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitSubtractF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  masm.subFloat32(rs, r);
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitSubtractF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  masm.subDouble(rs, r);
-  freeF64(rs);
-  pushF64(r);
+static void ExtendI32_16(MacroAssembler& masm, RegI32 rsd) {
+  masm.move16SignExtend(rsd, rsd);
 }
 
 void BaseCompiler::emitMultiplyI32() {
   RegI32 r, rs, reserved;
   pop2xI32ForMulDivI32(&r, &rs, &reserved);
   masm.mul32(rs, r);
-  maybeFreeI32(reserved);
+  maybeFree(reserved);
   freeI32(rs);
   pushI32(r);
 }
@@ -8969,32 +9379,16 @@ void BaseCompiler::emitMultiplyI64() {
   RegI32 temp;
   pop2xI64ForMulI64(&r, &rs, &temp, &reserved);
   masm.mul64(rs, r, temp);
-  maybeFreeI64(reserved);
-  maybeFreeI32(temp);
+  maybeFree(reserved);
+  maybeFree(temp);
   freeI64(rs);
   pushI64(r);
-}
-
-void BaseCompiler::emitMultiplyF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  masm.mulFloat32(rs, r);
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitMultiplyF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  masm.mulDouble(rs, r);
-  freeF64(rs);
-  pushF64(r);
 }
 
 void BaseCompiler::emitQuotientI32() {
   int32_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI32(&c, &power, 0)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 0)) {
     if (power != 0) {
       RegI32 r = popI32();
       Label positive;
@@ -9006,7 +9400,7 @@ void BaseCompiler::emitQuotientI32() {
       pushI32(r);
     }
   } else {
-    bool isConst = peekConstI32(&c);
+    bool isConst = peekConst(&c);
     RegI32 r, rs, reserved;
     pop2xI32ForMulDivI32(&r, &rs, &reserved);
 
@@ -9021,7 +9415,7 @@ void BaseCompiler::emitQuotientI32() {
     masm.quotient32(rs, r, IsUnsigned(false));
     masm.bind(&done);
 
-    maybeFreeI32(reserved);
+    maybeFree(reserved);
     freeI32(rs);
     pushI32(r);
   }
@@ -9030,14 +9424,14 @@ void BaseCompiler::emitQuotientI32() {
 void BaseCompiler::emitQuotientU32() {
   int32_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI32(&c, &power, 0)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 0)) {
     if (power != 0) {
       RegI32 r = popI32();
       masm.rshift32(Imm32(power & 31), r);
       pushI32(r);
     }
   } else {
-    bool isConst = peekConstI32(&c);
+    bool isConst = peekConst(&c);
     RegI32 r, rs, reserved;
     pop2xI32ForMulDivI32(&r, &rs, &reserved);
 
@@ -9046,7 +9440,7 @@ void BaseCompiler::emitQuotientU32() {
     }
     masm.quotient32(rs, r, IsUnsigned(true));
 
-    maybeFreeI32(reserved);
+    maybeFree(reserved);
     freeI32(rs);
     pushI32(r);
   }
@@ -9055,7 +9449,7 @@ void BaseCompiler::emitQuotientU32() {
 void BaseCompiler::emitRemainderI32() {
   int32_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI32(&c, &power, 1)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 1)) {
     RegI32 r = popI32();
     RegI32 temp = needI32();
     moveI32(r, temp);
@@ -9072,7 +9466,7 @@ void BaseCompiler::emitRemainderI32() {
 
     pushI32(r);
   } else {
-    bool isConst = peekConstI32(&c);
+    bool isConst = peekConst(&c);
     RegI32 r, rs, reserved;
     pop2xI32ForMulDivI32(&r, &rs, &reserved);
 
@@ -9087,7 +9481,7 @@ void BaseCompiler::emitRemainderI32() {
     masm.remainder32(rs, r, IsUnsigned(false));
     masm.bind(&done);
 
-    maybeFreeI32(reserved);
+    maybeFree(reserved);
     freeI32(rs);
     pushI32(r);
   }
@@ -9096,12 +9490,12 @@ void BaseCompiler::emitRemainderI32() {
 void BaseCompiler::emitRemainderU32() {
   int32_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI32(&c, &power, 1)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 1)) {
     RegI32 r = popI32();
     masm.and32(Imm32(c - 1), r);
     pushI32(r);
   } else {
-    bool isConst = peekConstI32(&c);
+    bool isConst = peekConst(&c);
     RegI32 r, rs, reserved;
     pop2xI32ForMulDivI32(&r, &rs, &reserved);
 
@@ -9110,7 +9504,7 @@ void BaseCompiler::emitRemainderU32() {
     }
     masm.remainder32(rs, r, IsUnsigned(true));
 
-    maybeFreeI32(reserved);
+    maybeFree(reserved);
     freeI32(rs);
     pushI32(r);
   }
@@ -9121,7 +9515,7 @@ void BaseCompiler::emitQuotientI64() {
 #  ifdef JS_64BIT
   int64_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI64(&c, &power, 0)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 0)) {
     if (power != 0) {
       RegI64 r = popI64();
       Label positive;
@@ -9134,11 +9528,11 @@ void BaseCompiler::emitQuotientI64() {
       pushI64(r);
     }
   } else {
-    bool isConst = peekConstI64(&c);
+    bool isConst = peekConst(&c);
     RegI64 r, rs, reserved;
     pop2xI64ForDivI64(&r, &rs, &reserved);
     quotientI64(rs, r, reserved, IsUnsigned(false), isConst, c);
-    maybeFreeI64(reserved);
+    maybeFree(reserved);
     freeI64(rs);
     pushI64(r);
   }
@@ -9151,18 +9545,18 @@ void BaseCompiler::emitQuotientU64() {
 #  ifdef JS_64BIT
   int64_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI64(&c, &power, 0)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 0)) {
     if (power != 0) {
       RegI64 r = popI64();
       masm.rshift64(Imm32(power & 63), r);
       pushI64(r);
     }
   } else {
-    bool isConst = peekConstI64(&c);
+    bool isConst = peekConst(&c);
     RegI64 r, rs, reserved;
     pop2xI64ForDivI64(&r, &rs, &reserved);
     quotientI64(rs, r, reserved, IsUnsigned(true), isConst, c);
-    maybeFreeI64(reserved);
+    maybeFree(reserved);
     freeI64(rs);
     pushI64(r);
   }
@@ -9175,7 +9569,7 @@ void BaseCompiler::emitRemainderI64() {
 #  ifdef JS_64BIT
   int64_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI64(&c, &power, 1)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 1)) {
     RegI64 r = popI64();
     RegI64 temp = needI64();
     moveI64(r, temp);
@@ -9193,11 +9587,11 @@ void BaseCompiler::emitRemainderI64() {
 
     pushI64(r);
   } else {
-    bool isConst = peekConstI64(&c);
+    bool isConst = peekConst(&c);
     RegI64 r, rs, reserved;
     pop2xI64ForDivI64(&r, &rs, &reserved);
     remainderI64(rs, r, reserved, IsUnsigned(false), isConst, c);
-    maybeFreeI64(reserved);
+    maybeFree(reserved);
     freeI64(rs);
     pushI64(r);
   }
@@ -9210,16 +9604,16 @@ void BaseCompiler::emitRemainderU64() {
 #  ifdef JS_64BIT
   int64_t c;
   uint_fast8_t power;
-  if (popConstPositivePowerOfTwoI64(&c, &power, 1)) {
+  if (popConstPositivePowerOfTwo(&c, &power, 1)) {
     RegI64 r = popI64();
     masm.and64(Imm64(c - 1), r);
     pushI64(r);
   } else {
-    bool isConst = peekConstI64(&c);
+    bool isConst = peekConst(&c);
     RegI64 r, rs, reserved;
     pop2xI64ForDivI64(&r, &rs, &reserved);
     remainderI64(rs, r, reserved, IsUnsigned(true), isConst, c);
-    maybeFreeI64(reserved);
+    maybeFree(reserved);
     freeI64(rs);
     pushI64(r);
   }
@@ -9229,358 +9623,34 @@ void BaseCompiler::emitRemainderU64() {
 }
 #endif  // RABALDR_INT_DIV_I64_CALLOUT
 
-void BaseCompiler::emitDivideF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  masm.divFloat32(rs, r);
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitDivideF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  masm.divDouble(rs, r);
-  freeF64(rs);
-  pushF64(r);
-}
-
-void BaseCompiler::emitMinF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  // Convert signaling NaN to quiet NaNs.
-  //
-  // TODO / OPTIMIZE (bug 1316824): Don't do this if one of the operands
-  // is known to be a constant.
-  ScratchF32 zero(*this);
-  moveImmF32(0.f, zero);
-  masm.subFloat32(zero, r);
-  masm.subFloat32(zero, rs);
-  masm.minFloat32(rs, r, HandleNaNSpecially(true));
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitMaxF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  // Convert signaling NaN to quiet NaNs.
-  //
-  // TODO / OPTIMIZE (bug 1316824): see comment in emitMinF32.
-  ScratchF32 zero(*this);
-  moveImmF32(0.f, zero);
-  masm.subFloat32(zero, r);
-  masm.subFloat32(zero, rs);
-  masm.maxFloat32(rs, r, HandleNaNSpecially(true));
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitMinF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  // Convert signaling NaN to quiet NaNs.
-  //
-  // TODO / OPTIMIZE (bug 1316824): see comment in emitMinF32.
-  ScratchF64 zero(*this);
-  moveImmF64(0, zero);
-  masm.subDouble(zero, r);
-  masm.subDouble(zero, rs);
-  masm.minDouble(rs, r, HandleNaNSpecially(true));
-  freeF64(rs);
-  pushF64(r);
-}
-
-void BaseCompiler::emitMaxF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  // Convert signaling NaN to quiet NaNs.
-  //
-  // TODO / OPTIMIZE (bug 1316824): see comment in emitMinF32.
-  ScratchF64 zero(*this);
-  moveImmF64(0, zero);
-  masm.subDouble(zero, r);
-  masm.subDouble(zero, rs);
-  masm.maxDouble(rs, r, HandleNaNSpecially(true));
-  freeF64(rs);
-  pushF64(r);
-}
-
-void BaseCompiler::emitCopysignF32() {
-  RegF32 r, rs;
-  pop2xF32(&r, &rs);
-  RegI32 temp0 = needI32();
-  RegI32 temp1 = needI32();
-  masm.moveFloat32ToGPR(r, temp0);
-  masm.moveFloat32ToGPR(rs, temp1);
-  masm.and32(Imm32(INT32_MAX), temp0);
-  masm.and32(Imm32(INT32_MIN), temp1);
-  masm.or32(temp1, temp0);
-  masm.moveGPRToFloat32(temp0, r);
-  freeI32(temp0);
-  freeI32(temp1);
-  freeF32(rs);
-  pushF32(r);
-}
-
-void BaseCompiler::emitCopysignF64() {
-  RegF64 r, rs;
-  pop2xF64(&r, &rs);
-  RegI64 temp0 = needI64();
-  RegI64 temp1 = needI64();
-  masm.moveDoubleToGPR64(r, temp0);
-  masm.moveDoubleToGPR64(rs, temp1);
-  masm.and64(Imm64(INT64_MAX), temp0);
-  masm.and64(Imm64(INT64_MIN), temp1);
-  masm.or64(temp1, temp0);
-  masm.moveGPR64ToDouble(temp0, r);
-  freeI64(temp0);
-  freeI64(temp1);
-  freeF64(rs);
-  pushF64(r);
-}
-
-void BaseCompiler::emitOrI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.or32(Imm32(c), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32(&r, &rs);
-    masm.or32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitOrI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.or64(Imm64(c), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64(&r, &rs);
-    masm.or64(rs, r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitAndI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.and32(Imm32(c), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32(&r, &rs);
-    masm.and32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitAndI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.and64(Imm64(c), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64(&r, &rs);
-    masm.and64(rs, r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitXorI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.xor32(Imm32(c), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32(&r, &rs);
-    masm.xor32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitXorI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.xor64(Imm64(c), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64(&r, &rs);
-    masm.xor64(rs, r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitShlI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.lshift32(Imm32(c & 31), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32ForShift(&r, &rs);
-    maskShiftCount32(rs);
-    masm.lshift32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitShlI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.lshift64(Imm32(c & 63), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64ForShift(&r, &rs);
-    masm.lshift64(lowPart(rs), r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitShrI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.rshift32Arithmetic(Imm32(c & 31), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32ForShift(&r, &rs);
-    maskShiftCount32(rs);
-    masm.rshift32Arithmetic(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitShrI64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.rshift64Arithmetic(Imm32(c & 63), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64ForShift(&r, &rs);
-    masm.rshift64Arithmetic(lowPart(rs), r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitShrU32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.rshift32(Imm32(c & 31), r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32ForShift(&r, &rs);
-    maskShiftCount32(rs);
-    masm.rshift32(rs, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
-void BaseCompiler::emitShrU64() {
-  int64_t c;
-  if (popConstI64(&c)) {
-    RegI64 r = popI64();
-    masm.rshift64(Imm32(c & 63), r);
-    pushI64(r);
-  } else {
-    RegI64 r, rs;
-    pop2xI64ForShift(&r, &rs);
-    masm.rshift64(lowPart(rs), r);
-    freeI64(rs);
-    pushI64(r);
-  }
-}
-
-void BaseCompiler::emitRotrI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.rotateRight(Imm32(c & 31), r, r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32ForRotate(&r, &rs);
-    masm.rotateRight(rs, r, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
 void BaseCompiler::emitRotrI64() {
   int64_t c;
-  if (popConstI64(&c)) {
+  if (popConst(&c)) {
     RegI64 r = popI64();
     RegI32 temp = needRotate64Temp();
     masm.rotateRight64(Imm32(c & 63), r, r, temp);
-    maybeFreeI32(temp);
+    maybeFree(temp);
     pushI64(r);
   } else {
-    RegI64 r, rs;
-    pop2xI64ForRotate(&r, &rs);
+    RegI64 rs = popI64RhsForRotate();
+    RegI64 r = popI64();
     masm.rotateRight64(lowPart(rs), r, r, maybeHighPart(rs));
     freeI64(rs);
     pushI64(r);
   }
 }
 
-void BaseCompiler::emitRotlI32() {
-  int32_t c;
-  if (popConstI32(&c)) {
-    RegI32 r = popI32();
-    masm.rotateLeft(Imm32(c & 31), r, r);
-    pushI32(r);
-  } else {
-    RegI32 r, rs;
-    pop2xI32ForRotate(&r, &rs);
-    masm.rotateLeft(rs, r, r);
-    freeI32(rs);
-    pushI32(r);
-  }
-}
-
 void BaseCompiler::emitRotlI64() {
   int64_t c;
-  if (popConstI64(&c)) {
+  if (popConst(&c)) {
     RegI64 r = popI64();
     RegI32 temp = needRotate64Temp();
     masm.rotateLeft64(Imm32(c & 63), r, r, temp);
-    maybeFreeI32(temp);
+    maybeFree(temp);
     pushI64(r);
   } else {
-    RegI64 r, rs;
-    pop2xI64ForRotate(&r, &rs);
+    RegI64 rs = popI64RhsForRotate();
+    RegI64 r = popI64();
     masm.rotateLeft64(lowPart(rs), r, r, maybeHighPart(rs));
     freeI64(rs);
     pushI64(r);
@@ -9591,100 +9661,14 @@ void BaseCompiler::emitEqzI32() {
   if (sniffConditionalControlEqz(ValType::I32)) {
     return;
   }
-
-  RegI32 r = popI32();
-  masm.cmp32Set(Assembler::Equal, r, Imm32(0), r);
-  pushI32(r);
+  emitUnop(EqzI32);
 }
 
 void BaseCompiler::emitEqzI64() {
   if (sniffConditionalControlEqz(ValType::I64)) {
     return;
   }
-
-  RegI64 rs = popI64();
-  RegI32 rd = fromI64(rs);
-  eqz64(rs, rd);
-  freeI64Except(rs, rd);
-  pushI32(rd);
-}
-
-void BaseCompiler::emitClzI32() {
-  RegI32 r = popI32();
-  masm.clz32(r, r, IsKnownNotZero(false));
-  pushI32(r);
-}
-
-void BaseCompiler::emitClzI64() {
-  RegI64 r = popI64();
-  masm.clz64(r, lowPart(r));
-  maybeClearHighPart(r);
-  pushI64(r);
-}
-
-void BaseCompiler::emitCtzI32() {
-  RegI32 r = popI32();
-  masm.ctz32(r, r, IsKnownNotZero(false));
-  pushI32(r);
-}
-
-void BaseCompiler::emitCtzI64() {
-  RegI64 r = popI64();
-  masm.ctz64(r, lowPart(r));
-  maybeClearHighPart(r);
-  pushI64(r);
-}
-
-void BaseCompiler::emitPopcntI32() {
-  RegI32 r = popI32();
-  RegI32 temp = needPopcnt32Temp();
-  masm.popcnt32(r, r, temp);
-  maybeFreeI32(temp);
-  pushI32(r);
-}
-
-void BaseCompiler::emitPopcntI64() {
-  RegI64 r = popI64();
-  RegI32 temp = needPopcnt64Temp();
-  masm.popcnt64(r, r, temp);
-  maybeFreeI32(temp);
-  pushI64(r);
-}
-
-void BaseCompiler::emitAbsF32() {
-  RegF32 r = popF32();
-  masm.absFloat32(r, r);
-  pushF32(r);
-}
-
-void BaseCompiler::emitAbsF64() {
-  RegF64 r = popF64();
-  masm.absDouble(r, r);
-  pushF64(r);
-}
-
-void BaseCompiler::emitNegateF32() {
-  RegF32 r = popF32();
-  masm.negateFloat(r);
-  pushF32(r);
-}
-
-void BaseCompiler::emitNegateF64() {
-  RegF64 r = popF64();
-  masm.negateDouble(r);
-  pushF64(r);
-}
-
-void BaseCompiler::emitSqrtF32() {
-  RegF32 r = popF32();
-  masm.sqrtFloat32(r, r);
-  pushF32(r);
-}
-
-void BaseCompiler::emitSqrtF64() {
-  RegF64 r = popF64();
-  masm.sqrtDouble(r, r);
-  pushF64(r);
+  emitUnop(EqzI64);
 }
 
 template <TruncFlags flags>
@@ -9720,7 +9704,7 @@ bool BaseCompiler::emitTruncateF32ToI64() {
   if (!truncateF32ToI64(rs, rd, flags, temp)) {
     return false;
   }
-  maybeFreeF64(temp);
+  maybeFree(temp);
   freeF32(rs);
   pushI64(rd);
   return true;
@@ -9734,41 +9718,12 @@ bool BaseCompiler::emitTruncateF64ToI64() {
   if (!truncateF64ToI64(rs, rd, flags, temp)) {
     return false;
   }
-  maybeFreeF64(temp);
+  maybeFree(temp);
   freeF64(rs);
   pushI64(rd);
   return true;
 }
 #endif  // RABALDR_FLOAT_TO_I64_CALLOUT
-
-void BaseCompiler::emitWrapI64ToI32() {
-  RegI64 rs = popI64();
-  RegI32 rd = fromI64(rs);
-  masm.move64To32(rs, rd);
-  freeI64Except(rs, rd);
-  pushI32(rd);
-}
-
-void BaseCompiler::emitExtendI32_8() {
-  RegI32 r = popI32();
-#ifdef JS_CODEGEN_X86
-  if (!ra.isSingleByteI32(r)) {
-    ScratchI8 scratch(*this);
-    moveI32(r, scratch);
-    masm.move8SignExtend(scratch, r);
-    pushI32(r);
-    return;
-  }
-#endif
-  masm.move8SignExtend(r, r);
-  pushI32(r);
-}
-
-void BaseCompiler::emitExtendI32_16() {
-  RegI32 r = popI32();
-  masm.move16SignExtend(r, r);
-  pushI32(r);
-}
 
 void BaseCompiler::emitExtendI64_8() {
   RegI64 r;
@@ -9805,97 +9760,15 @@ void BaseCompiler::emitExtendU32ToI64() {
   pushI64(rd);
 }
 
-void BaseCompiler::emitReinterpretF32AsI32() {
-  RegF32 rs = popF32();
-  RegI32 rd = needI32();
-  masm.moveFloat32ToGPR(rs, rd);
-  freeF32(rs);
-  pushI32(rd);
-}
-
-void BaseCompiler::emitReinterpretF64AsI64() {
-  RegF64 rs = popF64();
-  RegI64 rd = needI64();
-  masm.moveDoubleToGPR64(rs, rd);
-  freeF64(rs);
-  pushI64(rd);
-}
-
-void BaseCompiler::emitConvertF64ToF32() {
-  RegF64 rs = popF64();
-  RegF32 rd = needF32();
-  masm.convertDoubleToFloat32(rs, rd);
-  freeF64(rs);
-  pushF32(rd);
-}
-
-void BaseCompiler::emitConvertI32ToF32() {
-  RegI32 rs = popI32();
-  RegF32 rd = needF32();
-  masm.convertInt32ToFloat32(rs, rd);
-  freeI32(rs);
-  pushF32(rd);
-}
-
-void BaseCompiler::emitConvertU32ToF32() {
-  RegI32 rs = popI32();
-  RegF32 rd = needF32();
-  masm.convertUInt32ToFloat32(rs, rd);
-  freeI32(rs);
-  pushF32(rd);
-}
-
 #ifndef RABALDR_I64_TO_FLOAT_CALLOUT
-void BaseCompiler::emitConvertI64ToF32() {
-  RegI64 rs = popI64();
-  RegF32 rd = needF32();
-  convertI64ToF32(rs, IsUnsigned(false), rd, RegI32());
-  freeI64(rs);
-  pushF32(rd);
-}
-
 void BaseCompiler::emitConvertU64ToF32() {
   RegI64 rs = popI64();
   RegF32 rd = needF32();
   RegI32 temp = needConvertI64ToFloatTemp(ValType::F32, IsUnsigned(true));
   convertI64ToF32(rs, IsUnsigned(true), rd, temp);
-  maybeFreeI32(temp);
+  maybeFree(temp);
   freeI64(rs);
   pushF32(rd);
-}
-#endif
-
-void BaseCompiler::emitConvertF32ToF64() {
-  RegF32 rs = popF32();
-  RegF64 rd = needF64();
-  masm.convertFloat32ToDouble(rs, rd);
-  freeF32(rs);
-  pushF64(rd);
-}
-
-void BaseCompiler::emitConvertI32ToF64() {
-  RegI32 rs = popI32();
-  RegF64 rd = needF64();
-  masm.convertInt32ToDouble(rs, rd);
-  freeI32(rs);
-  pushF64(rd);
-}
-
-void BaseCompiler::emitConvertU32ToF64() {
-  RegI32 rs = popI32();
-  RegF64 rd = needF64();
-  masm.convertUInt32ToDouble(rs, rd);
-  freeI32(rs);
-  pushF64(rd);
-}
-
-#ifndef RABALDR_I64_TO_FLOAT_CALLOUT
-void BaseCompiler::emitConvertI64ToF64() {
-  RegI64 rs = popI64();
-  RegF64 rd = needF64();
-  convertI64ToF64(rs, IsUnsigned(false), rd, RegI32());
-  freeI64(rs);
-  pushF64(rd);
 }
 
 void BaseCompiler::emitConvertU64ToF64() {
@@ -9903,27 +9776,11 @@ void BaseCompiler::emitConvertU64ToF64() {
   RegF64 rd = needF64();
   RegI32 temp = needConvertI64ToFloatTemp(ValType::F64, IsUnsigned(true));
   convertI64ToF64(rs, IsUnsigned(true), rd, temp);
-  maybeFreeI32(temp);
+  maybeFree(temp);
   freeI64(rs);
   pushF64(rd);
 }
 #endif  // RABALDR_I64_TO_FLOAT_CALLOUT
-
-void BaseCompiler::emitReinterpretI32AsF32() {
-  RegI32 rs = popI32();
-  RegF32 rd = needF32();
-  masm.moveGPRToFloat32(rs, rd);
-  freeI32(rs);
-  pushF32(rd);
-}
-
-void BaseCompiler::emitReinterpretI64AsF64() {
-  RegI64 rs = popI64();
-  RegF64 rd = needF64();
-  masm.moveGPR64ToDouble(rs, rd);
-  freeI64(rs);
-  pushF64(rd);
-}
 
 template <typename Cond>
 bool BaseCompiler::sniffConditionalControlCmp(Cond compareOp,
@@ -9996,7 +9853,7 @@ void BaseCompiler::emitBranchSetup(BranchState* b) {
     case LatentOp::Compare: {
       switch (latentType_.kind()) {
         case ValType::I32: {
-          if (popConstI32(&b->i32.imm)) {
+          if (popConst(&b->i32.imm)) {
             b->i32.lhs = popI32();
             b->i32.rhsImm = true;
           } else {
@@ -12222,7 +12079,7 @@ RegI32 BaseCompiler::popMemoryAccess(MemoryAccessDesc* access,
       (access->offset() & (access->byteSize() - 1)) == 0;
 
   int32_t addrTemp;
-  if (popConstI32(&addrTemp)) {
+  if (popConst(&addrTemp)) {
     uint32_t addr = addrTemp;
 
     uint32_t offsetGuardLimit =
@@ -12375,10 +12232,10 @@ bool BaseCompiler::loadCommon(MemoryAccessDesc* access, AccessCheck check,
       break;
   }
 
-  maybeFreeI32(tls);
-  maybeFreeI32(temp1);
-  maybeFreeI32(temp2);
-  maybeFreeI32(temp3);
+  maybeFree(tls);
+  maybeFree(temp1);
+  maybeFree(temp2);
+  maybeFree(temp3);
 
   return true;
 }
@@ -12465,8 +12322,8 @@ bool BaseCompiler::storeCommon(MemoryAccessDesc* access, AccessCheck check,
       break;
   }
 
-  maybeFreeI32(tls);
-  maybeFreeI32(temp);
+  maybeFree(tls);
+  maybeFree(temp);
 
   return true;
 }
@@ -12629,7 +12486,7 @@ void BaseCompiler::emitCompareI32(Assembler::Condition compareOp,
   }
 
   int32_t c;
-  if (popConstI32(&c)) {
+  if (popConst(&c)) {
     RegI32 r = popI32();
     masm.cmp32Set(compareOp, r, Imm32(c), r);
     pushI32(r);
@@ -12902,7 +12759,7 @@ bool BaseCompiler::emitAtomicCmpXchg(ValType type, Scalar::Type viewType) {
     auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
     regs.atomicCmpXchg32(access, memaddr);
 
-    maybeFreeI32(tls);
+    maybeFree(tls);
     freeI32(rp);
 
     if (type == ValType::I64) {
@@ -12930,7 +12787,7 @@ bool BaseCompiler::emitAtomicCmpXchg(ValType type, Scalar::Type viewType) {
   RegI32 tls = maybeLoadTlsForAccess(check);
   auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
   regs.atomicCmpXchg64(access, memaddr);
-  maybeFreeI32(tls);
+  maybeFree(tls);
 #endif
 
   freeI32(rp);
@@ -12975,7 +12832,7 @@ bool BaseCompiler::emitAtomicLoad(ValType type, Scalar::Type viewType) {
   RegI32 tls = maybeLoadTlsForAccess(check);
   auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
   regs.atomicLoad64(access, memaddr);
-  maybeFreeI32(tls);
+  maybeFree(tls);
 #  endif
 
   freeI32(rp);
@@ -13011,7 +12868,7 @@ bool BaseCompiler::emitAtomicRMW(ValType type, Scalar::Type viewType,
     auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
     regs.atomicRMW32(access, memaddr, op);
 
-    maybeFreeI32(tls);
+    maybeFree(tls);
     freeI32(rp);
 
     if (type == ValType::I64) {
@@ -13045,7 +12902,7 @@ bool BaseCompiler::emitAtomicRMW(ValType type, Scalar::Type viewType,
   RegI32 tls = maybeLoadTlsForAccess(check);
   auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
   regs.atomicRMW64(access, memaddr, op);
-  maybeFreeI32(tls);
+  maybeFree(tls);
 #endif
 
   freeI32(rp);
@@ -13107,7 +12964,7 @@ bool BaseCompiler::emitAtomicXchg(ValType type, Scalar::Type viewType) {
     auto memaddr = prepareAtomicMemoryAccess(&access, &check, tls, rp);
     regs.atomicXchg32(access, memaddr);
 
-    maybeFreeI32(tls);
+    maybeFree(tls);
     freeI32(rp);
 
     if (type == ValType::I64) {
@@ -13140,7 +12997,7 @@ void BaseCompiler::emitAtomicXchg64(MemoryAccessDesc* access,
   RegI32 tls = maybeLoadTlsForAccess(check);
   auto memaddr = prepareAtomicMemoryAccess(access, &check, tls, rp);
   regs.atomicXchg64(*access, memaddr);
-  maybeFreeI32(tls);
+  maybeFree(tls);
 #endif
 
   freeI32(rp);
@@ -13256,7 +13113,7 @@ bool BaseCompiler::emitMemCopy() {
 
   int32_t signedLength;
   if (MacroAssembler::SupportsFastUnalignedAccesses() &&
-      peekConstI32(&signedLength) && signedLength != 0 &&
+      peekConst(&signedLength) && signedLength != 0 &&
       uint32_t(signedLength) <= MaxInlineMemoryCopyLength) {
     return emitMemCopyInline();
   }
@@ -13280,7 +13137,7 @@ bool BaseCompiler::emitMemCopyInline() {
   MOZ_ASSERT(MaxInlineMemoryCopyLength != 0);
 
   int32_t signedLength;
-  MOZ_ALWAYS_TRUE(popConstI32(&signedLength));
+  MOZ_ALWAYS_TRUE(popConst(&signedLength));
   uint32_t length = signedLength;
   MOZ_ASSERT(length != 0 && length <= MaxInlineMemoryCopyLength);
 
@@ -13516,7 +13373,7 @@ bool BaseCompiler::emitMemFill() {
   int32_t signedLength;
   int32_t signedValue;
   if (MacroAssembler::SupportsFastUnalignedAccesses() &&
-      peek2xI32(&signedLength, &signedValue) && signedLength != 0 &&
+      peek2xConst(&signedLength, &signedValue) && signedLength != 0 &&
       uint32_t(signedLength) <= MaxInlineMemoryFillLength) {
     return emitMemFillInline();
   }
@@ -13536,8 +13393,8 @@ bool BaseCompiler::emitMemFillInline() {
 
   int32_t signedLength;
   int32_t signedValue;
-  MOZ_ALWAYS_TRUE(popConstI32(&signedLength));
-  MOZ_ALWAYS_TRUE(popConstI32(&signedValue));
+  MOZ_ALWAYS_TRUE(popConst(&signedLength));
+  MOZ_ALWAYS_TRUE(popConst(&signedValue));
   uint32_t length = uint32_t(signedLength);
   uint32_t value = uint32_t(signedValue);
   MOZ_ASSERT(length != 0 && length <= MaxInlineMemoryFillLength);
@@ -13681,7 +13538,6 @@ bool BaseCompiler::emitMemOrTableInit(bool isMem) {
   return true;
 }
 
-#ifdef ENABLE_WASM_REFTYPES
 [[nodiscard]] bool BaseCompiler::emitTableFill() {
   uint32_t lineOrBytecode = readCallSiteLineOrBytecode();
 
@@ -13772,7 +13628,6 @@ bool BaseCompiler::emitMemOrTableInit(bool isMem) {
   pushI32(tableIndex);
   return emitInstanceCall(lineOrBytecode, SASigTableSize);
 }
-#endif
 
 void BaseCompiler::emitGcNullCheck(RegRef rp) {
   Label ok;
@@ -14898,22 +14753,6 @@ static void CmpI64x2(MacroAssembler& masm, Assembler::Condition cond,
 }
 #  endif  // JS_CODEGEN_X86 || JS_CODEGEN_X64
 
-#  if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-static void CmpUI8x16(MacroAssembler& masm, Assembler::Condition cond,
-                      RegV128 rs, RegV128 rsd, RegV128 temp1, RegV128 temp2) {
-  masm.unsignedCompareInt8x16(cond, rs, rsd, temp1, temp2);
-}
-
-static void CmpUI16x8(MacroAssembler& masm, Assembler::Condition cond,
-                      RegV128 rs, RegV128 rsd, RegV128 temp1, RegV128 temp2) {
-  masm.unsignedCompareInt16x8(cond, rs, rsd, temp1, temp2);
-}
-
-static void CmpUI32x4(MacroAssembler& masm, Assembler::Condition cond,
-                      RegV128 rs, RegV128 rsd, RegV128 temp1, RegV128 temp2) {
-  masm.unsignedCompareInt32x4(cond, rs, rsd, temp1, temp2);
-}
-#  else
 static void CmpUI8x16(MacroAssembler& masm, Assembler::Condition cond,
                       RegV128 rs, RegV128 rsd) {
   masm.compareInt8x16(cond, rs, rsd);
@@ -14928,7 +14767,6 @@ static void CmpUI32x4(MacroAssembler& masm, Assembler::Condition cond,
                       RegV128 rs, RegV128 rsd) {
   masm.compareInt32x4(cond, rs, rsd);
 }
-#  endif
 
 static void CmpF32x4(MacroAssembler& masm, Assembler::Condition cond,
                      RegV128 rs, RegV128 rsd) {
@@ -15490,117 +15328,6 @@ static void PromoteF32x4ToF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rd) {
   masm.convertFloat32x4ToFloat64x2(rs, rd);
 }
 
-template <typename SourceType, typename DestType>
-void BaseCompiler::emitVectorUnop(void (*op)(MacroAssembler& masm,
-                                             SourceType rs, DestType rd)) {
-  SourceType rs = pop<SourceType>();
-  DestType rd = need<DestType>();
-  op(masm, rs, rd);
-  free(rs);
-  push(rd);
-}
-
-template <typename SourceType, typename DestType, typename TempType>
-void BaseCompiler::emitVectorUnop(void (*op)(MacroAssembler& masm,
-                                             SourceType rs, DestType rd,
-                                             TempType temp)) {
-  SourceType rs = pop<SourceType>();
-  DestType rd = need<DestType>();
-  TempType temp = need<TempType>();
-  op(masm, rs, rd, temp);
-  free(rs);
-  free(temp);
-  push(rd);
-}
-
-template <typename SourceType, typename DestType, typename ImmType>
-void BaseCompiler::emitVectorUnop(ImmType immediate,
-                                  void (*op)(MacroAssembler&, ImmType,
-                                             SourceType, DestType)) {
-  SourceType rs = pop<SourceType>();
-  DestType rd = need<DestType>();
-  op(masm, immediate, rs, rd);
-  free(rs);
-  push(rd);
-}
-
-template <typename RhsType, typename LhsDestType>
-void BaseCompiler::emitVectorBinop(void (*op)(MacroAssembler& masm, RhsType src,
-                                              LhsDestType srcDest)) {
-  RhsType rs = pop<RhsType>();
-  LhsDestType rsd = pop<LhsDestType>();
-  op(masm, rs, rsd);
-  free(rs);
-  push(rsd);
-}
-
-template <typename RhsDestType, typename LhsType>
-void BaseCompiler::emitVectorBinop(void (*op)(MacroAssembler& masm,
-                                              RhsDestType src, LhsType srcDest,
-                                              RhsDestOp)) {
-  RhsDestType rsd = pop<RhsDestType>();
-  LhsType rs = pop<LhsType>();
-  op(masm, rsd, rs, RhsDestOp::True);
-  free(rs);
-  push(rsd);
-}
-
-template <typename RhsType, typename LhsDestType, typename TempType>
-void BaseCompiler::emitVectorBinop(void (*op)(MacroAssembler& masm, RhsType rs,
-                                              LhsDestType rsd, TempType temp)) {
-  RhsType rs = pop<RhsType>();
-  LhsDestType rsd = pop<LhsDestType>();
-  TempType temp = need<TempType>();
-  op(masm, rs, rsd, temp);
-  free(rs);
-  free(temp);
-  push(rsd);
-}
-
-template <typename RhsType, typename LhsDestType, typename TempType1,
-          typename TempType2>
-void BaseCompiler::emitVectorBinop(void (*op)(MacroAssembler& masm, RhsType rs,
-                                              LhsDestType rsd, TempType1 temp1,
-                                              TempType2 temp2)) {
-  RhsType rs = pop<RhsType>();
-  LhsDestType rsd = pop<LhsDestType>();
-  TempType1 temp1 = need<TempType1>();
-  TempType2 temp2 = need<TempType2>();
-  op(masm, rs, rsd, temp1, temp2);
-  free(rs);
-  free(temp1);
-  free(temp2);
-  push(rsd);
-}
-
-template <typename RhsType, typename LhsDestType, typename ImmType>
-void BaseCompiler::emitVectorBinop(ImmType immediate,
-                                   void (*op)(MacroAssembler&, ImmType, RhsType,
-                                              LhsDestType)) {
-  RhsType rs = pop<RhsType>();
-  LhsDestType rsd = pop<LhsDestType>();
-  op(masm, immediate, rs, rsd);
-  free(rs);
-  push(rsd);
-}
-
-template <typename RhsType, typename LhsDestType, typename ImmType,
-          typename TempType1, typename TempType2>
-void BaseCompiler::emitVectorBinop(ImmType immediate,
-                                   void (*op)(MacroAssembler&, ImmType, RhsType,
-                                              LhsDestType, TempType1 temp1,
-                                              TempType2 temp2)) {
-  RhsType rs = pop<RhsType>();
-  LhsDestType rsd = pop<LhsDestType>();
-  TempType1 temp1 = need<TempType1>();
-  TempType2 temp2 = need<TempType2>();
-  op(masm, immediate, rs, rsd, temp1, temp2);
-  free(rs);
-  free(temp1);
-  free(temp2);
-  push(rsd);
-}
-
 void BaseCompiler::emitVectorAndNot() {
   // We want x & ~y but the available operation is ~x & y, so reverse the
   // operands.
@@ -15635,25 +15362,25 @@ bool BaseCompiler::emitLoadSplat(Scalar::Type viewType) {
       if (!loadCommon(&access, AccessCheck(), ValType::I32)) {
         return false;
       }
-      emitVectorUnop(SplatI8x16);
+      emitUnop(SplatI8x16);
       break;
     case Scalar::Uint16:
       if (!loadCommon(&access, AccessCheck(), ValType::I32)) {
         return false;
       }
-      emitVectorUnop(SplatI16x8);
+      emitUnop(SplatI16x8);
       break;
     case Scalar::Uint32:
       if (!loadCommon(&access, AccessCheck(), ValType::I32)) {
         return false;
       }
-      emitVectorUnop(SplatI32x4);
+      emitUnop(SplatI32x4);
       break;
     case Scalar::Int64:
       if (!loadCommon(&access, AccessCheck(), ValType::I64)) {
         return false;
       }
-      emitVectorUnop(SplatI64x2);
+      emitUnop(SplatI64x2);
       break;
     default:
       MOZ_CRASH();
@@ -15941,7 +15668,7 @@ bool BaseCompiler::emitVectorShiftRightI64x2(bool isUnsigned) {
 
 #  if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
   if (isUnsigned) {
-    emitVectorBinop(ShiftRightUI64x2);
+    emitBinop(ShiftRightUI64x2);
     return true;
   }
 #  endif
@@ -15997,7 +15724,7 @@ bool BaseCompiler::emitVectorMulI64x2() {
   }
 
 #  if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-  emitVectorBinop(MulI64x2);
+  emitBinop(MulI64x2);
 #  elif defined(JS_CODEGEN_ARM64)
   RegV128 r, rs;
   pop2xV128(&r, &rs);
@@ -16040,20 +15767,43 @@ bool BaseCompiler::emitBody() {
     assertStackInvariants();
 #endif
 
-#define dispatchBinary(doEmit, type)              \
+#define dispatchBinary0(doEmit, type)             \
   iter_.readBinary(type, &unused_a, &unused_b) && \
       (deadCode_ || (doEmit(), true))
 
-#define dispatchUnary(doEmit, type) \
+#define dispatchBinary1(arg1, type)               \
+  iter_.readBinary(type, &unused_a, &unused_b) && \
+      (deadCode_ || (emitBinop(arg1), true))
+
+#define dispatchBinary2(arg1, arg2, type)         \
+  iter_.readBinary(type, &unused_a, &unused_b) && \
+      (deadCode_ || (emitBinop(arg1, arg2), true))
+
+#define dispatchBinary3(arg1, arg2, arg3, type)   \
+  iter_.readBinary(type, &unused_a, &unused_b) && \
+      (deadCode_ || (emitBinop(arg1, arg2, arg3), true))
+
+#define dispatchUnary0(doEmit, type) \
   iter_.readUnary(type, &unused_a) && (deadCode_ || (doEmit(), true))
 
-#define dispatchComparison(doEmit, operandType, compareOp)   \
+#define dispatchUnary1(arg1, type) \
+  iter_.readUnary(type, &unused_a) && (deadCode_ || (emitUnop(arg1), true))
+
+#define dispatchUnary2(arg1, arg2, type) \
+  iter_.readUnary(type, &unused_a) &&    \
+      (deadCode_ || (emitUnop(arg1, arg2), true))
+
+#define dispatchComparison0(doEmit, operandType, compareOp)  \
   iter_.readComparison(operandType, &unused_a, &unused_b) && \
       (deadCode_ || (doEmit(compareOp, operandType), true))
 
-#define dispatchConversion(doEmit, inType, outType)   \
+#define dispatchConversion0(doEmit, inType, outType)  \
   iter_.readConversion(inType, outType, &unused_a) && \
       (deadCode_ || (doEmit(), true))
+
+#define dispatchConversion1(arg1, inType, outType)    \
+  iter_.readConversion(inType, outType, &unused_a) && \
+      (deadCode_ || (emitUnop(arg1), true))
 
 #define dispatchConversionOOM(doEmit, inType, outType) \
   iter_.readConversion(inType, outType, &unused_a) && (deadCode_ || doEmit())
@@ -16068,36 +15818,36 @@ bool BaseCompiler::emitBody() {
 
 #define dispatchVectorBinary(op)                           \
   iter_.readBinary(ValType::V128, &unused_a, &unused_b) && \
-      (deadCode_ || (emitVectorBinop(op), true))
+      (deadCode_ || (emitBinop(op), true))
 
 #define dispatchVectorUnary(op)                \
   iter_.readUnary(ValType::V128, &unused_a) && \
-      (deadCode_ || (emitVectorUnop(op), true))
+      (deadCode_ || (emitUnop(op), true))
 
 #define dispatchVectorComparison(op, compareOp)            \
   iter_.readBinary(ValType::V128, &unused_a, &unused_b) && \
-      (deadCode_ || (emitVectorBinop(compareOp, op), true))
+      (deadCode_ || (emitBinop(compareOp, op), true))
 
 #define dispatchVectorVariableShift(op)          \
   iter_.readVectorShift(&unused_a, &unused_b) && \
-      (deadCode_ || (emitVectorBinop(op), true))
+      (deadCode_ || (emitBinop(op), true))
 
 #define dispatchExtractLane(op, outType, laneLimit)                   \
   iter_.readExtractLane(outType, laneLimit, &laneIndex, &unused_a) && \
-      (deadCode_ || (emitVectorUnop(laneIndex, op), true))
+      (deadCode_ || (emitUnop(laneIndex, op), true))
 
 #define dispatchReplaceLane(op, inType, laneLimit)                \
   iter_.readReplaceLane(inType, laneLimit, &laneIndex, &unused_a, \
                         &unused_b) &&                             \
-      (deadCode_ || (emitVectorBinop(laneIndex, op), true))
+      (deadCode_ || (emitBinop(laneIndex, op), true))
 
 #define dispatchSplat(op, inType)                           \
   iter_.readConversion(inType, ValType::V128, &unused_a) && \
-      (deadCode_ || (emitVectorUnop(op), true))
+      (deadCode_ || (emitUnop(op), true))
 
 #define dispatchVectorReduction(op)                               \
   iter_.readConversion(ValType::V128, ValType::I32, &unused_a) && \
-      (deadCode_ || (emitVectorUnop(op), true))
+      (deadCode_ || (emitUnop(op), true))
 
 #ifdef DEBUG
     // Check that the number of ref-typed entries in the operand stack matches
@@ -16252,20 +16002,15 @@ bool BaseCompiler::emitBody() {
         CHECK_NEXT(emitGetGlobal());
       case uint16_t(Op::SetGlobal):
         CHECK_NEXT(emitSetGlobal());
-#ifdef ENABLE_WASM_REFTYPES
       case uint16_t(Op::TableGet):
         CHECK_NEXT(emitTableGet());
       case uint16_t(Op::TableSet):
         CHECK_NEXT(emitTableSet());
-#endif
 
       // Select
       case uint16_t(Op::SelectNumeric):
         CHECK_NEXT(emitSelect(/*typed*/ false));
       case uint16_t(Op::SelectTyped):
-        if (!moduleEnv_.refTypesEnabled()) {
-          return iter_.unrecognizedOpcode(&op);
-        }
         CHECK_NEXT(emitSelect(/*typed*/ true));
 
       // I32
@@ -16278,21 +16023,21 @@ bool BaseCompiler::emitBody() {
         NEXT();
       }
       case uint16_t(Op::I32Add):
-        CHECK_NEXT(dispatchBinary(emitAddI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary2(AddI32, AddImmI32, ValType::I32));
       case uint16_t(Op::I32Sub):
-        CHECK_NEXT(dispatchBinary(emitSubtractI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary2(SubI32, SubImmI32, ValType::I32));
       case uint16_t(Op::I32Mul):
-        CHECK_NEXT(dispatchBinary(emitMultiplyI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary0(emitMultiplyI32, ValType::I32));
       case uint16_t(Op::I32DivS):
-        CHECK_NEXT(dispatchBinary(emitQuotientI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary0(emitQuotientI32, ValType::I32));
       case uint16_t(Op::I32DivU):
-        CHECK_NEXT(dispatchBinary(emitQuotientU32, ValType::I32));
+        CHECK_NEXT(dispatchBinary0(emitQuotientU32, ValType::I32));
       case uint16_t(Op::I32RemS):
-        CHECK_NEXT(dispatchBinary(emitRemainderI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary0(emitRemainderI32, ValType::I32));
       case uint16_t(Op::I32RemU):
-        CHECK_NEXT(dispatchBinary(emitRemainderU32, ValType::I32));
+        CHECK_NEXT(dispatchBinary0(emitRemainderU32, ValType::I32));
       case uint16_t(Op::I32Eqz):
-        CHECK_NEXT(dispatchConversion(emitEqzI32, ValType::I32, ValType::I32));
+        CHECK_NEXT(dispatchConversion0(emitEqzI32, ValType::I32, ValType::I32));
       case uint16_t(Op::I32TruncSF32):
         CHECK_NEXT(dispatchConversionOOM(emitTruncateF32ToI32<0>, ValType::F32,
                                          ValType::I32));
@@ -16307,28 +16052,32 @@ bool BaseCompiler::emitBody() {
                                          ValType::F64, ValType::I32));
       case uint16_t(Op::I32WrapI64):
         CHECK_NEXT(
-            dispatchConversion(emitWrapI64ToI32, ValType::I64, ValType::I32));
+            dispatchConversion1(WrapI64ToI32, ValType::I64, ValType::I32));
       case uint16_t(Op::I32ReinterpretF32):
-        CHECK_NEXT(dispatchConversion(emitReinterpretF32AsI32, ValType::F32,
-                                      ValType::I32));
+        CHECK_NEXT(dispatchConversion1(ReinterpretF32AsI32, ValType::F32,
+                                       ValType::I32));
       case uint16_t(Op::I32Clz):
-        CHECK_NEXT(dispatchUnary(emitClzI32, ValType::I32));
+        CHECK_NEXT(dispatchUnary1(ClzI32, ValType::I32));
       case uint16_t(Op::I32Ctz):
-        CHECK_NEXT(dispatchUnary(emitCtzI32, ValType::I32));
+        CHECK_NEXT(dispatchUnary1(CtzI32, ValType::I32));
       case uint16_t(Op::I32Popcnt):
-        CHECK_NEXT(dispatchUnary(emitPopcntI32, ValType::I32));
+        CHECK_NEXT(dispatchUnary2(PopcntI32, PopcntTemp, ValType::I32));
       case uint16_t(Op::I32Or):
-        CHECK_NEXT(dispatchBinary(emitOrI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary2(OrI32, OrImmI32, ValType::I32));
       case uint16_t(Op::I32And):
-        CHECK_NEXT(dispatchBinary(emitAndI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary2(AndI32, AndImmI32, ValType::I32));
       case uint16_t(Op::I32Xor):
-        CHECK_NEXT(dispatchBinary(emitXorI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary2(XorI32, XorImmI32, ValType::I32));
       case uint16_t(Op::I32Shl):
-        CHECK_NEXT(dispatchBinary(emitShlI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary3(
+            ShlI32, ShlImmI32, &BaseCompiler::popI32RhsForShift, ValType::I32));
       case uint16_t(Op::I32ShrS):
-        CHECK_NEXT(dispatchBinary(emitShrI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary3(
+            ShrI32, ShrImmI32, &BaseCompiler::popI32RhsForShift, ValType::I32));
       case uint16_t(Op::I32ShrU):
-        CHECK_NEXT(dispatchBinary(emitShrU32, ValType::I32));
+        CHECK_NEXT(dispatchBinary3(ShrUI32, ShrUImmI32,
+                                   &BaseCompiler::popI32RhsForShift,
+                                   ValType::I32));
       case uint16_t(Op::I32Load8S):
         CHECK_NEXT(emitLoad(ValType::I32, Scalar::Int8));
       case uint16_t(Op::I32Load8U):
@@ -16346,9 +16095,13 @@ bool BaseCompiler::emitBody() {
       case uint16_t(Op::I32Store):
         CHECK_NEXT(emitStore(ValType::I32, Scalar::Int32));
       case uint16_t(Op::I32Rotr):
-        CHECK_NEXT(dispatchBinary(emitRotrI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary3(RotrI32, RotrImmI32,
+                                   &BaseCompiler::popI32RhsForRotate,
+                                   ValType::I32));
       case uint16_t(Op::I32Rotl):
-        CHECK_NEXT(dispatchBinary(emitRotlI32, ValType::I32));
+        CHECK_NEXT(dispatchBinary3(RotlI32, RotlImmI32,
+                                   &BaseCompiler::popI32RhsForRotate,
+                                   ValType::I32));
 
       // I64
       case uint16_t(Op::I64Const): {
@@ -16360,17 +16113,17 @@ bool BaseCompiler::emitBody() {
         NEXT();
       }
       case uint16_t(Op::I64Add):
-        CHECK_NEXT(dispatchBinary(emitAddI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary2(AddI64, AddImmI64, ValType::I64));
       case uint16_t(Op::I64Sub):
-        CHECK_NEXT(dispatchBinary(emitSubtractI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary2(SubI64, SubImmI64, ValType::I64));
       case uint16_t(Op::I64Mul):
-        CHECK_NEXT(dispatchBinary(emitMultiplyI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitMultiplyI64, ValType::I64));
       case uint16_t(Op::I64DivS):
 #ifdef RABALDR_INT_DIV_I64_CALLOUT
         CHECK_NEXT(dispatchIntDivCallout(
             emitDivOrModI64BuiltinCall, SymbolicAddress::DivI64, ValType::I64));
 #else
-        CHECK_NEXT(dispatchBinary(emitQuotientI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitQuotientI64, ValType::I64));
 #endif
       case uint16_t(Op::I64DivU):
 #ifdef RABALDR_INT_DIV_I64_CALLOUT
@@ -16378,14 +16131,14 @@ bool BaseCompiler::emitBody() {
                                          SymbolicAddress::UDivI64,
                                          ValType::I64));
 #else
-        CHECK_NEXT(dispatchBinary(emitQuotientU64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitQuotientU64, ValType::I64));
 #endif
       case uint16_t(Op::I64RemS):
 #ifdef RABALDR_INT_DIV_I64_CALLOUT
         CHECK_NEXT(dispatchIntDivCallout(
             emitDivOrModI64BuiltinCall, SymbolicAddress::ModI64, ValType::I64));
 #else
-        CHECK_NEXT(dispatchBinary(emitRemainderI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitRemainderI64, ValType::I64));
 #endif
       case uint16_t(Op::I64RemU):
 #ifdef RABALDR_INT_DIV_I64_CALLOUT
@@ -16393,7 +16146,7 @@ bool BaseCompiler::emitBody() {
                                          SymbolicAddress::UModI64,
                                          ValType::I64));
 #else
-        CHECK_NEXT(dispatchBinary(emitRemainderU64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitRemainderU64, ValType::I64));
 #endif
       case uint16_t(Op::I64TruncSF32):
 #ifdef RABALDR_FLOAT_TO_I64_CALLOUT
@@ -16436,38 +16189,42 @@ bool BaseCompiler::emitBody() {
                                          ValType::F64, ValType::I64));
 #endif
       case uint16_t(Op::I64ExtendSI32):
-        CHECK_NEXT(
-            dispatchConversion(emitExtendI32ToI64, ValType::I32, ValType::I64));
+        CHECK_NEXT(dispatchConversion0(emitExtendI32ToI64, ValType::I32,
+                                       ValType::I64));
       case uint16_t(Op::I64ExtendUI32):
-        CHECK_NEXT(
-            dispatchConversion(emitExtendU32ToI64, ValType::I32, ValType::I64));
+        CHECK_NEXT(dispatchConversion0(emitExtendU32ToI64, ValType::I32,
+                                       ValType::I64));
       case uint16_t(Op::I64ReinterpretF64):
-        CHECK_NEXT(dispatchConversion(emitReinterpretF64AsI64, ValType::F64,
-                                      ValType::I64));
+        CHECK_NEXT(dispatchConversion1(ReinterpretF64AsI64, ValType::F64,
+                                       ValType::I64));
       case uint16_t(Op::I64Or):
-        CHECK_NEXT(dispatchBinary(emitOrI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary2(OrI64, OrImmI64, ValType::I64));
       case uint16_t(Op::I64And):
-        CHECK_NEXT(dispatchBinary(emitAndI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary2(AndI64, AndImmI64, ValType::I64));
       case uint16_t(Op::I64Xor):
-        CHECK_NEXT(dispatchBinary(emitXorI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary2(XorI64, XorImmI64, ValType::I64));
       case uint16_t(Op::I64Shl):
-        CHECK_NEXT(dispatchBinary(emitShlI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary3(
+            ShlI64, ShlImmI64, &BaseCompiler::popI64RhsForShift, ValType::I64));
       case uint16_t(Op::I64ShrS):
-        CHECK_NEXT(dispatchBinary(emitShrI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary3(
+            ShrI64, ShrImmI64, &BaseCompiler::popI64RhsForShift, ValType::I64));
       case uint16_t(Op::I64ShrU):
-        CHECK_NEXT(dispatchBinary(emitShrU64, ValType::I64));
+        CHECK_NEXT(dispatchBinary3(ShrUI64, ShrUImmI64,
+                                   &BaseCompiler::popI64RhsForShift,
+                                   ValType::I64));
       case uint16_t(Op::I64Rotr):
-        CHECK_NEXT(dispatchBinary(emitRotrI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitRotrI64, ValType::I64));
       case uint16_t(Op::I64Rotl):
-        CHECK_NEXT(dispatchBinary(emitRotlI64, ValType::I64));
+        CHECK_NEXT(dispatchBinary0(emitRotlI64, ValType::I64));
       case uint16_t(Op::I64Clz):
-        CHECK_NEXT(dispatchUnary(emitClzI64, ValType::I64));
+        CHECK_NEXT(dispatchUnary1(ClzI64, ValType::I64));
       case uint16_t(Op::I64Ctz):
-        CHECK_NEXT(dispatchUnary(emitCtzI64, ValType::I64));
+        CHECK_NEXT(dispatchUnary1(CtzI64, ValType::I64));
       case uint16_t(Op::I64Popcnt):
-        CHECK_NEXT(dispatchUnary(emitPopcntI64, ValType::I64));
+        CHECK_NEXT(dispatchUnary2(PopcntI64, PopcntTemp, ValType::I64));
       case uint16_t(Op::I64Eqz):
-        CHECK_NEXT(dispatchConversion(emitEqzI64, ValType::I64, ValType::I32));
+        CHECK_NEXT(dispatchConversion0(emitEqzI64, ValType::I64, ValType::I32));
       case uint16_t(Op::I64Load8S):
         CHECK_NEXT(emitLoad(ValType::I64, Scalar::Int8));
       case uint16_t(Op::I64Load16S):
@@ -16501,23 +16258,23 @@ bool BaseCompiler::emitBody() {
         NEXT();
       }
       case uint16_t(Op::F32Add):
-        CHECK_NEXT(dispatchBinary(emitAddF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(AddF32, ValType::F32))
       case uint16_t(Op::F32Sub):
-        CHECK_NEXT(dispatchBinary(emitSubtractF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(SubF32, ValType::F32));
       case uint16_t(Op::F32Mul):
-        CHECK_NEXT(dispatchBinary(emitMultiplyF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(MulF32, ValType::F32));
       case uint16_t(Op::F32Div):
-        CHECK_NEXT(dispatchBinary(emitDivideF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(DivF32, ValType::F32));
       case uint16_t(Op::F32Min):
-        CHECK_NEXT(dispatchBinary(emitMinF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(MinF32, ValType::F32));
       case uint16_t(Op::F32Max):
-        CHECK_NEXT(dispatchBinary(emitMaxF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(MaxF32, ValType::F32));
       case uint16_t(Op::F32Neg):
-        CHECK_NEXT(dispatchUnary(emitNegateF32, ValType::F32));
+        CHECK_NEXT(dispatchUnary1(NegateF32, ValType::F32));
       case uint16_t(Op::F32Abs):
-        CHECK_NEXT(dispatchUnary(emitAbsF32, ValType::F32));
+        CHECK_NEXT(dispatchUnary1(AbsF32, ValType::F32));
       case uint16_t(Op::F32Sqrt):
-        CHECK_NEXT(dispatchUnary(emitSqrtF32, ValType::F32));
+        CHECK_NEXT(dispatchUnary1(SqrtF32, ValType::F32));
       case uint16_t(Op::F32Ceil):
         CHECK_NEXT(
             emitUnaryMathBuiltinCall(SymbolicAddress::CeilF, ValType::F32));
@@ -16525,22 +16282,22 @@ bool BaseCompiler::emitBody() {
         CHECK_NEXT(
             emitUnaryMathBuiltinCall(SymbolicAddress::FloorF, ValType::F32));
       case uint16_t(Op::F32DemoteF64):
-        CHECK_NEXT(dispatchConversion(emitConvertF64ToF32, ValType::F64,
-                                      ValType::F32));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertF64ToF32, ValType::F64, ValType::F32));
       case uint16_t(Op::F32ConvertSI32):
-        CHECK_NEXT(dispatchConversion(emitConvertI32ToF32, ValType::I32,
-                                      ValType::F32));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertI32ToF32, ValType::I32, ValType::F32));
       case uint16_t(Op::F32ConvertUI32):
-        CHECK_NEXT(dispatchConversion(emitConvertU32ToF32, ValType::I32,
-                                      ValType::F32));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertU32ToF32, ValType::I32, ValType::F32));
       case uint16_t(Op::F32ConvertSI64):
 #ifdef RABALDR_I64_TO_FLOAT_CALLOUT
         CHECK_NEXT(dispatchCalloutConversionOOM(
             emitConvertInt64ToFloatingCallout, SymbolicAddress::Int64ToFloat32,
             ValType::I64, ValType::F32));
 #else
-        CHECK_NEXT(dispatchConversion(emitConvertI64ToF32, ValType::I64,
-                                      ValType::F32));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertI64ToF32, ValType::I64, ValType::F32));
 #endif
       case uint16_t(Op::F32ConvertUI64):
 #ifdef RABALDR_I64_TO_FLOAT_CALLOUT
@@ -16548,18 +16305,18 @@ bool BaseCompiler::emitBody() {
             emitConvertInt64ToFloatingCallout, SymbolicAddress::Uint64ToFloat32,
             ValType::I64, ValType::F32));
 #else
-        CHECK_NEXT(dispatchConversion(emitConvertU64ToF32, ValType::I64,
-                                      ValType::F32));
+        CHECK_NEXT(dispatchConversion0(emitConvertU64ToF32, ValType::I64,
+                                       ValType::F32));
 #endif
       case uint16_t(Op::F32ReinterpretI32):
-        CHECK_NEXT(dispatchConversion(emitReinterpretI32AsF32, ValType::I32,
-                                      ValType::F32));
+        CHECK_NEXT(dispatchConversion1(ReinterpretI32AsF32, ValType::I32,
+                                       ValType::F32));
       case uint16_t(Op::F32Load):
         CHECK_NEXT(emitLoad(ValType::F32, Scalar::Float32));
       case uint16_t(Op::F32Store):
         CHECK_NEXT(emitStore(ValType::F32, Scalar::Float32));
       case uint16_t(Op::F32CopySign):
-        CHECK_NEXT(dispatchBinary(emitCopysignF32, ValType::F32));
+        CHECK_NEXT(dispatchBinary1(CopysignF32, ValType::F32));
       case uint16_t(Op::F32Nearest):
         CHECK_NEXT(emitUnaryMathBuiltinCall(SymbolicAddress::NearbyIntF,
                                             ValType::F32));
@@ -16577,23 +16334,23 @@ bool BaseCompiler::emitBody() {
         NEXT();
       }
       case uint16_t(Op::F64Add):
-        CHECK_NEXT(dispatchBinary(emitAddF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(AddF64, ValType::F64))
       case uint16_t(Op::F64Sub):
-        CHECK_NEXT(dispatchBinary(emitSubtractF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(SubF64, ValType::F64));
       case uint16_t(Op::F64Mul):
-        CHECK_NEXT(dispatchBinary(emitMultiplyF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(MulF64, ValType::F64));
       case uint16_t(Op::F64Div):
-        CHECK_NEXT(dispatchBinary(emitDivideF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(DivF64, ValType::F64));
       case uint16_t(Op::F64Min):
-        CHECK_NEXT(dispatchBinary(emitMinF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(MinF64, ValType::F64));
       case uint16_t(Op::F64Max):
-        CHECK_NEXT(dispatchBinary(emitMaxF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(MaxF64, ValType::F64));
       case uint16_t(Op::F64Neg):
-        CHECK_NEXT(dispatchUnary(emitNegateF64, ValType::F64));
+        CHECK_NEXT(dispatchUnary1(NegateF64, ValType::F64));
       case uint16_t(Op::F64Abs):
-        CHECK_NEXT(dispatchUnary(emitAbsF64, ValType::F64));
+        CHECK_NEXT(dispatchUnary1(AbsF64, ValType::F64));
       case uint16_t(Op::F64Sqrt):
-        CHECK_NEXT(dispatchUnary(emitSqrtF64, ValType::F64));
+        CHECK_NEXT(dispatchUnary1(SqrtF64, ValType::F64));
       case uint16_t(Op::F64Ceil):
         CHECK_NEXT(
             emitUnaryMathBuiltinCall(SymbolicAddress::CeilD, ValType::F64));
@@ -16601,22 +16358,22 @@ bool BaseCompiler::emitBody() {
         CHECK_NEXT(
             emitUnaryMathBuiltinCall(SymbolicAddress::FloorD, ValType::F64));
       case uint16_t(Op::F64PromoteF32):
-        CHECK_NEXT(dispatchConversion(emitConvertF32ToF64, ValType::F32,
-                                      ValType::F64));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertF32ToF64, ValType::F32, ValType::F64));
       case uint16_t(Op::F64ConvertSI32):
-        CHECK_NEXT(dispatchConversion(emitConvertI32ToF64, ValType::I32,
-                                      ValType::F64));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertI32ToF64, ValType::I32, ValType::F64));
       case uint16_t(Op::F64ConvertUI32):
-        CHECK_NEXT(dispatchConversion(emitConvertU32ToF64, ValType::I32,
-                                      ValType::F64));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertU32ToF64, ValType::I32, ValType::F64));
       case uint16_t(Op::F64ConvertSI64):
 #ifdef RABALDR_I64_TO_FLOAT_CALLOUT
         CHECK_NEXT(dispatchCalloutConversionOOM(
             emitConvertInt64ToFloatingCallout, SymbolicAddress::Int64ToDouble,
             ValType::I64, ValType::F64));
 #else
-        CHECK_NEXT(dispatchConversion(emitConvertI64ToF64, ValType::I64,
-                                      ValType::F64));
+        CHECK_NEXT(
+            dispatchConversion1(ConvertI64ToF64, ValType::I64, ValType::F64));
 #endif
       case uint16_t(Op::F64ConvertUI64):
 #ifdef RABALDR_I64_TO_FLOAT_CALLOUT
@@ -16624,18 +16381,18 @@ bool BaseCompiler::emitBody() {
             emitConvertInt64ToFloatingCallout, SymbolicAddress::Uint64ToDouble,
             ValType::I64, ValType::F64));
 #else
-        CHECK_NEXT(dispatchConversion(emitConvertU64ToF64, ValType::I64,
-                                      ValType::F64));
+        CHECK_NEXT(dispatchConversion0(emitConvertU64ToF64, ValType::I64,
+                                       ValType::F64));
 #endif
       case uint16_t(Op::F64Load):
         CHECK_NEXT(emitLoad(ValType::F64, Scalar::Float64));
       case uint16_t(Op::F64Store):
         CHECK_NEXT(emitStore(ValType::F64, Scalar::Float64));
       case uint16_t(Op::F64ReinterpretI64):
-        CHECK_NEXT(dispatchConversion(emitReinterpretI64AsF64, ValType::I64,
-                                      ValType::F64));
+        CHECK_NEXT(dispatchConversion1(ReinterpretI64AsF64, ValType::I64,
+                                       ValType::F64));
       case uint16_t(Op::F64CopySign):
-        CHECK_NEXT(dispatchBinary(emitCopysignF64, ValType::F64));
+        CHECK_NEXT(dispatchBinary1(CopysignF64, ValType::F64));
       case uint16_t(Op::F64Nearest):
         CHECK_NEXT(emitUnaryMathBuiltinCall(SymbolicAddress::NearbyIntD,
                                             ValType::F64));
@@ -16645,118 +16402,118 @@ bool BaseCompiler::emitBody() {
 
       // Comparisons
       case uint16_t(Op::I32Eq):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI32, ValType::I32, Assembler::Equal));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::Equal));
       case uint16_t(Op::I32Ne):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::NotEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::NotEqual));
       case uint16_t(Op::I32LtS):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::LessThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::LessThan));
       case uint16_t(Op::I32LeS):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::LessThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::LessThanOrEqual));
       case uint16_t(Op::I32GtS):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::GreaterThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::GreaterThan));
       case uint16_t(Op::I32GeS):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::GreaterThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::GreaterThanOrEqual));
       case uint16_t(Op::I32LtU):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI32, ValType::I32, Assembler::Below));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::Below));
       case uint16_t(Op::I32LeU):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::BelowOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::BelowOrEqual));
       case uint16_t(Op::I32GtU):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI32, ValType::I32, Assembler::Above));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::Above));
       case uint16_t(Op::I32GeU):
-        CHECK_NEXT(dispatchComparison(emitCompareI32, ValType::I32,
-                                      Assembler::AboveOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI32, ValType::I32,
+                                       Assembler::AboveOrEqual));
       case uint16_t(Op::I64Eq):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI64, ValType::I64, Assembler::Equal));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::Equal));
       case uint16_t(Op::I64Ne):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::NotEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::NotEqual));
       case uint16_t(Op::I64LtS):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::LessThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::LessThan));
       case uint16_t(Op::I64LeS):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::LessThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::LessThanOrEqual));
       case uint16_t(Op::I64GtS):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::GreaterThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::GreaterThan));
       case uint16_t(Op::I64GeS):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::GreaterThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::GreaterThanOrEqual));
       case uint16_t(Op::I64LtU):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI64, ValType::I64, Assembler::Below));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::Below));
       case uint16_t(Op::I64LeU):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::BelowOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::BelowOrEqual));
       case uint16_t(Op::I64GtU):
-        CHECK_NEXT(
-            dispatchComparison(emitCompareI64, ValType::I64, Assembler::Above));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::Above));
       case uint16_t(Op::I64GeU):
-        CHECK_NEXT(dispatchComparison(emitCompareI64, ValType::I64,
-                                      Assembler::AboveOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareI64, ValType::I64,
+                                       Assembler::AboveOrEqual));
       case uint16_t(Op::F32Eq):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleEqual));
       case uint16_t(Op::F32Ne):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleNotEqualOrUnordered));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleNotEqualOrUnordered));
       case uint16_t(Op::F32Lt):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleLessThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleLessThan));
       case uint16_t(Op::F32Le):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleLessThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleLessThanOrEqual));
       case uint16_t(Op::F32Gt):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleGreaterThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleGreaterThan));
       case uint16_t(Op::F32Ge):
-        CHECK_NEXT(dispatchComparison(emitCompareF32, ValType::F32,
-                                      Assembler::DoubleGreaterThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF32, ValType::F32,
+                                       Assembler::DoubleGreaterThanOrEqual));
       case uint16_t(Op::F64Eq):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleEqual));
       case uint16_t(Op::F64Ne):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleNotEqualOrUnordered));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleNotEqualOrUnordered));
       case uint16_t(Op::F64Lt):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleLessThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleLessThan));
       case uint16_t(Op::F64Le):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleLessThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleLessThanOrEqual));
       case uint16_t(Op::F64Gt):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleGreaterThan));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleGreaterThan));
       case uint16_t(Op::F64Ge):
-        CHECK_NEXT(dispatchComparison(emitCompareF64, ValType::F64,
-                                      Assembler::DoubleGreaterThanOrEqual));
+        CHECK_NEXT(dispatchComparison0(emitCompareF64, ValType::F64,
+                                       Assembler::DoubleGreaterThanOrEqual));
 
       // Sign extensions
       case uint16_t(Op::I32Extend8S):
         CHECK_NEXT(
-            dispatchConversion(emitExtendI32_8, ValType::I32, ValType::I32));
+            dispatchConversion1(ExtendI32_8, ValType::I32, ValType::I32));
       case uint16_t(Op::I32Extend16S):
         CHECK_NEXT(
-            dispatchConversion(emitExtendI32_16, ValType::I32, ValType::I32));
+            dispatchConversion1(ExtendI32_16, ValType::I32, ValType::I32));
       case uint16_t(Op::I64Extend8S):
         CHECK_NEXT(
-            dispatchConversion(emitExtendI64_8, ValType::I64, ValType::I64));
+            dispatchConversion0(emitExtendI64_8, ValType::I64, ValType::I64));
       case uint16_t(Op::I64Extend16S):
         CHECK_NEXT(
-            dispatchConversion(emitExtendI64_16, ValType::I64, ValType::I64));
+            dispatchConversion0(emitExtendI64_16, ValType::I64, ValType::I64));
       case uint16_t(Op::I64Extend32S):
         CHECK_NEXT(
-            dispatchConversion(emitExtendI64_32, ValType::I64, ValType::I64));
+            dispatchConversion0(emitExtendI64_32, ValType::I64, ValType::I64));
 
       // Memory Related
       case uint16_t(Op::MemoryGrow):
@@ -16778,13 +16535,12 @@ bool BaseCompiler::emitBody() {
 #endif
 #ifdef ENABLE_WASM_GC
       case uint16_t(Op::RefEq):
-        if (!moduleEnv_.gcTypesEnabled()) {
+        if (!moduleEnv_.gcEnabled()) {
           return iter_.unrecognizedOpcode(&op);
         }
-        CHECK_NEXT(dispatchComparison(emitCompareRef, RefType::eq(),
-                                      Assembler::Equal));
+        CHECK_NEXT(dispatchComparison0(emitCompareRef, RefType::eq(),
+                                       Assembler::Equal));
 #endif
-#ifdef ENABLE_WASM_REFTYPES
       case uint16_t(Op::RefFunc):
         CHECK_NEXT(emitRefFunc());
         break;
@@ -16794,12 +16550,11 @@ bool BaseCompiler::emitBody() {
       case uint16_t(Op::RefIsNull):
         CHECK_NEXT(emitRefIsNull());
         break;
-#endif
 
 #ifdef ENABLE_WASM_GC
       // "GC" operations
       case uint16_t(Op::GcPrefix): {
-        if (!moduleEnv_.gcTypesEnabled()) {
+        if (!moduleEnv_.gcEnabled()) {
           return iter_.unrecognizedOpcode(&op);
         }
         switch (op.b1) {
@@ -17061,7 +16816,7 @@ bool BaseCompiler::emitBody() {
           case uint32_t(SimdOp::V128Xor):
             CHECK_NEXT(dispatchVectorBinary(XorV128));
           case uint32_t(SimdOp::V128AndNot):
-            CHECK_NEXT(dispatchBinary(emitVectorAndNot, ValType::V128));
+            CHECK_NEXT(dispatchBinary0(emitVectorAndNot, ValType::V128));
           case uint32_t(SimdOp::I8x16AvgrU):
             CHECK_NEXT(dispatchVectorBinary(AverageUI8x16));
           case uint32_t(SimdOp::I16x8AvgrU):
@@ -17462,14 +17217,12 @@ bool BaseCompiler::emitBody() {
             CHECK_NEXT(emitDataOrElemDrop(/*isData=*/false));
           case uint32_t(MiscOp::TableInit):
             CHECK_NEXT(emitMemOrTableInit(/*isMem=*/false));
-#ifdef ENABLE_WASM_REFTYPES
           case uint32_t(MiscOp::TableFill):
             CHECK_NEXT(emitTableFill());
           case uint32_t(MiscOp::TableGrow):
             CHECK_NEXT(emitTableGrow());
           case uint32_t(MiscOp::TableSize):
             CHECK_NEXT(emitTableSize());
-#endif
           default:
             break;
         }  // switch (op.b1)
@@ -17478,6 +17231,9 @@ bool BaseCompiler::emitBody() {
 
       // Thread operations
       case uint16_t(Op::ThreadPrefix): {
+        // Though thread ops can be used on nonshared memories, we make them
+        // unavailable if shared memory has been disabled in the prefs, for
+        // maximum predictability and safety and consistency with JS.
         if (moduleEnv_.sharedMemoryEnabled() == Shareable::False) {
           return iter_.unrecognizedOpcode(&op);
         }
@@ -17680,10 +17436,16 @@ bool BaseCompiler::emitBody() {
 #undef NEXT
 #undef CHECK_NEXT
 #undef CHECK_POINTER_COUNT
-#undef dispatchBinary
-#undef dispatchUnary
-#undef dispatchComparison
-#undef dispatchConversion
+#undef dispatchBinary0
+#undef dispatchBinary1
+#undef dispatchBinary2
+#undef dispatchBinary3
+#undef dispatchUnary0
+#undef dispatchUnary1
+#undef dispatchUnary2
+#undef dispatchComparison0
+#undef dispatchConversion0
+#undef dispatchConversion1
 #undef dispatchConversionOOM
 #undef dispatchCalloutConversionOOM
 #undef dispatchIntDivCallout

@@ -2,12 +2,13 @@
 
 set -xe
 
-source $(dirname $0)/sm-tooltool-config.sh
+# Default variables values.
+: ${WORK:=$HOME/workspace}
 
 mkdir -p $UPLOAD_DIR
 
 # Package up the sources into the release tarball.
-AUTOMATION=1 DIST=$UPLOAD_DIR $GECKO_PATH/js/src/make-source-package.sh
+AUTOMATION=1 DIST=$UPLOAD_DIR $GECKO_PATH/js/src/make-source-package.py
 
 # Extract the tarball into a new directory in the workspace.
 
@@ -24,15 +25,20 @@ tar -xvf $UPLOAD_DIR/mozjs-*.tar.*z*
 status=0
 (
     # Build the freshly extracted, packaged SpiderMonkey.
-    cd ./mozjs-*/js/src
+    cd ./mozjs-*
 
     # MOZ_AUTOMATION enforces certain requirements that don't apply to
     # packaged builds. Unset it.
     unset MOZ_AUTOMATION
     # Unsetting MOZ_AUTOMATION prevents this to be set automatically:
-    export SYSROOT=$MOZ_FETCHES_DIR/sysroot
+    export PATH="$MOZ_FETCHES_DIR/clang/bin:$PATH"
+    export SYSROOT="$MOZ_FETCHES_DIR/sysroot"
+    export RUSTC="$MOZ_FETCHES_DIR/rustc/bin/rustc"
+    export CARGO="$MOZ_FETCHES_DIR/rustc/bin/cargo"
+    export CBINDGEN="$MOZ_FETCHES_DIR/cbindgen/cbindgen"
 
-    AUTOMATION=1 $PYTHON3 ./devtools/automation/autospider.py --skip-tests=checks $SPIDERMONKEY_VARIANT
+    ./mach create-mach-environment
+    AUTOMATION=1 $PYTHON3 js/src/devtools/automation/autospider.py --skip-tests=checks $SPIDERMONKEY_VARIANT
 ) || status=$?
 
 # Copy artifacts for upload by TaskCluster

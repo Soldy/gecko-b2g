@@ -59,6 +59,8 @@ const TOPIC_CONNECTION_STATE_CHANGED = "network-connection-state-changed";
 const PREF_MANAGE_OFFLINE_STATUS = "network.gonk.manage-offline-status";
 const PREF_NETWORK_DEBUG_ENABLED = "network.debugging.enabled";
 const TOPIC_NETD_INTERFACE_CHANGE = "netd-interface-change";
+const TOPIC_NETD_INTERFACE_REMOVE = "netd-interface-remove";
+const TOPIC_NETD_NET64_PREFIX_EVENT = "on-nat64prefix-event";
 
 const IPV4_ADDRESS_ANY = "0.0.0.0";
 const IPV6_ADDRESS_ANY = "::0";
@@ -378,10 +380,18 @@ function Nat464Xlat(aNetworkInfo) {
   this.stackedLinkInfo = new StackedLinkInfo(null);
   this.ifaceName = aNetworkInfo.name;
   this.nat464Iface = null;
-  this.isRunning = false;
   this.types.push(aNetworkInfo.type);
   this.netId = aNetworkInfo.netId;
-  this.nat64Prefix = "2001:db8:cafe:f00d:1:2::/96";
+  this.nat64Prefix = null;
+  this.nat64State = Ci.nsINat464XlatInfo.XLAT_STATE_IDLE;
+
+  // Used in resolveHostname().
+  defineLazyRegExp(this, "REGEXP_IPV4", "^\\d{1,3}(?:\\.\\d{1,3}){3}$");
+  defineLazyRegExp(
+    this,
+    "REGEXP_IPV6",
+    "^[\\da-fA-F]{4}(?::[\\da-fA-F]{4}){7}$"
+  );
 }
 Nat464Xlat.prototype = {
   QueryInterface: ChromeUtils.generateQI([Ci.nsIObserver]),
@@ -389,25 +399,95 @@ Nat464Xlat.prototype = {
   stackedLinkInfo: null,
   ifaceName: null,
   nat464Iface: null,
-  isRunning: false,
   types: [],
   netId: null,
   nat64Prefix: null,
   clatdAddress: null,
+  nat64State: null,
 
   isStarted() {
-    return this.nat464Iface != null;
+    return (
+      this.nat64State == Ci.nsINat464XlatInfo.XLAT_STATE_STARTING ||
+      this.nat64State == Ci.nsINat464XlatInfo.XLAT_STATE_RUNNING
+    );
+  },
+
+  isStarting() {
+    return this.nat64State == Ci.nsINat464XlatInfo.XLAT_STATE_STARTING;
+  },
+
+  isRunning() {
+    return this.nat64State == Ci.nsINat464XlatInfo.XLAT_STATE_RUNNING;
+  },
+
+  isPrefixDiscoveryStarted() {
+    return (
+      this.nat64State == Ci.nsINat464XlatInfo.XLAT_STATE_DISCOVERING ||
+      this.isStarted()
+    );
   },
 
   clear() {
     this.stackedLinkInfo = null;
     this.ifaceName = null;
     this.nat464Iface = null;
-    this.isRunning = false;
     this.types = [];
     this.netId = null;
     this.nat64Prefix = null;
     this.clatdAddress = null;
+    this.nat64State = null;
+  },
+
+  getNat64Prefix() {
+    return this.nat64Prefix;
+  },
+
+  setupPrefix64Discovery(aEnable) {
+    let self = this;
+    this.nat64Debug("setupPrefix64Discovery aEnable:" + aEnable);
+    // Set state discovering.
+    this.nat64State = Ci.nsINat464XlatInfo.XLAT_STATE_DISCOVERING;
+    gNetworkService.setupPrefix64Discovery(this.ifaceName, aEnable, success => {
+      self.nat64Debug(
+        "setupPrefix64Discovery " +
+          aEnable +
+          " : " +
+          (success ? "success" : "fail")
+      );
+    });
+  },
+
+  shouldRunClat() {
+    let shouldRun = this.getNat64Prefix() != null;
+    this.nat64Debug("shouldRun = " + shouldRun);
+    return shouldRun;
+  },
+
+  requiresClat(aNetworkInfo) {
+    let self = this;
+    let connected =
+      aNetworkInfo.state == Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED;
+    if (!connected) {
+      return Promise.resolve(false);
+    }
+
+    return new Promise((aResolve, aReject) => {
+      let hasIpv4 = false;
+      let ips = {};
+      let prefixLengths = {};
+      let length = aNetworkInfo.getAddresses(ips, prefixLengths);
+      for (let i = 0; i < length; i++) {
+        self.nat64Debug(
+          "requiresClat routes: " + ips.value[i] + "/" + prefixLengths.value[i]
+        );
+        if (ips.value[i].match(this.REGEXP_IPV4)) {
+          hasIpv4 = true;
+          break;
+        }
+      }
+      self.nat64Debug("requiresClat hasIpv4 = " + hasIpv4);
+      aResolve(!hasIpv4);
+    });
   },
 
   start(aCallback) {
@@ -416,11 +496,13 @@ Nat464Xlat.prototype = {
     this.nat64Debug("Starting clatd");
     if (this.ifaceName == null) {
       this.nat64Debug("clatd: Can't start clatd without providing interface");
+      aCallback(false);
       return;
     }
 
     if (this.isStarted()) {
       this.nat64Debug("clatd: already started");
+      aCallback(true);
       return;
     }
 
@@ -438,7 +520,10 @@ Nat464Xlat.prototype = {
           " address: " +
           clatdAddress
       );
+
       if (success) {
+        // Set state starting.
+        self.nat64State = Ci.nsINat464XlatInfo.XLAT_STATE_STARTING;
         self.clatdAddress = clatdAddress;
       }
       aCallback(success);
@@ -446,8 +531,10 @@ Nat464Xlat.prototype = {
   },
 
   stop(aCallback) {
+    let self = this;
     if (!this.isStarted()) {
       this.nat64Debug("clatd: already stopped");
+      aCallback(true);
       return;
     }
 
@@ -456,12 +543,14 @@ Nat464Xlat.prototype = {
     gNetworkService.stopClatd(this.ifaceName, success => {
       // Clean nat464Iface if the isRunning is false. Which means the clat do not start yet but turn off.
       // Whne clat start but stop in a short time, kernel will not lunch the clat interface, cause the isStarted value do not reset.
-      if (!this.isRunning) {
+      if (!this.isRunning()) {
         this.nat64Debug("Force clean the isStarted due to clat stop.");
         this.nat464Iface = null;
       }
 
       this.nat64Debug("Clatd stopped : " + (success ? "success" : "fail"));
+      // Set state idle.
+      self.nat64State = Ci.nsINat464XlatInfo.XLAT_STATE_IDLE;
       aCallback(success);
     });
   },
@@ -510,6 +599,8 @@ function NetworkManager() {
   Services.prefs.addObserver(PREF_MANAGE_OFFLINE_STATUS, this);
   Services.prefs.addObserver(PREF_NETWORK_DEBUG_ENABLED, this);
   Services.obs.addObserver(this, TOPIC_NETD_INTERFACE_CHANGE);
+  Services.obs.addObserver(this, TOPIC_NETD_INTERFACE_REMOVE);
+  Services.obs.addObserver(this, TOPIC_NETD_NET64_PREFIX_EVENT);
   Services.obs.addObserver(this, TOPIC_XPCOM_SHUTDOWN);
 
   this.setAndConfigureActive();
@@ -616,6 +707,9 @@ NetworkManager.prototype = {
       case "interfaceRemoved":
         this.onInterfaceRemoved(msg.clatNetworkIface);
         break;
+      case "nat64PrefixEvent":
+        this.onNat64PrefixEvent(msg.netId, msg.prefixString, msg.prefixLength);
+        break;
     }
   },
 
@@ -639,19 +733,18 @@ NetworkManager.prototype = {
         break;
 
       case TOPIC_NETD_INTERFACE_CHANGE:
-        // Format: "Iface linkstate <name> <up/down>"
-        //         "Iface removed <name>"
-        let token = data.split(" ");
-        if (token.length < 3) {
-          return;
-        }
+        {
+          // Format: "Iface linkstate <name> <up/down>"
+          let token = data.split(" ");
+          if (token.length < 3) {
+            return;
+          }
 
-        debug("TOPIC_NETD_INTERFACE_CHANGE token=" + JSON.stringify(token));
-        let status = token[1];
-        let iface = token[2];
+          debug("TOPIC_NETD_INTERFACE_CHANGE token=" + JSON.stringify(token));
+          let status = token[1];
+          let iface = token[2];
 
-        switch (status) {
-          case "linkstate":
+          if (status == "linkstate") {
             if (token.length < 4) {
               return;
             }
@@ -660,16 +753,37 @@ NetworkManager.prototype = {
             if (iface.includes(CLAT_PREFIX) && up) {
               this.interfaceLinkStateChanged(iface);
             }
-            break;
+          }
+        }
+        break;
+      case TOPIC_NETD_INTERFACE_REMOVE:
+        {
+          // Format: "Iface removed <name>"
+          let token = data.split(" ");
+          if (token.length < 3) {
+            return;
+          }
 
-          case "removed":
+          debug("TOPIC_NETD_INTERFACE_REMOVE token=" + JSON.stringify(token));
+          let status = token[1];
+          let iface = token[2];
+
+          if (status == "removed") {
             if (iface.includes(CLAT_PREFIX)) {
               this.interfaceRemoved(iface);
             }
             break;
-
-          default:
+          }
         }
+        break;
+      case TOPIC_NETD_NET64_PREFIX_EVENT:
+        // Format: "<netId> add <ipv6 prefix> <prefix length>"
+        debug("TOPIC_NETD_NET64_PREFIX_EVENT data=" + JSON.stringify(data));
+        let value = data.split(" ");
+        if (value.length < 4) {
+          return;
+        }
+        this.nat64PrefixEvent(value[0], value[1], value[2], value[3]);
         break;
       case TOPIC_XPCOM_SHUTDOWN:
         Services.obs.removeObserver(this, TOPIC_XPCOM_SHUTDOWN);
@@ -1421,6 +1535,74 @@ NetworkManager.prototype = {
     this.onUpdateNetworkInterface(aNetwork, preNetwork, aNetworkId);
   },
 
+  nat64PrefixEvent(aNetId, aAdded, aPrefixString, aPrefixLength) {
+    debug(
+      "NAT64 prefix " +
+        (aAdded ? "added" : "removed") +
+        " on netId " +
+        aNetId +
+        " :" +
+        aPrefixString +
+        "/" +
+        aPrefixLength
+    );
+
+    let netId = aNetId;
+    let prefixString = aPrefixString;
+    let prefixLength = aPrefixLength;
+
+    if (!aAdded) {
+      prefixString = null;
+      prefixLength = 0;
+    }
+
+    // Send message.
+    this.queueRequest({
+      name: "nat64PrefixEvent",
+      netId,
+      prefixString,
+      prefixLength,
+    });
+  },
+
+  onNat64PrefixEvent(aNetId, aPrefixString, aPrefixLength) {
+    // Set the prefix
+    let clatIfaceLink = null;
+    for (var name in this.networkNat464Links) {
+      if (this.networkNat464Links[name].netId == aNetId) {
+        clatIfaceLink = this.networkNat464Links[name];
+        break;
+      }
+    }
+
+    if (!clatIfaceLink) {
+      debug("No clat interface found for netId:" + aNetId);
+      this.requestDone();
+      return;
+    }
+
+    if (aPrefixString) {
+      clatIfaceLink.nat64Prefix = aPrefixString + "/" + aPrefixLength;
+    } else {
+      clatIfaceLink.nat64Prefix = null;
+    }
+
+    // Update the clat for each networkInterfaces
+    for (let aNetworkId in this.networkInterfaces) {
+      if (this.networkInterfaces[aNetworkId].info.netId == aNetId) {
+        let clatNetworkInfo = this.networkInterfaces[aNetworkId].info;
+        this.updateClat(clatNetworkInfo).then(result => {
+          debug(
+            "updateClat for network:" + clatNetworkInfo.name + result
+              ? " Success"
+              : "Fail"
+          );
+        });
+      }
+    }
+    this.requestDone();
+  },
+
   interfaceLinkStateChanged(aNat464Iface) {
     let clatIface = aNat464Iface.split(CLAT_PREFIX);
 
@@ -1459,7 +1641,7 @@ NetworkManager.prototype = {
     let clatAddress = [];
     let clatPrefixLength = [];
 
-    if (clatIfaceLink.isRunning) {
+    if (clatIfaceLink.isRunning()) {
       debug("onInterfaceLinkStateChanged. Already config clat value. Skip!");
       this.requestDone();
       return;
@@ -1485,10 +1667,9 @@ NetworkManager.prototype = {
             "interface " +
               clatIfaceLink.nat464Iface +
               " is up, IsRunning " +
-              clatIfaceLink.isRunning +
+              clatIfaceLink.isRunning() +
               "->true"
           );
-          clatIfaceLink.isRunning = true;
           clatAddress.push(result.ip);
           clatPrefixLength.push(result.prefix);
 
@@ -1541,6 +1722,8 @@ NetworkManager.prototype = {
               // Update clat info for types
               let network;
               debug("updateClatInfoAndNotify.");
+              //Set state running.
+              clatIfaceLink.state = Ci.nsINat464XlatInfo.XLAT_STATE_RUNNING;
               for (var networkId in this.networkInterfaces) {
                 network = this.networkInterfaces[networkId];
                 if (network.info.name == aClatNetworkIface) {
@@ -1559,7 +1742,7 @@ NetworkManager.prototype = {
         } else {
           debug(
             "Incorrect format for clatAddress. IsRunning " +
-              clatIfaceLink.isRunning +
+              clatIfaceLink.isRunning() +
               "->false"
           );
           this.requestDone();
@@ -1581,7 +1764,11 @@ NetworkManager.prototype = {
     }
 
     let clatIfaceLink = this.networkNat464Links[clatIface[1]];
-    if (clatIfaceLink && clatIfaceLink.isStarted() && clatIfaceLink.isRunning) {
+    if (
+      clatIfaceLink &&
+      clatIfaceLink.isStarted() &&
+      clatIfaceLink.isRunning()
+    ) {
       debug("interfaceRemoved clat aNat464Iface=" + aNat464Iface);
       // Send message.
       this.queueRequest({
@@ -1603,15 +1790,17 @@ NetworkManager.prototype = {
 
     let clatIfaceLink = this.networkNat464Links[aClatNetworkIface];
 
-    if (clatIfaceLink.isRunning && clatIfaceLink.stackedLinkInfo) {
+    if (clatIfaceLink.isRunning() && clatIfaceLink.stackedLinkInfo) {
       debug(
         "interface " +
           clatIfaceLink.nat464Iface +
           " removed, IsRunning " +
-          clatIfaceLink.isRunning +
+          clatIfaceLink.isRunning() +
           "->false"
       );
-      clatIfaceLink.isRunning = false;
+
+      // Set state idle.
+      clatIfaceLink.nat64State = Ci.nsINat464XlatInfo.XLAT_STATE_IDLE;
       this._updateSubnetRoutes(clatIfaceLink.stackedLinkInfo, null)
         .then(() => {
           return this._updateDefaultRoute(clatIfaceLink.stackedLinkInfo, null);
@@ -2596,32 +2785,6 @@ NetworkManager.prototype = {
     });
   },
 
-  requestClat(aNetworkInfo) {
-    let connected =
-      aNetworkInfo.state == Ci.nsINetworkInfo.NETWORK_STATE_CONNECTED;
-    if (!connected) {
-      return Promise.resolve(false);
-    }
-
-    return new Promise((aResolve, aReject) => {
-      let hasIpv4 = false;
-      let ips = {};
-      let prefixLengths = {};
-      let length = aNetworkInfo.getAddresses(ips, prefixLengths);
-      for (let i = 0; i < length; i++) {
-        debug(
-          "requestClat routes: " + ips.value[i] + "/" + prefixLengths.value[i]
-        );
-        if (ips.value[i].match(this.REGEXP_IPV4)) {
-          hasIpv4 = true;
-          break;
-        }
-      }
-      debug("requestClat hasIpv4 = " + hasIpv4);
-      aResolve(!hasIpv4);
-    });
-  },
-
   updateClat(aNetworkInfo) {
     debug(
       "UpdateClat Type = " +
@@ -2638,13 +2801,22 @@ NetworkManager.prototype = {
     }
 
     return new Promise((aResolve, aReject) => {
-      let clatIfaceLink = this.networkNat464Links[aNetworkInfo.name];
+      // If no clat interface, create one.
+      if (!(aNetworkInfo.name in this.networkNat464Links)) {
+        this.networkNat464Links[aNetworkInfo.name] = new Nat464Xlat(
+          aNetworkInfo
+        );
+      }
 
-      let wasRunning = clatIfaceLink != null && clatIfaceLink.isStarted();
-      this.requestClat(aNetworkInfo).then(shouldRun => {
+      let clatIfaceLink = this.networkNat464Links[aNetworkInfo.name];
+      let wasRunning = clatIfaceLink != null && clatIfaceLink.isRunning();
+      clatIfaceLink.requiresClat(aNetworkInfo).then(requireRun => {
+        let shouldRun = clatIfaceLink.shouldRunClat();
         debug(
           "UpdateClat wasRunning = " +
             wasRunning +
+            " , requireRun = " +
+            requireRun +
             " , shouldRun = " +
             shouldRun
         );
@@ -2652,6 +2824,7 @@ NetworkManager.prototype = {
         // Handle the muti types on the same clat Iface start request.
         if (
           wasRunning &&
+          requireRun &&
           shouldRun &&
           !clatIfaceLink.types.includes(aNetworkInfo.type)
         ) {
@@ -2672,7 +2845,11 @@ NetworkManager.prototype = {
         }
 
         // Handle the muti types on the same clat Iface stop request.
-        if (wasRunning && !shouldRun && clatIfaceLink.types.length > 1) {
+        if (
+          wasRunning &&
+          (!requireRun || !shouldRun) &&
+          clatIfaceLink.types.length > 1
+        ) {
           // There is other type using this clat interface.
           // Remove the type from the list but not stop the clat interface.
           debug(
@@ -2693,18 +2870,22 @@ NetworkManager.prototype = {
           return;
         }
 
-        // Start or Stop clatd interface.
-        if (!wasRunning && shouldRun) {
-          clatIfaceLink = this.networkNat464Links[
-            aNetworkInfo.name
-          ] = new Nat464Xlat(aNetworkInfo);
+        if (requireRun && !clatIfaceLink.isPrefixDiscoveryStarted()) {
+          clatIfaceLink.setupPrefix64Discovery(true);
+          aResolve();
+        } else if (!wasRunning && requireRun && shouldRun) {
+          // NAT64 prefix detected. Start clatd.
+          // TODO: support the NAT64 prefix changing after it's been discovered. There is no
+          // need to support this at the moment because it cannot happen without changes to
+          // the Dns64Configuration code in netd.
           clatIfaceLink.start(aSuccess => {
             if (!aSuccess) {
               debug("start clatd fail.");
             }
             aResolve();
           });
-        } else if (wasRunning && !shouldRun) {
+        } else if (wasRunning && (!requireRun || !shouldRun)) {
+          // NAT64 prefix removed. Stop clatd and go back into DISCOVERING state.
           clatIfaceLink.stop(aSuccess => {
             if (!aSuccess) {
               debug("stop clatd fail.");

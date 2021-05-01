@@ -92,6 +92,8 @@ class DisplaySurface : public ConsumerBase {
 
   virtual sp<GraphicBuffer> GetCurrentFrameBuffer() = 0;
 
+  virtual void setVisibility(bool visibility) = 0;
+
   buffer_handle_t lastHandle;
 
  protected:

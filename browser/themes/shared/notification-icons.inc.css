@@ -4,16 +4,26 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 %endif
 
-@media (-moz-proton-doorhangers) {
-#notification-popup-box[open] {
-  background-color: var(--toolbarbutton-active-background);
+@media (-moz-proton) {
+#notification-popup-box {
+  height: calc(var(--urlbar-min-height) - 2px /* border */ - 2 * var(--urlbar-container-padding));
+  padding: var(--urlbar-icon-padding);
+  /* subtract identity-block.inc-css margin-inline-start */
+  padding-inline-start: calc(var(--urlbar-icon-padding) - 4px);
+  -moz-context-properties: fill, fill-opacity;
+  fill: currentColor;
+  fill-opacity: var(--urlbar-icon-fill-opacity);
   color: inherit;
-  padding: 5px 0;
-  margin: -1px 0;
-  padding-inline-end: 5px;
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-icon-border-radius);
 }
+#notification-popup-box:hover {
+  background-color: hsla(0,0%,70%,.2);
 }
+#notification-popup-box:hover:active,
+#notification-popup-box[open] {
+  background-color: hsla(0,0%,70%,.3);
+}
+} /*** END proton ***/
 
 .popup-notification-icon,
 .permission-popup-permission-icon {
@@ -25,9 +35,15 @@
 .blocked-permission-icon:-moz-focusring,
 .notification-anchor-icon:-moz-focusring {
   outline: var(--toolbarbutton-focus-outline);
-  outline-offset: 4px;
-  -moz-outline-radius: var(--toolbarbutton-border-radius);
+  outline-offset: calc(var(--urlbar-icon-padding) - 2px);
 }
+
+@media not (-moz-proton) {
+.blocked-permission-icon:-moz-focusring,
+.notification-anchor-icon:-moz-focusring {
+  outline-offset: 4px;
+}
+} /*** END !proton ***/
 
 /* This class can be used alone or in combination with the class defining the
    type of icon displayed. This rule must be defined before the others in order
@@ -39,7 +55,7 @@
 /* INDIVIDUAL NOTIFICATIONS */
 
 .focus-tab-by-prompt-icon {
-  list-style-image: url(chrome://browser/skin/notification-icons/focus-tab-by-prompt.svg);
+  list-style-image: url(chrome://global/skin/icons/warning.svg);
 }
 
 .popup-notification-icon[popupid="storage-access"],
@@ -74,7 +90,7 @@
 }
 
 .popup-notification-icon[popupid="geolocation"] {
-  list-style-image: url(chrome://browser/skin/notification-icons/geo-detailed.svg);
+  list-style-image: url(chrome://browser/skin/notification-icons/geo.svg);
 }
 
 .open-protocol-handler-icon {
@@ -102,7 +118,7 @@
 }
 
 .popup-notification-icon[popupid="autoplay-media"] {
-  list-style-image: url(chrome://browser/skin/notification-icons/autoplay-media-detailed.svg);
+  list-style-image: url(chrome://browser/skin/notification-icons/autoplay-media.svg);
 }
 
 .autoplay-media-icon.blocked-permission-icon {
@@ -167,7 +183,7 @@
 }
 
 .popup-notification-icon.microphone-icon {
-  list-style-image: url(chrome://browser/skin/notification-icons/microphone-detailed.svg);
+  list-style-image: url(chrome://browser/skin/notification-icons/microphone.svg);
 }
 
 .screen-icon {
@@ -204,6 +220,10 @@
   list-style-image: url(chrome://browser/skin/notification-icons/webauthn.svg);
 }
 
+#permission-popup-menulist {
+  margin-inline-end: 0;
+}
+
 @media (-moz-proton-doorhangers) {
 #webRTC-preview:not([hidden]) {
   min-width: 368px;
@@ -223,8 +243,14 @@
 
 #webRTC-all-windows-shared,
 #webRTC-previewWarning {
-  font-size: 0.75em;
-  opacity: 0.6;
+  font-size: 0.8em;
+}
+
+@media not (prefers-contrast) {
+  #webRTC-all-windows-shared,
+  #webRTC-previewWarning {
+    opacity: 0.6;
+  }
 }
 
 #webRTC-previewWarning {
@@ -242,13 +268,15 @@
 }
 } /** END Proton **/
 
-@media not (-moz-proton-doorhangers) {
+@media not (-moz-proton) {
 #notification-popup-box {
   padding: 5px 0;
   margin: -5px 0;
   padding-inline-end: 5px;
 }
+} /** END not Proton **/
 
+@media not (-moz-proton-doorhangers) {
 #webRTC-preview:not([hidden]) {
   border-radius: 4px;
   border: 1px solid var(--panel-separator-color);
@@ -275,6 +303,15 @@
   padding-inline-start: calc(1.5em + 16px);
   border-top: 1px solid var(--panel-separator-color);
 }
+
+.popup-subitem {
+  list-style-image: url("chrome://browser/skin/notification-icons/popup-subitem.svg");
+  margin-inline-start: 42px;
+}
+
+#permission-popup-menulist {
+  margin-inline-end: 2px;
+}
 } /** END not Proton **/
 
 #webRTC-previewWarningBox:-moz-locale-dir(rtl) {
@@ -291,8 +328,6 @@
 }
 
 .popup-subitem {
-  list-style-image: url("chrome://browser/skin/notification-icons/popup-subitem.svg");
-  margin-inline-start: 42px;
   width: 16px;
   height: 16px;
   -moz-context-properties: fill, fill-opacity;
@@ -457,6 +492,25 @@
 %endif
 
 /* UPDATE */
+@media (-moz-proton-doorhangers) {
+.popup-notification-icon[popupid="update-available"],
+.popup-notification-icon[popupid="update-downloading"],
+.popup-notification-icon[popupid="update-manual"],
+.popup-notification-icon[popupid="update-other-instance"],
+.popup-notification-icon[popupid="update-restart"] {
+  background: url(chrome://browser/skin/update-badge.svg) no-repeat center;
+  -moz-context-properties: fill;
+  fill: var(--panel-banner-item-update-supported-bgcolor);
+}
+
+.popup-notification-icon[popupid="update-unsupported"] {
+  background: url(chrome://global/skin/icons/warning.svg) no-repeat center;
+  -moz-context-properties: fill;
+  fill: var(--panel-banner-item-warning-icon-bgcolor);
+}
+} /** END Proton **/
+
+@media not (-moz-proton-doorhangers) {
 .popup-notification-icon[popupid="update-available"],
 .popup-notification-icon[popupid="update-downloading"],
 .popup-notification-icon[popupid="update-manual"],
@@ -470,3 +524,4 @@
   background: #FFE900 url(chrome://browser/skin/notification-icons/update.svg) no-repeat center;
   border-radius: 50%;
 }
+} /** END not Proton **/

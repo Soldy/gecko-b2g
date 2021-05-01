@@ -17,12 +17,14 @@ class CustomProxyHandler : public Wrapper {
 
   bool getOwnPropertyDescriptor(
       JSContext* cx, HandleObject proxy, HandleId id,
-      MutableHandle<PropertyDescriptor> desc) const override {
+      MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc) const override {
     if (JSID_IS_STRING(id) &&
         JS_LinearStringEqualsLiteral(JSID_TO_LINEAR_STRING(id), "phantom")) {
-      desc.object().set(proxy);
-      desc.attributesRef() = JSPROP_ENUMERATE;
-      desc.value().setInt32(42);
+      Rooted<PropertyDescriptor> desc_(cx);
+      desc_.object().set(proxy);
+      desc_.attributesRef() = JSPROP_ENUMERATE;
+      desc_.value().setInt32(42);
+      desc.set(mozilla::Some(desc_.get()));
       return true;
     }
 
@@ -31,7 +33,7 @@ class CustomProxyHandler : public Wrapper {
 
   bool set(JSContext* cx, HandleObject proxy, HandleId id, HandleValue v,
            HandleValue receiver, ObjectOpResult& result) const override {
-    Rooted<PropertyDescriptor> desc(cx);
+    Rooted<mozilla::Maybe<PropertyDescriptor>> desc(cx);
     if (!Wrapper::getOwnPropertyDescriptor(cx, proxy, id, &desc)) {
       return false;
     }

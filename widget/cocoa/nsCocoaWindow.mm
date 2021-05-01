@@ -111,6 +111,11 @@ NS_IMPL_ISUPPORTS_INHERITED(nsCocoaWindow, Inherited, nsPIWidgetCocoa)
 static void RollUpPopups() {
   nsIRollupListener* rollupListener = nsBaseWidget::GetActiveRollupListener();
   NS_ENSURE_TRUE_VOID(rollupListener);
+
+  if (rollupListener->RollupNativeMenu()) {
+    return;
+  }
+
   nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
   if (!rollupWidget) return;
   rollupListener->Rollup(0, true, nullptr, nullptr);
@@ -255,16 +260,6 @@ static void FitRectToVisibleAreaForScreen(DesktopIntRect& aRect, NSScreen* aScre
   }
 }
 
-// Some applications use native popup windows
-// (native context menus, native tooltips)
-static bool UseNativePopupWindows() {
-#ifdef MOZ_USE_NATIVE_POPUP_WINDOWS
-  return true;
-#else
-  return false;
-#endif /* MOZ_USE_NATIVE_POPUP_WINDOWS */
-}
-
 DesktopToLayoutDeviceScale ParentBackingScaleFactor(nsIWidget* aParent, NSView* aParentView) {
   if (aParent) {
     return aParent->GetDesktopToDeviceScale();
@@ -331,9 +326,6 @@ nsresult nsCocoaWindow::Create(nsIWidget* aParent, nsNativeWidget aNativeParent,
   mParent = aParent;
   mAncestorLink = aParent;
   mAlwaysOnTop = aInitData->mAlwaysOnTop;
-
-  // Applications that use native popups don't want us to create popup windows.
-  if ((mWindowType == eWindowType_popup) && UseNativePopupWindows()) return NS_OK;
 
   // If we have a parent widget, the new widget will be offset from the
   // parent widget by aRect.{x,y}. Otherwise, we'll use aRect for the
@@ -1870,10 +1862,10 @@ int32_t nsCocoaWindow::RoundsWidgetCoordinatesTo() {
   return 1;
 }
 
-void nsCocoaWindow::SetCursor(nsCursor aDefaultCursor, imgIContainer* aCursorImage,
-                              uint32_t aHotspotX, uint32_t aHotspotY) {
-  if (mPopupContentView)
-    mPopupContentView->SetCursor(aDefaultCursor, aCursorImage, aHotspotX, aHotspotY);
+void nsCocoaWindow::SetCursor(const Cursor& aCursor) {
+  if (mPopupContentView) {
+    mPopupContentView->SetCursor(aCursor);
+  }
 }
 
 nsresult nsCocoaWindow::SetTitle(const nsAString& aTitle) {
@@ -2572,6 +2564,22 @@ bool nsCocoaWindow::AsyncPanZoomEnabled() const {
   return nsBaseWidget::AsyncPanZoomEnabled();
 }
 
+bool nsCocoaWindow::StartAsyncAutoscroll(const ScreenPoint& aAnchorLocation,
+                                         const ScrollableLayerGuid& aGuid) {
+  if (mPopupContentView) {
+    return mPopupContentView->StartAsyncAutoscroll(aAnchorLocation, aGuid);
+  }
+  return nsBaseWidget::StartAsyncAutoscroll(aAnchorLocation, aGuid);
+}
+
+void nsCocoaWindow::StopAsyncAutoscroll(const ScrollableLayerGuid& aGuid) {
+  if (mPopupContentView) {
+    mPopupContentView->StopAsyncAutoscroll(aGuid);
+    return;
+  }
+  nsBaseWidget::StopAsyncAutoscroll(aGuid);
+}
+
 already_AddRefed<nsIWidget> nsIWidget::CreateTopLevelWindow() {
   nsCOMPtr<nsIWidget> window = new nsCocoaWindow();
   return window.forget();
@@ -3227,9 +3235,15 @@ static const NSString* kStateWantsTitleDrawn = @"wantsTitleDrawn";
       case nsIWidget::WindowAppearance::eLight:
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
         break;
-      case nsIWidget::WindowAppearance::eDark:
+      // eDark is currently disabled.
+      // The sheet window background always follows the sheetParent window's
+      // appearance. So we can only use the dark appearance if child sheet
+      // contents use text colors that are compatible with the dark appearance.
+      // But at the moment, sheet documents always use the Light ColorScheme for
+      // their system colors, resulting in black-on-dark text. See bug 1704016.
+      /*case nsIWidget::WindowAppearance::eDark:
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-        break;
+        break;*/
       default:
         // nil means "inherit effectiveAppearance from self.appearanceSource".
         self.appearance = nil;

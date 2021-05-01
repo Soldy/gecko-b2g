@@ -278,6 +278,9 @@ var validNonUrlImageValues = [
         "image-set(url(foobar.png) 1x, url(bar.png) 2x, url(baz.png) 3x)",
         "image-set('foobar.png', 'bar.png' 2x, url(baz.png) 3x)",
         "image-set(image-set('foobar.png', 'bar.png' 2x) 1x, url(baz.png) 3x)",
+        "image-set(url(foobar.png) type('image/png'))",
+        "image-set(url(foobar.png) 1x type('image/png'))",
+        "image-set(url(foobar.png) type('image/png') 1x)",
       ]
     : []),
 
@@ -824,6 +827,11 @@ var invalidNonUrlImageValues = [
         "image-set(garbage)",
         "image-set(image-set(garbage))",
         "image-set()",
+        "image-set(type('image/png') url(foobar.png) 1x)",
+        "image-set(url(foobar.png) type('image/png') 1x type('image/png'))",
+        "image-set(url(foobar.png) type('image/png') type('image/png'))",
+        "image-set(url(foobar.png) type(image/png))",
+        "image-set(url(foobar.png) epyt('image/png'))",
       ]
     : []),
 
@@ -3446,213 +3454,6 @@ var gCSSProperties = {
     initial_values: ["luminance"],
     other_values: ["alpha"],
     invalid_values: [],
-  },
-  "-moz-outline-radius": {
-    domProp: "MozOutlineRadius",
-    inherited: false,
-    type: CSS_TYPE_TRUE_SHORTHAND,
-    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
-    subproperties: [
-      "-moz-outline-radius-bottomleft",
-      "-moz-outline-radius-bottomright",
-      "-moz-outline-radius-topleft",
-      "-moz-outline-radius-topright",
-    ],
-    initial_values: [
-      "0",
-      "0px",
-      "calc(-2px)",
-      "calc(0px) calc(0pt)",
-      "calc(0px) calc(0em)",
-    ],
-    other_values: [
-      "0%",
-      "3%",
-      "1px",
-      "2em",
-      "3em 2px",
-      "2pt 3% 4em",
-      "2px 2px 2px 2px", // circular
-      "3% / 2%",
-      "1px / 4px",
-      "2em / 1em",
-      "3em 2px / 2px 3em",
-      "2pt 3% 4em / 4pt 1% 5em",
-      "2px 2px 2px 2px / 4px 4px 4px 4px",
-      "1pt / 2pt 3pt",
-      "4pt 5pt / 3pt", // elliptical
-      "calc(-1%)",
-      "calc(2px)",
-      "calc(50%)",
-      "calc(3*25px)",
-      "calc(3*25px) 5px",
-      "5px calc(3*25px)",
-      "calc(20%) calc(3*25px)",
-      "calc(25px*3)",
-      "calc(3*25px + 50%)",
-      "2px 2px calc(2px + 1%) 2px",
-      "1px 2px 2px 2px / 2px 2px calc(2px + 1%) 2px",
-    ],
-    invalid_values: [
-      "2px -2px",
-      "inherit 2px",
-      "inherit / 2px",
-      "2px inherit",
-      "2px / inherit",
-      "2px 2px 2px 2px 2px",
-      "1px / 2px 2px 2px 2px 2px",
-      "2",
-      "2 2",
-      "2px 2px 2px 2px / 2px 2px 2 2px",
-      "unset 2px",
-      "unset / 2px",
-      "2px unset",
-      "2px / unset",
-    ],
-  },
-  "-moz-outline-radius-bottomleft": {
-    domProp: "MozOutlineRadiusBottomleft",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
-    initial_values: ["0", "0px", "calc(-2px)", "calc(0px)"],
-    other_values: [
-      "0%",
-      "3%",
-      "1px",
-      "2em", // circular
-      "3% 2%",
-      "1px 4px",
-      "2em 2pt", // elliptical
-      "calc(-1%)",
-      "calc(2px)",
-      "calc(50%)",
-      "calc(3*25px)",
-      "calc(3*25px) 5px",
-      "5px calc(3*25px)",
-      "calc(20%) calc(3*25px)",
-      "calc(25px*3)",
-      "calc(3*25px + 50%)",
-    ],
-    invalid_values: [
-      "-1px",
-      "4px -2px",
-      "inherit 2px",
-      "2px inherit",
-      "2",
-      "2px 2",
-      "2 2px",
-      "unset 2px",
-      "2px unset",
-    ],
-  },
-  "-moz-outline-radius-bottomright": {
-    domProp: "MozOutlineRadiusBottomright",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
-    initial_values: ["0", "0px", "calc(-2px)", "calc(0px)"],
-    other_values: [
-      "0%",
-      "3%",
-      "1px",
-      "2em", // circular
-      "3% 2%",
-      "1px 4px",
-      "2em 2pt", // elliptical
-      "calc(-1%)",
-      "calc(2px)",
-      "calc(50%)",
-      "calc(3*25px)",
-      "calc(3*25px) 5px",
-      "5px calc(3*25px)",
-      "calc(20%) calc(3*25px)",
-      "calc(25px*3)",
-      "calc(3*25px + 50%)",
-    ],
-    invalid_values: [
-      "-1px",
-      "4px -2px",
-      "inherit 2px",
-      "2px inherit",
-      "2",
-      "2px 2",
-      "2 2px",
-      "unset 2px",
-      "2px unset",
-    ],
-  },
-  "-moz-outline-radius-topleft": {
-    domProp: "MozOutlineRadiusTopleft",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
-    initial_values: ["0", "0px", "calc(-2px)", "calc(0px)"],
-    other_values: [
-      "0%",
-      "3%",
-      "1px",
-      "2em", // circular
-      "3% 2%",
-      "1px 4px",
-      "2em 2pt", // elliptical
-      "calc(-1%)",
-      "calc(2px)",
-      "calc(50%)",
-      "calc(3*25px)",
-      "calc(3*25px) 5px",
-      "5px calc(3*25px)",
-      "calc(20%) calc(3*25px)",
-      "calc(25px*3)",
-      "calc(3*25px + 50%)",
-    ],
-    invalid_values: [
-      "-1px",
-      "4px -2px",
-      "inherit 2px",
-      "2px inherit",
-      "2",
-      "2px 2",
-      "2 2px",
-      "unset 2px",
-      "2px unset",
-    ],
-  },
-  "-moz-outline-radius-topright": {
-    domProp: "MozOutlineRadiusTopright",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
-    initial_values: ["0", "0px", "calc(-2px)", "calc(0px)"],
-    other_values: [
-      "0%",
-      "3%",
-      "1px",
-      "2em", // circular
-      "3% 2%",
-      "1px 4px",
-      "2em 2pt", // elliptical
-      "calc(-1%)",
-      "calc(2px)",
-      "calc(50%)",
-      "calc(3*25px)",
-      "calc(3*25px) 5px",
-      "5px calc(3*25px)",
-      "calc(20%) calc(3*25px)",
-      "calc(25px*3)",
-      "calc(3*25px + 50%)",
-    ],
-    invalid_values: [
-      "-1px",
-      "4px -2px",
-      "inherit 2px",
-      "2px inherit",
-      "2",
-      "2px 2",
-      "2 2px",
-      "unset 2px",
-      "2px unset",
-    ],
   },
   "padding-inline-end": {
     domProp: "paddingInlineEnd",
@@ -8526,6 +8327,7 @@ var gCSSProperties = {
     type: CSS_TYPE_LONGHAND,
     applies_to_placeholder: true,
     applies_to_cue: true,
+    applies_to_marker: true,
     initial_values: ["normal"],
     other_values: [
       "pre",
@@ -9479,6 +9281,22 @@ var gCSSProperties = {
     initial_values: ["default"],
     other_values: ["drag", "no-drag"],
     invalid_values: ["none"],
+  },
+  "accent-color": {
+    domProp: "accentColor",
+    inherited: true,
+    type: CSS_TYPE_LONGHAND,
+    prerequisites: { color: "black" },
+    initial_values: ["auto"],
+    other_values: [
+      "currentcolor",
+      "black",
+      "green",
+      "transparent",
+      "rgba(128,128,128,.5)",
+      "#123",
+    ],
+    invalid_values: ["#0", "#00", "#00000", "cc00ff"],
   },
   "align-content": {
     domProp: "alignContent",
@@ -13482,13 +13300,6 @@ if (IsCSSPropertyPrefEnabled("layout.css.prefixes.columns")) {
   };
 }
 
-if (
-  !IsCSSPropertyPrefEnabled("layout.css.image-orientation.initial-from-image")
-) {
-  gCSSProperties["image-orientation"].initial_values = ["none"];
-  gCSSProperties["image-orientation"].other_values = ["from-image"];
-}
-
 if (IsCSSPropertyPrefEnabled("layout.css.aspect-ratio.enabled")) {
   gCSSProperties["aspect-ratio"] = {
     domProp: "aspectRatio",
@@ -13557,6 +13368,121 @@ if (IsCSSPropertyPrefEnabled("layout.css.color-mix.enabled")) {
     "color-mix(in srgb, red blue)",
     "color-mix(in srgb, red 10% blue)"
   );
+}
+
+if (IsCSSPropertyPrefEnabled("layout.css.moz-outline-radius.enabled")) {
+  gCSSProperties["-moz-outline-radius"] = {
+    domProp: "MozOutlineRadius",
+    inherited: false,
+    type: CSS_TYPE_TRUE_SHORTHAND,
+    prerequisites: { width: "200px", height: "100px", display: "inline-block" },
+    subproperties: [
+      "-moz-outline-radius-bottomleft",
+      "-moz-outline-radius-bottomright",
+      "-moz-outline-radius-topleft",
+      "-moz-outline-radius-topright",
+    ],
+    initial_values: [
+      "0",
+      "0px",
+      "calc(-2px)",
+      "calc(0px) calc(0pt)",
+      "calc(0px) calc(0em)",
+    ],
+    other_values: [
+      "0%",
+      "3%",
+      "1px",
+      "2em",
+      "3em 2px",
+      "2pt 3% 4em",
+      "2px 2px 2px 2px", // circular
+      "3% / 2%",
+      "1px / 4px",
+      "2em / 1em",
+      "3em 2px / 2px 3em",
+      "2pt 3% 4em / 4pt 1% 5em",
+      "2px 2px 2px 2px / 4px 4px 4px 4px",
+      "1pt / 2pt 3pt",
+      "4pt 5pt / 3pt", // elliptical
+      "calc(-1%)",
+      "calc(2px)",
+      "calc(50%)",
+      "calc(3*25px)",
+      "calc(3*25px) 5px",
+      "5px calc(3*25px)",
+      "calc(20%) calc(3*25px)",
+      "calc(25px*3)",
+      "calc(3*25px + 50%)",
+      "2px 2px calc(2px + 1%) 2px",
+      "1px 2px 2px 2px / 2px 2px calc(2px + 1%) 2px",
+    ],
+    invalid_values: [
+      "2px -2px",
+      "inherit 2px",
+      "inherit / 2px",
+      "2px inherit",
+      "2px / inherit",
+      "2px 2px 2px 2px 2px",
+      "1px / 2px 2px 2px 2px 2px",
+      "2",
+      "2 2",
+      "2px 2px 2px 2px / 2px 2px 2 2px",
+      "unset 2px",
+      "unset / 2px",
+      "2px unset",
+      "2px / unset",
+    ],
+  };
+  for (let corner of ["bottomleft", "bottomright", "topleft", "topright"]) {
+    gCSSProperties["-moz-outline-radius-" + corner] = {
+      domProp:
+        "MozOutlineRadius" +
+        {
+          bottomleft: "Bottomleft",
+          bottomright: "Bottomright",
+          topleft: "Topleft",
+          topright: "Topright",
+        }[corner],
+      inherited: false,
+      type: CSS_TYPE_LONGHAND,
+      prerequisites: {
+        width: "200px",
+        height: "100px",
+        display: "inline-block",
+      },
+      initial_values: ["0", "0px", "calc(-2px)", "calc(0px)"],
+      other_values: [
+        "0%",
+        "3%",
+        "1px",
+        "2em", // circular
+        "3% 2%",
+        "1px 4px",
+        "2em 2pt", // elliptical
+        "calc(-1%)",
+        "calc(2px)",
+        "calc(50%)",
+        "calc(3*25px)",
+        "calc(3*25px) 5px",
+        "5px calc(3*25px)",
+        "calc(20%) calc(3*25px)",
+        "calc(25px*3)",
+        "calc(3*25px + 50%)",
+      ],
+      invalid_values: [
+        "-1px",
+        "4px -2px",
+        "inherit 2px",
+        "2px inherit",
+        "2",
+        "2px 2",
+        "2 2px",
+        "unset 2px",
+        "2px unset",
+      ],
+    };
+  }
 }
 
 // Copy aliased properties' fields from their alias targets. Keep this logic

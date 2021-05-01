@@ -58,19 +58,18 @@ namespace android {
  */
 FramebufferSurface::FramebufferSurface(
     uint32_t width, uint32_t height, uint32_t format,
-    const sp<IGraphicBufferConsumer>& consumer, HWC2::Display* aHwcDisplay,
-    HWC2::Layer* aLayer, mozilla::NativeFramebufferDevice* ExtFBDevice)
+    const sp<IGraphicBufferConsumer>& consumer,
+    DisplayUtils displayUtils, bool visibility)
     : DisplaySurface(consumer),
       mCurrentSlot(BufferQueue::INVALID_BUFFER_SLOT),
       mCurrentBuffer(),
-      mPrevFBAcquireFence(Fence::NO_FENCE),
       mHasPendingRelease(false),
       mPreviousBufferSlot(BufferQueue::INVALID_BUFFER_SLOT),
       mPreviousBuffer(),
-      hwcDisplay(aHwcDisplay),
-      layer(aLayer),
-      mExtFBDevice(ExtFBDevice),
-      mLastPresentFence(Fence::NO_FENCE) {
+      mPrevFBAcquireFence(Fence::NO_FENCE),
+      mLastPresentFence(Fence::NO_FENCE),
+      mDisplayUtils(displayUtils),
+      mVisibility(visibility) {
   mName = "FramebufferSurface";
 
   mConsumer->setConsumerName(mName);
@@ -167,7 +166,7 @@ void FramebufferSurface::onFrameAvailable(const BufferItem& item) {
   });
 }
 
-void FramebufferSurface::presentLocked(const int slot,
+void FramebufferSurface::presentLocked(const int bufferSlot,
                                        const sp<GraphicBuffer>& buffer,
                                        const sp<Fence>& acquireFence) {
   uint32_t numTypes = 0;
@@ -175,45 +174,43 @@ void FramebufferSurface::presentLocked(const int slot,
   HWC2::Error error = HWC2::Error::None;
   ui::Dataspace dataspace = ui::Dataspace::UNKNOWN;
 
-  // TODO user HWC::Device path:
-  // layer->setCompositionType(HWC2::Composition::Device);
-  // layer->setBuffer(slot, buffer, acquireFence);
-  // this line is used to avoid unused variable layer warning.
-  (void)layer;
   struct timeval tv1, tv2, delta;
   gettimeofday(&tv1, nullptr);
-  if (mExtFBDevice) {
-    if (acquireFence.get() && acquireFence->isValid()) {
-      android::sp<Fence> fenceObj = new Fence(acquireFence->dup());
-      fenceObj->waitForever("FramebufferSurface::Post");
-    }
-    mExtFBDevice->Post(buffer->handle);
-  } else {
-    error = hwcDisplay->validate(&numTypes, &numRequests);
-    if (error != HWC2::Error::None && error != HWC2::Error::HasChanges) {
-      ALOGE("prepare: validate failed : %s (%d)", to_string(error).c_str(),
-            static_cast<int32_t>(error));
-      goto FrameCommitted;
-    }
+  if (mVisibility) {
+    if (mDisplayUtils.type == DisplayUtils::EXTERNAL) {
+      if (acquireFence.get() && acquireFence->isValid()) {
+        sp<Fence> fenceObj = new Fence(acquireFence->dup());
+        fenceObj->waitForever("FramebufferSurface::Post");
+      }
+      mDisplayUtils.utils.extFBDevice->Post(buffer->handle);
+    } else {
+      error = mDisplayUtils.utils.hwcDisplay->validate(&numTypes, &numRequests);
+      if (error != HWC2::Error::None && error != HWC2::Error::HasChanges) {
+        ALOGE("prepare: validate failed : %s (%d)", to_string(error).c_str(),
+              static_cast<int32_t>(error));
+        goto FrameCommitted;
+      }
 
-    if (numTypes || numRequests) {
-      ALOGE("prepare: validate required changes : %s (%d)",
-            to_string(error).c_str(), static_cast<int32_t>(error));
-      goto FrameCommitted;
-    }
+      if (numTypes || numRequests) {
+        ALOGE("prepare: validate required changes : %s (%d)",
+              to_string(error).c_str(), static_cast<int32_t>(error));
+        goto FrameCommitted;
+      }
 
-    error = hwcDisplay->acceptChanges();
-    if (error != HWC2::Error::None) {
-      ALOGE("prepare: acceptChanges failed: %s", to_string(error).c_str());
-      goto FrameCommitted;
-    }
+      error = mDisplayUtils.utils.hwcDisplay->acceptChanges();
+      if (error != HWC2::Error::None) {
+        ALOGE("prepare: acceptChanges failed: %s", to_string(error).c_str());
+        goto FrameCommitted;
+      }
 
-    (void)hwcDisplay->setClientTarget(slot, buffer, acquireFence, dataspace);
+      (void)mDisplayUtils.utils.hwcDisplay->setClientTarget(
+        bufferSlot, buffer, acquireFence, dataspace);
 
-    error = hwcDisplay->present(&mLastPresentFence);
-    if (error != HWC2::Error::None) {
-      ALOGE("present: failed : %s (%d)", to_string(error).c_str(),
-            static_cast<int32_t>(error));
+      error = mDisplayUtils.utils.hwcDisplay->present(&mLastPresentFence);
+      if (error != HWC2::Error::None) {
+        ALOGE("present: failed : %s (%d)", to_string(error).c_str(),
+              static_cast<int32_t>(error));
+      }
     }
   }
 
@@ -223,7 +220,8 @@ FrameCommitted:
   long usec = delta.tv_sec * 1000000 + delta.tv_usec;
   if (usec > 1000000) {  // show warning if delta is more than 1s.
     ALOGW("Frame delay is %ld us on %s", usec,
-      mExtFBDevice? "Ext Screen" : "Primary Screen");
+      (mDisplayUtils.type == DisplayUtils::EXTERNAL)?
+      "Ext Screen" : "Primary Screen");
   }
   onFrameCommitted();
 }

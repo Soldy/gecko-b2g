@@ -97,6 +97,8 @@ namespace jit {
   _(CheckOverRecursed, js::jit::CheckOverRecursed)                             \
   _(CheckOverRecursedBaseline, js::jit::CheckOverRecursedBaseline)             \
   _(CheckPrivateFieldOperation, js::CheckPrivateFieldOperation)                \
+  _(ClassBodyLexicalEnvironmentObjectCreate,                                   \
+    js::ClassBodyLexicalEnvironmentObject::create)                             \
   _(CloneRegExpObject, js::CloneRegExpObject)                                  \
   _(ConcatStrings, js::ConcatStrings<CanGC>)                                   \
   _(CopyLexicalEnvironmentObject, js::jit::CopyLexicalEnvironmentObject)       \
@@ -192,6 +194,7 @@ namespace jit {
   _(NewCallObject, js::jit::NewCallObject)                                     \
   _(NewObjectOperation, js::NewObjectOperation)                                \
   _(NewObjectOperationWithTemplate, js::NewObjectOperationWithTemplate)        \
+  _(NewPlainObject, js::NewPlainObject)                                        \
   _(NewRegExpStringIterator, js::NewRegExpStringIterator)                      \
   _(NewStringIterator, js::NewStringIterator)                                  \
   _(NewStringObject, js::jit::NewStringObject)                                 \
@@ -214,6 +217,7 @@ namespace jit {
   _(ProxyHasOwn, js::ProxyHasOwn)                                              \
   _(ProxySetProperty, js::ProxySetProperty)                                    \
   _(ProxySetPropertyByValue, js::ProxySetPropertyByValue)                      \
+  _(PushClassBodyEnv, js::jit::PushClassBodyEnv)                               \
   _(PushLexicalEnv, js::jit::PushLexicalEnv)                                   \
   _(PushVarEnv, js::jit::PushVarEnv)                                           \
   _(RecreateLexicalEnv, js::jit::RecreateLexicalEnv)                           \

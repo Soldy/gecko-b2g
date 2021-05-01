@@ -44,7 +44,6 @@ this.analytics = (function() {
     }
 
     const eventsUrl = `${main.getBackend()}/event`;
-    const deviceId = auth.getDeviceId();
     const sendTime = Date.now();
 
     pendingEvents.forEach(event => {
@@ -55,7 +54,7 @@ this.analytics = (function() {
       );
     });
 
-    const body = JSON.stringify({ deviceId, events: pendingEvents });
+    const body = JSON.stringify({ events: pendingEvents });
     const fetchRequest = fetch(
       eventsUrl,
       Object.assign({ body }, fetchOptions)
@@ -70,8 +69,7 @@ this.analytics = (function() {
     }
 
     const timingsUrl = `${main.getBackend()}/timing`;
-    const deviceId = auth.getDeviceId();
-    const body = JSON.stringify({ deviceId, timings: pendingTimings });
+    const body = JSON.stringify({ timings: pendingTimings });
     const fetchRequest = fetch(
       timingsUrl,
       Object.assign({ body }, fetchOptions)
@@ -278,12 +276,6 @@ this.analytics = (function() {
         { action: "cancel-shot" },
         { action: "internal", label: "document-hidden" },
       ],
-    },
-    {
-      name: "save-shot",
-      start: { action: "save-shot" },
-      end: { action: "internal", label: "open-shot-tab" },
-      cancel: [{ action: "cancel-shot" }, { action: "upload-failed" }],
     },
     {
       name: "save-visible",

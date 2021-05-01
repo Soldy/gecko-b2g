@@ -1779,8 +1779,6 @@ bool MessageChannel::Call(UniquePtr<Message> aMsg, Message* aReply) {
       return false;
     }
   }
-
-  return true;
 }
 
 bool MessageChannel::WaitForIncomingMessage() {
@@ -2013,8 +2011,8 @@ MessageChannel::MessageTask::GetPriority(uint32_t* aPriority) {
     case Message::INPUT_PRIORITY:
       *aPriority = PRIORITY_INPUT_HIGH;
       break;
-    case Message::HIGH_PRIORITY:
-      *aPriority = PRIORITY_HIGH;
+    case Message::VSYNC_PRIORITY:
+      *aPriority = PRIORITY_VSYNC;
       break;
     case Message::MEDIUMHIGH_PRIORITY:
       *aPriority = PRIORITY_MEDIUMHIGH;

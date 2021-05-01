@@ -9,7 +9,6 @@
 #define frontend_ObjLiteral_h
 
 #include "mozilla/BloomFilter.h"  // mozilla::BitBloomFilter
-#include "mozilla/EndianUtils.h"
 #include "mozilla/EnumSet.h"
 #include "mozilla/Span.h"
 
@@ -18,6 +17,7 @@
 #include "js/GCPolicyAPI.h"
 #include "js/Value.h"
 #include "js/Vector.h"
+#include "util/EnumFlags.h"
 
 /*
  * [SMDOC] ObjLiteral (Object Literal) Handling
@@ -135,19 +135,19 @@ enum class ObjLiteralOpcode : uint8_t {
 // (These become bitflags by wrapping with EnumSet below.)
 enum class ObjLiteralFlag : uint8_t {
   // If set, this object is an array.
-  Array = 1,
+  Array = 1 << 0,
 
   // If set, this is an object literal in a singleton context and property
   // values are included. See also JSOp::Object.
-  Singleton = 2,
+  Singleton = 1 << 1,
 
   // If set, this object contains index property, or duplicate non-index
   // property.
   // This flag is valid only if Array flag isn't set.
-  HasIndexOrDuplicatePropName = 3,
+  HasIndexOrDuplicatePropName = 1 << 2,
 };
 
-using ObjLiteralFlags = mozilla::EnumSet<ObjLiteralFlag>;
+using ObjLiteralFlags = EnumFlags<ObjLiteralFlag>;
 
 inline bool ObjLiteralOpcodeHasValueArg(ObjLiteralOpcode op) {
   return op == ObjLiteralOpcode::ConstValue;
@@ -251,8 +251,7 @@ struct ObjLiteralWriterBase {
     if (!prepareBytes(cx, sizeof(T), &p)) {
       return false;
     }
-    mozilla::NativeEndian::copyAndSwapToLittleEndian(reinterpret_cast<void*>(p),
-                                                     &data, 1);
+    memcpy(p, &data, sizeof(T));
     return true;
   }
 
@@ -301,7 +300,7 @@ struct ObjLiteralWriter : private ObjLiteralWriterBase {
     // Only valid in object-mode.
     setPropNameNoDuplicateCheck(parserAtoms, propName);
 
-    if (flags_.contains(ObjLiteralFlag::HasIndexOrDuplicatePropName)) {
+    if (flags_.hasFlag(ObjLiteralFlag::HasIndexOrDuplicatePropName)) {
       return true;
     }
 
@@ -322,20 +321,20 @@ struct ObjLiteralWriter : private ObjLiteralWriterBase {
       frontend::ParserAtomsTable& parserAtoms,
       const frontend::TaggedParserAtomIndex propName) {
     // Only valid in object-mode.
-    MOZ_ASSERT(!flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(!flags_.hasFlag(ObjLiteralFlag::Array));
     parserAtoms.markUsedByStencil(propName);
     nextKey_ = ObjLiteralKey::fromPropName(propName);
   }
   void setPropIndex(uint32_t propIndex) {
     // Only valid in object-mode.
-    MOZ_ASSERT(!flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(!flags_.hasFlag(ObjLiteralFlag::Array));
     MOZ_ASSERT(propIndex <= ATOM_INDEX_MASK);
     nextKey_ = ObjLiteralKey::fromArrayIndex(propIndex);
-    flags_ += ObjLiteralFlag::HasIndexOrDuplicatePropName;
+    flags_.setFlag(ObjLiteralFlag::HasIndexOrDuplicatePropName);
   }
   void beginDenseArrayElements() {
     // Only valid in array-mode.
-    MOZ_ASSERT(flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(flags_.hasFlag(ObjLiteralFlag::Array));
     // Dense array element sequences do not use the keys; the indices are
     // implicit.
     nextKey_ = ObjLiteralKey::none();
@@ -435,8 +434,7 @@ struct ObjLiteralReaderBase {
     if (!readBytes(sizeof(T), &p)) {
       return false;
     }
-    mozilla::NativeEndian::copyAndSwapFromLittleEndian(
-        data, reinterpret_cast<const void*>(p), 1);
+    memcpy(data, p, sizeof(T));
     return true;
   }
 
@@ -605,9 +603,8 @@ struct ObjLiteralModifier : private ObjLiteralReaderBase {
   void mapOneAtom(MapT map, frontend::TaggedParserAtomIndex atom,
                   size_t atomCursor) {
     auto atomIndex = map(atom);
-    mozilla::NativeEndian::copyAndSwapToLittleEndian(
-        reinterpret_cast<void*>(mutableData_.data() + atomCursor),
-        atomIndex.rawDataRef(), 1);
+    memcpy(mutableData_.data() + atomCursor, atomIndex.rawDataRef(),
+           sizeof(frontend::TaggedParserAtomIndex));
   }
 
   // Map atoms in single instruction.

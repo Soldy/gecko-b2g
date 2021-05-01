@@ -1401,6 +1401,11 @@ this.VideoControlsImplWidget = class {
       },
 
       onMouseMove(event) {
+        // Should always show the video controller when playing audio file
+        if (!this.isAudioOnly && !this.video.mozHasAudio) {
+          return;
+        }
+
         // If the controls are static, don't change anything.
         if (!this.dynamicControls) {
           return;

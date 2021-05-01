@@ -150,6 +150,9 @@ this.Address = {
    */
   decode(data) {
     let str = EncodedStringValue.decode(data);
+    if (DEBUG) {
+      debug("Address: decode string = " + str);
+    }
 
     let result;
     if (
@@ -165,6 +168,11 @@ this.Address = {
     }
 
     let type;
+    let endIndex = str.indexOf("/");
+    if (endIndex > 0) {
+      str = str.substring(0, endIndex);
+    }
+
     if (str.match(this.REGEXP_NUM)) {
       type = "num";
     } else if (str.match(this.REGEXP_ALPHANUM)) {
@@ -172,11 +180,10 @@ this.Address = {
     } else if (str.match(this.REGEXP_EMAIL)) {
       type = "email";
     } else {
+      if (DEBUG) {
+        debug("Address: invalid address");
+      }
       throw new WSP.CodeError("Address: invalid address");
-    }
-    let endIndex = str.indexOf("/");
-    if (endIndex > 0) {
-      str = str.substring(0, endIndex);
     }
     return { address: str, type };
   },
@@ -415,7 +422,9 @@ this.MmsHeader = {
    */
   decode(data, options) {
     let index = WSP.ShortInteger.decode(data);
-
+    if (DEBUG) {
+      debug("Mms-Header decode index: " + index);
+    }
     let entry = MMS_HEADER_FIELDS[index];
     if (!entry) {
       throw new WSP.NotWellKnownEncodingError(
@@ -427,6 +436,9 @@ this.MmsHeader = {
       value;
     try {
       value = entry.coder.decode(data, options);
+      if (DEBUG) {
+        debug("Mms-Header decode name: " + entry.name);
+      }
     } catch (e) {
       data.offset = cur;
 
@@ -933,6 +945,9 @@ this.FromValue = {
 
     let token = WSP.Octet.decode(data);
     if (token != 128 && token != 129) {
+      if (DEBUG) {
+        debug("From-value: invalid token " + token);
+      }
       throw new WSP.CodeError("From-value: invalid token " + token);
     }
 

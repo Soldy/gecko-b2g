@@ -35,6 +35,7 @@ extern crate cstr;
 #[macro_use]
 extern crate xpcom;
 
+use std::env;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::path::PathBuf;
@@ -59,7 +60,10 @@ use crate::viaduct_uploader::ViaductUploader;
 /// This assembles client information and the Glean configuration and then initializes the global
 /// Glean instance.
 #[no_mangle]
-pub unsafe extern "C" fn fog_init(data_path_override: &nsACString) -> nsresult {
+pub unsafe extern "C" fn fog_init(
+    data_path_override: &nsACString,
+    app_id_override: &nsACString,
+) -> nsresult {
     fog::metrics::fog::initialization.start();
 
     log::debug!("Initializing FOG.");
@@ -110,11 +114,17 @@ pub unsafe extern "C" fn fog_init(data_path_override: &nsACString) -> nsresult {
         String::from(SERVER)
     };
 
+    let application_id = if app_id_override.is_empty() {
+        "firefox.desktop".to_string()
+    } else {
+        app_id_override.to_utf8().to_string()
+    };
+
     let upload_enabled = static_prefs::pref!("datareporting.healthreport.uploadEnabled");
     let configuration = Configuration {
         upload_enabled,
         data_path,
-        application_id: "firefox.desktop".to_string(),
+        application_id,
         max_events: None,
         delay_ping_lifetime_io: false,
         channel: Some(channel),
@@ -135,6 +145,14 @@ pub unsafe extern "C" fn fog_init(data_path_override: &nsACString) -> nsresult {
         }
     } else {
         log::error!("Failed to create Viaduct via XPCOM. Ping upload may not be available.");
+    }
+
+    // If we're operating in automation without any specific source tags to set,
+    // set the tag "automation" so any pings that escape don't clutter the tables.
+    // See https://mozilla.github.io/glean/book/user/debugging/index.html#enabling-debugging-features-through-environment-variables
+    // IMPORTANT: Call this before glean::initialize until bug 1706729 is sorted.
+    if env::var("MOZ_AUTOMATION").is_ok() && env::var("GLEAN_SOURCE_TAGS").is_err() {
+        glean::set_source_tags(vec!["automation".to_string()]);
     }
 
     glean::initialize(configuration, client_info);

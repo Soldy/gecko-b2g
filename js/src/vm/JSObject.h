@@ -19,6 +19,7 @@
 #include "js/Wrapper.h"
 #include "vm/BytecodeUtil.h"
 #include "vm/Printer.h"
+#include "vm/PropertyResult.h"
 #include "vm/Shape.h"
 #include "vm/StringType.h"
 #include "vm/Xdr.h"
@@ -430,10 +431,6 @@ class JSObject
   static void swap(JSContext* cx, JS::HandleObject a, JS::HandleObject b,
                    js::AutoEnterOOMUnsafeRegion& oomUnsafe);
 
- private:
-  void fixDictionaryShapeAfterSwap();
-
- public:
   /*
    * In addition to the generic object interface provided by JSObject,
    * specific types of objects may provide additional operations. To access,
@@ -836,8 +833,7 @@ extern bool ReadPropertyDescriptors(
 /* Read the name using a dynamic lookup on the scopeChain. */
 extern bool LookupName(JSContext* cx, HandlePropertyName name,
                        HandleObject scopeChain, MutableHandleObject objp,
-                       MutableHandleObject pobjp,
-                       MutableHandle<PropertyResult> propp);
+                       MutableHandleObject pobjp, PropertyResult* propp);
 
 extern bool LookupNameNoGC(JSContext* cx, PropertyName* name,
                            JSObject* scopeChain, JSObject** objp,
@@ -890,14 +886,6 @@ bool GetOwnNativeGetterPure(JSContext* cx, JSObject* obj, jsid id,
 
 bool HasOwnDataPropertyPure(JSContext* cx, JSObject* obj, jsid id,
                             bool* result);
-
-// Deprecated: Use the Maybe<PropertyDescriptor> overload!
-bool GetOwnPropertyDescriptor(JSContext* cx, HandleObject obj, HandleId id,
-                              MutableHandle<JS::PropertyDescriptor> desc);
-
-bool GetOwnPropertyDescriptor(
-    JSContext* cx, HandleObject obj, HandleId id,
-    MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc);
 
 /*
  * Like JS::FromPropertyDescriptor, but ignore desc.object() and always set vp

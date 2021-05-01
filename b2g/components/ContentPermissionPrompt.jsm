@@ -74,9 +74,18 @@ function rememberPermission(typesInfo, remember, granted, principal) {
     : Ci.nsIPermissionManager.DENY_ACTION;
 
   typesInfo.forEach(perm => {
-    if (remember && principal.origin.endsWith(".localhost")) {
-      Services.perms.addFromPrincipal(principal, perm.permission, action);
+    // Since only `installed apps` are listed in permission settings UI,
+    // `installed apps` and `webpages` are handled differently.
+    if (principal.origin.endsWith(".localhost")) {
+      // For installed apps, set the permission permanently
+      // only if `remember` is set to true
+      if (remember) {
+        Services.perms.addFromPrincipal(principal, perm.permission, action);
+      }
     } else if (!PERMISSION_NO_SESSION.includes(perm.permission)) {
+      // For webpages, we could not permanently set the permission, since
+      // there is no other UI for user to revoke. However, we still set the
+      // permission to this session, to avoid endless prompts.
       Services.perms.addFromPrincipal(
         principal,
         perm.permission,

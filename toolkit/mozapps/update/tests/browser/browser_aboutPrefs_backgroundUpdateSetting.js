@@ -14,7 +14,7 @@ ChromeUtils.defineModuleGetter(
   "resource://gre/modules/UpdateUtils.jsm"
 );
 
-const ENABLE_UI_PREF = "app.update.background.experimental";
+const ENABLE_UI_PREF = "app.update.background.scheduling.enabled";
 const BACKGROUND_UPDATE_PREF = "app.update.background.enabled";
 
 add_task(async function testBackgroundUpdateSettingUI() {
@@ -56,23 +56,28 @@ WARNING! This test involves background update, but background tasks are
     await UpdateUtils.setAppUpdateAutoEnabled(originalUpdateAutoVal);
   });
 
+  // For a little while longer, we want to have tests that assert the
+  // default value.
+  let defaultValue =
+    AppConstants.NIGHTLY_BUILD && AppConstants.platform == "win";
   is(
     Services.prefs.getBoolPref(ENABLE_UI_PREF, false),
-    false,
-    `${ENABLE_UI_PREF} should default to false.`
+    defaultValue,
+    `${ENABLE_UI_PREF} should default to ${defaultValue}.`
   );
 
-  await SpecialPowers.spawn(tab.linkedBrowser, [], async function() {
+  await SpecialPowers.spawn(tab.linkedBrowser, [defaultValue], defaultValue => {
     is(
       content.document.getElementById("backgroundUpdate").hidden,
-      true,
-      `The background update UI should be hidden when ` +
-        `app.update.background.experimental is false.`
+      !defaultValue,
+      `The background update UI should be ${
+        defaultValue ? "shown" : "hidden"
+      } when app.update.scheduling.enabled is ${defaultValue}.`
     );
   });
 
   Services.prefs.setBoolPref(ENABLE_UI_PREF, true);
-  // app.update.background.experimental does not dynamically update the
+  // app.update.background.scheduling.enabled does not dynamically update the
   // about:preferences page, so we need to reload it when we set this pref.
   await BrowserTestUtils.removeTab(tab);
   tab = await BrowserTestUtils.openNewForegroundTab(
@@ -84,23 +89,37 @@ WARNING! This test involves background update, but background tasks are
   // disabled, since we cannot update in the background if we can't update
   // automatically.
   await UpdateUtils.setAppUpdateAutoEnabled(false);
-  await SpecialPowers.spawn(tab.linkedBrowser, [], async function() {
-    let backgroundUpdateCheckbox = content.document.getElementById(
-      "backgroundUpdate"
-    );
-    is(
-      backgroundUpdateCheckbox.hidden,
-      false,
-      `The background update UI should not be hidden when ` +
-        `app.update.background.experimental is true`
-    );
-    is(
-      backgroundUpdateCheckbox.disabled,
-      true,
-      `The background update UI should be disabled when auto update is ` +
-        `disabled`
-    );
-  });
+  await SpecialPowers.spawn(
+    tab.linkedBrowser,
+    [UpdateUtils.PER_INSTALLATION_PREFS_SUPPORTED],
+    async perInstallationPrefsSupported => {
+      let backgroundUpdateCheckbox = content.document.getElementById(
+        "backgroundUpdate"
+      );
+      is(
+        backgroundUpdateCheckbox.hidden,
+        !perInstallationPrefsSupported,
+        `The background update UI should ${
+          perInstallationPrefsSupported ? "not" : ""
+        } be hidden when app.update.background.scheduling.enabled is true ` +
+          `and perInstallationPrefsSupported is ${perInstallationPrefsSupported}`
+      );
+      if (perInstallationPrefsSupported) {
+        is(
+          backgroundUpdateCheckbox.disabled,
+          true,
+          `The background update UI should be disabled when auto update is ` +
+            `disabled`
+        );
+      }
+    }
+  );
+
+  if (!UpdateUtils.PER_INSTALLATION_PREFS_SUPPORTED) {
+    // The remaining tests only make sense on platforms where per-installation
+    // prefs are supported and the UI will ever actually be displayed
+    return;
+  }
 
   await UpdateUtils.setAppUpdateAutoEnabled(true);
   await UpdateUtils.writeUpdateConfigSetting(BACKGROUND_UPDATE_PREF, true);

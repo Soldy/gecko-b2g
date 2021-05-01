@@ -136,7 +136,6 @@ class NetworkParams {
     COPY_OPT_FIELD(mDns1_long, 0)
     COPY_OPT_FIELD(mDns2_long, 0)
     COPY_OPT_FIELD(mMtu, 0)
-    COPY_OPT_FIELD(mPrivacyExtensions, false)
     COPY_SEQUENCE_FIELD(mIPv6Routes, nsString)
     COPY_OPT_STRING_FIELD(mIpv6Ip, EmptyString())
     COPY_OPT_STRING_FIELD(mIPv6Prefix, EmptyString())
@@ -168,7 +167,6 @@ class NetworkParams {
   nsString mInternalIfname;
   nsString mExternalIfname;
   bool mEnable;
-  bool mPrivacyExtensions;
   nsString mSsid;
   nsString mSecurity;
   nsString mKey;
@@ -292,7 +290,6 @@ class NetworkUtils final {
   CommandResult addInterfaceToNetwork(NetworkParams& aOptions);
   CommandResult removeInterfaceToNetwork(NetworkParams& aOptions);
   CommandResult setIpv6Status(NetworkParams& aOptions);
-  CommandResult setIpv6PrivacyExtensions(NetworkParams& aOptions);
   CommandResult dhcpRequest(NetworkParams& aOptions);
   CommandResult stopDhcp(NetworkParams& aOptions);
   CommandResult getInterfaces(NetworkParams& aOptions);
@@ -338,8 +335,6 @@ class NetworkUtils final {
   static void createNetwork(PARAMS);
   static void destroyNetwork(PARAMS);
   static void setIpv6Enabled(PARAMS);
-  static void enableIpv6(PARAMS);
-  static void disableIpv6(PARAMS);
   static void wakeupAddInterface(PARAMS);
   static void wakeupDelInterface(PARAMS);
   static void addInterfaceToNetwork(PARAMS);
@@ -354,6 +349,7 @@ class NetworkUtils final {
   static void setMtu(PARAMS);
   static void setDefaultNetwork(PARAMS);
   static void setIpv6PrivacyExtensions(PARAMS);
+  static void setIpv6AddrGenMode(PARAMS);
   static void defaultAsyncSuccessHandler(PARAMS);
   static void setConfig(PARAMS);
   static void enableNat(PARAMS);

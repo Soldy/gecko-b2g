@@ -49,8 +49,6 @@ IccManager::IccManager(nsIGlobalObject* aGlobal)
   }
 }
 
-IccManager::~IccManager() { Shutdown(); }
-
 JSObject* IccManager::WrapObject(JSContext* aCx,
                                  JS::Handle<JSObject*> aGivenProto) {
   return IccManager_Binding::Wrap(aCx, this, aGivenProto);

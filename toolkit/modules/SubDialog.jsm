@@ -54,10 +54,18 @@ function SubDialog({
   this._overlay.classList.add(`dialogOverlay-${id}`);
   this._frame.setAttribute("name", `dialogFrame-${id}`);
   this._frameCreated = new Promise(resolve => {
-    this._frame.addEventListener("load", resolve, {
-      once: true,
-      capture: true,
-    });
+    this._frame.addEventListener(
+      "load",
+      () => {
+        // We intentionally avoid handling or passing the event to the
+        // resolve method to avoid shutdown window leaks. See bug 1686743.
+        resolve();
+      },
+      {
+        once: true,
+        capture: true,
+      }
+    );
   });
 
   parentElement.appendChild(this._overlay);
@@ -79,6 +87,10 @@ SubDialog.prototype = {
   _id: null,
   _titleElement: null,
   _closeButton: null,
+
+  get frameContentWindow() {
+    return this._frame?.contentWindow;
+  },
 
   get _window() {
     return this._overlay?.ownerGlobal;
@@ -197,6 +209,12 @@ SubDialog.prototype = {
       detail: { dialog: this, abort: true },
     });
     this._frame.contentWindow.close();
+    // It's possible that we're aborting this dialog before we've had a
+    // chance to set up the contentWindow.close function override in
+    // _onContentLoaded. If so, call this.close() directly to clean things
+    // up. That'll be a no-op if the contentWindow.close override had been
+    // set up, since this.close is idempotent.
+    this.close(this._closingEvent);
   },
 
   close(aEvent = null) {
@@ -793,11 +811,15 @@ SubDialog.prototype = {
     // Handle focus ourselves. Try to move the focus to the first element in
     // the content window.
     let fm = Services.focus;
+
+    // We're intentionally hiding the focus ring here for now per bug 1704882,
+    // but we aim to have a better fix that retains the focus ring for users
+    // that had brought up the dialog by keyboard in bug 1708261.
     let focusedElement = fm.moveFocus(
       this._frame.contentWindow,
       null,
       fm.MOVEFOCUS_FIRST,
-      0
+      fm.FLAG_NOSHOWRING
     );
     if (!focusedElement) {
       // Ensure the focus is pulled out of the content document even if there's
@@ -985,6 +1007,10 @@ class SubDialogManager {
       return false;
     }
     return this._dialogs.some(dialog => !dialog._isClosing);
+  }
+
+  get dialogs() {
+    return [...this._dialogs];
   }
 
   focusTopDialog() {

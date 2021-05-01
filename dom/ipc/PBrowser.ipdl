@@ -223,12 +223,6 @@ parent:
     async PVsync();
 
     /**
-     * Sends an NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW to be adopted by the
-     * widget's shareable window on the chrome side. Only used on Windows.
-     */
-    async SetNativeChildOfShareableWindow(uintptr_t childWindow);
-
-    /**
      * When content moves focus from a native plugin window that's a child
      * of the native browser window we need to move native focus to the
      * browser. Otherwise the plugin window will never relinquish focus.
@@ -398,6 +392,8 @@ parent:
      *   Width of the image.
      * @param height
      *   Height of the image.
+     * @param resolution
+     *   Resolution of the image in dppx units.
      * @param stride
      *   Stride used in the image data.
      * @param format
@@ -414,7 +410,7 @@ parent:
                     bool hasCustomCursor,
                     nsCString customCursorData,
                     uint32_t width, uint32_t height,
-                    uint32_t stride, SurfaceFormat format,
+                    float resolution, uint32_t stride, SurfaceFormat format,
                     uint32_t hotspotX, uint32_t hotspotY, bool force);
 
     /**
@@ -539,6 +535,9 @@ parent:
     async SynthesizeNativeTouchpadDoubleTap(LayoutDeviceIntPoint aPoint,
                                             uint32_t aModifierFlags);
 
+    async LockNativePointer();
+    async UnlockNativePointer();
+
     async AccessKeyNotHandled(WidgetKeyboardEvent event);
 
     async RegisterProtocolHandler(nsString scheme, nsIURI handlerURI, nsString title,
@@ -656,6 +655,7 @@ parent:
     [Nested=inside_sync] sync DispatchWheelEvent(WidgetWheelEvent event);
     [Nested=inside_sync] sync DispatchMouseEvent(WidgetMouseEvent event);
     [Nested=inside_sync] sync DispatchKeyboardEvent(WidgetKeyboardEvent event);
+    [Nested=inside_sync] sync DispatchTouchEvent(WidgetTouchEvent event);
 
     async InvokeDragSession(IPCDataTransfer[] transfers, uint32_t action,
                             Shmem? visualData,
@@ -1020,14 +1020,14 @@ child:
      *
      * @param aPrintData The serialized print settings to use to layout the
      *   print preview document.
-     * @param aSourceOuterWindowID Optionally, the ID of the nsGlobalWindowOuter
-     *   that contains the document from which the print preview is to be
-     *   generated.  This should only be passed on the first call.  It should
-     *   not be passed for any subsequent calls that are made to update the
-     *   existing print preview document with a new print settings object.
+     * @param aSourceBrowsingContext Optionally, the browsing context that
+     *   contains the document from which the print preview is to be generated.
+     *   This should only be passed on the first call.  It should not be passed
+     *   for any subsequent calls that are made to update the existing print
+     *   preview document with a new print settings object.
      */
     async PrintPreview(PrintData aPrintData,
-                       uint64_t? aSourceOuterWindowID) returns (PrintPreviewResultInfo aInfo);
+                       MaybeDiscardedBrowsingContext aSourceBrowsingContext) returns (PrintPreviewResultInfo aInfo);
 
     /**
      * Inform the print preview document that we're done with it.
@@ -1037,10 +1037,10 @@ child:
     /**
      * Tell the child to print the current page with the given settings.
      *
-     * @param aOuterWindowID the ID of the outer window to print
+     * @param aBrowsingContext the browsing context to print.
      * @param aPrintData the serialized settings to print with
      */
-    async Print(uint64_t aOuterWindowID, PrintData aPrintData);
+    async Print(MaybeDiscardedBrowsingContext aBC, PrintData aPrintData);
 
     /**
      * Update the child with the tab's current top-level native window handle.
@@ -1054,12 +1054,6 @@ child:
      * Tell the BrowserChild to allow scripts in the docshell to close the window.
      */
     async AllowScriptsToClose();
-
-    /**
-     * Pass the current handle for the current native widget to the content
-     * process, so it can be used by PuppetWidget.
-     */
-    async SetWidgetNativeData(WindowsHandle aHandle);
 
     async WillChangeProcess();
 

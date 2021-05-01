@@ -2242,8 +2242,7 @@ void BluetoothGattManager::ServerSendResponse(
   }
 
   int connId = 0;
-  server->mConnectionMap.Get(aAddress, &connId);
-  if (!connId) {
+  if (!server->mConnectionMap.Get(aAddress, &connId)) {
     DispatchReplyError(aRunnable, STATUS_NOT_READY);
     return;
   }

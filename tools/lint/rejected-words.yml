@@ -25,6 +25,7 @@ avoid-blacklist-and-whitelist:
         - ftl
         - yml
     exclude:
+        - b2g/app/b2g.js
         - browser/app/profile/firefox.js
         - browser/app/winlauncher/LauncherProcessWin.cpp
         - browser/base/content/browser.js
@@ -38,6 +39,7 @@ avoid-blacklist-and-whitelist:
         - browser/base/content/test/protectionsUI/browser_protectionsUI_report_breakage.js
         - browser/base/content/test/protectionsUI/browser_protectionsUI_socialtracking.js
         - browser/base/content/test/protectionsUI/browser_protectionsUI_state.js
+        - browser/base/content/test/protectionsUI/browser_protectionsUI_subview_shim.js
         - browser/base/content/test/siteIdentity/browser_no_mcb_for_loopback.js
         - browser/base/content/test/siteIdentity/browser_no_mcb_for_onions.js
         - browser/base/content/test/static/browser_all_files_referenced.js
@@ -64,7 +66,6 @@ avoid-blacklist-and-whitelist:
         - browser/components/urlbar/tests/unit/test_providerHeuristicFallback.js
         - browser/components/urlbar/tests/unit/test_search_suggestions.js
         - browser/components/urlbar/tests/unit/test_tokenizer.js
-        - browser/extensions/formautofill/FormAutofillSync.jsm
         - browser/extensions/screenshots/background/main.js
         - browser/modules/SitePermissions.jsm
         - browser/tools/mozscreenshots/mozscreenshots/extension/configurations/PermissionPrompts.jsm
@@ -214,7 +215,6 @@ avoid-blacklist-and-whitelist:
         - netwerk/base/nsIOService.cpp
         - netwerk/base/nsIOService.h
         - netwerk/base/nsURLHelper.cpp
-        - netwerk/cache/nsDiskCacheDeviceSQL.cpp
         - netwerk/cookie/CookieCommons.h
         - netwerk/dns/nsHostResolver.cpp
         - netwerk/dns/nsIDNService.cpp
@@ -349,6 +349,7 @@ avoid-blacklist-and-whitelist:
         - toolkit/components/crashes/tests/xpcshell/test_crash_manager.js
         - toolkit/components/extensions/Extension.jsm
         - toolkit/components/extensions/test/xpcshell/test_WebExtensionPolicy.js
+        - toolkit/components/formautofill/FormAutofillSync.jsm
         - toolkit/components/remotepagemanager/RemotePageManagerParent.jsm
         - toolkit/components/reputationservice/ApplicationReputation.cpp
         - toolkit/components/reputationservice/chromium/chrome/common/safe_browsing/csd.pb.h
@@ -454,7 +455,6 @@ avoid-blacklist-and-whitelist:
         - tools/profiler/core/platform.cpp
         - tools/tryselect/selectors/chooser/__init__.py
         - tools/tryselect/task_config.py
-        - uriloader/prefetch/nsOfflineCacheUpdate.cpp
         - widget/android/GfxInfo.cpp
         - widget/GfxInfoBase.cpp
         - widget/gtk/IMContextWrapper.cpp

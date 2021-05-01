@@ -239,10 +239,9 @@ hw-g5-perfstats-gv:
             --android-install-apk gve_nightly_api16
             --browsertime-geckodriver ${MOZ_FETCHES_DIR}/geckodriver
             --output $MOZ_FETCHES_DIR/../artifacts
-            --verbose
             --perfherder
             --perfherder-app geckoview
-            --perfherder-metrics name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
+            --perfherder-metrics name:HttpChannelCompletion,unit:ms name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
             --browsertime-iterations 10
             --hooks testing/performance/hooks_perfstats.py
             testing/performance/perftest_perfstats.js
@@ -269,10 +268,9 @@ hw-p2-perfstats-gv:
             --android-install-apk gve_nightly_aarch64
             --browsertime-geckodriver ${MOZ_FETCHES_DIR}/geckodriver
             --output $MOZ_FETCHES_DIR/../artifacts
-            --verbose
             --perfherder
             --perfherder-app geckoview
-            --perfherder-metrics name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
+            --perfherder-metrics name:HttpChannelCompletion,unit:ms name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
             --browsertime-iterations 10
             --hooks testing/performance/hooks_perfstats.py
             testing/performance/perftest_perfstats.js
@@ -299,10 +297,9 @@ hw-g5-perfstats-fenix:
             --android-install-apk fenix_nightly_armeabi_v7a
             --browsertime-geckodriver ${MOZ_FETCHES_DIR}/geckodriver
             --output $MOZ_FETCHES_DIR/../artifacts
-            --verbose
             --perfherder
             --perfherder-app fenix
-            --perfherder-metrics name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
+            --perfherder-metrics name:HttpChannelCompletion,unit:ms name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
             --browsertime-iterations 10
             --hooks testing/performance/hooks_perfstats.py
             testing/performance/perftest_perfstats.js
@@ -329,10 +326,9 @@ hw-p2-perfstats-fenix:
             --android-install-apk fenix_nightly_arm64_v8a
             --browsertime-geckodriver ${MOZ_FETCHES_DIR}/geckodriver
             --output $MOZ_FETCHES_DIR/../artifacts
-            --verbose
             --perfherder
             --perfherder-app fenix
-            --perfherder-metrics name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
+            --perfherder-metrics name:HttpChannelCompletion,unit:ms name:HttpChannelCompletion_Cache,unit:ms name:HttpChannelCompletion_Network,unit:ms name:DisplayListBuilding,unit:ms name:Reflowing,unit:ms name:Styling,unit:ms
             --browsertime-iterations 10
             --hooks testing/performance/hooks_perfstats.py
             testing/performance/perftest_perfstats.js

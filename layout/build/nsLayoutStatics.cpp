@@ -91,7 +91,6 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/ProcessPriorityManager.h"
 #include "mozilla/PermissionManager.h"
-#include "nsApplicationCacheService.h"
 #include "mozilla/dom/CustomElementRegistry.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/IMEStateManager.h"
@@ -130,6 +129,10 @@
 #include "mozilla/css/ImageLoader.h"
 #include "gfxUserFontSet.h"
 #include "RestoreTabContentObserver.h"
+
+#if defined(MOZ_WIDGET_GONK)
+#  include "nsVolumeService.h"
+#endif
 
 using namespace mozilla;
 using namespace mozilla::net;
@@ -376,6 +379,10 @@ void nsLayoutStatics::Shutdown() {
   PointerEventHandler::ReleaseStatics();
 
   VirtualCursorService::Shutdown();
+
+#ifdef MOZ_WIDGET_GONK
+  mozilla::system::nsVolumeService::Shutdown();
+#endif /* MOZ_WIDGET_GONK */
 
   TouchManager::ReleaseStatics();
 

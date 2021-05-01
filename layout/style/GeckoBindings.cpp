@@ -14,6 +14,7 @@
 #include "gfxFontFamilyList.h"
 #include "gfxFontFeatures.h"
 #include "gfxTextRun.h"
+#include "imgLoader.h"
 #include "nsAnimationManager.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSFrameConstructor.h"
@@ -1267,6 +1268,13 @@ void Gecko_GetComputedImageURLSpec(const StyleComputedUrl* aURL,
   }
 
   aOut->AssignLiteral("about:invalid");
+}
+
+bool Gecko_IsSupportedImageMimeType(const uint8_t* aMimeType,
+                                    const uint32_t aLen) {
+  nsDependentCSubstring mime(reinterpret_cast<const char*>(aMimeType), aLen);
+  return imgLoader::SupportImageWithMimeType(
+      mime, AcceptedMimeTypes::IMAGES_AND_DOCUMENTS);
 }
 
 void Gecko_nsIURI_Debug(nsIURI* aURI, nsCString* aOut) {

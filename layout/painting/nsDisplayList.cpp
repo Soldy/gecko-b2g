@@ -2276,7 +2276,7 @@ LayerManager* nsDisplayListBuilder::GetWidgetLayerManager(nsView** aView) {
 Layer* GetLayerForRootMetadata(Layer* aRootLayer, ViewID aRootScrollId) {
   Layer* asyncZoomContainer = DepthFirstSearch<ForwardIterator>(
       aRootLayer, [aRootScrollId](Layer* aLayer) {
-        if (auto id = aLayer->IsAsyncZoomContainer()) {
+        if (auto id = aLayer->GetAsyncZoomContainerId()) {
           return *id == aRootScrollId;
         }
         return false;
@@ -2335,7 +2335,7 @@ FrameLayerBuilder* nsDisplayList::BuildLayers(nsDisplayListBuilder* aBuilder,
     ContainerLayerParameters containerParameters(resolutionX, resolutionY);
 
     {
-      PaintTelemetry::AutoRecord record(PaintTelemetry::Metric::Layerization);
+      const auto start = TimeStamp::Now();
 
       root = layerBuilder->BuildContainerLayerFor(aBuilder, aLayerManager,
                                                   frame, nullptr, this,
@@ -2343,11 +2343,10 @@ FrameLayerBuilder* nsDisplayList::BuildLayers(nsDisplayListBuilder* aBuilder,
 
       aBuilder->NotifyAndClearScrollFrames();
 
-      if (!record.GetStart().IsNull() &&
-          StaticPrefs::layers_acceleration_draw_fps()) {
+      if (StaticPrefs::layers_acceleration_draw_fps()) {
         if (PaintTiming* pt =
                 ClientLayerManager::MaybeGetPaintTiming(aLayerManager)) {
-          pt->flbMs() = (TimeStamp::Now() - record.GetStart()).ToMilliseconds();
+          pt->flbMs() = (TimeStamp::Now() - start).ToMilliseconds();
         }
       }
     }
@@ -2535,8 +2534,12 @@ already_AddRefed<LayerManager> nsDisplayList::PaintRoot(
   }
 
   if (!sent) {
+    const auto start = TimeStamp::Now();
+
     FrameLayerBuilder* layerBuilder =
         BuildLayers(aBuilder, layerManager, aFlags, widgetTransaction);
+
+    Telemetry::AccumulateTimeDelta(Telemetry::PAINT_BUILD_LAYERS_TIME, start);
 
     if (!layerBuilder) {
       layerManager->SetUserData(&gLayerManagerLayerBuilder, nullptr);
@@ -7280,7 +7283,7 @@ already_AddRefed<Layer> nsDisplayAsyncZoom::BuildLayer(
   RefPtr<Layer> layer =
       nsDisplayOwnLayer::BuildLayer(aBuilder, aManager, containerParameters);
 
-  layer->SetIsAsyncZoomContainer(Some(mViewID));
+  layer->SetAsyncZoomContainerId(Some(mViewID));
 
   layer->SetPostScale(1.0f / presShell->GetResolution(),
                       1.0f / presShell->GetResolution());
@@ -9468,7 +9471,7 @@ static Maybe<wr::WrClipId> CreateSimpleClipRegion(
 
       nscoord radii[8] = {0};
 
-      if (ShapeUtils::ComputeInsetRadii(shape, insetRect, refBox, radii)) {
+      if (ShapeUtils::ComputeInsetRadii(shape, refBox, radii)) {
         clipRegions.AppendElement(
             wr::ToComplexClipRegion(insetRect, radii, appUnitsPerDevPixel));
       }
@@ -9519,6 +9522,43 @@ static Maybe<wr::WrClipId> CreateSimpleClipRegion(
   return Some(clipId);
 }
 
+static void FillPolygonDataForDisplayItem(
+    const nsDisplayMasksAndClipPaths& aDisplayItem,
+    nsTArray<wr::LayoutPoint>& aPoints, wr::FillRule& aFillRule) {
+  nsIFrame* frame = aDisplayItem.Frame();
+  const auto* style = frame->StyleSVGReset();
+  bool isPolygon = style->HasClipPath() && style->mClipPath.IsShape() &&
+                   style->mClipPath.AsShape()._0->IsPolygon();
+  if (!isPolygon) {
+    return;
+  }
+
+  const auto& clipPath = style->mClipPath;
+  const auto& shape = *clipPath.AsShape()._0;
+  const nsRect refBox =
+      nsLayoutUtils::ComputeGeometryBox(frame, clipPath.AsShape()._1);
+
+  // We only fill polygon data for polygons that are below a complexity
+  // limit.
+  nsTArray<nsPoint> vertices =
+      ShapeUtils::ComputePolygonVertices(shape, refBox);
+  if (vertices.Length() > wr::POLYGON_CLIP_VERTEX_MAX) {
+    return;
+  }
+
+  auto appUnitsPerDevPixel = frame->PresContext()->AppUnitsPerDevPixel();
+
+  for (size_t i = 0; i < vertices.Length(); ++i) {
+    wr::LayoutPoint point = wr::ToLayoutPoint(
+        LayoutDevicePoint::FromAppUnits(vertices[i], appUnitsPerDevPixel));
+    aPoints.AppendElement(point);
+  }
+
+  aFillRule = (shape.AsPolygon().fill == StyleFillRule::Nonzero)
+                  ? wr::FillRule::Nonzero
+                  : wr::FillRule::Evenodd;
+}
+
 static Maybe<wr::WrClipId> CreateWRClipPathAndMasks(
     nsDisplayMasksAndClipPaths* aDisplayItem, const LayoutDeviceRect& aBounds,
     wr::IpcResourceUpdateQueue& aResources, wr::DisplayListBuilder& aBuilder,
@@ -9534,7 +9574,14 @@ static Maybe<wr::WrClipId> CreateWRClipPathAndMasks(
     return Nothing();
   }
 
-  wr::WrClipId clipId = aBuilder.DefineImageMaskClip(mask.ref());
+  // We couldn't create a simple clip region, but before we create an image
+  // mask clip, see if we can get a polygon clip to add to it.
+  nsTArray<wr::LayoutPoint> points;
+  wr::FillRule fillRule = wr::FillRule::Nonzero;
+  FillPolygonDataForDisplayItem(*aDisplayItem, points, fillRule);
+
+  wr::WrClipId clipId =
+      aBuilder.DefineImageMaskClip(mask.ref(), points, fillRule);
 
   return Some(clipId);
 }
@@ -10057,9 +10104,6 @@ void nsDisplayListCollection::SerializeWithCorrectZOrder(
 namespace mozilla {
 
 uint32_t PaintTelemetry::sPaintLevel = 0;
-uint32_t PaintTelemetry::sMetricLevel = 0;
-EnumeratedArray<PaintTelemetry::Metric, PaintTelemetry::Metric::COUNT, double>
-    PaintTelemetry::sMetrics;
 
 PaintTelemetry::AutoRecordPaint::AutoRecordPaint() {
   // Don't record nested paints.
@@ -10067,10 +10111,6 @@ PaintTelemetry::AutoRecordPaint::AutoRecordPaint() {
     return;
   }
 
-  // Reset metrics for a new paint.
-  for (auto& metric : sMetrics) {
-    metric = 0.0;
-  }
   mStart = TimeStamp::Now();
 }
 
@@ -10091,66 +10131,6 @@ PaintTelemetry::AutoRecordPaint::~AutoRecordPaint() {
   // Record the total time.
   Telemetry::Accumulate(Telemetry::CONTENT_PAINT_TIME,
                         static_cast<uint32_t>(totalMs));
-
-  // Helpers for recording large/small paints.
-  auto recordLarge = [=](const nsCString& aKey, double aDurationMs) -> void {
-    MOZ_ASSERT(aDurationMs <= totalMs);
-    uint32_t amount = static_cast<int32_t>((aDurationMs / totalMs) * 100.0);
-    Telemetry::Accumulate(Telemetry::CONTENT_LARGE_PAINT_PHASE_WEIGHT, aKey,
-                          amount);
-  };
-  auto recordSmall = [=](const nsCString& aKey, double aDurationMs) -> void {
-    MOZ_ASSERT(aDurationMs <= totalMs);
-    uint32_t amount = static_cast<int32_t>((aDurationMs / totalMs) * 100.0);
-    Telemetry::Accumulate(Telemetry::CONTENT_SMALL_PAINT_PHASE_WEIGHT, aKey,
-                          amount);
-  };
-
-  double dlMs = sMetrics[Metric::DisplayList];
-  double flbMs = sMetrics[Metric::Layerization];
-  double frMs = sMetrics[Metric::FlushRasterization];
-  double rMs = sMetrics[Metric::Rasterization];
-
-  // If the total time was >= 16ms, then it's likely we missed a frame due to
-  // painting. We bucket these metrics separately.
-  if (totalMs >= 16.0) {
-    recordLarge("dl"_ns, dlMs);
-    recordLarge("flb"_ns, flbMs);
-    recordLarge("fr"_ns, frMs);
-    recordLarge("r"_ns, rMs);
-  } else {
-    recordSmall("dl"_ns, dlMs);
-    recordSmall("flb"_ns, flbMs);
-    recordSmall("fr"_ns, frMs);
-    recordSmall("r"_ns, rMs);
-  }
-
-  Telemetry::Accumulate(Telemetry::PAINT_BUILD_LAYERS_TIME, flbMs);
-}
-
-PaintTelemetry::AutoRecord::AutoRecord(Metric aMetric) : mMetric(aMetric) {
-  // Don't double-record anything nested.
-  if (sMetricLevel++ > 0) {
-    return;
-  }
-
-  // Don't record inside nested paints, or outside of paints.
-  if (sPaintLevel != 1) {
-    return;
-  }
-
-  mStart = TimeStamp::Now();
-}
-
-PaintTelemetry::AutoRecord::~AutoRecord() {
-  MOZ_ASSERT(sMetricLevel != 0);
-
-  sMetricLevel--;
-  if (mStart.IsNull()) {
-    return;
-  }
-
-  sMetrics[mMetric] += (TimeStamp::Now() - mStart).ToMilliseconds();
 }
 
 }  // namespace mozilla

@@ -19,6 +19,7 @@
 
 #include "builtin/ModuleObject.h"
 #include "ds/LifoAlloc.h"
+#include "frontend/NameAnalysisTypes.h"  // EnvironmentCoordinate
 #include "frontend/ParserAtom.h"   // ParserAtomsTable, TaggedParserAtomIndex
 #include "frontend/ScriptIndex.h"  // ScriptIndex
 #include "frontend/SharedContext.h"
@@ -53,7 +54,7 @@ struct CompilationStencil;
 struct CompilationGCOutput;
 class ScriptStencilIterable;
 
-// ScopeContext hold information derivied from the scope and environment chains
+// ScopeContext holds information derived from the scope and environment chains
 // to try to avoid the parser needing to traverse VM structures directly.
 struct ScopeContext {
   // Class field initializer info if we are nested within a class constructor.
@@ -64,6 +65,8 @@ struct ScopeContext {
     Let,
     Const,
     CatchParameter,
+    Synthetic,
+    PrivateMethod,
   };
 
   using EnclosingLexicalBindingCache =
@@ -74,8 +77,12 @@ struct ScopeContext {
   // Used only for eval.
   mozilla::Maybe<EnclosingLexicalBindingCache> enclosingLexicalBindingCache_;
 
+  // A map of private names to NameLocations used to allow evals to
+  // provide correct private name semantics (particularly around early
+  // errors and private brand lookup).
   using EffectiveScopePrivateFieldCache =
-      mozilla::HashSet<TaggedParserAtomIndex, TaggedParserAtomIndexHasher>;
+      mozilla::HashMap<TaggedParserAtomIndex, NameLocation,
+                       TaggedParserAtomIndexHasher>;
 
   // Cache of enclosing class's private fields.
   // Used only for eval.
@@ -138,6 +145,8 @@ struct ScopeContext {
                                       TaggedParserAtomIndex name, uint8_t hops);
 
   bool effectiveScopePrivateFieldCacheHas(TaggedParserAtomIndex name);
+  mozilla::Maybe<NameLocation> getPrivateFieldLocation(
+      TaggedParserAtomIndex name);
 
  private:
   void computeThisBinding(Scope* scope);

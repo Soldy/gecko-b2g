@@ -30,12 +30,13 @@ XPCOMUtils.defineLazyServiceGetter(
  * DownloadManager.jsm in the parent process.
  */
 
+const DEBUG = Services.prefs.getBoolPref("dom.downloads.debug", false);
 function debug(aStr) {
   dump("-*- DownloadManager.js : " + aStr + "\n");
 }
 
 function DownloadManager() {
-  debug("DownloadManager constructor");
+  DEBUG && debug("DownloadManager constructor");
 }
 
 DownloadManager.prototype = {
@@ -43,7 +44,7 @@ DownloadManager.prototype = {
 
   // nsIDOMGlobalPropertyInitializer implementation
   init(aWindow) {
-    debug("DownloadsManager init");
+    DEBUG && debug("DownloadsManager init");
     this.initDOMRequestHelper(aWindow, [
       "Downloads:Added",
       "Downloads:Removed",
@@ -51,7 +52,7 @@ DownloadManager.prototype = {
   },
 
   uninit() {
-    debug("uninit");
+    DEBUG && debug("uninit");
     downloadsCache.evict(this._window);
   },
 
@@ -64,7 +65,7 @@ DownloadManager.prototype = {
   },
 
   getDownloads() {
-    debug("getDownloads()");
+    DEBUG && debug("getDownloads");
 
     return this.createPromise(
       function(aResolve, aReject) {
@@ -88,17 +89,17 @@ DownloadManager.prototype = {
   },
 
   clearAllDone() {
-    debug("clearAllDone()");
+    DEBUG && debug("clearAllDone");
     // This is a void function; we just kick it off.  No promises, etc.
     DownloadsIPC.clearAllDone();
   },
 
   remove(aDownload) {
-    debug("remove " + aDownload.url + " " + aDownload.id);
+    DEBUG && debug("remove " + aDownload.url + " " + aDownload.id);
     return this.createPromise(
       function(aResolve, aReject) {
         if (!downloadsCache.has(this._window, aDownload.id)) {
-          debug("no download " + aDownload.id);
+          DEBUG && debug("no download " + aDownload.id);
           aReject("InvalidDownload");
           return;
         }
@@ -122,7 +123,7 @@ DownloadManager.prototype = {
     // Our AdoptDownloadDict only includes simple types, which WebIDL enforces.
     // We have no object/any types so we do not need to worry about invoking
     // JSON.stringify (and it inheriting our security privileges).
-    debug("adoptDownload");
+    DEBUG && debug("adoptDownload");
     return this.createPromise(
       function(aResolve, aReject) {
         if (!aAdoptDownloadDict) {
@@ -205,7 +206,7 @@ DownloadManager.prototype = {
     let data = aMessage.data;
     switch (aMessage.name) {
       case "Downloads:Added":
-        debug("Adding " + uneval(data));
+        DEBUG && debug("Adding " + uneval(data));
         let event = new this._window.DownloadEvent("downloadstart", {
           download: this._prepareForContent(
             createDownloadObject(this._window, data)
@@ -242,7 +243,7 @@ var downloadsCache = {
   get(aWindow, aDownload) {
     let downloads = this.cache.get(aWindow);
     if (!(downloads && downloads[aDownload.id])) {
-      debug("Adding download " + aDownload.id + " to cache.");
+      DEBUG && debug("Adding download " + aDownload.id + " to cache.");
       if (!downloads) {
         this.cache.set(aWindow, {});
         downloads = this.cache.get(aWindow);
@@ -273,7 +274,7 @@ function createDownloadObject(aWindow, aDownload) {
 }
 
 function DownloadObject() {
-  debug("DownloadObject constructor ");
+  DEBUG && debug("DownloadObject constructor ");
 
   this.wrappedJSObject = this;
   this.totalBytes = 0;
@@ -299,7 +300,7 @@ DownloadObject.prototype = {
   },
 
   pause() {
-    debug("DownloadObject pause");
+    DEBUG && debug("DownloadObject pause " + this.id);
     let id = this.id;
     // We need to wrap the Promise.jsm promise in a "real" DOM promise...
     return this.createPromise(function(aResolve, aReject) {
@@ -308,7 +309,7 @@ DownloadObject.prototype = {
   },
 
   resume() {
-    debug("DownloadObject resume");
+    DEBUG && debug("DownloadObject resume " + this.id);
     let id = this.id;
     // We need to wrap the Promise.jsm promise in a "real" DOM promise...
     return this.createPromise(function(aResolve, aReject) {
@@ -374,14 +375,14 @@ DownloadObject.prototype = {
       "downloads-state-change-" + this.id,
       /* ownsWeak */ true
     );
-    debug("observer set for " + this.id);
+    DEBUG && debug("observer set for " + this.id);
   },
 
   /**
    * Updates the state of the object and fires the statechange event.
    */
   _update(aDownload) {
-    debug("update " + uneval(aDownload));
+    DEBUG && debug("update " + uneval(aDownload));
     if (this.id != aDownload.id) {
       return;
     }
@@ -454,11 +455,12 @@ DownloadObject.prototype = {
         // We will delay sending the notification until we've inferred which
         // error is really happening.
         changed = false;
-        debug("Attempting to infer error via device storage sanity checks.");
+        DEBUG &&
+          debug("Attempting to infer error via device storage sanity checks.");
         // Get device storage and request availability status.
         let available = storage.available();
         available.onsuccess = function() {
-          debug("Storage Status = '" + available.result + "'");
+          DEBUG && debug("Storage Status = '" + available.result + "'");
           let inferredError = result;
           switch (available.result) {
             case "unavailable":
@@ -504,13 +506,13 @@ DownloadObject.prototype = {
       let event = new this._window.DownloadEvent("statechange", {
         download: this.__DOM_IMPL__,
       });
-      debug("Dispatching statechange event. state=" + this.state);
+      DEBUG && debug("Dispatching statechange event. state=" + this.state);
       this.__DOM_IMPL__.dispatchEvent(event);
     }
   },
 
   observe(aSubject, aTopic, aData) {
-    debug("DownloadObject observe " + aTopic);
+    DEBUG && debug("DownloadObject observe " + aTopic);
     if (aTopic !== "downloads-state-change-" + this.id) {
       return;
     }

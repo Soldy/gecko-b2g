@@ -601,6 +601,10 @@ XPCOMUtils.defineLazyServiceGetter(
         useCapture
       );
     }
+
+    launchRemoteWindows() {
+      Services.obs.notifyObservers(null, "open-remote-shell-windows");
+    }
   }
 
   window.WebEmbedder = WebEmbedder;

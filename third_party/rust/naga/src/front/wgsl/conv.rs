@@ -2,8 +2,6 @@ use super::Error;
 
 pub fn map_storage_class(word: &str) -> Result<crate::StorageClass, Error<'_>> {
     match word {
-        "in" => Ok(crate::StorageClass::Input),
-        "out" => Ok(crate::StorageClass::Output),
         "private" => Ok(crate::StorageClass::Private),
         "uniform" => Ok(crate::StorageClass::Uniform),
         "storage" => Ok(crate::StorageClass::Storage),
@@ -14,17 +12,15 @@ pub fn map_storage_class(word: &str) -> Result<crate::StorageClass, Error<'_>> {
 
 pub fn map_built_in(word: &str) -> Result<crate::BuiltIn, Error<'_>> {
     Ok(match word {
-        // vertex
         "position" => crate::BuiltIn::Position,
+        // vertex
         "vertex_index" => crate::BuiltIn::VertexIndex,
         "instance_index" => crate::BuiltIn::InstanceIndex,
         // fragment
         "front_facing" => crate::BuiltIn::FrontFacing,
-        "frag_coord" => crate::BuiltIn::FragCoord,
         "frag_depth" => crate::BuiltIn::FragDepth,
         "sample_index" => crate::BuiltIn::SampleIndex,
-        "sample_mask_in" => crate::BuiltIn::SampleMaskIn,
-        "sample_mask_out" => crate::BuiltIn::SampleMaskOut,
+        "sample_mask" => crate::BuiltIn::SampleMask,
         // compute
         "global_invocation_id" => crate::BuiltIn::GlobalInvocationId,
         "local_invocation_id" => crate::BuiltIn::LocalInvocationId,
@@ -48,10 +44,16 @@ pub fn map_interpolation(word: &str) -> Result<crate::Interpolation, Error<'_>> 
     match word {
         "linear" => Ok(crate::Interpolation::Linear),
         "flat" => Ok(crate::Interpolation::Flat),
-        "centroid" => Ok(crate::Interpolation::Centroid),
-        "sample" => Ok(crate::Interpolation::Sample),
         "perspective" => Ok(crate::Interpolation::Perspective),
-        _ => Err(Error::UnknownDecoration(word)),
+        _ => Err(Error::UnknownAttribute(word)),
+    }
+}
+
+pub fn map_sampling(word: &str) -> Result<crate::Sampling, Error<'_>> {
+    match word {
+        "centroid" => Ok(crate::Sampling::Centroid),
+        "sample" => Ok(crate::Sampling::Sample),
+        _ => Err(Error::UnknownAttribute(word)),
     }
 }
 

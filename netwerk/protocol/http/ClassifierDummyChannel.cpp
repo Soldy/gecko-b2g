@@ -349,11 +349,6 @@ ClassifierDummyChannel::SetCookie(const nsACString& aCookieHeader) {
 }
 
 NS_IMETHODIMP
-ClassifierDummyChannel::SetupFallbackChannel(const char* aFallbackKey) {
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
 ClassifierDummyChannel::GetIsAuthChannel(bool* aIsAuthChannel) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -665,11 +660,6 @@ ClassifierDummyChannel::CancelByURLClassifier(nsresult aErrorCode) {
 void ClassifierDummyChannel::SetIPv4Disabled() {}
 
 void ClassifierDummyChannel::SetIPv6Disabled() {}
-
-bool ClassifierDummyChannel::GetHasNonEmptySandboxingFlag() { return false; }
-
-void ClassifierDummyChannel::SetHasNonEmptySandboxingFlag(
-    bool aHasNonEmptySandboxingFlag) {}
 
 NS_IMETHODIMP ClassifierDummyChannel::ComputeCrossOriginOpenerPolicy(
     nsILoadInfo::CrossOriginOpenerPolicy aInitiatorPolicy,

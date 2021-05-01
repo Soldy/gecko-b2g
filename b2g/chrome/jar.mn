@@ -47,6 +47,7 @@ chrome.jar:
   content/images/videoError.png   (content/images/videoError.png)
   content/images/playButton.svg   (content/images/playButton.svg)
   content/images/pauseButton.svg   (content/images/pauseButton.svg)
+  content/images/spinner.png       (content/images/spinner.png)
   content/images/fullscreenEnterButton.svg   (content/images/fullscreenEnterButton.svg)
   content/images/fullscreenExitButton.svg   (content/images/fullscreenExitButton.svg)
   content/images/audioMutedButton.svg   (content/images/audioMutedButton.svg)

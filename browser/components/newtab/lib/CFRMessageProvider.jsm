@@ -600,9 +600,7 @@ const CFR_MESSAGES = [
     template: "cfr_doorhanger",
     content: {
       layout: "icon_and_message",
-      text: {
-        string_id: "cfr-doorhanger-sync-logins-body",
-      },
+      text: "Securely store and sync your passwords to all your devices.",
       icon: "chrome://browser/content/aboutlogins/icons/intro-illustration.svg",
       icon_class: "cfr-doorhanger-large-icon",
       buttons: {
@@ -634,7 +632,8 @@ const CFR_MESSAGES = [
         ],
         primary: {
           label: {
-            string_id: "cfr-doorhanger-sync-logins-ok-button",
+            value: "Turn on Sync",
+            attributes: { accesskey: "T" },
           },
           action: {
             type: "OPEN_PREFERENCES_PAGE",
@@ -646,9 +645,7 @@ const CFR_MESSAGES = [
         },
       },
       bucket_id: "CFR_SAVE_LOGIN",
-      heading_text: {
-        string_id: "cfr-doorhanger-sync-logins-header",
-      },
+      heading_text: "Never Lose a Password Again",
       info_icon: {
         label: {
           string_id: "cfr-doorhanger-extension-sumo-link",
@@ -674,9 +671,7 @@ const CFR_MESSAGES = [
     template: "cfr_doorhanger",
     content: {
       layout: "icon_and_message",
-      text: {
-        string_id: "cfr-doorhanger-sync-logins-body",
-      },
+      text: "Securely store and sync your passwords to all your devices.",
       icon: "chrome://browser/content/aboutlogins/icons/intro-illustration.svg",
       icon_class: "cfr-doorhanger-large-icon",
       buttons: {
@@ -708,7 +703,8 @@ const CFR_MESSAGES = [
         ],
         primary: {
           label: {
-            string_id: "cfr-doorhanger-sync-logins-ok-button",
+            value: "Turn on Sync",
+            attributes: { accesskey: "T" },
           },
           action: {
             type: "OPEN_PREFERENCES_PAGE",
@@ -720,9 +716,7 @@ const CFR_MESSAGES = [
         },
       },
       bucket_id: "CFR_UPDATE_LOGIN",
-      heading_text: {
-        string_id: "cfr-doorhanger-sync-logins-header",
-      },
+      heading_text: "Never Lose a Password Again",
       info_icon: {
         label: {
           string_id: "cfr-doorhanger-extension-sumo-link",
@@ -759,8 +753,6 @@ const CFR_MESSAGES = [
       learn_more: "social-media-tracking-report",
       text: { string_id: "cfr-doorhanger-socialtracking-description" },
       icon: "chrome://browser/skin/notification-icons/block-social.svg",
-      icon_dark_theme:
-        "chrome://browser/skin/notification-icons/block-social-dark.svg",
       buttons: {
         primary: {
           label: { string_id: "cfr-doorhanger-socialtracking-ok-button" },
@@ -817,8 +809,6 @@ const CFR_MESSAGES = [
       learn_more: "fingerprinters-report",
       text: { string_id: "cfr-doorhanger-fingerprinters-description" },
       icon: "chrome://browser/skin/notification-icons/block-fingerprinter.svg",
-      icon_dark_theme:
-        "chrome://browser/skin/notification-icons/block-fingerprinter-dark.svg",
       buttons: {
         primary: {
           label: { string_id: "cfr-doorhanger-socialtracking-ok-button" },
@@ -871,8 +861,6 @@ const CFR_MESSAGES = [
       learn_more: "cryptominers-report",
       text: { string_id: "cfr-doorhanger-cryptominers-description" },
       icon: "chrome://browser/skin/notification-icons/block-cryptominer.svg",
-      icon_dark_theme:
-        "chrome://browser/skin/notification-icons/block-cryptominer-dark.svg",
       buttons: {
         primary: {
           label: { string_id: "cfr-doorhanger-socialtracking-ok-button" },

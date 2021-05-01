@@ -94,6 +94,21 @@ WINDOWS_WORKER_TYPES = {
         "virtual-with-gpu": "t-win7-32-gpu",
         "hardware": "t-win10-64-1803-hw",
     },
+    "windows10-32": {
+        "virtual": "t-win10-64",
+        "virtual-with-gpu": "t-win10-64-gpu-s",
+        "hardware": "t-win10-64-1803-hw",
+    },
+    "windows10-32-shippable": {
+        "virtual": "t-win10-64",
+        "virtual-with-gpu": "t-win10-64-gpu-s",
+        "hardware": "t-win10-64-1803-hw",
+    },
+    "windows10-32-qr": {
+        "virtual": "t-win10-64",
+        "virtual-with-gpu": "t-win10-64-gpu-s",
+        "hardware": "t-win10-64-1803-hw",
+    },
     "windows10-64": {
         "virtual": "t-win10-64",
         "virtual-with-gpu": "t-win10-64-gpu-s",
@@ -156,6 +171,7 @@ MACOSX_WORKER_TYPES = {
     "macosx1014-64": "t-osx-1014",
     "macosx1014-64-power": "t-osx-1014-power",
     "macosx1015-64": "t-osx-1015-r8",
+    "macosx1100-64": "t-osx-1100-m1",
 }
 
 
@@ -612,6 +628,8 @@ test_description_schema = Schema(
         # transforms need them. See bug 1700774.
         Optional("app"): text_type,
         Optional("subtest"): text_type,
+        # Define if a given task supports artifact builds or not, see bug 1695325.
+        Optional("supports-artifact-builds"): bool,
     }
 )
 
@@ -629,7 +647,9 @@ def handle_keyed_by_mozharness(config, tasks):
     ]
     for task in tasks:
         for field in fields:
-            resolve_keyed_by(task, field, item_name=task["test-name"])
+            resolve_keyed_by(
+                task, field, item_name=task["test-name"], enforce_single_match=False
+            )
         yield task
 
 
@@ -683,6 +703,7 @@ def set_defaults(config, tasks):
         task.setdefault("checkout", False)
         task.setdefault("require-signed-extensions", False)
         task.setdefault("variants", [])
+        task.setdefault("supports-artifact-builds", True)
 
         task["mozharness"].setdefault("extra-options", [])
         task["mozharness"].setdefault("requires-signed-builds", False)
@@ -699,6 +720,7 @@ def resolve_keys(config, tasks):
             task,
             "require-signed-extensions",
             item_name=task["test-name"],
+            enforce_single_match=False,
             **{
                 "release-type": config.params["release_type"],
             }
@@ -834,7 +856,9 @@ def set_target(config, tasks):
         build_platform = task["build-platform"]
         target = None
         if "target" in task:
-            resolve_keyed_by(task, "target", item_name=task["test-name"])
+            resolve_keyed_by(
+                task, "target", item_name=task["test-name"], enforce_single_match=False
+            )
             target = task["target"]
         if not target:
             if build_platform.startswith("macosx"):
@@ -866,6 +890,8 @@ def set_treeherder_machine_platform(config, tasks):
         "macosx1014-64/debug": "osx-10-14/debug",
         "macosx1014-64/opt": "osx-10-14/opt",
         "macosx1014-64-shippable/opt": "osx-10-14-shippable/opt",
+        "macosx1100-64/opt": "osx-1100/opt",
+        "macosx1100-64-shippable/opt": "osx-1100-shippable/opt",
         "win64-asan/opt": "windows10-64/asan",
         "win64-aarch64/opt": "windows10-aarch64/opt",
     }
@@ -962,6 +988,7 @@ def handle_keyed_by(config, tasks):
                 field,
                 item_name=task["test-name"],
                 defer=["variant"],
+                enforce_single_match=False,
                 project=config.params["project"],
             )
         yield task
@@ -1021,31 +1048,37 @@ def setup_browsertime(config, tasks):
                 "linux64-chromedriver-87",
                 "linux64-chromedriver-88",
                 "linux64-chromedriver-89",
+                "linux64-chromedriver-90",
             ],
             "linux.*": [
                 "linux64-chromedriver-87",
                 "linux64-chromedriver-88",
                 "linux64-chromedriver-89",
+                "linux64-chromedriver-90",
             ],
             "macosx.*": [
                 "mac64-chromedriver-87",
                 "mac64-chromedriver-88",
                 "mac64-chromedriver-89",
+                "mac64-chromedriver-90",
             ],
             "windows.*aarch64.*": [
                 "win32-chromedriver-87",
                 "win32-chromedriver-88",
                 "win32-chromedriver-89",
+                "win32-chromedriver-90",
             ],
             "windows.*-32.*": [
                 "win32-chromedriver-87",
                 "win32-chromedriver-88",
                 "win32-chromedriver-89",
+                "win32-chromedriver-90",
             ],
             "windows.*-64.*": [
                 "win32-chromedriver-87",
                 "win32-chromedriver-88",
                 "win32-chromedriver-89",
+                "win32-chromedriver-90",
             ],
         }
 
@@ -1229,6 +1262,7 @@ def handle_keyed_by_variant(config, tasks):
                 task,
                 field,
                 item_name=task["test-name"],
+                enforce_single_match=False,
                 variant=task["attributes"].get("unittest_variant"),
             )
         yield task
@@ -1334,7 +1368,9 @@ def handle_tier(config, tasks):
     specify a tier otherwise."""
     for task in tasks:
         if "tier" in task:
-            resolve_keyed_by(task, "tier", item_name=task["test-name"])
+            resolve_keyed_by(
+                task, "tier", item_name=task["test-name"], enforce_single_match=False
+            )
 
         # only override if not set for the test
         if "tier" not in task or task["tier"] == "default":
@@ -1377,6 +1413,14 @@ def handle_tier(config, tasks):
                 "macosx1014-64-qr/opt",
                 "macosx1014-64-shippable-qr/opt",
                 "macosx1014-64-qr/debug",
+                "macosx1015-64/opt",
+                "macosx1015-64/debug",
+                "macosx1015-64-shippable/opt",
+                "macosx1015-64-devedition/opt",
+                "macosx1015-64-devedition-qr/opt",
+                "macosx1015-64-qr/opt",
+                "macosx1015-64-shippable-qr/opt",
+                "macosx1015-64-qr/debug",
                 "android-em-7.0-x86_64-shippable/opt",
                 "android-em-7.0-x86_64/debug",
                 "android-em-7.0-x86_64/opt",
@@ -1412,7 +1456,10 @@ def apply_raptor_tier_optimization(config, tasks):
 @transforms.add
 def disable_try_only_platforms(config, tasks):
     """Turns off platforms that should only run on try."""
-    try_only_platforms = ("windows7-32-qr/.*",)
+    try_only_platforms = (
+        "windows7-32-qr/.*",
+        "windows10-32-qr/.*",
+    )
     for task in tasks:
         if any(re.match(k + "$", task["test-platform"]) for k in try_only_platforms):
             task["run-on-projects"] = []
@@ -1715,11 +1762,34 @@ def set_retry_exit_status(config, tasks):
 @transforms.add
 def set_profile(config, tasks):
     """Set profiling mode for tests."""
-    profile = config.params["try_task_config"].get("gecko-profile", False)
+    ttconfig = config.params["try_task_config"]
+    profile = ttconfig.get("gecko-profile", False)
+    settings = (
+        "gecko-profile-interval",
+        "gecko-profile-entries",
+        "gecko-profile-threads",
+        "gecko-profile-features",
+    )
 
     for task in tasks:
         if profile and task["suite"] in ["talos", "raptor"]:
-            task["mozharness"]["extra-options"].append("--gecko-profile")
+            extras = task["mozharness"]["extra-options"]
+            extras.append("--gecko-profile")
+            for setting in settings:
+                value = ttconfig.get(setting)
+                if value is not None:
+                    # These values can contain spaces (eg the "DOM Worker"
+                    # thread) and the command is constructed in different,
+                    # incompatible ways on different platforms.
+
+                    if task["test-platform"].startswith("win"):
+                        # Double quotes for Windows (single won't work).
+                        extras.append("--" + setting + '="' + str(value) + '"')
+                    else:
+                        # Other platforms keep things as separate values,
+                        # rather than joining with spaces.
+                        extras.append("--" + setting + "=" + str(value))
+
         yield task
 
 
@@ -1762,6 +1832,8 @@ def set_worker_type(config, tasks):
                 task["worker-type"] = MACOSX_WORKER_TYPES["macosx1014-64-power"]
             else:
                 task["worker-type"] = MACOSX_WORKER_TYPES["macosx1015-64"]
+        elif test_platform.startswith("macosx1100-64"):
+            task["worker-type"] = MACOSX_WORKER_TYPES["macosx1100-64"]
         elif test_platform.startswith("win"):
             # figure out what platform the job needs to run on
             if task["virtualization"] == "hardware":
@@ -1881,6 +1953,7 @@ def make_job_description(config, tasks):
                 "build_type": attr_build_type,
                 "test_platform": task["test-platform"],
                 "test_chunk": str(task["this-chunk"]),
+                "supports-artifact-builds": task["supports-artifact-builds"],
                 attr_try_name: try_name,
             }
         )

@@ -42,6 +42,7 @@
 #include "js/ContextOptions.h"
 #include "js/MemoryMetrics.h"
 #include "js/OffThreadScriptCompilation.h"
+#include "js/WasmFeatures.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Element.h"
@@ -53,6 +54,7 @@
 #include "mozilla/ProcessHangMonitor.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/SystemPrincipal.h"
+#include "mozilla/TaskController.h"
 #include "mozilla/ThreadLocal.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/Unused.h"
@@ -913,28 +915,15 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_trustedprincipals");
   bool useWasmOptimizing =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_optimizingjit");
-#ifdef ENABLE_WASM_CRANELIFT
-  // Cranelift->Ion transition.  When we land for phase 2, this goes away.
-  bool forceWasmIon = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_force_ion");
-#endif
   bool useWasmBaseline =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_baselinejit");
-  bool useWasmReftypes =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_reftypes");
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  bool useWasmFunctionReferences =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_function_references");
-#endif
-#ifdef ENABLE_WASM_GC
-  bool useWasmGc = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_gc");
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-  bool useWasmMultiValue =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_multi_value");
-#endif
-#ifdef ENABLE_WASM_SIMD
-  bool useWasmSimd = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_simd");
-#endif
+
+#define WASM_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, FLAG_PRED, \
+                     SHELL, PREF)                                              \
+  bool useWasm##NAME = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_" PREF);
+  JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#undef WASM_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
   bool useWasmSimdWormhole = false;
 #  ifdef EARLY_BETA_OR_EARLIER
@@ -975,9 +964,13 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
   sWeakRefsExposeCleanupSome = Preferences::GetBool(
       JS_OPTIONS_DOT_STR "experimental.weakrefs.expose_cleanupSome");
 
+  bool topLevelAwaitEnabled =
+      Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.top_level_await");
+
   // Require private fields disabled outside of nightly.
   bool privateFieldsEnabled = false;
   bool privateMethodsEnabled = false;
+  bool ergnomicBrandChecksEnabled = false;
 #ifdef NIGHTLY_BUILD
   sIteratorHelpersEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.iterator_helpers");
@@ -985,13 +978,8 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.private_fields");
   privateMethodsEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.private_methods");
-#endif
-
-  // Require top level await disabled outside of nightly.
-  bool topLevelAwaitEnabled = false;
-#ifdef NIGHTLY_BUILD
-  topLevelAwaitEnabled =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.top_level_await");
+  ergnomicBrandChecksEnabled = Preferences::GetBool(
+      JS_OPTIONS_DOT_STR "experimental.ergonomic_brand_checks");
 #endif
 
 #ifdef JS_GC_ZEAL
@@ -1015,26 +1003,16 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       .setWasm(useWasm)
       .setWasmForTrustedPrinciples(useWasmTrustedPrincipals)
 #ifdef ENABLE_WASM_CRANELIFT
-      // Cranelift->Ion transition
-      .setWasmCranelift(useWasmOptimizing && !forceWasmIon)
-      .setWasmIon(useWasmOptimizing && forceWasmIon)
+      .setWasmCranelift(useWasmOptimizing)
+      .setWasmIon(false)
 #else
+      .setWasmCranelift(false)
       .setWasmIon(useWasmOptimizing)
 #endif
       .setWasmBaseline(useWasmBaseline)
-      .setWasmReftypes(useWasmReftypes)
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      .setWasmFunctionReferences(useWasmFunctionReferences)
-#endif
-#ifdef ENABLE_WASM_GC
-      .setWasmGc(useWasmGc)
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      .setWasmMultiValue(useWasmMultiValue)
-#endif
-#ifdef ENABLE_WASM_SIMD
-      .setWasmSimd(useWasmSimd)
-#endif
+#define WASM_FEATURE(NAME, ...) .setWasm##NAME(useWasm##NAME)
+          JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#undef WASM_FEATURE
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
       .setWasmSimdWormhole(useWasmSimdWormhole)
 #endif
@@ -1047,6 +1025,7 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       .setDumpStackOnDebuggeeWouldRun(dumpStackOnDebuggeeWouldRun)
       .setPrivateClassFields(privateFieldsEnabled)
       .setPrivateClassMethods(privateMethodsEnabled)
+      .setErgnomicBrandChecks(ergnomicBrandChecksEnabled)
       .setTopLevelAwait(topLevelAwaitEnabled);
 
   nsCOMPtr<nsIXULRuntime> xr = do_GetService("@mozilla.org/xre/runtime;1");
@@ -1169,7 +1148,32 @@ CycleCollectedJSRuntime* XPCJSContext::CreateRuntime(JSContext* aCx) {
   return new XPCJSRuntime(aCx);
 }
 
+class HelperThreadTaskHandler : public Task {
+ public:
+  bool Run() override {
+    mOffThreadTask->runTask();
+    mOffThreadTask.reset();
+    return true;
+  }
+  explicit HelperThreadTaskHandler(js::UniquePtr<RunnableTask> task)
+      // TODO: priority should be updated in Bug 1703185.
+      : Task(false, EventQueuePriority::Normal),
+        mOffThreadTask(std::move(task)) {}
+
+ private:
+  ~HelperThreadTaskHandler() = default;
+  js::UniquePtr<RunnableTask> mOffThreadTask;
+};
+
+bool DispatchOffThreadTask(js::UniquePtr<RunnableTask> task) {
+  TaskController::Get()->AddTask(
+      MakeAndAddRef<HelperThreadTaskHandler>(std::move(task)));
+  return true;
+}
+
 nsresult XPCJSContext::Initialize() {
+  SetHelperThreadTaskCallback(&DispatchOffThreadTask);
+
   nsresult rv =
       CycleCollectedJSContext::Initialize(nullptr, JS::DefaultHeapMaxBytes);
   if (NS_WARN_IF(NS_FAILED(rv))) {

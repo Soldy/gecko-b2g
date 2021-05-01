@@ -8,6 +8,7 @@
 #define XrayWrapper_h
 
 #include "mozilla/Attributes.h"
+#include "mozilla/Maybe.h"
 
 #include "WrapperFactory.h"
 
@@ -153,10 +154,12 @@ class DOMXrayTraits : public XrayTraits {
   bool delete_(JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
                JS::ObjectOpResult& result);
 
-  bool defineProperty(JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
-                      JS::Handle<JS::PropertyDescriptor> desc,
-                      JS::Handle<JS::PropertyDescriptor> existingDesc,
-                      JS::ObjectOpResult& result, bool* done);
+  bool defineProperty(
+      JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
+      JS::Handle<JS::PropertyDescriptor> desc,
+      JS::Handle<mozilla::Maybe<JS::PropertyDescriptor>> existingDesc,
+      JS::Handle<JSObject*> existingHolder, JS::ObjectOpResult& result,
+      bool* done);
   virtual bool enumerateNames(JSContext* cx, JS::HandleObject wrapper,
                               unsigned flags, JS::MutableHandleIdVector props);
   static bool call(JSContext* cx, JS::HandleObject wrapper,
@@ -192,10 +195,12 @@ class JSXrayTraits : public XrayTraits {
   bool delete_(JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
                JS::ObjectOpResult& result);
 
-  bool defineProperty(JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
-                      JS::Handle<JS::PropertyDescriptor> desc,
-                      JS::Handle<JS::PropertyDescriptor> existingDesc,
-                      JS::ObjectOpResult& result, bool* defined);
+  bool defineProperty(
+      JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
+      JS::Handle<JS::PropertyDescriptor> desc,
+      JS::Handle<mozilla::Maybe<JS::PropertyDescriptor>> existingDesc,
+      JS::Handle<JSObject*> existingHolder, JS::ObjectOpResult& result,
+      bool* defined);
 
   virtual bool enumerateNames(JSContext* cx, JS::HandleObject wrapper,
                               unsigned flags, JS::MutableHandleIdVector props);
@@ -296,10 +301,12 @@ class OpaqueXrayTraits : public XrayTraits {
       JS::HandleObject holder, JS::HandleId id,
       JS::MutableHandle<JS::PropertyDescriptor> desc) override;
 
-  bool defineProperty(JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
-                      JS::Handle<JS::PropertyDescriptor> desc,
-                      JS::Handle<JS::PropertyDescriptor> existingDesc,
-                      JS::ObjectOpResult& result, bool* defined) {
+  bool defineProperty(
+      JSContext* cx, JS::HandleObject wrapper, JS::HandleId id,
+      JS::Handle<JS::PropertyDescriptor> desc,
+      JS::Handle<mozilla::Maybe<JS::PropertyDescriptor>> existingDesc,
+      JS::Handle<JSObject*> existingHolder, JS::ObjectOpResult& result,
+      bool* defined) {
     *defined = false;
     return true;
   }
@@ -375,7 +382,8 @@ class XrayWrapper : public Base {
   /* Standard internal methods. */
   virtual bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> wrapper, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override;
+      JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc)
+      const override;
   virtual bool defineProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
                               JS::Handle<jsid> id,
                               JS::Handle<JS::PropertyDescriptor> desc,

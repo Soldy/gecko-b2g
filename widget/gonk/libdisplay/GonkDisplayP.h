@@ -34,8 +34,8 @@
 namespace mozilla {
 // ----------------------------------------------------------------------------
 
+using namespace android;
 using ::android::hardware::power::V1_0::IPower;
-
 class MOZ_EXPORT GonkDisplayP : public GonkDisplay {
 public:
     GonkDisplayP();
@@ -63,7 +63,7 @@ public:
 
     virtual NativeData GetNativeData(
         DisplayType aDisplayType,
-        android::IGraphicBufferProducer* aSink = nullptr);
+        IGraphicBufferProducer* aSink = nullptr);
 
     virtual void NotifyBootAnimationStopped();
 
@@ -71,21 +71,19 @@ public:
 
     virtual void UnlockScreen();
 
-    virtual android::sp<ANativeWindow> GetSurface(DisplayType aDisplayType);
+    virtual sp<ANativeWindow> GetSurface(DisplayType aDisplayType);
 
-    virtual android::sp<android::GraphicBuffer> GetFrameBuffer(
-        DisplayType aDisplayType);
+    virtual sp<GraphicBuffer> GetFrameBuffer(DisplayType aDisplayType);
 
 private:
-    void CreateFramebufferSurface(android::sp<ANativeWindow>& aNativeWindow,
-        android::sp<android::DisplaySurface>& aDisplaySurface,
-        uint32_t aWidth, uint32_t aHeight, unsigned int format,
-        HWC2::Display *display, HWC2::Layer *layer,
-        NativeFramebufferDevice *ExtFBDevice);
+    void CreateFramebufferSurface(sp<ANativeWindow>& aNativeWindow,
+        sp<DisplaySurface>& aDisplaySurface, uint32_t aWidth,
+        uint32_t aHeight, unsigned int format,
+        DisplayUtils displayUtils, bool enableDisplay);
 
-    void CreateVirtualDisplaySurface(android::IGraphicBufferProducer* aSink,
-        android::sp<ANativeWindow>& aNativeWindow,
-        android::sp<android::DisplaySurface>& aDisplaySurface);
+    void CreateVirtualDisplaySurface(IGraphicBufferProducer* aSink,
+        sp<ANativeWindow>& aNativeWindow,
+        sp<DisplaySurface>& aDisplaySurface);
 
     void PowerOnDisplay(int aDpy);
 
@@ -99,13 +97,13 @@ private:
     power_module_t*               mPowerModule;
     HWC2::Layer*                  mlayer;
     HWC2::Layer*                  mlayerBootAnim;
-    android::sp<android::DisplaySurface>            mDispSurface;
-    android::sp<ANativeWindow>             mSTClient;
-    android::sp<android::DisplaySurface>            mExtDispSurface;
-    android::sp<ANativeWindow>             mExtSTClient;
-    android::sp<android::DisplaySurface>            mBootAnimDispSurface;
-    android::sp<ANativeWindow>             mBootAnimSTClient;
-    android::sp<IPower>                    mPower;
+    sp<DisplaySurface>            mDispSurface;
+    sp<ANativeWindow>             mSTClient;
+    sp<DisplaySurface>            mExtDispSurface;
+    sp<ANativeWindow>             mExtSTClient;
+    sp<DisplaySurface>            mBootAnimDispSurface;
+    sp<ANativeWindow>             mBootAnimSTClient;
+    sp<IPower>                    mPower;
     hwc_display_contents_1_t*     mList;
     OnEnabledCallbackType         mEnabledCallback;
     bool                          mEnableHWCPower;

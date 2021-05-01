@@ -167,6 +167,12 @@ JS_FRIEND_API bool JS_WrapPropertyDescriptor(
   return cx->compartment()->wrap(cx, desc);
 }
 
+JS_FRIEND_API bool JS_WrapPropertyDescriptor(
+    JSContext* cx,
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc) {
+  return cx->compartment()->wrap(cx, desc);
+}
+
 JS_FRIEND_API void JS_TraceShapeCycleCollectorChildren(JS::CallbackTracer* trc,
                                                        JS::GCCellPtr shape) {
   MOZ_ASSERT(shape.is<Shape>());
@@ -333,7 +339,8 @@ JS_FRIEND_API bool js::IsObjectInContextCompartment(JSObject* obj,
   return obj->compartment() == cx->compartment();
 }
 
-JS_FRIEND_API bool js::detail::RunningWithTrustedPrincipals(JSContext* cx) {
+JS_FRIEND_API bool js::AutoCheckRecursionLimit::runningWithTrustedPrincipals(
+    JSContext* cx) const {
   return cx->runningWithTrustedPrincipals();
 }
 
@@ -599,12 +606,11 @@ extern JS_FRIEND_API bool JS::ForceLexicalInitialization(JSContext* cx,
   bool initializedAny = false;
   NativeObject* nobj = &obj->as<NativeObject>();
 
-  for (Shape::Range<NoGC> r(nobj->lastProperty()); !r.empty(); r.popFront()) {
-    Shape* s = &r.front();
-    Value v = nobj->getSlot(s->slot());
-    if (s->isDataProperty() && v.isMagic() &&
+  for (ShapePropertyIter<NoGC> iter(nobj->shape()); !iter.done(); iter++) {
+    Value v = nobj->getSlot(iter->slot());
+    if (iter->isDataProperty() && v.isMagic() &&
         v.whyMagic() == JS_UNINITIALIZED_LEXICAL) {
-      nobj->setSlot(s->slot(), UndefinedValue());
+      nobj->setSlot(iter->slot(), UndefinedValue());
       initializedAny = true;
     }
   }

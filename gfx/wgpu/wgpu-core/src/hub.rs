@@ -15,7 +15,6 @@ use crate::{
     instance::{Adapter, Instance, Surface},
     pipeline::{ComputePipeline, RenderPipeline, ShaderModule},
     resource::{Buffer, Sampler, Texture, TextureView},
-    span,
     swap_chain::SwapChain,
     Epoch, Index,
 };
@@ -181,6 +180,11 @@ impl<T, I: TypedId> Storage<T, I> {
         self.insert_impl(index as usize, Element::Error(epoch, label.to_string()))
     }
 
+    pub(crate) fn force_replace(&mut self, id: I, value: T) {
+        let (index, epoch, _) = id.unzip();
+        self.map[index as usize] = Element::Occupied(value, epoch);
+    }
+
     pub(crate) fn remove(&mut self, id: I) -> Option<T> {
         let (index, epoch, _) = id.unzip();
         match std::mem::replace(&mut self.map[index as usize], Element::Vacant) {
@@ -218,7 +222,6 @@ impl<T, I: TypedId> Storage<T, I> {
                 }
                 _ => None,
             })
-            .into_iter()
     }
 }
 
@@ -586,7 +589,7 @@ impl<B: GfxBackend, F: GlobalIdentityHandlerFactory> Hub<B, F> {
 
         let mut devices = self.devices.data.write();
         for element in devices.map.iter_mut() {
-            if let Element::Occupied(device, _) = element {
+            if let Element::Occupied(ref mut device, _) = *element {
                 device.prepare_to_die();
             }
         }
@@ -762,7 +765,7 @@ pub struct Global<G: GlobalIdentityHandlerFactory> {
 
 impl<G: GlobalIdentityHandlerFactory> Global<G> {
     pub fn new(name: &str, factory: G, backends: wgt::BackendBit) -> Self {
-        span!(_guard, INFO, "Global::new");
+        profiling::scope!("Global::new");
         Self {
             instance: Instance::new(name, 1, backends),
             surfaces: Registry::without_backend(&factory, "Surface"),
@@ -781,7 +784,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
 impl<G: GlobalIdentityHandlerFactory> Drop for Global<G> {
     fn drop(&mut self) {
         if !thread::panicking() {
-            tracing::info!("Dropping Global");
+            log::info!("Dropping Global");
             let mut surface_guard = self.surfaces.data.write();
 
             // destroy hubs

@@ -10,6 +10,7 @@
 #include "GeckoProfiler.h"
 #include "js/GCVector.h"
 #include "js/TypeDecls.h"
+#include "js/Value.h"
 #include "jsapi.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
@@ -41,11 +42,19 @@ class MOZ_STACK_CLASS JSExecutionContext final {
   // Set to a valid handle if a return value is expected.
   JS::Rooted<JS::Value> mRetValue;
 
-  // Scope chain in which the execution takes place.
-  JS::RootedVector<JSObject*> mScopeChain;
-
   // The compiled script.
   JS::Rooted<JSScript*> mScript;
+
+  // The compilation options applied throughout
+  JS::CompileOptions& mCompileOptions;
+
+  // Debug Metadata: Values managed for the benefit of the debugger when
+  // inspecting code.
+  //
+  // For more details see CompilationAndEvaluation.h, and the comments on
+  // UpdateDebugMetadata
+  JS::Rooted<JS::Value> mDebuggerPrivateValue;
+  JS::Rooted<JSScript*> mDebuggerIntroductionScript;
 
   // returned value forwarded when we have to interupt the execution eagerly
   // with mSkip.
@@ -65,21 +74,27 @@ class MOZ_STACK_CLASS JSExecutionContext final {
   // Should we set the return value.
   bool mWantsReturnValue;
 
-  bool mExpectScopeChain;
-
   bool mScriptUsed;
 #endif
+
+  bool UpdateDebugMetadata();
 
  private:
   // Compile a script contained in a SourceText.
   template <typename Unit>
-  nsresult InternalCompile(JS::CompileOptions& aCompileOptions,
-                           JS::SourceText<Unit>& aSrcBuf);
+  nsresult InternalCompile(JS::SourceText<Unit>& aSrcBuf);
 
  public:
   // Enter compartment in which the code would be executed.  The JSContext
   // must come from an AutoEntryScript.
-  JSExecutionContext(JSContext* aCx, JS::Handle<JSObject*> aGlobal);
+  //
+  // The JS engine can associate metadata for the debugger with scripts at
+  // compile time. The optional last arguments here cover that metadata.
+  JSExecutionContext(
+      JSContext* aCx, JS::Handle<JSObject*> aGlobal,
+      JS::CompileOptions& aCompileOptions,
+      JS::Handle<JS::Value> aDebuggerPrivateValue = JS::UndefinedHandleValue,
+      JS::Handle<JSScript*> aDebuggerIntroductionScript = nullptr);
 
   JSExecutionContext(const JSExecutionContext&) = delete;
   JSExecutionContext(JSExecutionContext&&) = delete;
@@ -109,27 +124,20 @@ class MOZ_STACK_CLASS JSExecutionContext final {
     return *this;
   }
 
-  // Set the scope chain in which the code should be executed.
-  void SetScopeChain(JS::HandleVector<JSObject*> aScopeChain);
-
   // After getting a notification that an off-thread compilation terminated,
   // this function will take the result of the parser and move it to the main
   // thread.
   [[nodiscard]] nsresult JoinCompile(JS::OffThreadToken** aOffThreadToken);
 
   // Compile a script contained in a SourceText.
-  nsresult Compile(JS::CompileOptions& aCompileOptions,
-                   JS::SourceText<char16_t>& aSrcBuf);
-  nsresult Compile(JS::CompileOptions& aCompileOptions,
-                   JS::SourceText<mozilla::Utf8Unit>& aSrcBuf);
+  nsresult Compile(JS::SourceText<char16_t>& aSrcBuf);
+  nsresult Compile(JS::SourceText<mozilla::Utf8Unit>& aSrcBuf);
 
   // Compile a script contained in a string.
-  nsresult Compile(JS::CompileOptions& aCompileOptions,
-                   const nsAString& aScript);
+  nsresult Compile(const nsAString& aScript);
 
   // Decode a script contained in a buffer.
-  nsresult Decode(JS::CompileOptions& aCompileOptions,
-                  mozilla::Vector<uint8_t>& aBytecodeBuf,
+  nsresult Decode(mozilla::Vector<uint8_t>& aBytecodeBuf,
                   size_t aBytecodeIndex);
 
   // After getting a notification that an off-thread decoding terminated, this

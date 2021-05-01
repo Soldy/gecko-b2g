@@ -71,9 +71,13 @@ PushRecord.prototype = {
   },
 
   updateQuota(lastVisit) {
-    if (this.isExpired() || !this.quotaApplies()) {
-      // Ignore updates if the registration is already expired, or isn't
-      // subject to quota.
+    if (
+      this.isExpired() ||
+      !this.quotaApplies() ||
+      this.isInstalledAppNotPWA()
+    ) {
+      // Ignore updates if the registration is already expired,
+      // is installed App not PWA or isn't subject to quota.
       return;
     }
     if (lastVisit < 0) {
@@ -127,7 +131,7 @@ PushRecord.prototype = {
   },
 
   reduceQuota() {
-    if (!this.quotaApplies()) {
+    if (!this.quotaApplies() || this.isInstalledAppNotPWA()) {
       return;
     }
     this.quota = Math.max(this.quota - 1, 0);
@@ -142,8 +146,12 @@ PushRecord.prototype = {
    *  The time is expressed in milliseconds since Epoch.
    */
   async getLastVisit() {
-    if (!this.quotaApplies() || this.isTabOpen()) {
-      // If the registration isn't subject to quota, or the user already
+    if (
+      !this.quotaApplies() ||
+      this.isInstalledAppNotPWA() ||
+      this.isTabOpen()
+    ) {
+      // If the registration isn't subject to quota, by InstalledApp not PWA or the user already
       // has the site open, skip expensive database queries.
       return Date.now();
     }
@@ -200,6 +208,20 @@ PushRecord.prototype = {
     let lastVisit = rows[0].getResultByName("lastVisit");
 
     return lastVisit / 1000;
+  },
+
+  /**
+   * Indicates whether the registration was created by an installed app not PWA.
+   * Theseregistrations are always exempt from the quota.
+   */
+  isInstalledAppNotPWA() {
+    if (AppConstants.MOZ_B2G) {
+      if (this.scope && this.uri.host.endsWith(".localhost")) {
+        return true;
+      }
+    }
+    // PWA or an iframe will go to here
+    return false;
   },
 
   isTabOpen() {
@@ -260,16 +282,7 @@ PushRecord.prototype = {
   },
 
   quotaApplies() {
-    if (this.systemRecord) {
-      return false;
-    }
-    if (AppConstants.MOZ_B2G) {
-      if (this.uri.host.endsWith(".localhost")) {
-        return false;
-      }
-    }
-    // PWA or an iframe will go to here
-    return true;
+    return !this.systemRecord;
   },
 
   isExpired() {

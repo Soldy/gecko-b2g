@@ -115,6 +115,7 @@ interface nsIRilWorker : nsISupports
   void sendTerminalResponseToSim(in long serial, in AString contents);
   void sendEnvelope(in long serial, in AString contents);
   void stopNetworkScan(in long serial);
+  void setUnsolResponseFilter(in long serial, in long filter);
 };
 
 /**

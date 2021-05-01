@@ -224,7 +224,7 @@ void nsMenuBarX::InsertMenuAtIndex(RefPtr<nsMenuX>&& aMenu, uint32_t aIndex) {
   // hook up submenus
   RefPtr<nsIContent> menuContent = aMenu->Content();
   if (menuContent->GetChildCount() > 0 && !nsMenuUtilsX::NodeIsHiddenOrCollapsed(menuContent)) {
-    InsertChildNativeMenuItem(aMenu);
+    MenuChildChangedVisibility(MenuChild(aMenu), true);
   }
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
@@ -448,14 +448,14 @@ bool nsMenuBarX::PerformKeyEquivalent(NSEvent* aEvent) {
   return [mNativeMenu performSuperKeyEquivalent:aEvent];
 }
 
-void nsMenuBarX::InsertChildNativeMenuItem(nsMenuX* aChild) {
-  NSInteger insertionPoint = CalculateNativeInsertionPoint(aChild);
-  [mNativeMenu insertItem:aChild->NativeNSMenuItem() atIndex:insertionPoint];
-}
-
-void nsMenuBarX::RemoveChildNativeMenuItem(nsMenuX* aChild) {
-  NSMenuItem* item = aChild->NativeNSMenuItem();
-  if ([mNativeMenu indexOfItem:item] != -1) {
+void nsMenuBarX::MenuChildChangedVisibility(const MenuChild& aChild, bool aIsVisible) {
+  MOZ_RELEASE_ASSERT(aChild.is<RefPtr<nsMenuX>>(), "nsMenuBarX only has nsMenuX children");
+  const RefPtr<nsMenuX>& child = aChild.as<RefPtr<nsMenuX>>();
+  NSMenuItem* item = child->NativeNSMenuItem();
+  if (aIsVisible) {
+    NSInteger insertionPoint = CalculateNativeInsertionPoint(child);
+    [mNativeMenu insertItem:child->NativeNSMenuItem() atIndex:insertionPoint];
+  } else if ([mNativeMenu indexOfItem:item] != -1) {
     [mNativeMenu removeItem:item];
   }
 }
@@ -874,10 +874,13 @@ static BOOL gMenuItemsExecuteCommands = YES;
     menuBar = menuGroupOwner->GetMenuBar();
   }
 
-  // Get the modifier flags for this menu item activation. The menu system does not pass an NSEvent
-  // to our action selector, but we can query the current NSEvent instead. The current NSEvent can
-  // be a key event or a mouseup event, depending on how the menu item is activated.
+  // Get the modifier flags and button for this menu item activation. The menu system does not pass
+  // an NSEvent to our action selector, but we can query the current NSEvent instead. The current
+  // NSEvent can be a key event or a mouseup event, depending on how the menu item is activated.
   NSEventModifierFlags modifierFlags = NSApp.currentEvent ? NSApp.currentEvent.modifierFlags : 0;
+  mozilla::MouseButton button = NSApp.currentEvent
+                                    ? nsCocoaUtils::ButtonForEvent(NSApp.currentEvent)
+                                    : mozilla::MouseButton::ePrimary;
 
   // Do special processing if this is for an app-global command.
   if (tag == eCommand_ID_About) {
@@ -885,7 +888,7 @@ static BOOL gMenuItemsExecuteCommands = YES;
     if (menuBar && menuBar->mAboutItemContent) {
       mostSpecificContent = menuBar->mAboutItemContent;
     }
-    nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags);
+    nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags, button);
     return;
   }
   if (tag == eCommand_ID_Prefs) {
@@ -893,7 +896,7 @@ static BOOL gMenuItemsExecuteCommands = YES;
     if (menuBar && menuBar->mPrefItemContent) {
       mostSpecificContent = menuBar->mPrefItemContent;
     }
-    nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags);
+    nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags, button);
     return;
   }
   if (tag == eCommand_ID_HideApp) {
@@ -921,7 +924,7 @@ static BOOL gMenuItemsExecuteCommands = YES;
     // message. If you want to stop a quit from happening, provide quit content and return
     // the event as unhandled.
     if (mostSpecificContent) {
-      nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags);
+      nsMenuUtilsX::DispatchCommandTo(mostSpecificContent, modifierFlags, button);
     } else {
       nsCOMPtr<nsIAppStartup> appStartup = mozilla::components::AppStartup::Service();
       if (appStartup) {
@@ -937,7 +940,7 @@ static BOOL gMenuItemsExecuteCommands = YES;
   if (menuGroupOwner) {
     nsMenuItemX* menuItem = menuGroupOwner->GetMenuItemForCommandID(static_cast<uint32_t>(tag));
     if (menuItem) {
-      menuItem->DoCommand(modifierFlags);
+      menuItem->DoCommand(modifierFlags, button);
     }
   }
 }

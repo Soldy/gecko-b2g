@@ -19,24 +19,6 @@ const { ExtensionTestUtils } = ChromeUtils.import(
   "resource://testing-common/ExtensionXPCShellUtils.jsm"
 );
 
-// Setup that allows to use the profile service, lifted from
-// `toolkit/profile/xpcshell/head.js`.
-function setupProfileService() {
-  let gProfD = do_get_profile();
-  let gDataHome = gProfD.clone();
-  gDataHome.append("data");
-  gDataHome.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o755);
-  let gDataHomeLocal = gProfD.clone();
-  gDataHomeLocal.append("local");
-  gDataHomeLocal.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o755);
-
-  let xreDirProvider = Cc["@mozilla.org/xre/directory-provider;1"].getService(
-    Ci.nsIXREDirProvider
-  );
-  xreDirProvider.setUserDataDirectory(gDataHome, false);
-  xreDirProvider.setUserDataDirectory(gDataHomeLocal, true);
-}
-
 setupProfileService();
 
 // Setup that allows to install a langpack.
@@ -116,5 +98,19 @@ add_task(
       !result.includes(REASON.LANGPACK_INSTALLED),
       "Reasons does not include LANGPACK_INSTALLED"
     );
+  }
+);
+
+add_task(
+  {
+    skip_if: () => !AppConstants.MOZ_BACKGROUNDTASKS,
+  },
+  async function test_reasons_schedule_default_profile() {
+    // It's difficult to arrange a default profile in a testing environment, so
+    // this is not as thorough as we'd like.
+    let result = await reasons();
+
+    Assert.ok(result.includes(REASON.NO_DEFAULT_PROFILE_EXISTS));
+    Assert.ok(result.includes(REASON.NOT_DEFAULT_PROFILE));
   }
 );

@@ -35,7 +35,7 @@ TEST(FOG, FogInitDoesntCrash)
 {
   Preferences::SetInt("telemetry.fog.test.localhost_port", -1);
   const nsCString empty;
-  ASSERT_EQ(NS_OK, fog_init(&empty));
+  ASSERT_EQ(NS_OK, fog_init(&empty, &empty));
 }
 
 extern "C" void Rust_MeasureInitializeTime();
@@ -169,11 +169,16 @@ TEST(FOG, TestCppMemoryDistWorks)
 
 TEST(FOG, TestCppPings)
 {
-  auto ping = mozilla::glean_pings::OnePingOnly;
-  mozilla::Unused << ping;
-  // That's it. That's the test. It will fail to compile if it's missing.
-  // For a test that actually submits the ping, we have integration tests.
-  // See also bug 1681742.
+  test_only::one_ping_one_bool.Set(false);
+  const auto& ping = mozilla::glean_pings::OnePingOnly;
+  bool submitted = false;
+  ping.TestBeforeNextSubmit([&submitted](const nsACString& aReason) {
+    submitted = true;
+    ASSERT_EQ(false, test_only::one_ping_one_bool.TestGetValue().ref());
+  });
+  ping.Submit();
+  ASSERT_TRUE(submitted)
+  << "Must have actually called the lambda.";
 }
 
 TEST(FOG, TestCppStringLists)
@@ -274,4 +279,14 @@ TEST(FOG, TestLabeledStringWorks)
                    .TestGetValue()
                    .ref()
                    .get());
+}
+
+TEST(FOG, TestCppQuantityWorks)
+{
+  // This joke only works in base 13.
+  const uint32_t kValue = 6 * 9;
+  mozilla::glean::test_only::meaning_of_life.Set(kValue);
+
+  ASSERT_EQ(kValue,
+            mozilla::glean::test_only::meaning_of_life.TestGetValue().value());
 }

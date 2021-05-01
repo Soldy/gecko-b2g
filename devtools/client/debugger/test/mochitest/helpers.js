@@ -992,8 +992,9 @@ function findSourceNodeWithText(dbg, text) {
   });
 }
 
-function expandAllSourceNodes(dbg, treeNode) {
+async function expandAllSourceNodes(dbg, treeNode) {
   rightClickEl(dbg, treeNode);
+  await waitForContextMenu(dbg);
   selectContextMenuItem(dbg, "#node-menu-expand-all");
 }
 
@@ -1561,18 +1562,44 @@ function findContextMenu(dbg, selector) {
   return popup.querySelector(selector);
 }
 
-async function waitForContextMenu(dbg, selector) {
-  await waitFor(() => findContextMenu(dbg, selector));
-  return findContextMenu(dbg, selector);
+// Waits for the context menu to exist and to fully open. Once this function
+// completes, selectContextMenuItem can be called.
+// waitForContextMenu must be called after menu opening has been triggered, e.g.
+// after synthesizing a right click / contextmenu event.
+async function waitForContextMenu(dbg) {
+  // the context menu is in the toolbox window
+  const doc = dbg.toolbox.topDoc;
+
+  // there are several context menus, we want the one with the menu-api
+  const popup = await waitFor(() => doc.querySelector('menupopup[menu-api="true"]'));
+
+  if (popup.state == "open") {
+    return;
+  }
+
+  await new Promise(resolve => {
+    popup.addEventListener("popupshown", () => resolve(), {once: true});
+  });
 }
 
 function selectContextMenuItem(dbg, selector) {
   const item = findContextMenu(dbg, selector);
-  return EventUtils.synthesizeMouseAtCenter(item, {}, dbg.toolbox.topWindow);
+  item.closest("menupopup").activateItem(item);
+}
+
+async function openContextMenuSubmenu(dbg, selector) {
+  const item = findContextMenu(dbg, selector);
+  const popup = item.menupopup;
+  const popupshown = new Promise(resolve => {
+    popup.addEventListener("popupshown", () => resolve(), {once: true});
+  });
+  item.openMenu(true);
+  await popupshown;
+  return popup;
 }
 
 async function assertContextMenuLabel(dbg, selector, label) {
-  const item = await waitForContextMenu(dbg, selector);
+  const item = await waitFor(() => findContextMenu(dbg, selector));
   is(item.label, label, "The label of the context menu item shown to the user");
 }
 
@@ -2088,6 +2115,7 @@ async function toggleDebbuggerSettingsMenuItem(dbg, { className, isChecked }) {
 
 async function setLogPoint(dbg, index, value) {
   rightClickElement(dbg, "gutter", index);
+  await waitForContextMenu(dbg);
   selectContextMenuItem(
     dbg,
     `${selectors.addLogItem},${selectors.editLogItem}`

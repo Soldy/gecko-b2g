@@ -666,26 +666,6 @@ browser.usage:
       - 'main'
       - 'content'
 
-browser.input:
-  touch_event_count:
-    bug_numbers:
-      - 1626099
-    description: >-
-      Windows only.
-      Counts occurrences of touch events,
-      measured when user starts a touch event.
-    expires: "90"
-    kind: uint
-    notification_emails:
-      - gfx-telemetry-alerts@mozilla.com
-      - ktaeleman@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-      - 'content'
-
 browser.ui:
   toolbar_widgets:
     bug_numbers:
@@ -1999,40 +1979,6 @@ preferences:
       - 'fennec'
     record_in_processes:
       - main
-  use_current_page:
-    bug_numbers:
-      - 1392951
-    description: >-
-      The number of times the Use Current Page button has been clicked.
-      Recorded when a a user clicks the "Use Current Page" button.
-    expires: "62"
-    kind: uint
-    keyed: true
-    notification_emails:
-      - chsiang@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - main
-  use_bookmark:
-    bug_numbers:
-      - 1392951
-    description: >-
-      The number of times the "Use Bookmark..." button has been clicked.
-      Recorded when a a user clicks the "Use Bookmark..." button.
-    expires: "62"
-    kind: uint
-    keyed: true
-    notification_emails:
-      - chsiang@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - main
 
 webrtc.video:
   recv_codec_used:
@@ -3214,37 +3160,6 @@ telemetry:
     record_in_processes:
       - all
 
-  about_telemetry_pageload:
-    bug_numbers:
-      - 1512503
-    description: >
-      The number of times about:telemetry was loaded.
-    expires: "70"
-    kind: uint
-    notification_emails:
-      - chutten@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'main'
-
-  sync_shutdown_ping_sent:
-    bug_numbers:
-      - 1673795
-    description: >
-      Whether a sync shutdown ping has been sent in this session.
-    expires: "90"
-    kind: boolean
-    notification_emails:
-      - sync-team@mozilla.com
-    products:
-      - 'firefox'
-    release_channel_collection: opt-out
-    record_in_processes:
-      - main
-
   state_file_save_errors:
     bug_numbers:
       - 1689438
@@ -3769,6 +3684,21 @@ gfx:
     notification_emails:
       - gfx-telemetry-alerts@mozilla.com
       - ktaeleman@mozilla.com
+    products:
+      - 'geckoview_streaming'
+    record_in_processes:
+      - 'main'
+    release_channel_collection: opt-out
+  last_compositor_gecko_version:
+    bug_numbers:
+      - 1704842
+    description: >
+      The gecko version at the last time a compositor was initialized.
+    expires: never
+    kind: string
+    notification_emails:
+      - jnicol@mozilla.com
+      - gfx-telemetry-alerts@mozilla.com
     products:
       - 'geckoview_streaming'
     record_in_processes:
@@ -5526,9 +5456,10 @@ encoding:
       - 1554592
       - 1603047
       - 1648464
+      - 1706838
     description: >-
       Whether an item other than Automatic in the Text Encoding menu was used to override an encoding in this subsession.
-    expires: "91"
+    expires: "96"
     kind: boolean
     notification_emails:
       - hsivonen@mozilla.com
@@ -5542,9 +5473,10 @@ encoding:
   override_used_automatic:
     bug_numbers:
       - 1648464
+      - 1706838
     description: >-
       Whether the item Automatic in the Text Encoding menu was used to override an encoding in this subsession.
-    expires: "91"
+    expires: "96"
     kind: boolean
     notification_emails:
       - hsivonen@mozilla.com
@@ -5895,40 +5827,6 @@ networking:
       - 'fennec'
     record_in_processes:
       - 'main'
-
-  ftp_opened_channels_listings:
-    bug_numbers:
-      - 1579507
-    description: >
-      Number of FTP channels opened for directory listings.
-    expires: "77"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - mnovotny@mozilla.com
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
-  ftp_opened_channels_files:
-    bug_numbers:
-      - 1579507
-    description: >
-      Number of FTP channels opened for files.
-    expires: "77"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - mnovotny@mozilla.com
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
 
   http3_enabled:
     bug_numbers:
@@ -7697,6 +7595,15 @@ telemetry.test:
     products: ["firefox", "thunderbird"]
     record_in_processes: ["all"]
 
+  mirror_for_timespan_nanos:
+    bug_numbers: [1704106]
+    description: Test only. This is a mirror probe for a Glean timespan metric.
+    expires: never
+    kind: uint
+    notification_emails: [glean-team@mozilla.com]
+    products: ["firefox", "thunderbird"]
+    record_in_processes: ["all"]
+
   mirror_for_labeled_bool:
     bug_numbers: [1685406]
     description: Test only. This is a mirror probe for a Glean labeled_boolean metric.
@@ -7707,25 +7614,18 @@ telemetry.test:
     products: ["firefox", "thunderbird"]
     record_in_processes: ["all"]
 
+  mirror_for_quantity:
+    bug_numbers: [1704846]
+    description: Test only. This is a mirror probe for a Glean quantity metric.
+    expires: never
+    kind: uint
+    notification_emails: [glean-team@mozilla.com]
+    products: ["firefox", "thunderbird"]
+    record_in_processes: ["all"]
+
 
 # The following section contains counters for corruption of internal omni jar files.
 corroborate:
-  omnijar_corrupted:
-    bug_numbers:
-      - 1515712
-    description: >-
-          Whether the omni jar (omni.ja) was found to be missing or corrupt when checked during startup.
-    expires: "80"
-    kind: boolean
-    notification_emails:
-      - rhelmer@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - main
-
   omnijar_mismatch:
     bug_numbers:
       - 1608308

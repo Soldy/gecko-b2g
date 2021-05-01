@@ -235,6 +235,25 @@ test_only:
       - test-ping
     telemetry_mirror: TELEMETRY_TEST_MIRROR_FOR_TIMESPAN
 
+  mirror_time_nanos:
+    type: timespan
+    time_unit: nanosecond
+    description: |
+      Mirrored metric for a timespan.
+      This is a test-only metric.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704106
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704106#c1
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - glean-team@mozilla.com
+    expires: never
+    send_in_pings:
+      - test-ping
+    telemetry_mirror: TELEMETRY_TEST_MIRROR_FOR_TIMESPAN_NANOS
+
   mirrors_for_labeled_bools:
     type: labeled_boolean
     description: |
@@ -252,6 +271,44 @@ test_only:
     send_in_pings:
       - test-ping
     telemetry_mirror: TELEMETRY_TEST_MIRROR_FOR_LABELED_BOOL
+
+  one_ping_one_bool:
+    type: boolean
+    description: |
+      One bool for one ping only.
+      This is a test-only metric.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1685402
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1685402#c1
+    data_sensitivity:
+      - technical
+    expires: never
+    notification_emails:
+      - glean-team@mozilla.com
+    send_in_pings:
+      - one-ping-only
+
+  meaning_of_life:
+    type: quantity
+    unit: unfathomable
+    description: |
+      Measures the one true answer to the Ultimate Question of Life,
+      the Universe, and Everything.
+      Approximately.
+      This is a test-only metric.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704846
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704846#c1
+    data_sensitivity:
+      - technical
+    expires: never
+    notification_emails:
+      - glean-team@mozilla.com
+    send_in_pings:
+      - test-ping
+    telemetry_mirror: TELEMETRY_TEST_MIRROR_FOR_QUANTITY
 
 
 test_only.ipc:
@@ -480,3 +537,22 @@ test_only.ipc:
     no_lint:
       - COMMON_PREFIX
     telemetry_mirror: TELEMETRY_TEST_KEYED_UNSIGNED_INT
+  a_quantity:
+    type: quantity
+    unit: squad
+    description: |
+      This is a test-only metric.
+      Just quantifying things.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704846
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1704846#c1
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - glean-team@mozilla.com
+    expires: never
+    send_in_pings:
+      - store1
+    no_lint:
+      - COMMON_PREFIX

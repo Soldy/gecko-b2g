@@ -206,7 +206,7 @@
 #include <iterator>
 #include <string.h>
 #include <utility>
-#ifndef XP_WIN
+#if !defined(XP_WIN) && !defined(__wasi__)
 #  include <sys/mman.h>
 #  include <unistd.h>
 #endif
@@ -3175,8 +3175,10 @@ void ArenaLists::checkNoArenasToUpdateForKind(AllocKind kind) {
 #endif
 }
 
-SliceBudget::SliceBudget(TimeBudget time)
-    : budget(time), counter(StepsPerTimeCheck) {
+SliceBudget::SliceBudget(TimeBudget time, int64_t stepsPerTimeCheckArg)
+    : budget(TimeBudget(time)),
+      stepsPerTimeCheck(stepsPerTimeCheckArg),
+      counter(stepsPerTimeCheckArg) {
   budget.as<TimeBudget>().deadline =
       ReallyNow() + TimeDuration::FromMilliseconds(timeBudget());
 }
@@ -3206,7 +3208,7 @@ bool SliceBudget::checkOverBudget() {
     return true;
   }
 
-  counter = StepsPerTimeCheck;
+  counter = stepsPerTimeCheck;
   return false;
 }
 
@@ -4811,7 +4813,7 @@ void GCRuntime::groupZonesForSweeping(JS::GCReason reason) {
 #endif
 
   JSContext* cx = rt->mainContextFromOwnThread();
-  ZoneComponentFinder finder(cx->nativeStackLimit[JS::StackForSystemCode]);
+  ZoneComponentFinder finder(cx);
   if (!isIncremental || !findSweepGroupEdges()) {
     finder.useOneComponent();
   }

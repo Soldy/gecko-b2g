@@ -25,10 +25,6 @@ checkbox[native] {
   -moz-default-appearance: checkbox-label;
 }
 
-.checkbox-icon[native][src] {
-  margin-inline-end: 2px;
-}
-
 .checkbox-label[native] {
   margin: 0;
 }
@@ -53,6 +49,7 @@ checkbox[native][disabled="true"] {
   appearance: auto;
   -moz-default-appearance: checkbox;
   margin: 2px;
+  margin-inline-end: 4px;
 }
 } /** END Proton **/
 
@@ -69,10 +66,6 @@ checkbox {
 .checkbox-label-box {
   appearance: auto;
   -moz-default-appearance: checkbox-label;
-}
-
-.checkbox-icon[src] {
-  margin-inline-end: 2px;
 }
 
 .checkbox-label {

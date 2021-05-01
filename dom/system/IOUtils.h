@@ -179,6 +179,7 @@ class IOUtils final {
    * Attempts to read the entire file at |aPath| into a buffer.
    *
    * @param aFile       The location of the file.
+   * @param aOffset     The offset to start reading from.
    * @param aMaxBytes   If |Some|, then only read up this this number of bytes,
    *                    otherwise attempt to read the whole file.
    * @param aDecompress If true, decompress the bytes read from disk before
@@ -189,7 +190,8 @@ class IOUtils final {
    *         error.
    */
   static Result<JsBuffer, IOError> ReadSync(nsIFile* aFile,
-                                            const Maybe<uint32_t>& aMaxBytes,
+                                            const uint32_t aOffset,
+                                            const Maybe<uint32_t> aMaxBytes,
                                             const bool aDecompress,
                                             BufferKind aBufferKind);
 
@@ -227,9 +229,8 @@ class IOUtils final {
    *
    * @param aSourceFile  The location of the file to move.
    * @param aDestFile    The destination for the file.
-   * @param noOverWrite If true, abort with an error if a file already exists at
-   *                    |aDestFile|. Otherwise, the file will be overwritten by
-   *                    the move.
+   * @param aNoOverWrite If true, abort with an error if a file already exists
+   * at |aDestFile|. Otherwise, the file will be overwritten by the move.
    *
    * @return Ok if the file was moved successfully, or an error.
    */
@@ -502,8 +503,8 @@ struct IOUtils::InternalFileInfo {
 struct IOUtils::InternalWriteOpts {
   RefPtr<nsIFile> mBackupFile;
   RefPtr<nsIFile> mTmpFile;
+  WriteMode mMode;
   bool mFlush = false;
-  bool mNoOverwrite = false;
   bool mCompress = false;
 
   static Result<InternalWriteOpts, IOUtils::IOError> FromBinding(

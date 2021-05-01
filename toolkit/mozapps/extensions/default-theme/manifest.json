@@ -7,10 +7,10 @@
     }
   },
 
-  "name": "Default",
-  "description": "A theme with the operating system color scheme.",
+  "name": "System theme",
+  "description": "Follow the operating system setting for buttons, menus, and windows.",
   "author": "Mozilla",
-  "version": "1.1",
+  "version": "1.2",
 
   "icons": {"32": "icon.svg"},
 
@@ -22,7 +22,7 @@
       "tab_background_text": "#fbfbfe",
       "tab_selected": "rgb(66,65,77)",
       "tab_text": "rgb(251,251,254)",
-      "icons": "rgb(249, 249, 250, 0.7)",
+      "icons": "rgb(251,251,254)",
       "frame": "#1c1b22",
       "popup": "rgb(66,65,77)",
       "popup_text": "rgb(251,251,254)",
@@ -36,16 +36,19 @@
       "toolbar_field_border": "transparent",
       "toolbar_field_text": "rgb(251,251,254)",
       "toolbar_field_focus": "rgb(66,65,77)",
-      "toolbar_field_separator": "#5F6670",
-      "toolbar_text": "#BFBFC9",
-      "ntp_background": "#2A2A2E",
-      "ntp_text": "rgb(249, 249, 250)",
+      "toolbar_text": "rgb(251, 251, 254)",
+      "ntp_background": "rgb(28, 27, 34)",
+      "ntp_text": "rgb(251, 251, 254)",
       "sidebar": "#38383D",
       "sidebar_text": "rgb(249, 249, 250)",
       "sidebar_border": "rgba(255, 255, 255, 0.1)",
       "button": "rgb(43,42,51)",
       "button_hover": "rgb(82,82,94)",
       "button_active": "rgb(91,91,102)",
+      "button_primary": "rgb(0, 221, 255)",
+      "button_primary_hover": "rgb(128, 235, 255)",
+      "button_primary_active": "rgb(170, 242, 255)",
+      "button_primary_color": "rgb(43, 42, 51)",
       "checkbox_border_color": "rgb(143, 143, 157)",
       "checkbox_unchecked_background": "rgb(43, 42, 51)",
       "checkbox_unchecked_background_hover": "rgb(82, 82, 94)",
@@ -60,6 +63,7 @@
       "input_border": "#8f8f9d",
       "input_border_error": "rgb(255, 132, 138)",
       "zoom_controls": "rgb(74,74,85)",
+      "autocomplete_popup_separator": "rgb(82,82,94)",
       "appmenu_update_icon_color": "#54FFBD",
       "appmenu_warning_icon_color": "#FFBD4F",
       "appmenu_info_icon_color": "#80EBFF"
@@ -67,7 +71,8 @@
     "properties": {
       "panel_hover": "color-mix(in srgb, currentColor 9%, transparent)",
       "panel_active": "color-mix(in srgb, currentColor 14%, transparent)",
-      "panel_active_darker": "color-mix(in srgb, currentColor 25%, transparent)"
+      "panel_active_darker": "color-mix(in srgb, currentColor 25%, transparent)",
+      "toolbar_field_icon_opacity": "1"
     }
   },
 
@@ -76,6 +81,10 @@
       "button": "--button-bgcolor",
       "button_hover": "--button-hover-bgcolor",
       "button_active": "--button-active-bgcolor",
+      "button_primary": "--buttons-primary-button-bgcolor",
+      "button_primary_hover": "--buttons-primary-button-hover-bgcolor",
+      "button_primary_active": "--buttons-primary-button-active-bgcolor",
+      "button_primary_color": "--buttons-primary-button-color",
       "checkbox_border_color": "--checkbox-border-color",
       "checkbox_unchecked_background": "--checkbox-unchecked-bgcolor",
       "checkbox_unchecked_background_hover": "--checkbox-unchecked-hover-bgcolor",
@@ -90,6 +99,7 @@
       "input_border": "--input-border-color",
       "input_border_error": "--input-error-border-color",
       "zoom_controls": "--zoom-controls-bgcolor",
+      "autocomplete_popup_separator": "--autocomplete-popup-separator-color",
       "appmenu_update_icon_color": "--panel-banner-item-update-supported-bgcolor",
       "appmenu_warning_icon_color": "--panel-banner-item-warning-icon-bgcolor",
       "appmenu_info_icon_color": "--panel-banner-item-info-icon-bgcolor"
@@ -97,7 +107,8 @@
     "properties": {
       "panel_hover": "--arrowpanel-dimmed",
       "panel_active": "--arrowpanel-dimmed-further",
-      "panel_active_darker": "--arrowpanel-dimmed-even-further"
+      "panel_active_darker": "--arrowpanel-dimmed-even-further",
+      "toolbar_field_icon_opacity": "--urlbar-icon-fill-opacity"
     }
   }
 }

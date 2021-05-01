@@ -41,11 +41,6 @@ add_task(async function test_register_timeout() {
               userAgentID,
               "Should include device ID on reconnect with subscriptions"
             );
-          } else {
-            ok(
-              !request.uaid,
-              "Should not send UAID in handshake without local subscriptions"
-            );
           }
           if (handshakes > 1) {
             ok(false, "Unexpected reconnect attempt " + handshakes);

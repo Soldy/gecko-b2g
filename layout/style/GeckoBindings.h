@@ -15,6 +15,7 @@
 #include "mozilla/ServoBindingTypes.h"
 #include "mozilla/css/DocumentMatchingFunction.h"
 #include "mozilla/css/SheetLoadData.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/EffectCompositor.h"
 #include "mozilla/ComputedTimingFunction.h"
 #include "mozilla/PreferenceSheet.h"
@@ -460,6 +461,10 @@ void Gecko_GetComputedURLSpec(const mozilla::StyleComputedUrl* url,
 
 void Gecko_GetComputedImageURLSpec(const mozilla::StyleComputedUrl* url,
                                    nsCString* spec);
+
+// Return true if the given image MIME type is supported
+bool Gecko_IsSupportedImageMimeType(const uint8_t* mime_type,
+                                    const uint32_t len);
 
 void Gecko_nsIURI_Debug(nsIURI*, nsCString* spec);
 

@@ -32,7 +32,6 @@ packages="
   libgconf2-dev
   libgcc-${gcc_version}-dev
   libgtk-3-dev
-  libgtk2.0-dev
   libpango1.0-dev
   libpulse-dev
   libx11-xcb-dev
@@ -84,7 +83,7 @@ find sysroot -type l | while read l; do
   esac
 done
 
-tar -cf - sysroot | python3 $GECKO_PATH/taskcluster/scripts/misc/zstdpy > "sysroot.tar.zst"
+tar caf sysroot.tar.zst sysroot
 
 mkdir -p "$UPLOAD_DIR"
 mv "sysroot.tar.zst" "$UPLOAD_DIR"

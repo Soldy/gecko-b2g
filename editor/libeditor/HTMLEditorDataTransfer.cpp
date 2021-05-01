@@ -337,7 +337,8 @@ class MOZ_STACK_CLASS
 HTMLBRElement*
 HTMLEditor::HTMLWithContextInserter::GetInvisibleBRElementAtPoint(
     const EditorDOMPoint& aPointToInsert) const {
-  WSRunScanner wsRunScannerAtInsertionPoint(mHTMLEditor, aPointToInsert);
+  WSRunScanner wsRunScannerAtInsertionPoint(mHTMLEditor.GetActiveEditingHost(),
+                                            aPointToInsert);
   if (wsRunScannerAtInsertionPoint.GetEndReasonContent() &&
       wsRunScannerAtInsertionPoint.GetEndReasonContent()->IsHTMLElement(
           nsGkAtoms::br) &&
@@ -399,14 +400,15 @@ HTMLEditor::HTMLWithContextInserter::GetNewCaretPointAfterInsertingHTML(
 
   // Make sure we don't end up with selection collapsed after an invisible
   // `<br>` element.
-  WSRunScanner wsRunScannerAtCaret(mHTMLEditor, pointToPutCaret);
+  Element* editingHost = mHTMLEditor.GetActiveEditingHost();
+  WSRunScanner wsRunScannerAtCaret(editingHost, pointToPutCaret);
   if (wsRunScannerAtCaret
           .ScanPreviousVisibleNodeOrBlockBoundaryFrom(pointToPutCaret)
           .ReachedBRElement() &&
       !mHTMLEditor.IsVisibleBRElement(
           wsRunScannerAtCaret.GetStartReasonContent())) {
     WSRunScanner wsRunScannerAtStartReason(
-        mHTMLEditor,
+        editingHost,
         EditorDOMPoint(wsRunScannerAtCaret.GetStartReasonContent()));
     WSScanResult backwardScanFromPointToCaretResult =
         wsRunScannerAtStartReason.ScanPreviousVisibleNodeOrBlockBoundaryFrom(
@@ -819,7 +821,7 @@ HTMLEditor::HTMLWithContextInserter::InsertContents(
           //     is not proper child of the parent element, or current node
           //     is a list element.
           if (HTMLEditUtils::IsListItem(pointToInsert.GetContainer()) &&
-              mHTMLEditor.IsEmptyNode(*pointToInsert.GetContainer(), true)) {
+              HTMLEditUtils::IsEmptyNode(*pointToInsert.GetContainer())) {
             NS_WARNING_ASSERTION(pointToInsert.GetContainerParent(),
                                  "Insertion point is out of the DOM tree");
             if (pointToInsert.GetContainerParent()) {

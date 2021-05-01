@@ -540,11 +540,6 @@ var gMainPane = {
         "media-keyboard-control";
       let link = document.getElementById("mediaControlLearnMore");
       link.setAttribute("href", mediaControlLearnMoreUrl);
-      setEventListener(
-        "mediaControlToggleEnabled",
-        "command",
-        gMainPane.updateMediaControlTelemetry
-      );
     }
 
     // Initializes the fonts dropdowns displayed in this pane.
@@ -1549,14 +1544,6 @@ var gMainPane = {
     gotoPref("containers");
   },
 
-  updateMediaControlTelemetry() {
-    const telemetry = Services.telemetry.getHistogramById(
-      "MEDIA_CONTROL_SETTING_CHANGE"
-    );
-    const checkbox = document.getElementById("mediaControlToggleEnabled");
-    telemetry.add(checkbox.checked ? "EnableFromUI" : "DisableFromUI");
-  },
-
   /**
    * ui.osk.enabled
    * - when set to true, subject to other conditions, we may sometimes invoke
@@ -1851,9 +1838,15 @@ var gMainPane = {
 
   isBackgroundUpdateUIAvailable() {
     return (
-      Services.prefs.getBoolPref("app.update.background.experimental", false) &&
+      Services.prefs.getBoolPref(
+        "app.update.background.scheduling.enabled",
+        false
+      ) &&
       AppConstants.MOZ_UPDATER &&
       AppConstants.MOZ_UPDATE_AGENT &&
+      // This UI controls a per-installation pref. It won't necessarily work
+      // properly if per-installation prefs aren't supported.
+      UpdateUtils.PER_INSTALLATION_PREFS_SUPPORTED &&
       (!Services.policies || Services.policies.isAllowed("appUpdate")) &&
       !UpdateUtils.appUpdateSettingIsLocked("app.update.background.enabled")
     );

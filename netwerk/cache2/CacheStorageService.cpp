@@ -11,12 +11,9 @@
 #include "CacheIndex.h"
 #include "CacheIndexIterator.h"
 #include "CacheStorage.h"
-#include "AppCacheStorage.h"
 #include "CacheEntry.h"
 #include "CacheFileUtils.h"
 
-#include "OldWrappers.h"
-#include "nsCacheService.h"
 #include "nsDeleteDir.h"
 
 #include "nsICacheStorageVisitor.h"
@@ -34,6 +31,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Services.h"
 #include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/Telemetry.h"
 
 namespace mozilla {
 namespace net {
@@ -563,7 +561,6 @@ class CleaupCacheDirectoriesRunnable : public Runnable {
  private:
   CleaupCacheDirectoriesRunnable()
       : Runnable("net::CleaupCacheDirectoriesRunnable") {
-    nsCacheService::GetDiskCacheDirectory(getter_AddRefs(mCache1Dir));
     CacheFileIOManager::GetCacheDirectory(getter_AddRefs(mCache2Dir));
 #if defined(MOZ_WIDGET_ANDROID)
     CacheFileIOManager::GetProfilelessCacheDirectory(
@@ -580,19 +577,7 @@ class CleaupCacheDirectoriesRunnable : public Runnable {
 
 // static
 bool CleaupCacheDirectoriesRunnable::Post() {
-  // To obtain the cache1 directory we must unfortunately instantiate the old
-  // cache service despite it may not be used at all...  This also initializes
-  // nsDeleteDir.
-  nsCOMPtr<nsICacheService> service = do_GetService(NS_CACHESERVICE_CONTRACTID);
-  if (!service) return false;
-
-  nsCOMPtr<nsIEventTarget> thread;
-  service->GetCacheIOTarget(getter_AddRefs(thread));
-  if (!thread) return false;
-
-  RefPtr<CleaupCacheDirectoriesRunnable> r =
-      new CleaupCacheDirectoriesRunnable();
-  thread->Dispatch(r, NS_DISPATCH_NORMAL);
+  // TODO: initialize nsDeleteDir
   return true;
 }
 
@@ -672,7 +657,7 @@ nsresult ClearStorage(bool const aPrivate, bool const aAnonymous,
   NS_ENSURE_TRUE(service, NS_ERROR_FAILURE);
 
   // Clear disk storage
-  rv = service->DiskCacheStorage(info, false, getter_AddRefs(storage));
+  rv = service->DiskCacheStorage(info, getter_AddRefs(storage));
   NS_ENSURE_SUCCESS(rv, rv);
   rv = storage->AsyncEvictStorage(nullptr);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -711,14 +696,13 @@ NS_IMETHODIMP CacheStorageService::MemoryCacheStorage(
   NS_ENSURE_ARG(_retval);
 
   nsCOMPtr<nsICacheStorage> storage =
-      new CacheStorage(aLoadContextInfo, false, false, false, false);
+      new CacheStorage(aLoadContextInfo, false, false, false);
   storage.forget(_retval);
   return NS_OK;
 }
 
 NS_IMETHODIMP CacheStorageService::DiskCacheStorage(
-    nsILoadContextInfo* aLoadContextInfo, bool aLookupAppCache,
-    nsICacheStorage** _retval) {
+    nsILoadContextInfo* aLoadContextInfo, nsICacheStorage** _retval) {
   NS_ENSURE_ARG(_retval);
 
   // TODO save some heap granularity - cache commonly used storages.
@@ -727,9 +711,8 @@ NS_IMETHODIMP CacheStorageService::DiskCacheStorage(
   // in memory.
   bool useDisk = CacheObserver::UseDiskCache();
 
-  nsCOMPtr<nsICacheStorage> storage =
-      new CacheStorage(aLoadContextInfo, useDisk, aLookupAppCache,
-                       false /* size limit */, false /* don't pin */);
+  nsCOMPtr<nsICacheStorage> storage = new CacheStorage(
+      aLoadContextInfo, useDisk, false /* size limit */, false /* don't pin */);
   storage.forget(_retval);
   return NS_OK;
 }
@@ -744,24 +727,9 @@ NS_IMETHODIMP CacheStorageService::PinningCacheStorage(
     return NS_ERROR_NOT_AVAILABLE;
   }
 
-  nsCOMPtr<nsICacheStorage> storage = new CacheStorage(
-      aLoadContextInfo, true /* use disk */, false /* no appcache */,
-      true /* ignore size checks */, true /* pin */);
-  storage.forget(_retval);
-  return NS_OK;
-}
-
-NS_IMETHODIMP CacheStorageService::AppCacheStorage(
-    nsILoadContextInfo* aLoadContextInfo,
-    nsIApplicationCache* aApplicationCache, nsICacheStorage** _retval) {
-  NS_ENSURE_ARG(_retval);
-
-  nsCOMPtr<nsICacheStorage> storage;
-  // Using classification since cl believes we want to instantiate this method
-  // having the same name as the desired class...
-  storage =
-      new mozilla::net::AppCacheStorage(aLoadContextInfo, aApplicationCache);
-
+  nsCOMPtr<nsICacheStorage> storage =
+      new CacheStorage(aLoadContextInfo, true /* use disk */,
+                       true /* ignore size checks */, true /* pin */);
   storage.forget(_retval);
   return NS_OK;
 }
@@ -772,7 +740,7 @@ NS_IMETHODIMP CacheStorageService::SynthesizedCacheStorage(
   NS_ENSURE_ARG(_retval);
 
   nsCOMPtr<nsICacheStorage> storage =
-      new CacheStorage(aLoadContextInfo, false, false,
+      new CacheStorage(aLoadContextInfo, false,
                        true /* skip size checks for synthesized cache */,
                        false /* no pinning */);
   storage.forget(_retval);

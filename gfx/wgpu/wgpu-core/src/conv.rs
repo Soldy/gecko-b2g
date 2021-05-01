@@ -4,6 +4,7 @@
 
 use crate::{
     command::{LoadOp, PassChannel, StoreOp},
+    pipeline::ColorStateError,
     resource, PrivateFeatures,
 };
 
@@ -154,6 +155,25 @@ pub fn map_shader_stage_flags(shader_stage_flags: wgt::ShaderStage) -> hal::pso:
     value
 }
 
+pub fn map_hal_flags_to_shader_stage(
+    shader_stage_flags: hal::pso::ShaderStageFlags,
+) -> wgt::ShaderStage {
+    use hal::pso::ShaderStageFlags as H;
+    use wgt::ShaderStage as Ss;
+
+    let mut value = Ss::empty();
+    if shader_stage_flags.contains(H::VERTEX) {
+        value |= Ss::VERTEX;
+    }
+    if shader_stage_flags.contains(H::FRAGMENT) {
+        value |= Ss::FRAGMENT;
+    }
+    if shader_stage_flags.contains(H::COMPUTE) {
+        value |= Ss::COMPUTE;
+    }
+    value
+}
+
 pub fn map_extent(extent: &wgt::Extent3d, dim: wgt::TextureDimension) -> hal::image::Extent {
     hal::image::Extent {
         width: extent.width,
@@ -177,16 +197,24 @@ pub fn map_primitive_topology(primitive_topology: wgt::PrimitiveTopology) -> hal
     }
 }
 
-pub fn map_color_target_state(desc: &wgt::ColorTargetState) -> hal::pso::ColorBlendDesc {
+pub fn map_color_target_state(
+    desc: &wgt::ColorTargetState,
+) -> Result<hal::pso::ColorBlendDesc, ColorStateError> {
     let color_mask = desc.write_mask;
-    let blend = desc.blend.as_ref().map(|bs| hal::pso::BlendState {
-        color: map_blend_component(&bs.color),
-        alpha: map_blend_component(&bs.alpha),
-    });
-    hal::pso::ColorBlendDesc {
+    let blend = desc
+        .blend
+        .as_ref()
+        .map(|bs| {
+            Ok(hal::pso::BlendState {
+                color: map_blend_component(&bs.color)?,
+                alpha: map_blend_component(&bs.alpha)?,
+            })
+        })
+        .transpose()?;
+    Ok(hal::pso::ColorBlendDesc {
         mask: map_color_write_flags(color_mask),
         blend,
-    }
+    })
 }
 
 fn map_color_write_flags(flags: wgt::ColorWrite) -> hal::pso::ColorMask {
@@ -209,25 +237,48 @@ fn map_color_write_flags(flags: wgt::ColorWrite) -> hal::pso::ColorMask {
     value
 }
 
-fn map_blend_component(component: &wgt::BlendComponent) -> hal::pso::BlendOp {
+fn map_blend_component(
+    component: &wgt::BlendComponent,
+) -> Result<hal::pso::BlendOp, ColorStateError> {
     use hal::pso::BlendOp as H;
     use wgt::BlendOperation as Bo;
-    match component.operation {
-        Bo::Add => H::Add {
-            src: map_blend_factor(component.src_factor),
-            dst: map_blend_factor(component.dst_factor),
+    Ok(match *component {
+        wgt::BlendComponent {
+            operation: Bo::Add,
+            src_factor,
+            dst_factor,
+        } => H::Add {
+            src: map_blend_factor(src_factor),
+            dst: map_blend_factor(dst_factor),
         },
-        Bo::Subtract => H::Sub {
-            src: map_blend_factor(component.src_factor),
-            dst: map_blend_factor(component.dst_factor),
+        wgt::BlendComponent {
+            operation: Bo::Subtract,
+            src_factor,
+            dst_factor,
+        } => H::Sub {
+            src: map_blend_factor(src_factor),
+            dst: map_blend_factor(dst_factor),
         },
-        Bo::ReverseSubtract => H::RevSub {
-            src: map_blend_factor(component.src_factor),
-            dst: map_blend_factor(component.dst_factor),
+        wgt::BlendComponent {
+            operation: Bo::ReverseSubtract,
+            src_factor,
+            dst_factor,
+        } => H::RevSub {
+            src: map_blend_factor(src_factor),
+            dst: map_blend_factor(dst_factor),
         },
-        Bo::Min => H::Min,
-        Bo::Max => H::Max,
-    }
+        wgt::BlendComponent {
+            operation: Bo::Min,
+            src_factor: wgt::BlendFactor::One,
+            dst_factor: wgt::BlendFactor::One,
+        } => H::Min,
+        wgt::BlendComponent {
+            operation: Bo::Max,
+            src_factor: wgt::BlendFactor::One,
+            dst_factor: wgt::BlendFactor::One,
+        } => H::Max,
+        _ => return Err(ColorStateError::InvalidMinMaxBlendFactors(*component)),
+    })
 }
 
 fn map_blend_factor(blend_factor: wgt::BlendFactor) -> hal::pso::Factor {
@@ -236,17 +287,17 @@ fn map_blend_factor(blend_factor: wgt::BlendFactor) -> hal::pso::Factor {
     match blend_factor {
         Bf::Zero => H::Zero,
         Bf::One => H::One,
-        Bf::SrcColor => H::SrcColor,
-        Bf::OneMinusSrcColor => H::OneMinusSrcColor,
+        Bf::Src => H::SrcColor,
+        Bf::OneMinusSrc => H::OneMinusSrcColor,
         Bf::SrcAlpha => H::SrcAlpha,
         Bf::OneMinusSrcAlpha => H::OneMinusSrcAlpha,
-        Bf::DstColor => H::DstColor,
-        Bf::OneMinusDstColor => H::OneMinusDstColor,
+        Bf::Dst => H::DstColor,
+        Bf::OneMinusDst => H::OneMinusDstColor,
         Bf::DstAlpha => H::DstAlpha,
         Bf::OneMinusDstAlpha => H::OneMinusDstAlpha,
         Bf::SrcAlphaSaturated => H::SrcAlphaSaturate,
-        Bf::BlendColor => H::ConstColor,
-        Bf::OneMinusBlendColor => H::OneMinusConstColor,
+        Bf::Constant => H::ConstColor,
+        Bf::OneMinusConstant => H::OneMinusConstColor,
     }
 }
 
@@ -683,7 +734,7 @@ pub(crate) fn map_texture_state(
 }
 
 pub fn map_query_type(ty: &wgt::QueryType) -> (hal::query::Type, u32) {
-    match ty {
+    match *ty {
         wgt::QueryType::PipelineStatistics(pipeline_statistics) => {
             let mut ps = hal::query::PipelineStatistic::empty();
             ps.set(
@@ -790,23 +841,16 @@ pub fn map_primitive_state_to_rasterizer(
     depth_stencil: Option<&wgt::DepthStencilState>,
 ) -> hal::pso::Rasterizer {
     use hal::pso;
-    let (depth_clamping, depth_bias) = match depth_stencil {
-        Some(dsd) => {
-            let bias = if dsd.bias.is_enabled() {
-                Some(pso::State::Static(pso::DepthBias {
-                    const_factor: dsd.bias.constant as f32,
-                    slope_factor: dsd.bias.slope_scale,
-                    clamp: dsd.bias.clamp,
-                }))
-            } else {
-                None
-            };
-            (dsd.clamp_depth, bias)
-        }
-        None => (false, None),
+    let depth_bias = match depth_stencil {
+        Some(dsd) if dsd.bias.is_enabled() => Some(pso::State::Static(pso::DepthBias {
+            const_factor: dsd.bias.constant as f32,
+            slope_factor: dsd.bias.slope_scale,
+            clamp: dsd.bias.clamp,
+        })),
+        _ => None,
     };
     pso::Rasterizer {
-        depth_clamping,
+        depth_clamping: desc.clamp_depth,
         polygon_mode: match desc.polygon_mode {
             wgt::PolygonMode::Fill => pso::PolygonMode::Fill,
             wgt::PolygonMode::Line => pso::PolygonMode::Line,
@@ -822,7 +866,7 @@ pub fn map_primitive_state_to_rasterizer(
             wgt::FrontFace::Cw => pso::FrontFace::Clockwise,
         },
         depth_bias,
-        conservative: false,
+        conservative: desc.conservative,
         line_width: pso::State::Static(1.0),
     }
 }

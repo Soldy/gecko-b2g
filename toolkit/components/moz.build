@@ -38,6 +38,7 @@ DIRS += [
     "enterprisepolicies",
     "extensions",
     "featuregates",
+    "formautofill",
     "filewatcher",
     "finalizationwitness",
     "find",

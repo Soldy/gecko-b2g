@@ -15,7 +15,7 @@ toolkit.jar:
   skin/classic/global/radio.css
   skin/classic/global/tabbox.css
   skin/classic/global/search-textbox.css
-  skin/classic/global/commonDialog.css
+* skin/classic/global/commonDialog.css
 * skin/classic/global/findBar.css
 * skin/classic/global/global.css
   skin/classic/global/netError.css
@@ -31,6 +31,7 @@ toolkit.jar:
   skin/classic/global/dirListing/folder.png                (dirListing/folder.png)
   skin/classic/global/dirListing/up.png                    (dirListing/up.png)
   skin/classic/global/icons/Landscape.png                  (icons/Landscape.png)
+  skin/classic/global/icons/menu-check.svg                 (icons/menu-check.svg)
   skin/classic/global/icons/Portrait.png                   (icons/Portrait.png)
   skin/classic/global/icons/Print-preview.png              (icons/Print-preview.png)
   skin/classic/global/icons/sslWarning.png                 (icons/sslWarning.png)

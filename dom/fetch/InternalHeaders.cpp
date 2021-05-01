@@ -485,6 +485,11 @@ void InternalHeaders::FillResponseHeaders(nsIRequest* aRequest) {
 }
 
 bool InternalHeaders::HasOnlySimpleHeaders() const {
+  // Allow any header when the systemXHR permission is set.
+  if (mHasSystemXHRPerm) {
+    return true;
+  }
+
   for (uint32_t i = 0; i < mList.Length(); ++i) {
     if (!IsSimpleHeader(mList[i].mName, mList[i].mValue)) {
       return false;

@@ -91,17 +91,6 @@
     "labels": ["OtherBinaryFile", "DmgFile", "RarFile", "ZipFile"],
     "description": "Whether a binary file examined by download protection is one of the common archive formats."
   },
-  "APPLICATION_REPUTATION_HASH_LENGTH": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["dlee@mozilla.com", "safebrowsing-telemetry@mozilla.org"],
-    "bug_numbers": [1485180, 1531034],
-    "expires_in_version": "69",
-    "releaseChannelCollection": "opt-out",
-    "kind": "categorical",
-    "labels": ["ValidHash", "OriginalHashEmpty", "OriginalHashTooShort", "OriginalHashTooLong", "MissingDigest", "MissingSha256", "InvalidSha256"],
-    "description": "Whether the hash included in application reputation lookups is valid or broken in some way."
-  },
   "APPLICATION_REPUTATION_REASON": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec", "thunderbird"],
@@ -4268,15 +4257,16 @@
     "n_buckets": 50,
     "description": "Time from the last received byte of the response until we have notified the consumer with a DNS record (msec)"
   },
-  "DNS_TRR_HTTP_VERSION": {
+  "DNS_TRR_HTTP_VERSION2": {
     "record_in_processes": ["main"],
     "products": ["firefox"],
     "expires_in_version": "never",
     "kind": "categorical",
+    "keyed": true,
     "labels": ["h_1", "h_2", "h_3"],
     "releaseChannelCollection": "opt-out",
     "alert_emails": ["nhnt11@mozilla.com", "necko@mozilla.com"],
-    "bug_numbers": [1460314],
+    "bug_numbers": [1460314, 1700119],
     "description": "HTTP version used by DoH endpoint"
   },
   "DNS_NATIVE_LOOKUP_TIME": {
@@ -4327,27 +4317,41 @@
     "n_buckets": 50,
     "description": "Time in resolve queue waiting to getaddrinfo (msec)"
   },
-  "TRR_SKIP_REASON_TRR_FIRST": {
+  "TRR_SKIP_REASON_TRR_FIRST2": {
     "record_in_processes": ["main", "socket"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com"],
+    "products": ["firefox"],
+    "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com", "nhnt11@mozilla.com"],
     "expires_in_version": "never",
     "kind": "enumerated",
+    "keyed": true,
     "n_values": 50,
-    "bug_numbers": [1649143],
+    "bug_numbers": [1649143, 1699523],
     "releaseChannelCollection": "opt-out",
-    "description": "When in TRR-first mode, it lists the reason we may have skipped TRR"
+    "description": "When in TRR-first mode, it lists the reason we may have skipped TRR, keyed by the provider."
   },
-  "TRR_SKIP_REASON_DNS_WORKED": {
+  "TRR_SKIP_REASON_NATIVE_SUCCESS": {
     "record_in_processes": ["main", "socket"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com"],
+    "products": ["firefox"],
+    "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com", "nhnt11@mozilla.com"],
     "expires_in_version": "never",
     "kind": "enumerated",
+    "keyed": true,
     "n_values": 50,
-    "bug_numbers": [1649143],
+    "bug_numbers": [1649143, 1699523],
     "releaseChannelCollection": "opt-out",
-    "description": "When in TRR-first mode if DNS succeeded, it lists the reason we may have skipped TRR"
+    "description": "When in TRR-first mode, if TRR was skipped and native succeeded, it lists the reason we may have skipped TRR, keyed by the provider."
+  },
+  "TRR_SKIP_REASON_NATIVE_FAILED": {
+    "record_in_processes": ["main", "socket"],
+    "products": ["firefox"],
+    "alert_emails": ["necko@mozilla.com", "vgosu@mozilla.com", "nhnt11@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "enumerated",
+    "keyed": true,
+    "n_values": 50,
+    "bug_numbers": [1699523],
+    "releaseChannelCollection": "opt-out",
+    "description": "When in TRR-first mode, if TRR was skipped and native failed, it lists the reason we may have skipped TRR, keyed by the provider."
   },
   "DNS_TRR_FIRST4": {
     "record_in_processes": ["main"],
@@ -8003,18 +8007,6 @@
     "releaseChannelCollection": "opt-out",
     "description": "Accumulated timer delay (variance between when the timer was expected to fire and when it actually fired) in milliseconds as an indicator for decreased main-thread responsiveness while importing logins / passwords from a CSV/TSV file. The import is happening on a background thread and should ideally not affect the UI noticeably. The time with the blocking Keychain dialog on macOS can skew this data."
   },
-  "FX_MIGRATION_BOOKMARKS_ROOTS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "bug_numbers": [1656277],
-    "alert_emails": ["jaws@mozilla.com", "rtestard@mozilla.com"],
-    "expires_in_version": "91",
-    "kind": "enumerated",
-    "n_values": 32,
-    "releaseChannelCollection": "opt-out",
-    "keyed": true,
-    "description": "Where bookmarks were stored in the other browser (1=bookmarks toolbar, 2=bookmarks menu, 4=reading list, 8=unfiled), keyed by the name of the browser. Note that migrating the reading list from classic Edge is supported but its root is not reported here."
-  },
   "FX_MIGRATION_BOOKMARKS_QUANTITY": {
     "record_in_processes": ["main"],
     "products": ["firefox"],
@@ -8522,8 +8514,8 @@
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
     "alert_emails": ["hsivonen@mozilla.com"],
-    "bug_numbers": [840476, 977573, 1513473, 1554592, 1603047, 1648464, 1686463],
-    "expires_in_version": "91",
+    "bug_numbers": [840476, 977573, 1513473, 1554592, 1603047, 1648464, 1686463, 1706838],
+    "expires_in_version": "96",
     "releaseChannelCollection": "opt-out",
     "kind": "categorical",
     "labels": ["AutoOverridden", "ManuallyOverridden", "LocalLabeled", "LocalUnlabeled", "UnlabeledInLk", "UnlabeledJp", "UnlabeledNonUtf8", "UnlabeledUtf8", "ChannelNonUtf8", "ChannelUtf8", "MetaNonUtf8", "MetaUtf8", "Bug", "UnlabeledAscii", "UnlabeledNonUtf8TLD"],
@@ -8533,8 +8525,8 @@
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
     "alert_emails": ["hsivonen@mozilla.com"],
-    "bug_numbers": [1686463, 1702248],
-    "expires_in_version": "91",
+    "bug_numbers": [1686463, 1702248, 1706838],
+    "expires_in_version": "96",
     "releaseChannelCollection": "opt-out",
     "kind": "categorical",
     "labels": ["UtfInitial", "UtfFinal", "TldInitial", "TldFinal", "ContentInitial", "ContentFinal", "GenericInitial", "GenericFinal"],
@@ -8544,8 +8536,8 @@
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
     "alert_emails": ["hsivonen@mozilla.com"],
-    "bug_numbers": [1686463, 1702248],
-    "expires_in_version": "91",
+    "bug_numbers": [1686463, 1702248, 1706838],
+    "expires_in_version": "96",
     "releaseChannelCollection": "opt-out",
     "kind": "categorical",
     "labels": ["UtfInitial", "UtfFinal", "TldInitial", "TldFinal", "ContentInitial", "ContentFinal", "GenericInitial", "GenericFinal"],
@@ -10092,17 +10084,6 @@
     "n_buckets": 50,
     "description": "Time spent to display first page in PDF Viewer (ms)"
   },
-  "PDF_VIEWER_FALLBACK_REASON": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "expires_in_version": "92",
-    "alert_emails": ["bdahl@mozilla.com"],
-    "releaseChannelCollection": "opt-out",
-    "bug_numbers": [1630844, 1666979, 1689264],
-    "kind": "categorical",
-    "labels": ["unknown", "forms", "javaScript", "smask", "shadingPattern", "font", "errorTilingPattern", "errorExtGState", "errorXObject", "errorFontLoadType3", "errorFontState", "errorFontMissing", "errorFontTranslate", "errorColorSpace", "errorOperatorList", "errorFontToUnicode", "errorFontLoadNative", "errorFontGetPath"],
-    "description": "The reason the fallback bar was shown."
-  },
   "PDF_VIEWER_FALLBACK_ERROR": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
@@ -10111,7 +10092,7 @@
     "releaseChannelCollection": "opt-out",
     "bug_numbers": [1643402, 1666979, 1689264],
     "kind": "categorical",
-    "labels": ["unknown", "forms", "javaScript", "smask", "shadingPattern", "font", "errorTilingPattern", "errorExtGState", "errorXObject", "errorFontLoadType3", "errorFontState", "errorFontMissing", "errorFontTranslate", "errorColorSpace", "errorOperatorList", "errorFontToUnicode", "errorFontLoadNative", "errorFontGetPath"],
+    "labels": ["unknown", "forms", "javaScript", "signatures", "smask", "shadingPattern", "font", "errorTilingPattern", "errorExtGState", "errorXObject", "errorFontLoadType3", "errorFontState", "errorFontMissing", "errorFontTranslate", "errorColorSpace", "errorOperatorList", "errorFontToUnicode", "errorFontLoadNative", "errorFontGetPath"],
     "description": "All errors that could trigger the fallback bar, even after the bar is shown."
   },
   "PDF_VIEWER_TAGGED": {
@@ -11802,7 +11783,7 @@
     "kind": "enumerated",
     "n_values": 4,
     "releaseChannelCollection": "opt-out",
-    "description": "Result of the Set Default Browser dialog (0=Use Firefox + 'Always perform check' unchecked, 1=Use Firefox + 'Always perform check' checked, 2=Not Now + 'Always perform check' unchecked, 3=Not Now + 'Always perform check' checked)"
+    "description": "Result of the Set Default Browser dialog. After Firefox 89 the these values are: (0=Use Firefox + 'Don't ask again' checked, 1=Use Firefox + 'Don't ask again' unchecked, 2=Not Now + 'Don't ask again' checked, 3=Not Now + 'Don't ask again' unchecked). Before Firefox 89 these values were: (0=Use Firefox + 'Always perform check' unchecked, 1=Use Firefox + 'Always perform check' checked, 2=Not Now + 'Always perform check' unchecked, 3=Not Now + 'Always perform check' checked)."
   },
   "BROWSER_SET_DEFAULT_ERROR": {
     "record_in_processes": ["main"],
@@ -11822,7 +11803,7 @@
   "BROWSER_ATTRIBUTION_ERRORS": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox"],
-    "expires_in_version": "90",
+    "expires_in_version": "100",
     "kind": "categorical",
     "labels": ["read_error", "decode_error", "write_error", "quarantine_error"],
     "description": "Count for the number of errors encountered trying to determine attribution data: on Windows, from the installers (stub and full); on macOS, from the quarantine database.",
@@ -14547,31 +14528,57 @@
     "description": "The reason that CONTENT_FRAME_TIME recorded a slow (>200) result, if any.",
     "labels": ["OnTime", "NoVsync", "MissedComposite", "SlowComposite", "MissedCompositeMid", "MissedCompositeLong", "MissedCompositeLow", "NoVsyncNoId"]
   },
-  "CONTENT_LARGE_PAINT_PHASE_WEIGHT": {
+  "CONTENT_SMALL_PAINT_PHASE_WEIGHT_PARTIAL": {
     "record_in_processes": ["main", "content"],
     "products": ["firefox", "fennec"],
-    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mwoodrow@mozilla.com"],
-    "bug_numbers": [1309442, 1518134],
-    "expires_in_version": "72",
-    "keyed": true,
-    "keys": ["dl", "flb", "fr", "r"],
-    "kind": "linear",
-    "high": 100,
-    "n_buckets": 10,
-    "description": "Percentages of times for phases in an expensive content paint relative to the time spent in the entire expensive paint. (\"dl\" = Display list, \"flb\" = Frame layer builder, \"fr\" = Flush rasterization, \"r\" = Rasterization)"
-  },
-  "CONTENT_SMALL_PAINT_PHASE_WEIGHT": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mwoodrow@mozilla.com"],
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mmynttinen@mozilla.com"],
     "bug_numbers": [1430897, 1518134],
-    "expires_in_version": "72",
+    "expires_in_version": "never",
     "keyed": true,
-    "keys": ["dl", "flb", "fr", "r"],
+    "keys": ["dl", "wrdl", "sb", "fb"],
     "kind": "linear",
     "high": 100,
-    "n_buckets": 10,
-    "description": "Percentages of times for phases in a normal content paint relative to the time spent in the entire normal paint. (\"dl\" = Display list, \"flb\" = Frame layer builder, \"fr\" = Flush rasterization, \"r\" = Rasterization)"
+    "n_buckets": 12,
+    "description": "Percentages of times for phases in a normal content paint relative to the time spent in the entire normal paint. (\"dl\" = Display list, \"wrdl\" = WebRender display list, \"sb\" = Scene building, \"fb\" = Frame building)"
+  },
+  "CONTENT_LARGE_PAINT_PHASE_WEIGHT_PARTIAL": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox", "fennec"],
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mmynttinen@mozilla.com"],
+    "bug_numbers": [1309442, 1518134],
+    "expires_in_version": "never",
+    "keyed": true,
+    "keys": ["dl", "wrdl", "sb", "fb"],
+    "kind": "linear",
+    "high": 100,
+    "n_buckets": 12,
+    "description": "Percentages of times for phases in an expensive content paint relative to the time spent in the entire expensive paint. (\"dl\" = Display list, \"wrdl\" = WebRender display list, \"sb\" = Scene building, \"fb\" = Frame building)"
+  },
+  "CONTENT_SMALL_PAINT_PHASE_WEIGHT_FULL": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox", "fennec"],
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mmynttinen@mozilla.com"],
+    "bug_numbers": [1430897, 1518134],
+    "expires_in_version": "never",
+    "keyed": true,
+    "keys": ["dl", "wrdl", "sb", "fb"],
+    "kind": "linear",
+    "high": 100,
+    "n_buckets": 12,
+    "description": "Percentages of times for phases in a normal content paint relative to the time spent in the entire normal paint. (\"dl\" = Display list, \"wrdl\" = WebRender display list, \"sb\" = Scene building, \"fb\" = Frame building)"
+  },
+  "CONTENT_LARGE_PAINT_PHASE_WEIGHT_FULL": {
+    "record_in_processes": ["main", "content"],
+    "products": ["firefox", "fennec"],
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mmynttinen@mozilla.com"],
+    "bug_numbers": [1309442, 1518134],
+    "expires_in_version": "never",
+    "keyed": true,
+    "keys": ["dl", "wrdl", "sb", "fb"],
+    "kind": "linear",
+    "high": 100,
+    "n_buckets": 12,
+    "description": "Percentages of times for phases in an expensive content paint relative to the time spent in the entire expensive paint. (\"dl\" = Display list, \"wrdl\" = WebRender display list, \"sb\" = Scene building, \"fb\" = Frame building)"
   },
   "GPU_WAIT_TIME_MS": {
     "record_in_processes": ["main", "gpu"],
@@ -15746,11 +15753,11 @@
       "nohlmeier@mozilla.com",
       "padenot@mozilla.com"
     ],
-    "expires_in_version": "90",
+    "expires_in_version": "96",
     "kind": "linear",
     "high": 60,
     "n_buckets": 10,
-    "bug_numbers": [1490074, 1570634, 1606206, 1652196],
+    "bug_numbers": [1490074, 1570634, 1606206, 1652196, 1700828],
     "description": "How long the AudioContext would become audible since it was created, time unit is seconds.",
     "releaseChannelCollection": "opt-out"
   },
@@ -15776,40 +15783,11 @@
       "padenot@mozilla.com",
       "ktomlinson@mozilla.com"
     ],
-    "expires_in_version": "90",
+    "expires_in_version": "96",
     "kind": "categorical",
     "labels": ["NeverBlocked", "AllowedAfterBlocked", "NeverAllowed"],
-    "bug_numbers": [1512277, 1652196],
+    "bug_numbers": [1512277, 1652196, 1700828],
     "description": "The number of times an AudioContext is allowed to start after being blocked, or the number of AudioContexts attempting to start which were never blocked or never allowed.",
-    "releaseChannelCollection": "opt-out"
-  },
-  "MEDIA_CONTROL_SETTING_CHANGE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": [
-      "alwu@mozilla.com",
-      "bvandyk@mozilla.com",
-      "cchang@mozilla.com"
-    ],
-    "bug_numbers": [1667454],
-    "expires_in_version": "90",
-    "kind": "categorical",
-    "labels": ["EnableFromUI", "EnableTotal", "DisableFromUI", "DisableTotal"],
-    "description": "Counts the number of times a user enable or disable the media control feature via UI button, and the total number of times media control feature is enabled and disabled, which allow us to calculate the number of times a user changes setting via modifying the preference directly.",
-    "releaseChannelCollection": "opt-out"
-  },
-  "MEDIA_CONTROL_HANDLE_PLAY_PAUSE_STOP_ACTIONS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "alert_emails": [
-      "alwu@mozilla.com",
-      "cchang@mozilla.com"
-    ],
-    "bug_numbers": [1668139],
-    "expires_in_version": "90",
-    "kind": "categorical",
-    "labels": ["DefaultHandler", "MediaSessionHandler"],
-    "description": "The number of times `play/pause/stop` actions are being handled on either default handler or media session action handler.",
     "releaseChannelCollection": "opt-out"
   },
   "TABS_AUDIO_COMPETITION": {

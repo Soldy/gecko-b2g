@@ -56,7 +56,7 @@ impl EventManager {
         }
 
         if starts_empty && !self.handlers.is_empty() {
-            struct DummyDelegate {};
+            struct DummyDelegate {}
             impl CoreSimpleReceiverDelegate for DummyDelegate {
                 fn on_success(&mut self) {
                     debug!("Success enabling event listeners");
@@ -87,7 +87,7 @@ impl EventManager {
                 self.handlers.remove(&event);
 
                 // Disable the event.
-                struct DummyDelegate {};
+                struct DummyDelegate {}
                 impl CoreSimpleReceiverDelegate for DummyDelegate {
                     fn on_success(&mut self) {
                         debug!("Success disabling event listeners");

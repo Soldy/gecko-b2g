@@ -898,8 +898,6 @@ class PromiseDocumentFlushedResolver final {
     }
   }
 
-  void Cancel() { mPromise->MaybeReject(NS_ERROR_ABORT); }
-
   RefPtr<Promise> mPromise;
   RefPtr<PromiseDocumentFlushedCallback> mCallback;
 };
@@ -939,10 +937,9 @@ nsGlobalWindowInner::nsGlobalWindowInner(nsGlobalWindowOuter* aOuterWindow,
       mIdleRequestExecutor(nullptr),
       mDialogAbuseCount(0),
       mAreDialogsEnabled(true),
-      mObservingDidRefresh(false),
+      mObservingRefresh(false),
       mIteratingDocumentFlushedResolvers(false),
-      mCanSkipCCGeneration(0),
-      mBeforeUnloadListenerCount(0) {
+      mCanSkipCCGeneration(0) {
   mIsInnerWindow = true;
 
   AssertIsOnMainThread();
@@ -1197,13 +1194,6 @@ void nsGlobalWindowInner::FreeInnerObjects() {
     while (mDoc->EventHandlingSuppressed()) {
       mDoc->UnsuppressEventHandlingAndFireEvents(false);
     }
-
-    if (mObservingDidRefresh) {
-      PresShell* presShell = mDoc->GetPresShell();
-      if (presShell) {
-        Unused << presShell->RemovePostRefreshObserver(this);
-      }
-    }
   }
 
   // Remove our reference to the document and the document principal.
@@ -1259,8 +1249,7 @@ void nsGlobalWindowInner::FreeInnerObjects() {
 
   // If we have any promiseDocumentFlushed callbacks, fire them now so
   // that the Promises can resolve.
-  CallDocumentFlushedResolvers();
-  mObservingDidRefresh = false;
+  CallDocumentFlushedResolvers(/* aUntilExhaustion = */ true);
 
   DisconnectEventTargetObjects();
 
@@ -2625,33 +2614,49 @@ bool nsGlobalWindowInner::CrossOriginIsolated() const {
 
 void nsPIDOMWindowInner::AddPeerConnection() {
   MOZ_ASSERT(NS_IsMainThread());
-  mTopInnerWindow ? mTopInnerWindow->mActivePeerConnections++
-                  : mActivePeerConnections++;
+  mTopInnerWindow ? mTopInnerWindow->mTotalActivePeerConnections++
+                  : mTotalActivePeerConnections++;
+  ++mActivePeerConnections;
+  if (mActivePeerConnections == 1 && mWindowGlobalChild) {
+    mWindowGlobalChild->BlockBFCacheFor(BFCacheStatus::ACTIVE_PEER_CONNECTION);
+  }
 }
 
 void nsPIDOMWindowInner::RemovePeerConnection() {
   MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(mTopInnerWindow ? mTopInnerWindow->mActivePeerConnections
-                             : mActivePeerConnections);
+  MOZ_ASSERT(mTopInnerWindow ? mTopInnerWindow->mTotalActivePeerConnections
+                             : mTotalActivePeerConnections);
+  MOZ_ASSERT(mActivePeerConnections > 0);
 
-  mTopInnerWindow ? mTopInnerWindow->mActivePeerConnections--
-                  : mActivePeerConnections--;
+  mTopInnerWindow ? mTopInnerWindow->mTotalActivePeerConnections--
+                  : mTotalActivePeerConnections--;
+  --mActivePeerConnections;
+  if (mActivePeerConnections == 0 && mWindowGlobalChild) {
+    mWindowGlobalChild->UnblockBFCacheFor(
+        BFCacheStatus::ACTIVE_PEER_CONNECTION);
+  }
 }
 
 bool nsPIDOMWindowInner::HasActivePeerConnections() {
   MOZ_ASSERT(NS_IsMainThread());
-  return mTopInnerWindow ? mTopInnerWindow->mActivePeerConnections
-                         : mActivePeerConnections;
+  return mTopInnerWindow ? mTopInnerWindow->mTotalActivePeerConnections
+                         : mTotalActivePeerConnections;
 }
 
 void nsPIDOMWindowInner::AddMediaKeysInstance(MediaKeys* aMediaKeys) {
   MOZ_ASSERT(NS_IsMainThread());
   mMediaKeysInstances.AppendElement(aMediaKeys);
+  if (mWindowGlobalChild && mMediaKeysInstances.Length() == 1) {
+    mWindowGlobalChild->BlockBFCacheFor(BFCacheStatus::CONTAINS_EME_CONTENT);
+  }
 }
 
 void nsPIDOMWindowInner::RemoveMediaKeysInstance(MediaKeys* aMediaKeys) {
   MOZ_ASSERT(NS_IsMainThread());
   mMediaKeysInstances.RemoveElement(aMediaKeys);
+  if (mWindowGlobalChild && mMediaKeysInstances.IsEmpty()) {
+    mWindowGlobalChild->UnblockBFCacheFor(BFCacheStatus::CONTAINS_EME_CONTENT);
+  }
 }
 
 bool nsPIDOMWindowInner::HasActiveMediaKeysInstance() {
@@ -2755,6 +2760,10 @@ bool nsPIDOMWindowInner::HasOpenWebSockets() const {
 }
 
 bool nsPIDOMWindowInner::IsCurrentInnerWindow() const {
+  if (mBrowsingContext && mBrowsingContext->IsInBFCache()) {
+    return false;
+  }
+
   if (!mBrowsingContext || mBrowsingContext->IsDiscarded()) {
     // If our BrowsingContext has been discarded, we consider ourselves
     // still-current if we were current at the time it was discarded.
@@ -3227,8 +3236,6 @@ nsDOMOfflineResourceList* nsGlobalWindowInner::GetApplicationCache(
     RefPtr<nsDOMOfflineResourceList> applicationCache =
         new nsDOMOfflineResourceList(manifestURI, uri, mDoc->NodePrincipal(),
                                      this);
-
-    applicationCache->Init();
 
     mApplicationCache = applicationCache;
   }
@@ -5478,6 +5485,10 @@ void nsGlobalWindowInner::Suspend(bool aIncludeSubWindows) {
     return;
   }
 
+  if (mWindowGlobalChild) {
+    mWindowGlobalChild->BlockBFCacheFor(BFCacheStatus::SUSPENDED);
+  }
+
   nsCOMPtr<nsIDeviceSensors> ac = do_GetService(NS_DEVICE_SENSORS_CONTRACTID);
   if (ac) {
     for (uint32_t i = 0; i < mEnabledSensors.Length(); i++)
@@ -5563,6 +5574,10 @@ void nsGlobalWindowInner::Resume(bool aIncludeSubWindows) {
   for (RefPtr<mozilla::dom::SharedWorker> pinnedWorker :
        mSharedWorkers.ForwardRange()) {
     pinnedWorker->Resume();
+  }
+
+  if (mWindowGlobalChild) {
+    mWindowGlobalChild->UnblockBFCacheFor(BFCacheStatus::SUSPENDED);
   }
 }
 
@@ -6041,8 +6056,8 @@ bool WindowScriptTimeoutHandler::Call(const char* aExecutionReason) {
   options.setIntroductionType("domTimer");
   JS::Rooted<JSObject*> global(aes.cx(), mGlobal->GetGlobalJSObject());
   {
-    JSExecutionContext exec(aes.cx(), global);
-    nsresult rv = exec.Compile(options, mExpr);
+    JSExecutionContext exec(aes.cx(), global, options);
+    nsresult rv = exec.Compile(mExpr);
 
     JS::Rooted<JSScript*> script(aes.cx(), exec.MaybeGetScript());
     if (script) {
@@ -6480,10 +6495,16 @@ void nsGlobalWindowInner::EventListenerAdded(nsAtom* aType) {
     mHasVRDisplayActivateEvents = true;
   }
 
-  if (aType == nsGkAtoms::onbeforeunload && mWindowGlobalChild &&
-      (!mDoc || !(mDoc->GetSandboxFlags() & SANDBOXED_MODALS))) {
-    mWindowGlobalChild->BeforeUnloadAdded();
-    MOZ_ASSERT(mWindowGlobalChild->BeforeUnloadListeners() > 0);
+  if ((aType == nsGkAtoms::onunload || aType == nsGkAtoms::onbeforeunload) &&
+      mWindowGlobalChild) {
+    if (++mUnloadOrBeforeUnloadListenerCount == 1) {
+      mWindowGlobalChild->BlockBFCacheFor(BFCacheStatus::UNLOAD_LISTENER);
+    }
+    if (aType == nsGkAtoms::onbeforeunload &&
+        (!mDoc || !(mDoc->GetSandboxFlags() & SANDBOXED_MODALS))) {
+      mWindowGlobalChild->BeforeUnloadAdded();
+      MOZ_ASSERT(mWindowGlobalChild->BeforeUnloadListeners() > 0);
+    }
   }
 
   // We need to initialize localStorage in order to receive notifications.
@@ -6502,10 +6523,17 @@ void nsGlobalWindowInner::EventListenerAdded(nsAtom* aType) {
 }
 
 void nsGlobalWindowInner::EventListenerRemoved(nsAtom* aType) {
-  if (aType == nsGkAtoms::onbeforeunload && mWindowGlobalChild &&
-      (!mDoc || !(mDoc->GetSandboxFlags() & SANDBOXED_MODALS))) {
-    mWindowGlobalChild->BeforeUnloadRemoved();
-    MOZ_ASSERT(mWindowGlobalChild->BeforeUnloadListeners() >= 0);
+  if ((aType == nsGkAtoms::onunload || aType == nsGkAtoms::onbeforeunload) &&
+      mWindowGlobalChild) {
+    MOZ_ASSERT(mUnloadOrBeforeUnloadListenerCount > 0);
+    if (--mUnloadOrBeforeUnloadListenerCount == 0) {
+      mWindowGlobalChild->UnblockBFCacheFor(BFCacheStatus::UNLOAD_LISTENER);
+    }
+    if (aType == nsGkAtoms::onbeforeunload &&
+        (!mDoc || !(mDoc->GetSandboxFlags() & SANDBOXED_MODALS))) {
+      mWindowGlobalChild->BeforeUnloadRemoved();
+      MOZ_ASSERT(mWindowGlobalChild->BeforeUnloadListeners() >= 0);
+    }
   }
 
   if (aType == nsGkAtoms::onstorage) {
@@ -6528,6 +6556,9 @@ void nsGlobalWindowInner::NotifyHasXRSession() {
     // in leaks of objects that get re-allocated after FreeInnerObjects
     // has been called, including mVREventObserver.
     return;
+  }
+  if (mWindowGlobalChild && !mHasXRSession) {
+    mWindowGlobalChild->BlockBFCacheFor(BFCacheStatus::HAS_USED_VR);
   }
   mHasXRSession = true;
   EnableVRUpdates();
@@ -6945,12 +6976,7 @@ already_AddRefed<Promise> nsGlobalWindowInner::PromiseDocumentFlushed(
     return nullptr;
   }
 
-  if (mIteratingDocumentFlushedResolvers) {
-    aError.Throw(NS_ERROR_FAILURE);
-    return nullptr;
-  }
-
-  if (!mDoc) {
+  if (!mDoc || mIteratingDocumentFlushedResolvers) {
     aError.Throw(NS_ERROR_FAILURE);
     return nullptr;
   }
@@ -6984,23 +7010,43 @@ already_AddRefed<Promise> nsGlobalWindowInner::PromiseDocumentFlushed(
     return resultPromise.forget();
   }
 
-  if (!mObservingDidRefresh) {
-    bool success = presShell->AddPostRefreshObserver(this);
-    if (!success) {
-      aError.Throw(NS_ERROR_FAILURE);
-      return nullptr;
-    }
-    mObservingDidRefresh = true;
+  if (!TryToObserveRefresh()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return nullptr;
   }
 
   mDocumentFlushedResolvers.AppendElement(std::move(flushResolver));
   return resultPromise.forget();
 }
 
-template <bool call>
-void nsGlobalWindowInner::CallOrCancelDocumentFlushedResolvers() {
-  MOZ_ASSERT(!mIteratingDocumentFlushedResolvers);
+bool nsGlobalWindowInner::TryToObserveRefresh() {
+  if (mObservingRefresh) {
+    return true;
+  }
 
+  if (!mDoc) {
+    return false;
+  }
+
+  nsPresContext* pc = mDoc->GetPresContext();
+  if (!pc) {
+    return false;
+  }
+
+  auto observer = MakeRefPtr<ManagedPostRefreshObserver>(
+      pc->PresShell(), [win = RefPtr{this}](bool aWasCanceled) {
+        if (win->MaybeCallDocumentFlushedResolvers(
+                /* aUntilExhaustion = */ aWasCanceled)) {
+          return ManagedPostRefreshObserver::Unregister::No;
+        }
+        win->mObservingRefresh = false;
+        return ManagedPostRefreshObserver::Unregister::Yes;
+      });
+  mObservingRefresh = pc->RegisterManagedPostRefreshObserver(observer.get());
+  return mObservingRefresh;
+}
+
+void nsGlobalWindowInner::CallDocumentFlushedResolvers(bool aUntilExhaustion) {
   while (true) {
     {
       // To coalesce MicroTask checkpoints inside callback call, enclose the
@@ -7009,83 +7055,51 @@ void nsGlobalWindowInner::CallOrCancelDocumentFlushedResolvers() {
       nsAutoMicroTask mt;
 
       mIteratingDocumentFlushedResolvers = true;
-      for (const auto& documentFlushedResolver : mDocumentFlushedResolvers) {
-        if (call) {
-          documentFlushedResolver->Call();
-        } else {
-          documentFlushedResolver->Cancel();
-        }
+
+      auto resolvers = std::move(mDocumentFlushedResolvers);
+      for (const auto& resolver : resolvers) {
+        resolver->Call();
       }
-      mDocumentFlushedResolvers.Clear();
+
       mIteratingDocumentFlushedResolvers = false;
     }
 
     // Leaving nsAutoMicroTask above will perform MicroTask checkpoint, and
     // Promise callbacks there may create mDocumentFlushedResolvers items.
 
-    // If there's no new item, there's nothing to do here.
-    if (!mDocumentFlushedResolvers.Length()) {
+    // If there's no new resolvers, or we're not exhausting the queue, there's
+    // nothing to do (we'll keep observing if there's any new observer).
+    //
+    // Otherwise, keep looping to call all promises. This case can happen while
+    // destroying the window.  This violates the constraint that the
+    // promiseDocumentFlushed callback only ever run when no flush is needed,
+    // but it's necessary to resolve the Promise returned by that.
+    if (!aUntilExhaustion || mDocumentFlushedResolvers.IsEmpty()) {
       break;
     }
-
-    // If there are new items, the observer is not added for them when calling
-    // PromiseDocumentFlushed.  Add here and leave.
-    // FIXME: Handle this case inside PromiseDocumentFlushed (bug 1442824).
-    if (mDoc) {
-      PresShell* presShell = mDoc->GetPresShell();
-      if (presShell) {
-        Unused << presShell->AddPostRefreshObserver(this);
-        break;
-      }
-    }
-
-    // If we fail adding observer, keep looping to resolve or reject all
-    // promises.  This case happens while destroying window.
-    // This violates the constraint that the promiseDocumentFlushed callback
-    // only ever run when no flush needed, but it's necessary to resolve
-    // Promise returned by that.
   }
 }
 
-void nsGlobalWindowInner::CallDocumentFlushedResolvers() {
-  CallOrCancelDocumentFlushedResolvers<true>();
-}
-
-void nsGlobalWindowInner::CancelDocumentFlushedResolvers() {
-  CallOrCancelDocumentFlushedResolvers<false>();
-}
-
-void nsGlobalWindowInner::DidRefresh() {
-  RefPtr<nsGlobalWindowInner> kungFuDeathGrip(this);
-
-  auto rejectionGuard = MakeScopeExit([&] {
-    CancelDocumentFlushedResolvers();
-    mObservingDidRefresh = false;
-  });
-
+bool nsGlobalWindowInner::MaybeCallDocumentFlushedResolvers(
+    bool aUntilExhaustion) {
   MOZ_ASSERT(mDoc);
 
   PresShell* presShell = mDoc->GetPresShell();
-  MOZ_ASSERT(presShell);
+  if (!presShell || aUntilExhaustion) {
+    CallDocumentFlushedResolvers(/* aUntilExhaustion = */ true);
+    return false;
+  }
 
   if (presShell->NeedStyleFlush() || presShell->NeedLayoutFlush()) {
     // By the time our observer fired, something has already invalidated
     // style or layout - or perhaps we're still in the middle of a flush that
     // was interrupted. In either case, we'll wait until the next refresh driver
     // tick instead and try again.
-    rejectionGuard.release();
-    return;
+    return true;
   }
 
-  bool success = presShell->RemovePostRefreshObserver(this);
-  if (!success) {
-    return;
-  }
-
-  rejectionGuard.release();
-
-  CallDocumentFlushedResolvers();
-  mObservingDidRefresh = false;
+  CallDocumentFlushedResolvers(/* aUntilExhaustion = */ false);
+  return !mDocumentFlushedResolvers.IsEmpty();
 }
 
 already_AddRefed<nsWindowRoot> nsGlobalWindowInner::GetWindowRoot(
@@ -7663,7 +7677,6 @@ bool nsPIDOMWindowInner::HasStorageAccessPermissionGranted() {
 nsPIDOMWindowInner::nsPIDOMWindowInner(nsPIDOMWindowOuter* aOuterWindow,
                                        WindowGlobalChild* aActor)
     : mMutationBits(0),
-      mActivePeerConnections(0),
       mIsDocumentLoaded(false),
       mIsHandlingResizeEvent(false),
       mMayHavePaintEventListener(false),

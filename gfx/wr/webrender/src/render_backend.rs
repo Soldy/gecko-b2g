@@ -168,6 +168,7 @@ impl ::std::ops::Sub<usize> for FrameId {
 }
 enum RenderBackendStatus {
     Continue,
+    StopRenderBackend,
     ShutDown(Option<Sender<()>>),
 }
 
@@ -347,7 +348,8 @@ impl DataStores {
                 let prim_data = &self.line_decoration[data_handle];
                 &prim_data.common
             }
-            PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
+            PrimitiveInstanceKind::LinearGradient { data_handle, .. }
+            | PrimitiveInstanceKind::CachedLinearGradient { data_handle, .. } => {
                 let prim_data = &self.linear_grad[data_handle];
                 &prim_data.common
             }
@@ -720,7 +722,10 @@ impl Document {
             let tile_cache = match tile_caches.remove(&slice_id) {
                 Some(mut existing_tile_cache) => {
                     // Found an existing cache - update the cache params and reuse it
-                    existing_tile_cache.prepare_for_new_scene(params);
+                    existing_tile_cache.prepare_for_new_scene(
+                        params,
+                        resource_cache,
+                    );
                     existing_tile_cache
                 }
                 None => {
@@ -906,6 +911,29 @@ impl RenderBackend {
                 }
                 Err(..) => { RenderBackendStatus::ShutDown(None) }
             };
+        }
+
+        if let RenderBackendStatus::StopRenderBackend = status {
+            while let Ok(msg) = self.api_rx.recv() {
+                match msg {
+                    ApiMsg::SceneBuilderResult(SceneBuilderResult::ExternalEvent(evt)) => {
+                        self.notifier.external_event(evt);
+                    }
+                    ApiMsg::SceneBuilderResult(SceneBuilderResult::FlushComplete(tx)) => {
+                        // If somebody's blocked waiting for a flush, how did they
+                        // trigger the RB thread to shut down? This shouldn't happen
+                        // but handle it gracefully anyway.
+                        debug_assert!(false);
+                        tx.send(()).ok();
+                    }
+                    ApiMsg::SceneBuilderResult(SceneBuilderResult::ShutDown(sender)) => {
+                        info!("Recycling stats: {:?}", self.recycler);
+                        status = RenderBackendStatus::ShutDown(sender);
+                        break;
+                   }
+                    _ => {},
+                }
+            }
         }
 
         // Ensure we read everything the scene builder is sending us from
@@ -1322,6 +1350,9 @@ impl RenderBackend {
             }
             SceneBuilderResult::DeleteDocument(document_id) => {
                 self.documents.remove(&document_id);
+            }
+            SceneBuilderResult::StopRenderBackend => {
+                return RenderBackendStatus::StopRenderBackend;
             }
             SceneBuilderResult::ShutDown(sender) => {
                 info!("Recycling stats: {:?}", self.recycler);

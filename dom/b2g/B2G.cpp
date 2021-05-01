@@ -49,10 +49,12 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(B2G, DOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTetheringManager)
 #ifdef MOZ_B2G_RIL
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mIccManager)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCellBroadcast)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVoicemail)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMobileConnections)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTelephony)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDataCallManager)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSubsidyLocks)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMobileMessageManager)
 #endif
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExternalAPI)
@@ -99,9 +101,21 @@ void B2G::MainThreadShutdown() {
   }
 
 #ifdef MOZ_B2G_RIL
+  if (mIccManager) {
+    mIccManager->Shutdown();
+    mIccManager = nullptr;
+  }
+
   if (mMobileMessageManager) {
     mMobileMessageManager->Shutdown();
     mMobileMessageManager = nullptr;
+  }
+#endif
+
+#ifdef MOZ_B2G_FM
+  if (mFMRadio) {
+    mFMRadio->Shutdown();
+    mFMRadio = nullptr;
   }
 #endif
 
@@ -110,10 +124,19 @@ void B2G::MainThreadShutdown() {
     mPowerSupplyManager = nullptr;
   }
 
+  mListeners.Clear();
+
   if (mUsbManager) {
     mUsbManager->Shutdown();
     mUsbManager = nullptr;
   }
+
+#ifdef MOZ_AUDIO_CHANNEL_MANAGER
+  if (mAudioChannelManager) {
+    mAudioChannelManager->Shutdown();
+    mAudioChannelManager = nullptr;
+  }
+#endif
 
 #ifdef MOZ_B2G_CAMERA
   mCameraManager = nullptr;
@@ -727,6 +750,13 @@ AuthorizationManager* B2G::GetAuthorizationManager(ErrorResult& aRv) {
       aRv.Throw(NS_ERROR_UNEXPECTED);
       return nullptr;
     }
+
+    // for worker thread, we check permission here instead of by webIDL visibility func
+    if (!NS_IsMainThread() && !CheckPermissionOnWorkerThread("cloud-authorization"_ns)) {
+      aRv.Throw(NS_ERROR_DOM_NOT_ALLOWED_ERR);
+      return nullptr;
+    }
+
     mAuthorizationManager = new AuthorizationManager(GetParentObject());
   }
   return mAuthorizationManager;
@@ -741,7 +771,8 @@ bool B2G::HasAuthorizationManagerSupport(JSContext* /* unused */,
     return innerWindow ? CheckPermission("cloud-authorization"_ns, innerWindow)
                        : false;
   } else {
-    return CheckPermissionOnWorkerThread("cloud-authorization"_ns);
+    // defer checking permission to the time of construction
+    return true;
   }
 }
 

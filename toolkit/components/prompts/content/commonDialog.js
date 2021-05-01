@@ -27,14 +27,15 @@ function commonDialogOnLoad() {
 
   let needIconifiedHeader =
     args.modalType == Ci.nsIPrompt.MODAL_TYPE_CONTENT ||
-    ["promptUserAndPass", "promptPassword"].includes(args.promptType);
+    ["promptUserAndPass", "promptPassword"].includes(args.promptType) ||
+    args.headerIconURL;
   let root = document.documentElement;
   if (needIconifiedHeader) {
     root.setAttribute("neediconheader", "true");
   }
   let title = { raw: args.title };
+  let { promptPrincipal } = args;
   if (PromptUtils.protonModals) {
-    let { promptPrincipal } = args;
     if (promptPrincipal) {
       if (promptPrincipal.isNullPrincipal) {
         title = { l10nId: "common-dialog-title-null" };
@@ -60,12 +61,20 @@ function commonDialogOnLoad() {
       } else {
         title = { l10nId: "common-dialog-title-unknown" };
       }
+    } else if (args.authOrigin) {
+      title = { raw: args.authOrigin };
     }
-
+    if (args.headerIconURL) {
+      root.style.setProperty("--icon-url", `url('${args.headerIconURL}')`);
+    }
     dialog.setAttribute("buttonpack", "end");
   }
-  title.shouldUseMaskFade = true;
+  // Fade and crop potentially long raw titles, e.g., origins and hostnames.
+  title.shouldUseMaskFade = title.raw && (args.authOrigin || promptPrincipal);
   root.setAttribute("headertitle", JSON.stringify(title));
+  if (args.isInsecureAuth) {
+    dialog.setAttribute("insecureauth", "true");
+  }
 
   let ui = {
     prompt: window,

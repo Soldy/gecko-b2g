@@ -32,6 +32,20 @@ namespace android {
 class Rect;
 class String8;
 
+using mozilla::NativeFramebufferDevice;
+typedef struct DisplayUtils {
+    enum {
+        MAIN, EXTERNAL
+    } type;
+
+    union {
+        // Object for using HWC operation.
+        HWC2::Display* hwcDisplay;
+
+        // FB device for external screen update.
+        NativeFramebufferDevice* extFBDevice;
+    } utils;
+} DisplayUtils;
 // ---------------------------------------------------------------------------
 
 class FramebufferSurface : public DisplaySurface {
@@ -39,8 +53,7 @@ public:
     FramebufferSurface(
         uint32_t width, uint32_t height, uint32_t format,
         const sp<IGraphicBufferConsumer>& consumer,
-        HWC2::Display *aHwcDisplay, HWC2::Layer *aLayer,
-        mozilla::NativeFramebufferDevice *ExtFBDevice);
+        DisplayUtils displayUtils, bool visibility);
 
     // From DisplaySurface
     virtual status_t beginFrame(bool mustRecompose);
@@ -51,6 +64,12 @@ public:
     // displays.
     virtual void resizeBuffers(const uint32_t width, const uint32_t height);
 
+    virtual int GetPrevDispAcquireFd();
+
+    virtual sp<GraphicBuffer> GetCurrentFrameBuffer() { return mCurrentBuffer; }
+
+    virtual void setVisibility(bool visibility) { mVisibility = visibility; }
+
     // setReleaseFenceFd stores a fence file descriptor that will signal when the
     // current buffer is no longer being read. This fence will be returned to
     // the producer when the current buffer is released by updateTexImage().
@@ -58,10 +77,6 @@ public:
     // a single union fence. The SurfaceTexture will close the file descriptor
     // when finished with it.
     status_t setReleaseFenceFd(int fenceFd);
-
-    virtual int GetPrevDispAcquireFd();
-
-    virtual sp<GraphicBuffer> GetCurrentFrameBuffer() { return mCurrentBuffer; }
 
 private:
     virtual ~FramebufferSurface() { }; // this class cannot be overloaded
@@ -89,18 +104,17 @@ private:
     // no current buffer.
     sp<GraphicBuffer> mCurrentBuffer;
 
-    sp<Fence> mPrevFBAcquireFence;
-
-    // Previous buffer to release after getting an updated retire fence
+    // Previous buffer to release after getting an updated retire fence.
     bool mHasPendingRelease;
     int mPreviousBufferSlot;
     sp<GraphicBuffer> mPreviousBuffer;
-
-    HWC2::Display* hwcDisplay;
-    HWC2::Layer* layer;
-    mozilla::NativeFramebufferDevice* mExtFBDevice;
-
+    sp<Fence> mPrevFBAcquireFence;
     sp<Fence> mLastPresentFence;
+
+    DisplayUtils mDisplayUtils;
+
+    // Indicator to control whether to update frame or not with this Surface.
+    bool mVisibility;
 };
 
 // ---------------------------------------------------------------------------
@@ -108,4 +122,3 @@ private:
 // ---------------------------------------------------------------------------
 
 #endif // ANDROID_SF_FRAMEBUFFER_SURFACE_H
-

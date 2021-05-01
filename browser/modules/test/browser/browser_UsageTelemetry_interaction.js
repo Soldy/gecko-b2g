@@ -116,7 +116,7 @@ add_task(async function toolbarButtons() {
     click(document.querySelector("#PlacesToolbarItems .bookmark-item"));
 
     // Page action panel is removed in proton
-    if (Services.prefs.getBoolPref("browser.proton.urlbar.enabled", false)) {
+    if (gProton) {
       click(customButton);
 
       assertInteractionScalars({
@@ -186,7 +186,7 @@ add_task(async function contextMenu() {
     await shown;
 
     let hidden = BrowserTestUtils.waitForEvent(context, "popuphidden");
-    click("context_toggleMuteTab");
+    context.activateItem(document.getElementById("context_toggleMuteTab"));
     await hidden;
 
     assertInteractionScalars({

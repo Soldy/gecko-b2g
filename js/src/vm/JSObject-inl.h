@@ -14,6 +14,7 @@
 #include "vm/EnvironmentObject.h"
 #include "vm/JSFunction.h"
 #include "vm/Probes.h"
+#include "vm/PropertyResult.h"
 #include "vm/TypedArrayObject.h"
 
 #include "gc/FreeOp-inl.h"
@@ -107,29 +108,6 @@ inline void JSObject::finalize(JSFreeOp* fop) {
                js::MemoryUse::ObjectElements);
   }
 }
-
-MOZ_ALWAYS_INLINE void js::NativeObject::sweepDictionaryListPointer() {
-  // Dictionary mode shapes can have pointers to nursery-allocated
-  // objects. There's no postbarrier for this pointer so this method is called
-  // to clear it when such an object dies.
-  MOZ_ASSERT(inDictionaryMode());
-  if (shape()->dictNext == DictionaryShapeLink(this)) {
-    shape()->dictNext.setNone();
-  }
-}
-
-MOZ_ALWAYS_INLINE void
-js::NativeObject::updateDictionaryListPointerAfterMinorGC(NativeObject* old) {
-  MOZ_ASSERT(this == Forwarded(old));
-
-  // Dictionary objects can be allocated in the nursery and when they are
-  // tenured the shape's pointer to the object needs to be updated.
-  if (shape()->dictNext == DictionaryShapeLink(old)) {
-    shape()->dictNext = DictionaryShapeLink(this);
-  }
-}
-
-/* * */
 
 inline bool JSObject::isQualifiedVarObj() const {
   if (is<js::DebugEnvironmentProxy>()) {

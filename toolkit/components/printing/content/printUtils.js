@@ -143,12 +143,12 @@ var PrintUtils = {
     }
   },
 
-  createPreviewBrowsers(aBrowsingContext, aDialogBrowser) {
+  createPreviewBrowsers(aBrowsingContext, aDialogBrowser, aPrintFrameOnly) {
     let _createPreviewBrowser = previewType => {
-      // When we're not previewing the selection we want to make
-      // sure that the top-level browser is being printed.
+      // When we're not previewing the selection or printing only the frame, we
+      // want to make sure that the top-level browser is being printed.
       let browsingContext =
-        previewType == "selection"
+        previewType == "selection" || aPrintFrameOnly
           ? aBrowsingContext
           : aBrowsingContext.top.embedderElement.browsingContext;
       let browser = gBrowser.createBrowser({
@@ -370,8 +370,7 @@ var PrintUtils = {
    *        Optional print settings for the print operation
    */
   printWindow(aBrowsingContext, aPrintSettings) {
-    let windowID = aBrowsingContext.currentWindowGlobal.outerWindowId;
-    let topBrowser = aBrowsingContext.top.embedderElement;
+    let wg = aBrowsingContext.currentWindowGlobal;
 
     const printPreviewIsOpen = !!document.getElementById(
       "print-preview-toolbar"
@@ -388,18 +387,18 @@ var PrintUtils = {
 
     // Set the title so that the print dialog can pick it up and
     // use it to generate the filename for save-to-PDF.
-    printSettings.title = this._originalTitle || topBrowser.contentTitle;
+    printSettings.title = this._originalTitle || wg.documentTitle;
 
     if (this._shouldSimplify) {
       // The generated document for simplified print preview has "about:blank"
       // as its URL. We need to set docURL here so that the print header/footer
       // can be given the original document's URL.
-      printSettings.docURL = this._originalURL || topBrowser.currentURI.spec;
+      printSettings.docURL = this._originalURL || wg.documentURI;
     }
 
     // At some point we should handle the Promise that this returns (report
     // rejection to telemetry?)
-    let promise = topBrowser.print(windowID, printSettings);
+    let promise = aBrowsingContext.print(printSettings);
 
     if (printPreviewIsOpen) {
       if (this._shouldSimplify) {

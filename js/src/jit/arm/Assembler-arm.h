@@ -164,7 +164,7 @@ static constexpr Register ABINonArgReg2 = r6;
 static constexpr Register ABINonArgReg3 = r7;
 
 // This register may be volatile or nonvolatile. Avoid d15 which is the
-// ScratchDoubleReg.
+// ScratchDoubleReg_.
 static constexpr FloatRegister ABINonArgDoubleReg{FloatRegisters::d8,
                                                   VFPRegister::Double};
 
@@ -227,23 +227,27 @@ static constexpr FloatRegister ReturnFloat32Reg = {FloatRegisters::d0,
 static constexpr FloatRegister ReturnDoubleReg = {FloatRegisters::d0,
                                                   VFPRegister::Double};
 static constexpr FloatRegister ReturnSimd128Reg = InvalidFloatReg;
-static constexpr FloatRegister ScratchFloat32Reg = {FloatRegisters::s30,
-                                                    VFPRegister::Single};
-static constexpr FloatRegister ScratchDoubleReg = {FloatRegisters::d15,
-                                                   VFPRegister::Double};
+static constexpr FloatRegister ScratchFloat32Reg_ = {FloatRegisters::s30,
+                                                     VFPRegister::Single};
+static constexpr FloatRegister ScratchDoubleReg_ = {FloatRegisters::d15,
+                                                    VFPRegister::Double};
 static constexpr FloatRegister ScratchSimd128Reg = InvalidFloatReg;
 static constexpr FloatRegister ScratchUIntReg = {FloatRegisters::d15,
                                                  VFPRegister::UInt};
 static constexpr FloatRegister ScratchIntReg = {FloatRegisters::d15,
                                                 VFPRegister::Int};
 
+// Do not reference ScratchFloat32Reg_ directly, use ScratchFloat32Scope
+// instead.
 struct ScratchFloat32Scope : public AutoFloatRegisterScope {
   explicit ScratchFloat32Scope(MacroAssembler& masm)
-      : AutoFloatRegisterScope(masm, ScratchFloat32Reg) {}
+      : AutoFloatRegisterScope(masm, ScratchFloat32Reg_) {}
 };
+
+// Do not reference ScratchDoubleReg_ directly, use ScratchDoubleScope instead.
 struct ScratchDoubleScope : public AutoFloatRegisterScope {
   explicit ScratchDoubleScope(MacroAssembler& masm)
-      : AutoFloatRegisterScope(masm, ScratchDoubleReg) {}
+      : AutoFloatRegisterScope(masm, ScratchDoubleReg_) {}
 };
 
 // Registerd used in RegExpMatcher instruction (do not use JSReturnOperand).
@@ -305,10 +309,10 @@ static_assert(JitStackAlignment % SimdMemoryAlignment == 0,
 static const uint32_t WasmStackAlignment = SimdMemoryAlignment;
 static const uint32_t WasmTrapInstructionLength = 4;
 
-// The offsets are dynamically asserted during
-// code generation in the prologue/epilogue.
+// See comments in wasm::GenerateFunctionPrologue.  The difference between these
+// is the size of the largest callable prologue on the platform.
 static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
-static constexpr uint32_t WasmCheckedTailEntryOffset = 16u;
+static constexpr uint32_t WasmCheckedTailEntryOffset = 12u;
 
 static const Scale ScalePointer = TimesFour;
 

@@ -64,8 +64,11 @@ LogModule* SpeakerManagerService::GetSpeakerManagerLog() {
 }
 
 void SpeakerManagerService::Shutdown() {
-  if (!XRE_IsParentProcess()) {
-    return SpeakerManagerServiceChild::Shutdown();
+  // Clone the registered SpeakerManagers to call shutdown because
+  // SpeakerManager::Shutdown touches mRegisteredSpeakerManagers.
+  const auto managers = ToArray(mRegisteredSpeakerManagers.Values());
+  for (auto sm : managers) {
+    sm->Shutdown();
   }
 
   if (gSpeakerManagerService) {
@@ -252,7 +255,9 @@ SpeakerManagerService::Observe(nsISupports* aSubject, const char* aTopic,
 
     nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
     if (obs) {
-      obs->RemoveObserver(this, "ipc:content-shutdown");
+      if (XRE_IsParentProcess()) {
+        obs->RemoveObserver(this, "ipc:content-shutdown");
+      }
       obs->RemoveObserver(this, "xpcom-will-shutdown");
     }
 
@@ -262,18 +267,17 @@ SpeakerManagerService::Observe(nsISupports* aSubject, const char* aTopic,
 }
 
 SpeakerManagerService::SpeakerManagerService() : mOrgSpeakerStatus(false) {
-  if (XRE_IsParentProcess()) {
-    nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-    if (obs) {
+  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+  if (obs) {
+    if (XRE_IsParentProcess()) {
       obs->AddObserver(this, "ipc:content-shutdown", false);
-      obs->AddObserver(this, "xpcom-will-shutdown", false);
     }
+    obs->AddObserver(this, "xpcom-will-shutdown", false);
   }
+
   RefPtr<AudioChannelService> audioChannelService =
       AudioChannelService::GetOrCreate();
   if (audioChannelService) {
     audioChannelService->RegisterSpeakerManager(this);
   }
 }
-
-SpeakerManagerService::~SpeakerManagerService() {}

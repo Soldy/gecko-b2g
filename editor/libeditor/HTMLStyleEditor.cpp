@@ -47,6 +47,7 @@ namespace mozilla {
 
 using namespace dom;
 
+using EmptyCheckOption = HTMLEditUtils::EmptyCheckOption;
 using LeafNodeType = HTMLEditUtils::LeafNodeType;
 using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
 
@@ -563,7 +564,8 @@ nsresult HTMLEditor::SetInlinePropertyOnNodeImpl(nsIContent& aContent,
       for (nsCOMPtr<nsIContent> child = aContent.GetFirstChild(); child;
            child = child->GetNextSibling()) {
         if (EditorUtils::IsEditableContent(*child, EditorType::HTML) &&
-            !IsEmptyTextNode(*child)) {
+            (!child->IsText() ||
+             HTMLEditUtils::IsVisibleTextNode(*child->AsText()))) {
           arrayOfNodes.AppendElement(*child);
         }
       }
@@ -924,7 +926,12 @@ SplitNodeResult HTMLEditor::SplitAncestorStyledInlineElementsAt(
       NS_WARNING("HTMLEditor::SplitNodeDeepWithTransaction() failed");
       return splitNodeResult;
     }
-    MOZ_ASSERT(splitNodeResult.Handled());
+    // If it's not handled, it means that `content` is not a splitable node
+    // like a void element even if it has some children, and the split point
+    // is middle of it.
+    if (!splitNodeResult.Handled()) {
+      continue;
+    }
     // Mark the final result as handled forcibly.
     result = SplitNodeResult(splitNodeResult.GetPreviousNode(),
                              splitNodeResult.GetNextNode());
@@ -964,7 +971,11 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
   // at start of it, we don't need the empty inline element.  Let's remove
   // it now.
   if (splitResult.GetPreviousNode() &&
-      IsEmptyNode(*splitResult.GetPreviousNode(), false, true)) {
+      HTMLEditUtils::IsEmptyNode(
+          *splitResult.GetPreviousNode(),
+          {EmptyCheckOption::TreatSingleBRElementAsVisible,
+           EmptyCheckOption::TreatListItemAsVisible,
+           EmptyCheckOption::TreatTableCellAsVisible})) {
     // Delete previous node if it's empty.
     nsresult rv = DeleteNodeWithTransaction(
         MOZ_KnownLive(*splitResult.GetPreviousNode()));
@@ -983,7 +994,6 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
   // XXX Chrome resets block style and creates `<span>` elements for each
   //     line in this case.
   if (!splitResult.GetNextNode()) {
-    MOZ_ASSERT(IsCSSEnabled());
     return EditResult(aPoint);
   }
 
@@ -1025,7 +1035,11 @@ EditResult HTMLEditor::ClearStyleAt(const EditorDOMPoint& aPoint,
   // XXX Is this possible case without mutation event listener?
   if (splitResultAtStartOfNextNode.Handled() &&
       splitResultAtStartOfNextNode.GetNextNode() &&
-      IsEmptyNode(*splitResultAtStartOfNextNode.GetNextNode(), false, true)) {
+      HTMLEditUtils::IsEmptyNode(
+          *splitResultAtStartOfNextNode.GetNextNode(),
+          {EmptyCheckOption::TreatSingleBRElementAsVisible,
+           EmptyCheckOption::TreatListItemAsVisible,
+           EmptyCheckOption::TreatTableCellAsVisible})) {
     // Delete next node if it's empty.
     nsresult rv = DeleteNodeWithTransaction(
         MOZ_KnownLive(*splitResultAtStartOfNextNode.GetNextNode()));
@@ -1535,7 +1549,7 @@ nsresult HTMLEditor::GetInlinePropertyBase(nsAtom& aHTMLProperty,
       // just ignore any non-editable nodes
       if (content->IsText() &&
           (!EditorUtils::IsEditableContent(*content, EditorType::HTML) ||
-           IsEmptyTextNode(*content))) {
+           !HTMLEditUtils::IsVisibleTextNode(*content->AsText()))) {
         continue;
       }
       if (content->GetAsText()) {

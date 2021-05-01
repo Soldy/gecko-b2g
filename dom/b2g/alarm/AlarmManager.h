@@ -34,8 +34,9 @@ namespace dom {
 
 class AlarmManagerImpl {
  public:
-  explicit AlarmManagerImpl(nsCString aUrl, nsIGlobalObject* aOuterGlobal)
-      : mUrl(aUrl), mOuterGlobal(aOuterGlobal) {}
+  explicit AlarmManagerImpl(nsIGlobalObject* aOuterGlobal)
+      : mOuterGlobal(aOuterGlobal) {}
+  virtual nsresult Init() = 0;
   virtual already_AddRefed<Promise> GetAll() = 0;
   virtual already_AddRefed<Promise> Add(JSContext* aCx,
                                         const AlarmOptions& aOptions) = 0;
@@ -52,7 +53,9 @@ class AlarmManagerImpl {
 class AlarmManagerMain final : public AlarmManagerImpl {
  public:
   NS_INLINE_DECL_REFCOUNTING(AlarmManagerMain, override)
-  explicit AlarmManagerMain(nsCString aUrl, nsIGlobalObject* aOuterGlobal);
+  explicit AlarmManagerMain(nsIGlobalObject* aOuterGlobal);
+  virtual nsresult Init() override;
+
   virtual already_AddRefed<Promise> GetAll() override;
   virtual already_AddRefed<Promise> Add(JSContext* aCx,
                                         const AlarmOptions& aOptions) override;
@@ -81,7 +84,7 @@ class AlarmManager final : public nsISupports,
                        JS::Handle<JSObject*> aGivenProto) override;
 
   explicit AlarmManager(nsIGlobalObject* aGlobal);
-  NS_IMETHODIMP Init();
+  nsresult Init();
   bool CheckPermission();
 
   already_AddRefed<Promise> GetAll();
@@ -92,11 +95,12 @@ class AlarmManager final : public nsISupports,
   ~AlarmManager() = default;
   nsCOMPtr<nsIGlobalObject> mGlobal;
   RefPtr<AlarmManagerImpl> mImpl;
-  nsCString mUrl;
 };
 
 namespace alarm {
 already_AddRefed<nsIAlarmProxy> CreateAlarmProxy();
+nsresult SetupUrlFromPrincipal(const nsCOMPtr<nsIPrincipal>& aPrincipal,
+                               nsCString& aUrl);
 bool DoCheckPermission(nsCString aUrl);
 }  // namespace alarm
 }  // namespace dom

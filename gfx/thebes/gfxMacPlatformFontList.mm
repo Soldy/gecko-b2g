@@ -329,9 +329,9 @@ MacOSFontEntry::MacOSFontEntry(const nsACString& aPostscriptName, WeightRange aW
       mHasVariations(false),
       mHasVariationsInitialized(false),
       mHasAATSmallCaps(false),
-      mHasAATSmallCapsInitialized(false),
-      mCheckedForOpszAxis(false) {
+      mHasAATSmallCapsInitialized(false) {
   mWeightRange = aWeight;
+  mOpszAxis.mTag = 0;
 }
 
 MacOSFontEntry::MacOSFontEntry(const nsACString& aPostscriptName, CGFontRef aFontRef,
@@ -347,8 +347,7 @@ MacOSFontEntry::MacOSFontEntry(const nsACString& aPostscriptName, CGFontRef aFon
       mHasVariations(false),
       mHasVariationsInitialized(false),
       mHasAATSmallCaps(false),
-      mHasAATSmallCapsInitialized(false),
-      mCheckedForOpszAxis(false) {
+      mHasAATSmallCapsInitialized(false) {
   mFontRef = aFontRef;
   mFontRefInitialized = true;
   ::CFRetain(mFontRef);
@@ -357,6 +356,7 @@ MacOSFontEntry::MacOSFontEntry(const nsACString& aPostscriptName, CGFontRef aFon
   mStretchRange = aStretch;
   mFixedPitch = false;  // xxx - do we need this for downloaded fonts?
   mStyleRange = aStyle;
+  mOpszAxis.mTag = 0;
 
   NS_ASSERTION(!(aIsDataUserFont && aIsLocalUserFont),
                "userfont is either a data font or a local font");
@@ -822,11 +822,10 @@ gfxMacPlatformFontList::gfxMacPlatformFontList()
     : gfxPlatformFontList(false), mDefaultFont(nullptr), mUseSizeSensitiveSystemFont(false) {
   CheckFamilyList(kBaseFonts, ArrayLength(kBaseFonts));
 
-  // It appears to be sufficient to activate fonts in the parent process;
-  // they are then also usable in child processes.
-  // Likewise, only the parent process listens for OS font-changed notifications;
-  // after rebuilding its list, it will update the content processes.
-  if (XRE_IsParentProcess()) {
+  // On Catalina+, it appears to be sufficient to activate fonts in the parent process;
+  // they are then also usable in child processes. But on pre-Catalina systems we need
+  // to explicitly activate them in each child process (per bug 1704273).
+  if (XRE_IsParentProcess() || !nsCocoaFeatures::OnCatalinaOrLater()) {
 #ifdef MOZ_BUNDLED_FONTS
     // We activate bundled fonts if the pref is > 0 (on) or < 0 (auto), only an
     // explicit value of 0 (off) will disable them.
@@ -849,7 +848,11 @@ gfxMacPlatformFontList::gfxMacPlatformFontList()
         }
       }
     }
+  }
 
+  // Only the parent process listens for OS font-changed notifications;
+  // after rebuilding its list, it will update the content processes.
+  if (XRE_IsParentProcess()) {
     ::CFNotificationCenterAddObserver(::CFNotificationCenterGetLocalCenter(), this,
                                       RegisteredFontsChangedNotificationCallback,
                                       kCTFontManagerRegisteredFontsChangedNotification, 0,

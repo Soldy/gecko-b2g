@@ -243,11 +243,9 @@ var SiteDataTestUtils = {
   _getCacheStorage(where, lci) {
     switch (where) {
       case "disk":
-        return Services.cache2.diskCacheStorage(lci, false);
+        return Services.cache2.diskCacheStorage(lci);
       case "memory":
         return Services.cache2.memoryCacheStorage(lci);
-      case "appcache":
-        return Services.cache2.appCacheStorage(lci, null);
       case "pin":
         return Services.cache2.pinningCacheStorage(lci);
     }
@@ -265,11 +263,11 @@ var SiteDataTestUtils = {
       CacheListener.prototype = {
         QueryInterface: ChromeUtils.generateQI(["nsICacheEntryOpenCallback"]),
 
-        onCacheEntryCheck(entry, appCache) {
+        onCacheEntryCheck(entry) {
           return Ci.nsICacheEntryOpenCallback.ENTRY_WANTED;
         },
 
-        onCacheEntryAvailable(entry, isnew, appCache, status) {
+        onCacheEntryAvailable(entry, isnew, status) {
           resolve();
         },
       };

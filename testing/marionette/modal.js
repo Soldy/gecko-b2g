@@ -47,39 +47,43 @@ modal.findModalDialogs = function(context) {
       win.opener &&
       win.opener === context.window
     ) {
-      return new modal.Dialog(() => context, Cu.getWeakReference(win));
+      logger.trace("Found open window modal prompt");
+      return new modal.Dialog(() => context, win);
     }
   }
 
-  // If no modal dialog has been found, also check if there is an open
-  // tab modal dialog present for the current tab.
-  // TODO: Find an adequate implementation for Fennec.
-  if (context.tab && context.tabBrowser.getTabModalPromptBox) {
-    let contentBrowser = context.contentBrowser;
-    let promptManager = context.tabBrowser.getTabModalPromptBox(contentBrowser);
-    let prompts = promptManager.listPrompts();
+  const contentBrowser = context.contentBrowser;
 
-    if (prompts.length) {
-      return new modal.Dialog(() => context, null);
-    }
-  }
+  // If no modal dialog has been found yet, also check for tab and content modal
+  // dialogs for the current tab.
+  //
+  // TODO: Find an adequate implementation for Firefox on Android (bug 1708105)
+  if (context.tabBrowser?.getTabDialogBox) {
+    const tabDialogBox = context.tabBrowser.getTabDialogBox(contentBrowser);
 
-  // No dialog found yet, check the TabDialogBox.
-  // This is for prompts that are shown in SubDialogs in the browser chrome.
-  if (context.tab && context.tabBrowser.getTabDialogBox) {
-    let contentBrowser = context.contentBrowser;
-    let dialogManager = context.tabBrowser
-      .getTabDialogBox(contentBrowser)
-      .getTabDialogManager();
-    let dialogs = dialogManager._dialogs.filter(
-      dialog => dialog._openedURL === COMMON_DIALOG
-    );
-
+    let dialogs = tabDialogBox.getTabDialogManager().dialogs;
     if (dialogs.length) {
-      return new modal.Dialog(
-        () => context,
-        Cu.getWeakReference(dialogs[0]._frame.contentWindow)
-      );
+      logger.trace("Found open tab modal prompt");
+      return new modal.Dialog(() => context, dialogs[0].frameContentWindow);
+    }
+
+    dialogs = tabDialogBox.getContentDialogManager().dialogs;
+    if (dialogs.length) {
+      logger.trace("Found open content prompt");
+      return new modal.Dialog(() => context, dialogs[0].frameContentWindow);
+    }
+  }
+
+  // If no modal dialog has been found yet, check for old non SubDialog based
+  // content modal dialogs. Even with those deprecated in Firefox 89 we should
+  // keep supporting applications that don't have them implemented yet.
+  if (context.tabBrowser?.getTabModalPromptBox) {
+    const promptBox = context.tabBrowser.getTabModalPromptBox(contentBrowser);
+
+    const prompts = promptBox.listPrompts();
+    if (prompts.length) {
+      logger.trace("Found open old-style content prompt");
+      return new modal.Dialog(() => context, null);
     }
   }
 
@@ -89,11 +93,16 @@ modal.findModalDialogs = function(context) {
 /**
  * Observer for modal and tab modal dialogs.
  *
+ * @param {function(): browser.Context} curBrowserFn
+ *     Function that returns the current |browser.Context|.
+ *
  * @return {modal.DialogObserver}
  *     Returns instance of the DialogObserver class.
  */
 modal.DialogObserver = class {
-  constructor() {
+  constructor(curBrowserFn) {
+    this._curBrowserFn = curBrowserFn;
+
     this.callbacks = new Set();
     this.register();
   }
@@ -128,33 +137,66 @@ modal.DialogObserver = class {
   handleEvent(event) {
     logger.trace(`Received event ${event.type}`);
 
-    let chromeWin = event.target.opener
+    const chromeWin = event.target.opener
       ? event.target.opener.ownerGlobal
       : event.target.ownerGlobal;
 
-    let targetRef = Cu.getWeakReference(event.target);
+    if (chromeWin != this._curBrowserFn().window) {
+      return;
+    }
 
     this.callbacks.forEach(callback => {
-      callback(modal.ACTION_CLOSED, targetRef, chromeWin);
+      callback(modal.ACTION_CLOSED, event.target);
     });
   }
 
   observe(subject, topic) {
     logger.trace(`Received observer notification ${topic}`);
 
+    const curBrowser = this._curBrowserFn();
+
     switch (topic) {
-      case "common-dialog-loaded":
+      // This topic is only used by the old-style content modal dialogs like
+      // alert, confirm, and prompt. It can be removed when only the new
+      // subdialog based content modals remain. Those will be made default in
+      // Firefox 89, and this case is deprecated.
       case "tabmodal-dialog-loaded":
-        let chromeWin = subject.opener
-          ? subject.opener.ownerGlobal
-          : subject.ownerGlobal;
+        const container = curBrowser.contentBrowser.closest(
+          ".browserSidebarContainer"
+        );
+        if (!container.contains(subject)) {
+          return;
+        }
+        this.callbacks.forEach(callback =>
+          callback(modal.ACTION_OPENED, subject)
+        );
+        break;
 
-        // Always keep a weak reference to the current dialog
-        let targetRef = Cu.getWeakReference(subject);
+      case "common-dialog-loaded":
+        const modalType = subject.Dialog.args.modalType;
 
-        this.callbacks.forEach(callback => {
-          callback(modal.ACTION_OPENED, targetRef, chromeWin);
-        });
+        if (
+          modalType === Services.prompt.MODAL_TYPE_TAB ||
+          modalType === Services.prompt.MODAL_TYPE_CONTENT
+        ) {
+          // Find the container of the dialog in the parent document, and ensure
+          // it is a descendant of the same container as the current browser.
+          const container = curBrowser.contentBrowser.closest(
+            ".browserSidebarContainer"
+          );
+          if (!container.contains(subject.docShell.chromeEventHandler)) {
+            return;
+          }
+        } else if (
+          subject.ownerGlobal != curBrowser.window &&
+          subject.opener?.ownerGlobal != curBrowser.window
+        ) {
+          return;
+        }
+
+        this.callbacks.forEach(callback =>
+          callback(modal.ACTION_OPENED, subject)
+        );
         break;
 
       case "toplevel-window-ready":
@@ -188,6 +230,22 @@ modal.DialogObserver = class {
     }
     this.callbacks.delete(callback);
   }
+
+  /**
+   * Returns a promise that waits for the dialog to be closed.
+   */
+  async dialogClosed() {
+    return new Promise(resolve => {
+      const dialogClosed = (action, dialog) => {
+        if (action == modal.ACTION_CLOSED) {
+          this.remove(dialogClosed);
+          resolve();
+        }
+      };
+
+      this.add(dialogClosed);
+    });
+  }
 };
 
 /**
@@ -195,13 +253,13 @@ modal.DialogObserver = class {
  *
  * @param {function(): browser.Context} curBrowserFn
  *     Function that returns the current |browser.Context|.
- * @param {nsIWeakReference=} winRef
- *     A weak reference to the current |ChromeWindow|.
+ * @param {DOMWindow} dialog
+ *     DOMWindow of the dialog.
  */
 modal.Dialog = class {
-  constructor(curBrowserFn, winRef = undefined) {
+  constructor(curBrowserFn, dialog) {
     this.curBrowserFn_ = curBrowserFn;
-    this.win_ = winRef;
+    this.win_ = Cu.getWeakReference(dialog);
   }
 
   get curBrowser_() {
@@ -233,6 +291,13 @@ modal.Dialog = class {
   get args() {
     let tm = this.tabModal;
     return tm ? tm.args : null;
+  }
+
+  get isWindowModal() {
+    return [
+      Services.prompt.MODAL_TYPE_WINDOW,
+      Services.prompt.MODAL_TYPE_INTERNAL_WINDOW,
+    ].includes(this.args.modalType);
   }
 
   get ui() {

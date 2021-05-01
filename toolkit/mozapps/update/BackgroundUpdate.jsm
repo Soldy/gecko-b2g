@@ -14,6 +14,8 @@ const { XPCOMUtils } = ChromeUtils.import(
 XPCOMUtils.defineLazyModuleGetters(this, {
   AddonManager: "resource://gre/modules/AddonManager.jsm",
   AppConstants: "resource://gre/modules/AppConstants.jsm",
+  BackgroundTasksUtils: "resource://gre/modules/BackgroundTasksUtils.jsm",
+  BackgroundTasksManager: "resource://gre/modules/BackgroundTasksManager.jsm",
   FileUtils: "resource://gre/modules/FileUtils.jsm",
   Services: "resource://gre/modules/Services.jsm",
   TaskScheduler: "resource://gre/modules/TaskScheduler.jsm",
@@ -32,19 +34,21 @@ XPCOMUtils.defineLazyGetter(this, "log", () => {
   return new ConsoleAPI(consoleOptions);
 });
 
-XPCOMUtils.defineLazyServiceGetter(
-  this,
-  "ProfileService",
-  "@mozilla.org/toolkit/profile-service;1",
-  "nsIToolkitProfileService"
-);
-
 XPCOMUtils.defineLazyGetter(this, "localization", () => {
   return new Localization(
     ["branding/brand.ftl", "toolkit/updates/backgroundupdate.ftl"],
     true
   );
 });
+
+XPCOMUtils.defineLazyServiceGetter(
+  this,
+  "UpdateService",
+  "@mozilla.org/updates/update-service;1",
+  "nsIApplicationUpdateService"
+);
+
+Cu.importGlobalProperties(["Glean"]);
 
 var BackgroundUpdate = {
   _initialized: false,
@@ -83,17 +87,6 @@ var BackgroundUpdate = {
   _force() {
     // We want to allow developers and testers to monkey with the system.
     return Services.prefs.getBoolPref("app.update.background.force", false);
-  },
-
-  _currentProfileIsDefaultProfile() {
-    let defaultProfile;
-    try {
-      defaultProfile = ProfileService.defaultProfile;
-    } catch (e) {}
-    let currentProfile = ProfileService.currentProfile;
-    // This comparison needs to accommodate null on both sides.
-    let isDefaultProfile = defaultProfile && currentProfile == defaultProfile;
-    return isDefaultProfile;
   },
 
   /**
@@ -203,7 +196,13 @@ var BackgroundUpdate = {
       );
     }
 
-    if (!this._currentProfileIsDefaultProfile()) {
+    // No default profile happens under xpcshell but also when running local
+    // builds.  It's unexpected in the wild so we track it separately.
+    if (!BackgroundTasksUtils.hasDefaultProfile()) {
+      reasons.push(this.REASON.NO_DEFAULT_PROFILE_EXISTS);
+    }
+
+    if (!BackgroundTasksUtils.currentProfileIsDefaultProfile()) {
       reasons.push(this.REASON.NOT_DEFAULT_PROFILE);
     }
 
@@ -238,7 +237,8 @@ var BackgroundUpdate = {
     let binary = Services.dirsvc.get("XREExeF", Ci.nsIFile);
     let args = [
       "--MOZ_LOG",
-      "prependheader,timestamp,append,maxsize:1,Dump:5",
+      // Note: `maxsize:1` means 1Mb total size, trimmed to 512kb on overflow.
+      "sync,prependheader,timestamp,append,maxsize:1,Dump:5",
       "--MOZ_LOG_FILE",
       // The full path might hit command line length limits, but also makes it
       // much easier to find the relevant log file when starting from the
@@ -284,11 +284,15 @@ var BackgroundUpdate = {
           `to per-installation pref default "app.update.background.enabled": ${scheduling}`
       );
     } catch (e) {
-      if (
-        !(e instanceof Ci.nsIException && e.result == Cr.NS_ERROR_UNEXPECTED)
-      ) {
-        throw e;
+      if (e instanceof Ci.nsIException && e.result == Cr.NS_ERROR_UNEXPECTED) {
+        // The preference doesn't exist.
+        return;
       }
+      console.warn(
+        `ignoring failure to mirror per-profile pref "app.update.background.scheduling.enabled" default ` +
+          `to per-installation pref default "app.update.background.enabled"`,
+        e
+      );
     }
   },
 
@@ -322,7 +326,10 @@ var BackgroundUpdate = {
   async maybeScheduleBackgroundUpdateTask() {
     let SLUG = "maybeScheduleBackgroundUpdateTask";
 
-    if (this._force() || this._currentProfileIsDefaultProfile()) {
+    if (
+      this._force() ||
+      BackgroundTasksUtils.currentProfileIsDefaultProfile()
+    ) {
       await this._mirrorToPerInstallationPref();
     }
 
@@ -469,6 +476,49 @@ var BackgroundUpdate = {
       return false;
     }
   },
+
+  /**
+   * Record parts of the update environment for our custom Glean ping.
+   *
+   * This is just like the Telemetry Environment, but pared down to what we're
+   * likely to use in background update-specific analyses.
+   *
+   * Right now this is only for use in the background update task, but after Bug
+   * 1703313 (migrating AUS telemetry to be Glean-aware) we might use it more
+   * generally.
+   */
+  async recordUpdateEnvironment() {
+    try {
+      Glean.update.serviceEnabled.set(
+        Services.prefs.getBoolPref("app.update.service.enabled", false)
+      );
+    } catch (e) {
+      // It's fine if some or all of these are missing.
+    }
+
+    // In the background update task, this should always be enabled, but let's
+    // find out if there's an error in the system.
+    Glean.update.autoDownload.set(await UpdateUtils.getAppUpdateAutoEnabled());
+    Glean.update.backgroundUpdate.set(
+      await UpdateUtils.readUpdateConfigSetting("app.update.background.enabled")
+    );
+
+    Glean.update.channel.set(UpdateUtils.UpdateChannel);
+    Glean.update.enabled.set(
+      !Services.policies || Services.policies.isAllowed("appUpdate")
+    );
+
+    Glean.update.canUsuallyApplyUpdates.set(
+      UpdateService.canUsuallyApplyUpdates
+    );
+    Glean.update.canUsuallyCheckForUpdates.set(
+      UpdateService.canUsuallyCheckForUpdates
+    );
+    Glean.update.canUsuallyStageUpdates.set(
+      UpdateService.canUsuallyStageUpdates
+    );
+    Glean.update.canUsuallyUseBits.set(UpdateService.canUsuallyUseBits);
+  },
 };
 
 BackgroundUpdate.REASON = {
@@ -478,11 +528,28 @@ BackgroundUpdate.REASON = {
     "updates cannot usually stage and cannot usually apply",
   LANGPACK_INSTALLED:
     "app.update.langpack.enabled=true and at least one langpack is installed",
+  NO_DEFAULT_PROFILE_EXISTS: "no default profile exists",
   NOT_DEFAULT_PROFILE: "not default profile",
   NO_APP_UPDATE_AUTO: "app.update.auto=false",
   NO_APP_UPDATE_BACKGROUND_ENABLED: "app.update.background.enabled=false",
   NO_MOZ_BACKGROUNDTASKS: "MOZ_BACKGROUNDTASKS=0",
   NO_OMNIJAR: "no omnijar",
   WINDOWS_CANNOT_USUALLY_USE_BITS: "on Windows but cannot usually use BITS",
-  OTHER_INSTANCE: "other instance is running",
+};
+
+/**
+ * Specific exit codes for `--backgroundtask backgroundupdate`.
+ *
+ * These help distinguish common failure cases.  In particular, they distinguish
+ * "default profile does not exist" from "default profile cannot be locked" from
+ * more general errors reading from the default profile.
+ */
+BackgroundUpdate.EXIT_CODE = {
+  ...BackgroundTasksManager.EXIT_CODE,
+  // We clone the other exit codes simply so we can use one object for all the codes.
+  DEFAULT_PROFILE_DOES_NOT_EXIST: 11,
+  DEFAULT_PROFILE_CANNOT_BE_LOCKED: 12,
+  DEFAULT_PROFILE_CANNOT_BE_READ: 13,
+  // Another instance is running.
+  OTHER_INSTANCE: 21,
 };

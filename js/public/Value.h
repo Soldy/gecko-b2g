@@ -17,7 +17,6 @@
 
 #include <limits> /* for std::numeric_limits */
 
-#include "js-config.h"
 #include "jstypes.h"
 
 #include "js/HeapAPI.h"
@@ -1148,6 +1147,7 @@ class WrappedPtrOperations<JS::Value, Wrapper> {
   bool isMagic() const { return value().isMagic(); }
   bool isMagic(JSWhyMagic why) const { return value().isMagic(why); }
   bool isGCThing() const { return value().isGCThing(); }
+  bool isPrivateGCThing() const { return value().isPrivateGCThing(); }
   bool isPrimitive() const { return value().isPrimitive(); }
 
   bool isNullOrUndefined() const { return value().isNullOrUndefined(); }

@@ -229,16 +229,11 @@ class nsFrameLoader final : public nsStubMutationObserver,
 
   void RequestSHistoryUpdate(bool aImmediately = false);
 
-  already_AddRefed<Promise> PrintPreview(
-      nsIPrintSettings* aPrintSettings,
-      const mozilla::dom::Optional<uint64_t>& aSourceOuterWindowID,
-      mozilla::ErrorResult& aRv);
+  already_AddRefed<Promise> PrintPreview(nsIPrintSettings* aPrintSettings,
+                                         BrowsingContext* aSourceBC,
+                                         mozilla::ErrorResult& aRv);
 
   void ExitPrintPreview();
-
-  already_AddRefed<Promise> Print(uint64_t aOuterWindowID,
-                                  nsIPrintSettings* aPrintSettings,
-                                  mozilla::ErrorResult& aRv);
 
   void StartPersistence(BrowsingContext* aContext,
                         nsIWebBrowserPersistDocumentReceiver* aRecv,

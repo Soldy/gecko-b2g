@@ -60,7 +60,6 @@ const kPrefCustomizationState = "browser.uiCustomization.state";
 const kPrefCustomizationAutoAdd = "browser.uiCustomization.autoAdd";
 const kPrefCustomizationDebug = "browser.uiCustomization.debug";
 const kPrefDrawInTitlebar = "browser.tabs.drawInTitlebar";
-const kPrefExtraDragSpace = "browser.tabs.extraDragSpace";
 const kPrefUIDensity = "browser.uidensity";
 const kPrefAutoTouchMode = "browser.touchmode.auto";
 const kPrefAutoHideDownloadsButton = "browser.download.autohideButton";
@@ -196,7 +195,6 @@ var gListeners = new Set();
 var gUIStateBeforeReset = {
   uiCustomizationState: null,
   drawInTitlebar: null,
-  extraDragSpace: null,
   currentTheme: null,
   uiDensity: null,
   autoTouchMode: null,
@@ -643,13 +641,13 @@ var CustomizableUIInternal = {
       return;
     }
 
-    if (!gSavedState) {
+    let placements = gSavedState?.placements?.[CustomizableUI.AREA_NAVBAR];
+
+    if (!placements) {
       // The profile was created with this version, so no need to migrate.
       Services.prefs.setIntPref(kPrefProtonToolbarVersion, VERSION);
       return;
     }
-
-    let placements = gSavedState.placements[CustomizableUI.AREA_NAVBAR];
 
     // Remove the home button if it hasn't been used and is set to about:home
     if (currentVersion < 1) {
@@ -2344,7 +2342,9 @@ var CustomizableUIInternal = {
     }
 
     // Destroyed API widgets are in gSeenWidgets, but not in gPalette:
-    if (gSeenWidgets.has(aWidgetId)) {
+    // The Pocket button is a default API widget that acts like a custom widget.
+    // If it's not in gPalette, it doesn't exist.
+    if (gSeenWidgets.has(aWidgetId) || aWidgetId === "save-to-pocket-button") {
       return false;
     }
 
@@ -3169,9 +3169,6 @@ var CustomizableUIInternal = {
         kPrefDrawInTitlebar,
         false
       );
-      gUIStateBeforeReset.extraDragSpace = Services.prefs.getBoolPref(
-        kPrefExtraDragSpace
-      );
       gUIStateBeforeReset.uiCustomizationState = Services.prefs.getCharPref(
         kPrefCustomizationState
       );
@@ -3188,7 +3185,6 @@ var CustomizableUIInternal = {
 
     Services.prefs.clearUserPref(kPrefCustomizationState);
     Services.prefs.clearUserPref(kPrefDrawInTitlebar);
-    Services.prefs.clearUserPref(kPrefExtraDragSpace);
     Services.prefs.clearUserPref(kPrefUIDensity);
     Services.prefs.clearUserPref(kPrefAutoTouchMode);
     Services.prefs.clearUserPref(kPrefAutoHideDownloadsButton);
@@ -3253,7 +3249,6 @@ var CustomizableUIInternal = {
       uiDensity,
       autoTouchMode,
       autoHideDownloadsButton,
-      extraDragSpace,
     } = gUIStateBeforeReset;
     gNewElementCount = gUIStateBeforeReset.newElementCount;
 
@@ -3263,7 +3258,6 @@ var CustomizableUIInternal = {
 
     Services.prefs.setCharPref(kPrefCustomizationState, uiCustomizationState);
     Services.prefs.setBoolPref(kPrefDrawInTitlebar, drawInTitlebar);
-    Services.prefs.setBoolPref(kPrefExtraDragSpace, extraDragSpace);
     Services.prefs.setIntPref(kPrefUIDensity, uiDensity);
     Services.prefs.setBoolPref(kPrefAutoTouchMode, autoTouchMode);
     Services.prefs.setBoolPref(
@@ -3425,7 +3419,9 @@ var CustomizableUIInternal = {
 
   get inDefaultState() {
     for (let [areaId, props] of gAreas) {
-      let defaultPlacements = props.get("defaultPlacements");
+      let defaultPlacements = props
+        .get("defaultPlacements")
+        .filter(item => this.widgetExists(item));
       let currentPlacements = gPlacements.get(areaId);
       // We're excluding all of the placement IDs for items that do not exist,
       // and items that have removable="false",
@@ -3536,11 +3532,6 @@ var CustomizableUIInternal = {
 
     if (Services.prefs.prefHasUserValue(kPrefDrawInTitlebar)) {
       log.debug(kPrefDrawInTitlebar + " pref is non-default");
-      return false;
-    }
-
-    if (Services.prefs.prefHasUserValue(kPrefExtraDragSpace)) {
-      log.debug(kPrefExtraDragSpace + " pref is non-default");
       return false;
     }
 
@@ -4285,7 +4276,6 @@ var CustomizableUI = {
     return (
       gUIStateBeforeReset.uiCustomizationState != null ||
       gUIStateBeforeReset.drawInTitlebar != null ||
-      gUIStateBeforeReset.extraDragSpace != null ||
       gUIStateBeforeReset.currentTheme != null ||
       gUIStateBeforeReset.autoTouchMode != null ||
       gUIStateBeforeReset.uiDensity != null
@@ -4621,6 +4611,7 @@ var CustomizableUI = {
               event.altKey,
               event.shiftKey,
               event.metaKey,
+              0,
               event.sourceEvent,
               0
             );

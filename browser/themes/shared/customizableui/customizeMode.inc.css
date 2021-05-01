@@ -144,6 +144,7 @@
 }
 %endif /* defined(XP_MACOSX) || defined(XP_WIN) */
 
+@media not (-moz-proton) {
 .customizationmode-button > .box-inherit > .box-inherit > .button-icon,
 .customizationmode-button > .button-box > .button-icon {
   height: 16px;
@@ -169,6 +170,7 @@
 #customization-uidensity-button > .box-inherit > .box-inherit > .button-icon {
   background-image: url("chrome://browser/skin/customizableui/density-normal.svg");
 }
+} /*** END !proton ***/
 
 #widget-overflow-fixed-list > toolbarpaletteitem:not([notransition])[place="menu-panel"],
 toolbarpaletteitem:not([notransition])[place="toolbar"] {
@@ -214,6 +216,13 @@ toolbarpaletteitem[mousedown] > toolbaritem.toolbaritem-combined-buttons {
   transform: scale(1.1);
 }
 
+toolbarpaletteitem[mousedown] > #search-container > #searchbar,
+toolbarpaletteitem[mousedown] > #urlbar-container > #urlbar > #urlbar-background
+{
+  outline: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.13);
+}
+
 /* Override the toolkit styling for items being dragged over. */
 toolbarpaletteitem[place="toolbar"] {
   border-inline-width: 0;
@@ -243,7 +252,6 @@ toolbarpaletteitem[place="toolbar"]:not([mousedown="true"]):-moz-focusring {
   /* Delay adding the focusring back until after the transform transition completes. */
   transition: outline-width .01s linear var(--drag-drop-transition-duration);
   outline: 1px dotted;
-  -moz-outline-radius: 2.5px;
 }
 
 toolbarpaletteitem[place="toolbar"]:not([mousedown="true"]):-moz-focusring {
@@ -404,6 +412,18 @@ toolbarpaletteitem > #search-container > #searchbar > .searchbar-textbox {
 }
 
 @media (-moz-proton) {
+#customization-lwtheme-menu,
+#customization-uidensity-menu {
+  margin-inline: 0;
+}
+
+/* Builtin themes use a round gradient image that look better with a border. */
+.customization-lwtheme-menu-theme[image^="resource:"] > .toolbarbutton-icon {
+  border-radius: 100%;
+  outline: 1px solid var(--checkbox-border-color);
+  outline-offset: -0.5px;
+}
+
 .customization-lwtheme-menu-footeritem {
   font-weight: 600;
   border-radius: 4px;

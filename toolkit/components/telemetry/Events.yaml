@@ -172,7 +172,7 @@ addonsManager:
         The method used by the source to install the add-on (included when the source can use more than one,
         e.g. install events with source "about:addons" may have "install-from-file" or "url" as method),
         one of "amWebAPI", "drag-and-drop", "installTrigger", "install-from-file", "link",
-        "management-webext-api", "sideload", "url".
+        "management-webext-api", "sideload", "url", "product-updates".
       num_strings: The number of permission description strings in the extension permission doorhanger
       updated_from: Determine if an update has been requested by the user or the application ("app" / "user")
       step: >
@@ -198,6 +198,11 @@ addonsManager:
     extra_keys:
       addon_id: >
         A string which identifies the add-on. This value might be trimmed.
+      taar_based: >
+        This extra key is only set for install flows related to the discovery
+        addon. When available it is going to be a string set to "1" for
+        TAAR based recommendations, "0" for manually curated and unset if
+        not relevant for the particular install flow.
       utm_campaign: >
         The specific product promotion or strategic campaign that drives
         traffic to the install page.
@@ -213,7 +218,7 @@ addonsManager:
     products:
       - "firefox"
     record_in_processes: ["main"]
-    bug_numbers: [1653020]
+    bug_numbers: [1653020, 1699225]
     release_channel_collection: opt-out
   manage:
     description: >
@@ -274,13 +279,19 @@ addonsManager:
         "recent" or "available".
       source: The source of the installation for an add-on.
       addonId: The id of the add-on being acted upon.
+      taar_enabled: >
+        This extra key is only set for the "discover" view and "list" view when
+        type is "extension".
+        When available it is going to be a string set to "1" if the
+        TAAR based discovery was enabled, "0" if it was disabled and unset if
+        not relevant for the particular view.
     notification_emails: ["addons-dev-internal@mozilla.com"]
     expiry_version: "92"
     products:
       - "firefox"
       - "fennec"
     record_in_processes: ["main"]
-    bug_numbers: [1500147, 1590736, 1630596, 1672570]
+    bug_numbers: [1500147, 1590736, 1630596, 1672570, 1699225]
     release_channel_collection: opt-out
   action:
     description: >
@@ -303,13 +314,18 @@ addonsManager:
       view: >
         The view for the event when object is aboutAddons, or the specific doorhanger when object is doorhanger.
       addonId: The id of the add-on being acted upon.
+      taar_based: >
+        This extra key is only set for the "installFromRecommendation" action.
+        When available it is going to be a string set to "1" for
+        TAAR based recommendations, "0" for manually curated and unset if
+        not relevant for the particular action.
     notification_emails: ["addons-dev-internal@mozilla.com"]
     expiry_version: "92"
     products:
       - "firefox"
       - "fennec"
     record_in_processes: ["main"]
-    bug_numbers: [1500147, 1513344, 1529347, 1546248, 1590736, 1630596, 1672570]
+    bug_numbers: [1500147, 1513344, 1529347, 1546248, 1590736, 1630596, 1672570, 1699225]
     release_channel_collection: opt-out
   report:
     description: >
@@ -536,6 +552,33 @@ navigation:
     extra_keys:
       engine: The id of the search engine used.
 
+upgrade_dialog:
+  content:
+    objects: ["show", "close", "button", "theme"]
+    bug_numbers: [1697222]
+    description: >
+      Content page behaviors of the upgrade dialog. Value for each object
+      indicates a custom interaction.
+        show: displayed screen index or button string id
+        close: dismissed reason string
+        button: clicked string id (upgradeDialog.ftl -button)
+        theme: clicked theme index
+    expiry_version: never
+    notification_emails: ["edilee@mozilla.com"]
+    products: ["firefox"]
+    record_in_processes: ["main"]
+    release_channel_collection: opt-out
+  trigger:
+    objects: ["reason"]
+    bug_numbers: [1697222]
+    description: >
+      Triggering behaviors of the upgrade dialog. Value indicates which condition failed or all satisfied.
+    expiry_version: never
+    notification_emails: ["edilee@mozilla.com"]
+    products: ["firefox"]
+    record_in_processes: ["main"]
+    release_channel_collection: opt-out
+
 urlbar:
   engagement:
     objects: ["click", "enter", "paste_go", "drop_go"]
@@ -625,6 +668,7 @@ normandy:
       addonId: The ID of the addon for the rollout when reason=conflict.
       conflictingSlug: The slug for the conflicting rollout.
       enrollmentId: The enrollment ID of the conflicting rollout.
+      prefBranch: For preference_study when reason=invalid-branch, the branch that was invalid.
     bug_numbers: [1443560]
     notification_emails: ["normandy-notifications@mozilla.com"]
     products:
@@ -761,6 +805,28 @@ normandy:
     extra_keys:
       branchSlug: The slug for the branch the user is enrolled in.
       featureId: The type of experiment variant the user was enrolled into.
+
+  expPrefChanged:
+    objects: ["preference_study"]
+    methods: ["expPrefChanged"]
+    release_channel_collection: opt-out
+    products:
+      - "firefox"
+    record_in_processes: [main]
+    description: >
+      This records that a preference that was set by an experiment has been
+      changed away from its experimental value. This can be triggered by a
+      user changing a preference at runtime, by the preference being changed
+      on disk when Firefox is not running, or by the preference already
+      having a user-set value when a user has enrolls in a default branch
+      experiment.
+    bug_numbers: [1698684]
+    notification_emails: ["mcooper@mozilla.com"]
+    expiry_version: never
+    extra_keys:
+      preferenceName: The preference that changed
+      reason: The way that the preference change was detected ("observer", "sideload", or "onEnroll")
+      enrollmentId: A unique ID for this enrollment that will be included in all related Telemetry.
 
 pwmgr:
   open_management:

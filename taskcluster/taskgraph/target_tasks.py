@@ -267,6 +267,13 @@ def accept_raptor_android_build(platform):
         return True
 
 
+def filter_unsupported_artifact_builds(task, parameters):
+    val = task.attributes.get("supports-artifact-builds") is False and parameters[
+        "try_task_config"
+    ].get("use-artifact-builds", True)
+    return not val
+
+
 def _try_task_config(full_task_graph, parameters, graph_config):
     requested_tasks = parameters["try_task_config"]["tasks"]
     return list(set(requested_tasks) & full_task_graph.graph.nodes)
@@ -281,7 +288,9 @@ def _try_option_syntax(full_task_graph, parameters, graph_config):
     target_tasks_labels = [
         t.label
         for t in six.itervalues(full_task_graph.tasks)
-        if options.task_matches(t) and filter_by_uncommon_try_tasks(t.label)
+        if options.task_matches(t)
+        and filter_by_uncommon_try_tasks(t.label)
+        and filter_unsupported_artifact_builds(t, parameters)
     ]
 
     attributes = {
@@ -413,6 +422,7 @@ def target_tasks_try_auto(full_task_graph, parameters, graph_config):
         and filter_by_uncommon_try_tasks(t.label)
         and filter_by_regex(t.label, include_regexes, mode="include")
         and filter_by_regex(t.label, exclude_regexes, mode="exclude")
+        and filter_unsupported_artifact_builds(t, parameters)
     ]
 
 
@@ -789,17 +799,17 @@ def target_tasks_live_site_perf_testing(full_task_graph, parameters, graph_confi
         if "android" in platform:
             if not accept_raptor_android_build(platform):
                 return False
-            elif "-wr" not in try_name:
+            elif "-qr" not in platform:
                 return False
             elif "fenix" not in try_name:
                 return False
 
         # desktop
-        if "windows7" in platform:
+        if "windows7" in platform or "windows10-32" in platform:
             return False
 
         for test in LIVE_SITES:
-            if re.search(test + r"(-fis|-wr)?$", try_name):
+            if re.search(test + r"(-fis)?$", try_name):
                 # These tests run 3 times a week, ignore them
                 return False
         return True
@@ -828,11 +838,7 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
 
         def _run_live_site():
             for test in LIVE_SITES:
-                if try_name.endswith(test + "-wr") or try_name.endswith(
-                    test + "-wr-e10s"
-                ):
-                    return True
-                elif try_name.endswith(test) or try_name.endswith(test + "-e10s"):
+                if try_name.endswith(test) or try_name.endswith(test + "-e10s"):
                     return True
             return False
 
@@ -841,7 +847,7 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
             return False
 
         # ignore all windows 7 perf jobs scheduled automatically
-        if "windows7" in platform:
+        if "windows7" in platform or "windows10-32":
             return False
 
         # Desktop selection
@@ -849,12 +855,16 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
             # Select some browsertime tasks as desktop smoke-tests
             if "browsertime" in try_name:
                 if "chrome" in try_name:
+                    # See bug 1704092
+                    if "tp6" in try_name and "macosx" in platform:
+                        return False
                     return True
                 if "chromium" in try_name:
+                    # See bug 1704092
+                    if "tp6" in try_name and "macosx" in platform:
+                        return False
                     return True
                 if "-fis" in try_name:
-                    return False
-                if "-wr" in try_name:
                     return False
                 if "linux" in platform:
                     if "speedometer" in try_name:
@@ -863,18 +873,13 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 # Don't run tp6 raptor tests
                 if "tp6" in try_name:
                     return False
-                # Run raptor-webext benchmark tests on chrome/chromium
-                if "-chrome" in try_name:
-                    return True
-                if "-chromium" in try_name:
-                    return True
         # Android selection
         elif accept_raptor_android_build(platform):
             # Ignore all fennec tests here, we run those weekly
             if "fennec" in try_name:
                 return False
             # Only run webrender tests
-            if "chrome-m" not in try_name and "-wr" not in try_name:
+            if "chrome-m" not in try_name and "-qr" not in platform:
                 return False
             # Select live site tests
             if "-live" in try_name and ("fenix" in try_name or "chrome-m" in try_name):
@@ -1040,6 +1045,13 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
 def target_tasks_coverity_full(full_task_graph, parameters, graph_config):
     """Select tasks required to run Coverity Static Analysis"""
     return ["source-test-coverity-coverity-full-analysis"]
+
+
+# Run build linux64-plain-clang-trunk/opt on mozilla-central/release
+@_target_task("linux64_bp_clang_trunk")
+def target_tasks_build_linux64_clang_trunk(full_task_graph, parameters, graph_config):
+    """Select tasks required to run the build of linux64 build plain with clang trunk"""
+    return ["build-linux64-plain-clang-trunk/opt"]
 
 
 # Run Updatebot's cron job 4 times daily.

@@ -48,10 +48,6 @@
   display: none;
 }
 
-.popup-notification-learnmore-link {
-  margin-top: .5em !important;
-}
-
 .popup-notification-button-container {
   display: flex;
 }
@@ -70,6 +66,7 @@
 
 .popup-notification-button {
   flex: 1;
+  margin-bottom: 0;
 }
 
 .popup-notification-primary-button {
@@ -84,6 +81,10 @@
 .popup-notification-dropmarker {
   flex: none;
   padding: 0 15px !important;
+}
+
+.popup-notification-learnmore-link {
+  margin-top: .5em !important;
 }
 } /** END not Proton **/
 
@@ -153,6 +154,7 @@ popupnotification {
 }
 
 .panel-footer.panel-footer-menulike > button > .button-box {
+  padding: 0;
   display: inline;
 }
 
@@ -223,6 +225,10 @@ popupnotification {
   flex: unset;
 }
 
+.popup-notification-secondary-button[hidden="true"] ~ .popup-notification-primary-button {
+  flex: none;
+}
+
 .panel-footer > .popup-notification-secondary-button:not([dropmarkerhidden="true"]) {
   border-start-end-radius: 0;
   border-end-end-radius: 0;
@@ -249,5 +255,6 @@ popupnotification {
 
 .popup-notification-learnmore-link {
   text-decoration: underline;
+  margin-block: 0 8px;
 }
 } /*** END proton ***/

@@ -31,7 +31,7 @@ SpeakerManager::SpeakerManager(SpeakerPolicy aPolicy)
       mAudioChannelActive(false),
       mPolicy(aPolicy) {}
 
-SpeakerManager::~SpeakerManager() {
+void SpeakerManager::Shutdown() {
   SpeakerManagerService* service =
       SpeakerManagerService::GetOrCreateSpeakerManagerService();
   MOZ_ASSERT(service);

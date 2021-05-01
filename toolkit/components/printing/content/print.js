@@ -163,16 +163,22 @@ var PrintEventHandler = {
     // is initiated and the print preview clone must be a snapshot from the
     // time that the print was started.
     let sourceBrowsingContext = this.getSourceBrowsingContext();
+
+    let args = window.arguments[0];
+    this.printFrameOnly = args.getProperty("printFrameOnly");
+
     ({
       previewBrowser: this.previewBrowser,
       selectionPreviewBrowser: this.selectionPreviewBrowser,
-    } = PrintUtils.createPreviewBrowsers(sourceBrowsingContext, ourBrowser));
+    } = PrintUtils.createPreviewBrowsers(
+      sourceBrowsingContext,
+      ourBrowser,
+      this.printFrameOnly
+    ));
 
-    let args = window.arguments[0];
     this.printSelectionOnly = args.getProperty("printSelectionOnly");
     this.hasSelection =
       args.getProperty("hasSelection") && this.selectionPreviewBrowser;
-    this.printFrameOnly = args.getProperty("printFrameOnly");
     // Get the temporary browser that will previously have been created for the
     // platform code to generate the static clone printing doc into if this
     // print is for a window.print() call.  In that case we steal the browser's
@@ -195,12 +201,10 @@ var PrintEventHandler = {
     this.originalSourceCurrentURI =
       sourceBrowsingContext.currentWindowContext.documentURI.spec;
 
-    this.sourceWindowId = this.printFrameOnly
-      ? sourceBrowsingContext.currentWindowGlobal.outerWindowId
-      : sourceBrowsingContext.top.embedderElement.browsingContext
-          .currentWindowGlobal.outerWindowId;
-    this.selectionWindowId =
-      sourceBrowsingContext.currentWindowGlobal.outerWindowId;
+    this.nonSelectionBrowsingContextId = this.printFrameOnly
+      ? sourceBrowsingContext.id
+      : sourceBrowsingContext.top.id;
+    this.selectionBrowsingContextId = sourceBrowsingContext.id;
 
     // We don't need the sourceBrowsingContext anymore, get rid of it.
     sourceBrowsingContext = undefined;
@@ -419,8 +423,26 @@ var PrintEventHandler = {
       Cu.reportError(e);
     }
 
+    if (settings.printerName == PrintUtils.SAVE_TO_PDF_PRINTER) {
+      // Clear the file name from the preference value since it may potentially
+      // contain sensitive information from the page title (Bug 1675965)
+      let prefName =
+        "print.printer_" +
+        settings.printerName.replace(/ /g, "_") +
+        ".print_to_filename";
+      Services.prefs.clearUserPref(prefName);
+    }
+
     window.close();
     return true;
+  },
+
+  /**
+   * Prints the window. This method has been abstracted into a helper for
+   * testing purposes.
+   */
+  _doPrint(aBrowsingContext, aSettings) {
+    return aBrowsingContext.print(aSettings);
   },
 
   cancelPrint() {
@@ -775,14 +797,14 @@ var PrintEventHandler = {
 
     this._showRenderingIndicator();
 
-    let sourceWinId;
+    let sourceBCId;
 
     // If it's the first time loading this type of browser, get the stored window id.
     if (printSelectionOnly && !this._hasRenderedSelectionPreview) {
-      sourceWinId = this.selectionWindowId;
+      sourceBCId = this.selectionBrowsingContextId;
       this._hasRenderedSelectionPreview = true;
     } else if (!printSelectionOnly && !this._hasRenderedPrimaryPreview) {
-      sourceWinId = this.sourceWindowId;
+      sourceBCId = this.nonSelectionBrowsingContextId;
       this._hasRenderedPrimaryPreview = true;
     }
 
@@ -817,7 +839,7 @@ var PrintEventHandler = {
         isEmpty,
       } = await this.currentPreviewBrowser.frameLoader.printPreview(
         settings,
-        sourceWinId
+        sourceBCId ? BrowsingContext.get(sourceBCId) : null
       ));
     } catch (e) {
       this.reportPrintingError("PRINT_PREVIEW");
@@ -1024,17 +1046,6 @@ var PrintEventHandler = {
 
   reportPrintingError(aMessage) {
     Services.telemetry.keyedScalarAdd("printing.error", aMessage, 1);
-  },
-
-  /**
-   * Prints the window. This method has been abstracted into a helper for
-   * testing purposes.
-   */
-  _doPrint(aBrowsingContext, aSettings) {
-    return aBrowsingContext.top.embedderElement.print(
-      aBrowsingContext.currentWindowGlobal.outerWindowId,
-      aSettings
-    );
   },
 
   /**

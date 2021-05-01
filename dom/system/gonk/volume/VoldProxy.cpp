@@ -11,6 +11,8 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "VoldProxy.h"
 #include "VolumeManager.h"
+#include "nsXULAppAPI.h"
+#include "base/task.h"
 
 #undef USE_DEBUG
 #define USE_DEBUG 0
@@ -113,8 +115,20 @@ android::binder::Status VoldListener::onVolumeCreated(
   return android::binder::Status::ok();
 }
 
+// Because VoldListener doesn't inherit nsISupport interface, we cannot just
+// use NewRunnableMethod to wrapp the function
+void redirectVolumeStateChanged(const ::std::string& volId, int32_t state) {
+  VoldListener::CreateInstance()->onVolumeStateChanged(volId, state);
+}
+
 android::binder::Status VoldListener::onVolumeStateChanged(
     const ::std::string& volId, int32_t state) {
+  if (MessageLoop::current() != XRE_GetIOMessageLoop()) {
+    XRE_GetIOMessageLoop()->PostTask(
+        NewRunnableFunction("onVolumeStateChanged::iothread", redirectVolumeStateChanged, volId, state));
+    return android::binder::Status::ok();
+  }
+
   MutexAutoLock lock(sLock);
   DBG("%s, volId: %s, state: %d\n", __func__, volId.c_str(), state);
 

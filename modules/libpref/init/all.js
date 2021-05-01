@@ -77,7 +77,11 @@ pref("security.enterprise_roots.enabled", false);
 // background thread. This module allows Firefox to use client certificates
 // stored in OS certificate storage. Currently only available for Windows and
 // macOS.
-pref("security.osclientcerts.autoload", true);
+#ifdef EARLY_BETA_OR_EARLIER
+  pref("security.osclientcerts.autoload", true);
+#else
+  pref("security.osclientcerts.autoload", false);
+#endif
 
 // The supported values of this pref are:
 // 0: do not fetch OCSP
@@ -625,10 +629,6 @@ pref("gfx.font_rendering.graphite.enabled", true);
   pref("gfx.webrender.triple-buffering.enabled", true);
 #endif
 
-#if defined(XP_WIN) || defined(MOZ_WIDGET_ANDROID)
-  pref("gfx.webrender.program-binary-disk", true);
-#endif
-
 // WebRender debugging utilities.
 pref("gfx.webrender.debug.texture-cache", false);
 pref("gfx.webrender.debug.texture-cache.clear-evicted", true);
@@ -1105,13 +1105,6 @@ pref("javascript.options.wasm_trustedprincipals", true);
 pref("javascript.options.wasm_verbose",           false);
 pref("javascript.options.wasm_baselinejit",       true);
 
-#ifdef ENABLE_WASM_REFTYPES
-  pref("javascript.options.wasm_reftypes",        true);
-  pref("javascript.options.wasm_gc",              false);
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-  pref("javascript.options.wasm_multi_value",     true);
-#endif
 pref("javascript.options.parallel_parsing", true);
 pref("javascript.options.source_pragmas",    true);
 
@@ -1204,7 +1197,6 @@ pref("javascript.options.dump_stack_on_debuggee_would_run", false);
 pref("javascript.options.dynamicImport", true);
 
 // advanced prefs
-pref("advanced.mailftp",                    false);
 pref("image.animation_mode",                "normal");
 
 // If this pref is true, prefs in the logging.config branch will be cleared on
@@ -1501,14 +1493,6 @@ pref("network.http.send_window_size", 1024);
 // There is also image.http.accept which works in scope of image.
 pref("network.http.accept", "");
 
-// default values for FTP
-// in a DSCP environment this should be 40 (0x28, or AF11), per RFC-4594,
-// Section 4.8 "High-Throughput Data Service Class", and 80 (0x50, or AF22)
-// per Section 4.7 "Low-Latency Data Service Class".
-pref("network.ftp.data.qos", 0);
-pref("network.ftp.control.qos", 0);
-pref("network.ftp.enabled", false);
-
 // The max time to spend on xpcom events between two polls in ms.
 pref("network.sts.max_time_for_events_between_two_polls", 100);
 
@@ -1772,9 +1756,6 @@ pref("network.dns.offline-localhost", true);
 // A negative value will keep the thread alive forever.
 pref("network.dns.resolver-thread-extra-idle-time-seconds", 60);
 
-// Idle timeout for ftp control connections - 5 minute default
-pref("network.ftp.idleConnectionTimeout", 300);
-
 // enables the prefetch service (i.e., prefetching of <link rel="next"> and
 // <link rel="prefetch"> URLs).
 pref("network.prefetch-next", true);
@@ -1897,8 +1878,6 @@ pref("network.http.tailing.total-max", 45000);
 // Enable or disable the whole fix from bug 1563538
 pref("network.http.spdy.bug1563538", true);
 
-pref("network.proxy.ftp",                   "");
-pref("network.proxy.ftp_port",              0);
 pref("network.proxy.http",                  "");
 pref("network.proxy.http_port",             0);
 pref("network.proxy.ssl",                   "");
@@ -2538,10 +2517,6 @@ pref("browser.tabs.remote.autostart", false);
 // Whether certain properties from origin attributes should be included as part
 // of remote types. Only in effect when fission is enabled.
 pref("browser.tabs.remote.useOriginAttributesInRemoteType", true);
-
-// Pref to control whether we use separate content processes for top-level load
-// of file:// URIs.
-pref("browser.tabs.remote.separateFileUriProcess", true);
 
 // Pref to control whether we put all data: uri's in the default
 // web process when running with fission.
@@ -3692,7 +3667,7 @@ pref("signon.storeWhenAutocompleteOff",     true);
 pref("signon.userInputRequiredToCapture.enabled", true);
 pref("signon.debug",                        false);
 pref("signon.recipes.path", "resource://app/defaults/settings/main/password-recipes.json");
-pref("signon.recipes.remoteRecipesEnabled", true);
+pref("signon.recipes.remoteRecipes.enabled", true);
 pref("signon.relatedRealms.enabled", false);
 
 pref("signon.schemeUpgrades",                     true);
@@ -4015,9 +3990,6 @@ pref("network.trr.custom_uri", "");
 // Before TRR is widely used the NS record for this host is fetched
 // from the DOH end point to ensure proper configuration
 pref("network.trr.confirmationNS", "example.com");
-// hardcode the resolution of the hostname in network.trr.uri instead of
-// relying on the system resolver to do it for you
-pref("network.trr.bootstrapAddress", "");
 // TRR blacklist entry expire time (in seconds). Default is one minute.
 // Meant to survive basically a page load.
 pref("network.trr.blacklist-duration", 60);
@@ -4281,9 +4253,6 @@ pref("narrate.filter-voices", true);
 pref("dom.audiochannel.mutedByDefault", false);
 
 pref("memory.report_concurrency", 10);
-
-// Add Mozilla AudioChannel APIs.
-pref("media.useAudioChannelAPI", false);
 
 pref("toolkit.pageThumbs.screenSizeDivisor", 7);
 pref("toolkit.pageThumbs.minWidth", 0);
@@ -4652,3 +4621,33 @@ pref("security.external_protocol_requires_permission", true);
 #ifdef XP_WIN
   pref("browser.enableAboutThirdParty", false);
 #endif
+
+// Preferences for the form autofill toolkit component.
+// The truthy values of "extensions.formautofill.available" are "on" and "detect",
+// any other value means autofill isn't available.
+// "detect" means it's enabled if conditions defined in the extension are met.
+pref("extensions.formautofill.available", "detect");
+pref("extensions.formautofill.addresses.enabled", true);
+pref("extensions.formautofill.addresses.capture.enabled", false);
+pref("extensions.formautofill.creditCards.available", true);
+pref("extensions.formautofill.creditCards.enabled", true);
+// Temporary preference to control displaying the UI elements for
+// credit card autofill used for the duration of the A/B test.
+pref("extensions.formautofill.creditCards.hideui", false);
+// Pref for shield/heartbeat to recognize users who have used Credit Card
+// Autofill. The valid values can be:
+// 0: none
+// 1: submitted a manually-filled credit card form (but didn't see the doorhanger
+//    because of a duplicate profile in the storage)
+// 2: saw the doorhanger
+// 3: submitted an autofill'ed credit card form
+pref("extensions.formautofill.creditCards.used", 0);
+pref("extensions.formautofill.firstTimeUse", true);
+pref("extensions.formautofill.heuristics.enabled", true);
+pref("extensions.formautofill.section.enabled", true);
+pref("extensions.formautofill.loglevel", "Warn");
+
+pref("toolkit.osKeyStore.loglevel", "Warn");
+
+pref("extensions.formautofill.supportedCountries", "US,CA");
+pref("extensions.formautofill.supportRTL", false);

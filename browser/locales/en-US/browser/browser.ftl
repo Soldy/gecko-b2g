@@ -160,12 +160,8 @@ urlbar-star-add-bookmark =
 
 ## Page Action Context Menu
 
-page-action-add-to-urlbar =
-    .label = Add to Address Bar
 page-action-manage-extension =
     .label = Manage Extension…
-page-action-remove-from-urlbar =
-    .label = Remove from Address Bar
 page-action-remove-extension =
     .label = Remove Extension
 
@@ -295,6 +291,13 @@ bookmark-panel =
 
 ## Identity Panel
 
+# Variables
+#  $host (String): the hostname of the site that is being displayed.
+identity-site-information = Site information for { $host }
+# Variables
+#  $host (String): the hostname of the site that is being displayed.
+identity-header-security-with-host =
+    .title = Connection security for { $host }
 identity-connection-not-secure = Connection not secure
 identity-connection-secure = Connection secure
 identity-connection-internal = This is a secure { -brand-short-name } page.
@@ -321,10 +324,11 @@ identity-https-only-info-no-upgrade = Unable to upgrade connection from HTTP.
 
 identity-permissions-storage-access-header = Cross-site cookies
 identity-permissions-storage-access-hint = These parties can use cross-site cookies and site data while you are on this site.
+identity-permissions-storage-access-learn-more = Learn more
 
 identity-permissions-reload-hint = You may need to reload the page for changes to apply.
 identity-clear-site-data =
-    .label = Clear Cookies and Site Data…
+    .label = Clear cookies and site data…
 identity-connection-not-secure-security-view = You are not securely connected to this site.
 identity-connection-verified = You are securely connected to this site.
 identity-ev-owner-label = Certificate issued to:

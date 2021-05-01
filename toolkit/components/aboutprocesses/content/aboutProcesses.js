@@ -398,49 +398,89 @@ var State = {
 };
 
 var View = {
-  _fragment: document.createDocumentFragment(),
   // Processes, tabs and subframes that we killed during the previous iteration.
   // Array<{pid:Number} | {windowId:Number}>
   _killedRecently: [],
-  async commit() {
+  commit() {
     this._killedRecently.length = 0;
     let tbody = document.getElementById("process-tbody");
 
-    // Force translation to happen before we insert the new content in the DOM
-    // to avoid flicker when resizing.
-    await document.l10n.translateFragment(this._fragment);
-
-    // Pause the DOMLocalization mutation observer, or the already translated
-    // content will be translated a second time at the next tick.
-    document.l10n.pauseObserving();
-    while (tbody.firstChild) {
-      tbody.firstChild.remove();
+    let insertPoint = tbody.firstChild;
+    let nextRow;
+    while ((nextRow = this._orderedRows.shift())) {
+      if (insertPoint && insertPoint === nextRow) {
+        insertPoint = insertPoint.nextSibling;
+      } else {
+        tbody.insertBefore(nextRow, insertPoint);
+      }
     }
-    tbody.appendChild(this._fragment);
-    document.l10n.resumeObserving();
 
-    this._fragment = document.createDocumentFragment();
+    if (insertPoint) {
+      while ((nextRow = insertPoint.nextSibling)) {
+        this._removeRow(nextRow);
+      }
+      this._removeRow(insertPoint);
+    }
+  },
+  // If we are not going to display the updated list of rows, drop references
+  // to rows that haven't been inserted in the DOM tree.
+  discardUpdate() {
+    for (let row of this._orderedRows) {
+      if (!row.parentNode) {
+        this._rowsById.delete(row.rowId);
+      }
+    }
+    this._orderedRows = [];
   },
   insertAfterRow(row) {
-    row.parentNode.insertBefore(this._fragment, row.nextSibling);
-    this._fragment = document.createDocumentFragment();
+    let tbody = row.parentNode;
+    let nextRow;
+    while ((nextRow = this._orderedRows.shift())) {
+      tbody.insertBefore(nextRow, row.nextSibling);
+    }
+  },
+
+  _rowsById: new Map(),
+  _removeRow(row) {
+    this._rowsById.delete(row.rowId);
+
+    row.remove();
+  },
+  _getOrCreateRow(rowId, cellCount) {
+    let row = this._rowsById.get(rowId);
+    if (!row) {
+      row = document.createElement("tr");
+      while (cellCount--) {
+        row.appendChild(document.createElement("td"));
+      }
+      row.rowId = rowId;
+      this._rowsById.set(rowId, row);
+    }
+    this._orderedRows.push(row);
+    return row;
   },
 
   /**
-   * Append a row showing a single process (without its threads).
+   * Display a row showing a single process (without its threads).
    *
    * @param {ProcessDelta} data The data to display.
    * @return {DOMElement} The row displaying the process.
    */
-  appendProcessRow(data, units) {
-    let row = document.createElement("tr");
-    row.classList.add("process");
-
-    if (data.isHung) {
-      row.classList.add("hung");
+  displayProcessRow(data, units) {
+    const cellCount = 4;
+    let rowId = "p:" + data.pid;
+    let row = this._getOrCreateRow(rowId, cellCount);
+    row.process = data;
+    {
+      let classNames = "process";
+      if (data.isHung) {
+        classNames += " hung";
+      }
+      row.className = classNames;
     }
 
     // Column: Name
+    let nameCell = row.firstChild;
     {
       let fluentName;
       let classNames = [];
@@ -505,7 +545,7 @@ var View = {
           fluentName = "about-processes-unknown-process-name";
           break;
       }
-      let elt = this._addCell(row, {
+      this._fillCell(nameCell, {
         fluentName,
         fluentArgs: {
           pid: "" + data.pid, // Make sure that this number is not localized
@@ -551,15 +591,16 @@ var View = {
             image = "chrome://browser/skin/link.svg";
           }
       }
-      elt.style.backgroundImage = `url('${image}')`;
+      nameCell.style.backgroundImage = `url('${image}')`;
     }
 
-    // Column: Resident size
+    // Column: Memory
+    let memoryCell = nameCell.nextSibling;
     {
       let formattedTotal = this._formatMemory(data.totalRamSize);
       if (data.deltaRamSize) {
         let formattedDelta = this._formatMemory(data.deltaRamSize);
-        this._addCell(row, {
+        this._fillCell(memoryCell, {
           fluentName: "about-processes-total-memory-size",
           fluentArgs: {
             total: formattedTotal.amount,
@@ -571,7 +612,7 @@ var View = {
           classes: ["memory"],
         });
       } else {
-        this._addCell(row, {
+        this._fillCell(memoryCell, {
           fluentName: "about-processes-total-memory-size-no-change",
           fluentArgs: {
             total: formattedTotal.amount,
@@ -583,8 +624,9 @@ var View = {
     }
 
     // Column: CPU: User and Kernel
+    let cpuCell = memoryCell.nextSibling;
     if (data.slopeCpu == null) {
-      this._addCell(row, {
+      this._fillCell(cpuCell, {
         fluentName: "about-processes-cpu-user-and-kernel-not-ready",
         classes: ["cpu"],
       });
@@ -592,7 +634,7 @@ var View = {
       let { duration, unit } = this._getDuration(data.totalCpu);
       let localizedUnit = units.duration[unit];
       if (data.slopeCpu == 0) {
-        this._addCell(row, {
+        this._fillCell(cpuCell, {
           fluentName: "about-processes-cpu-user-and-kernel-idle",
           fluentArgs: {
             total: duration,
@@ -601,7 +643,7 @@ var View = {
           classes: ["cpu"],
         });
       } else {
-        this._addCell(row, {
+        this._fillCell(cpuCell, {
           fluentName: "about-processes-cpu-user-and-kernel",
           fluentArgs: {
             percent: data.slopeCpu,
@@ -614,10 +656,8 @@ var View = {
     }
 
     // Column: Kill button – but not for all processes.
-    let killButton = this._addCell(row, {
-      content: "",
-      classes: ["action-icon"],
-    });
+    let killButton = cpuCell.nextSibling;
+    killButton.className = "action-icon";
 
     if (["web", "webIsolated", "webLargeAllocation"].includes(data.type)) {
       // This type of process can be killed.
@@ -641,44 +681,62 @@ var View = {
       }
     }
 
-    this._fragment.appendChild(row);
     return row;
   },
 
-  appendThreadSummaryRow(data, isOpen) {
-    let row = document.createElement("tr");
-    row.classList.add("thread-summary");
+  /**
+   * Display a thread summary row with the thread count and a twisty to
+   * open/close the list.
+   *
+   * @param {ProcessDelta} data The data to display.
+   * @return {boolean} Whether the full thread list should be displayed.
+   */
+  displayThreadSummaryRow(data) {
+    const cellCount = 2;
+    let rowId = "ts:" + data.pid;
+    let row = this._getOrCreateRow(rowId, cellCount);
+    row.process = data;
+    row.className = "thread-summary";
+    let isOpen = false;
 
     // Column: Name
-    let elt = this._addCell(row, {
-      fluentName: "about-processes-thread-summary",
-      fluentArgs: { number: data.threads.length },
-      classes: ["name", "indent"],
-    });
-    if (data.threads.length) {
+    let nameCell = row.firstChild;
+    let fluentName = "about-processes-thread-summary";
+    let fluentArgs = { number: data.threads.length };
+    if (!nameCell.firstChild) {
+      // Create the nodes
+      this._fillCell(nameCell, {
+        fluentName,
+        fluentArgs,
+        classes: ["name", "indent"],
+      });
       let img = document.createElement("span");
       img.classList.add("twisty");
-      if (data.isOpen) {
-        img.classList.add("open");
-      }
-      elt.insertBefore(img, elt.firstChild);
+      nameCell.insertBefore(img, nameCell.firstChild);
+    } else {
+      // The only thing that can change is the thread count.
+      let img = nameCell.firstChild;
+      isOpen = img.classList.contains("open");
+      let span = img.nextSibling;
+      document.l10n.setAttributes(span, fluentName, fluentArgs);
     }
 
     // Column: action
-    this._addCell(row, {
-      content: "",
-      classes: ["action-icon"],
-    });
+    let actionCell = nameCell.nextSibling;
+    actionCell.className = "action-icon";
 
-    this._fragment.appendChild(row);
-    return row;
+    return isOpen;
   },
 
-  appendDOMWindowRow(data, parent) {
-    let row = document.createElement("tr");
-    row.classList.add("window");
+  displayDOMWindowRow(data, parent) {
+    const cellCount = 2;
+    let rowId = "w:" + data.outerWindowId;
+    let row = this._getOrCreateRow(rowId, cellCount);
+    row.win = data;
+    row.className = "window";
 
     // Column: filename
+    let nameCell = row.firstChild;
     let tab = tabFinder.get(data.outerWindowId);
     let fluentName;
     let name;
@@ -710,7 +768,7 @@ var View = {
       name = data.prePath;
       className = "frame-many";
     }
-    let elt = this._addCell(row, {
+    this._fillCell(nameCell, {
       fluentName,
       fluentArgs: {
         name,
@@ -725,14 +783,12 @@ var View = {
     });
     let image = tab?.tab.getAttribute("image");
     if (image) {
-      elt.style.backgroundImage = `url('${image}')`;
+      nameCell.style.backgroundImage = `url('${image}')`;
     }
 
     // Column: action
-    let killButton = this._addCell(row, {
-      content: "",
-      classes: ["action-icon"],
-    });
+    let killButton = nameCell.nextSibling;
+    killButton.className = "action-icon";
 
     if (data.tab && data.tab.tabbrowser) {
       // A tab. We want to be able to close it.
@@ -756,22 +812,23 @@ var View = {
         document.l10n.setAttributes(killButton, "about-processes-shutdown-tab");
       }
     }
-    this._fragment.appendChild(row);
-    return row;
   },
 
   /**
-   * Append a row showing a single thread.
+   * Display a row showing a single thread.
    *
    * @param {ThreadDelta} data The data to display.
-   * @return {DOMElement} The row displaying the thread.
    */
-  appendThreadRow(data, units) {
-    let row = document.createElement("tr");
-    row.classList.add("thread");
+  displayThreadRow(data, units) {
+    const cellCount = 3;
+    let rowId = "t:" + data.tid;
+    let row = this._getOrCreateRow(rowId, cellCount);
+    row.thread = data;
+    row.className = "thread";
 
     // Column: filename
-    this._addCell(row, {
+    let nameCell = row.firstChild;
+    this._fillCell(nameCell, {
       fluentName: "about-processes-thread-name",
       fluentArgs: {
         name: data.name,
@@ -781,8 +838,9 @@ var View = {
     });
 
     // Column: CPU: User and Kernel
+    let cpuCell = nameCell.nextSibling;
     if (data.slopeCpu == null) {
-      this._addCell(row, {
+      this._fillCell(cpuCell, {
         fluentName: "about-processes-cpu-user-and-kernel-not-ready",
         classes: ["cpu"],
       });
@@ -790,7 +848,7 @@ var View = {
       let { duration, unit } = this._getDuration(data.totalCpu);
       let localizedUnit = units.duration[unit];
       if (data.slopeCpu == 0) {
-        this._addCell(row, {
+        this._fillCell(cpuCell, {
           fluentName: "about-processes-cpu-user-and-kernel-idle",
           fluentArgs: {
             total: duration,
@@ -799,7 +857,7 @@ var View = {
           classes: ["cpu"],
         });
       } else {
-        this._addCell(row, {
+        this._fillCell(cpuCell, {
           fluentName: "about-processes-cpu-user-and-kernel",
           fluentArgs: {
             percent: data.slopeCpu,
@@ -811,29 +869,18 @@ var View = {
       }
     }
 
-    // Column: Buttons (empty)
-    this._addCell(row, {
-      content: "",
-      classes: [],
-    });
-
-    this._fragment.appendChild(row);
-    return row;
+    // Third column (Buttons) is empty, nothing to do.
   },
 
-  _addCell(row, { content, classes, fluentName, fluentArgs }) {
-    let elt = document.createElement("td");
-    if (fluentName) {
-      let span = document.createElement("span");
-      document.l10n.setAttributes(span, fluentName, fluentArgs);
+  _orderedRows: [],
+  _fillCell(elt, { classes, fluentName, fluentArgs }) {
+    let span = elt.firstChild;
+    if (!span) {
+      span = document.createElement("span");
       elt.appendChild(span);
-    } else {
-      elt.textContent = content;
-      elt.setAttribute("title", content);
     }
-    elt.classList.add(...classes);
-    row.appendChild(elt);
-    return elt;
+    document.l10n.setAttributes(span, fluentName, fluentArgs);
+    elt.className = classes.join(" ");
   },
 
   _getDuration(rawDurationNS) {
@@ -902,7 +949,6 @@ var View = {
 };
 
 var Control = {
-  _openItems: new Set(),
   // The set of all processes reported as "hung" by the process hang monitor.
   //
   // type: Set<ChildID>
@@ -914,7 +960,7 @@ var Control = {
     while (sibling && !sibling.classList.contains("process")) {
       let next = sibling.nextSibling;
       if (sibling.classList.contains("thread")) {
-        sibling.remove();
+        View._removeRow(sibling);
       }
       sibling = next;
     }
@@ -1112,38 +1158,14 @@ var Control = {
 
     await this._updateDisplay(force);
   },
-  _setRowId(row, id, selectedId) {
-    row.rowId = id;
-    if (id == selectedId) {
-      row.setAttribute("selected", "true");
-      this.selectedRow = row;
-    }
-  },
 
   // The force parameter can force a full update even when the mouse has been
   // moved recently.
   async _updateDisplay(force = false) {
-    if (
-      !force &&
-      Date.now() - this._lastMouseEvent < TIME_BEFORE_SORTING_AGAIN
-    ) {
-      return;
-    }
-
     let counters = State.getCounters();
     let units = await gPromisePrefetchedUnits;
 
-    // Reset the selectedRow field and the _openItems set each time we redraw
-    // to avoid keeping forever references to dead processes.
-    let selectedRowId;
-    if (this.selectedRow) {
-      selectedRowId = this.selectedRow.rowId;
-      this.selectedRow = null;
-    }
-    let openItems = this._openItems;
-    this._openItems = new Set();
-
-    // Similarly, we reset `_hungItems`, based on the assumption that the process hang
+    // We reset `_hungItems`, based on the assumption that the process hang
     // monitor will inform us again before the next update. Since the process hang monitor
     // pings its clients about once per second and we update about once per 2 seconds
     // (or more if the mouse moves), we should be ok.
@@ -1155,36 +1177,22 @@ var Control = {
     for (let process of counters) {
       this._sortDOMWindows(process.windows);
 
-      let isOpen = openItems.has(process.pid);
-      process.isOpen = isOpen;
+      process.isHung = process.childID && hungItems.has(process.childID);
 
-      let isHung = process.childID && hungItems.has(process.childID);
-      process.isHung = isHung;
-
-      let processRow = View.appendProcessRow(process, units);
-      this._setRowId(processRow, "p:" + process.pid, selectedRowId);
-      processRow.process = process;
+      let processRow = View.displayProcessRow(process, units);
 
       if (process.type != "extension") {
         // We do not want to display extensions.
-        let winRow;
         for (let win of process.windows) {
           if (SHOW_ALL_SUBFRAMES || win.tab || win.isProcessRoot) {
-            winRow = View.appendDOMWindowRow(win, process);
-            this._setRowId(winRow, "w:" + win.outerWindowId, selectedRowId);
-            winRow.win = win;
+            View.displayDOMWindowRow(win, process);
           }
         }
       }
 
       if (SHOW_THREADS) {
-        let threadSummaryRow = View.appendThreadSummaryRow(process, isOpen);
-        this._setRowId(threadSummaryRow, "ts:" + process.pid, selectedRowId);
-        threadSummaryRow.process = process;
-
-        if (isOpen) {
-          this._openItems.add(process.pid);
-          this._showThreads(processRow, units, selectedRowId);
+        if (View.displayThreadSummaryRow(process)) {
+          this._showThreads(processRow, units);
         }
       }
       if (
@@ -1198,19 +1206,34 @@ var Control = {
       previousProcess = process;
     }
 
-    await View.commit();
+    if (
+      !force &&
+      Date.now() - this._lastMouseEvent < TIME_BEFORE_SORTING_AGAIN
+    ) {
+      // If there has been a recent mouse event, we don't want to reorder,
+      // add or remove rows so that the table content under the mouse pointer
+      // doesn't change when the user might be about to click to close a tab
+      // or kill a process.
+      // We didn't return earlier because updating CPU and memory values is
+      // still valuable.
+      View.discardUpdate();
+      return;
+    }
+
+    View.commit();
+
+    // Reset the selectedRow field if that row is no longer in the DOM
+    // to avoid keeping forever references to dead processes.
+    if (this.selectedRow && !this.selectedRow.parentNode) {
+      this.selectedRow = null;
+    }
   },
-  _showThreads(row, units, selectedRowId) {
+  _showThreads(row, units) {
     let process = row.process;
     this._sortThreads(process.threads);
-    let elt = row;
     for (let thread of process.threads) {
-      elt = View.appendThreadRow(thread, units);
-      this._setRowId(elt, "t:" + thread.tid, selectedRowId);
-      // Enrich `elt` with a property `thread`, used for testing.
-      elt.thread = thread;
+      View.displayThreadRow(thread, units);
     }
-    return elt;
   },
   _sortThreads(threads) {
     return threads.sort((a, b) => {
@@ -1343,13 +1366,10 @@ var Control = {
     // Otherwise, it's both wasteful and harder to test.
     let units = await gPromisePrefetchedUnits;
     let row = target.parentNode.parentNode;
-    let id = row.process.pid;
     if (target.classList.toggle("open")) {
-      this._openItems.add(id);
       this._showThreads(row, units);
       View.insertAfterRow(row);
     } else {
-      this._openItems.delete(id);
       this._removeSubtree(row);
     }
   },

@@ -956,13 +956,17 @@ var WifiManager = (function() {
 
   let dhcpRequestGen = 0;
   function onconnected() {
-    // For now we do our own DHCP. In the future, this should be handed
-    // off to the Network Manager.
     let current = Object.create(null);
     current.netId = wifiInfo.networkId;
     // Clear the bssid in the current config's network block
     WifiConfigManager.clearCurrentConfigBssid(current.netId, function() {});
 
+    // For now we do our own DHCP. In the future, this should be handed
+    // off to the Network Manager or IpClient relate.
+    // Start IPv6 provision.
+    gNetworkService.setIpv6Status(manager.ifname, true, function() {});
+
+    // Start IPv4 discovery.
     WifiConfigManager.fetchNetworkConfiguration(current, function() {
       let key = WifiConfigUtils.getNetworkKey(current);
       if (
@@ -1807,11 +1811,6 @@ var WifiManager = (function() {
             }
           );
 
-          gNetworkService.setIpv6PrivacyExtensions(
-            manager.ifname,
-            true,
-            function() {}
-          );
           gNetworkService.setIpv6Status(manager.ifname, false, function() {});
           BinderServices.wifi.onWifiStateChanged(
             WifiConstants.WIFI_STATE_ENABLED
@@ -1942,8 +1941,9 @@ var WifiManager = (function() {
   };
 
   manager.connectionDropped = function(callback) {
-    // If we got disconnected, kill the DHCP client in preparation for
-    // reconnection.
+    // If we got disconnected, kill the DHCP client and disable IPv6
+    // in preparation for reconnection.
+    gNetworkService.setIpv6Status(WifiManager.ifname, false, function() {});
     gNetworkService.resetRoutingTable(manager.ifname, function() {
       netUtil.stopDhcp(manager.ifname, function() {
         callback();

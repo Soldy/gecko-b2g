@@ -2,21 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* globals browser, getStrings, selectorLoader, analytics, communication, catcher, log, makeUuid, auth, senderror, startBackground, blobConverters buildSettings, startSelectionWithOnboarding */
+/* globals browser, getStrings, selectorLoader, analytics, communication, catcher, log, makeUuid, auth, senderror, startBackground, blobConverters, startSelectionWithOnboarding */
 
 "use strict";
 
 this.main = (function() {
   const exports = {};
+  const pngToJpegCutoff = 2500000;
 
   const { sendEvent, incrementCount } = analytics;
 
   const manifest = browser.runtime.getManifest();
   let backend;
-
-  exports.hasAnyShots = function() {
-    return false;
-  };
 
   exports.setBackend = function(newBackend) {
     backend = newBackend;
@@ -159,14 +156,6 @@ this.main = (function() {
     return null;
   });
 
-  communication.register("openMyShots", sender => {
-    return catcher.watchPromise(
-      auth
-        .maybeLogin()
-        .then(() => browser.tabs.create({ url: backend + "/shots" }))
-    );
-  });
-
   communication.register("openShot", async (sender, { url, copied }) => {
     if (copied) {
       const id = makeUuid();
@@ -193,10 +182,7 @@ this.main = (function() {
     canvas.height = imageData.height;
     canvas.getContext("2d").putImageData(imageData, 0, 0);
     let dataUrl = canvas.toDataURL();
-    if (
-      buildSettings.pngToJpegCutoff &&
-      dataUrl.length > buildSettings.pngToJpegCutoff
-    ) {
+    if (dataUrl.length > pngToJpegCutoff) {
       const jpegDataUrl = canvas.toDataURL("image/jpeg");
       if (jpegDataUrl.length < dataUrl.length) {
         // Only use the JPEG if it is actually smaller

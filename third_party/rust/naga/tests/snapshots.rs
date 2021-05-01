@@ -1,3 +1,11 @@
+//TODO: move this to a binary target once Rust supports
+// binary-specific dependencies.
+
+use std::{fs, path::PathBuf};
+
+const DIR_IN: &str = "tests/in";
+const DIR_OUT: &str = "tests/out";
+
 bitflags::bitflags! {
     struct Targets: u32 {
         const IR = 0x1;
@@ -5,104 +13,96 @@ bitflags::bitflags! {
         const SPIRV = 0x4;
         const METAL = 0x8;
         const GLSL = 0x10;
+        const DOT = 0x20;
+        const HLSL = 0x40;
+        const WGSL = 0x80;
     }
-}
-
-#[derive(Hash, PartialEq, Eq, serde::Deserialize)]
-enum Stage {
-    Vertex,
-    Fragment,
-    Compute,
-}
-
-#[derive(Hash, PartialEq, Eq, serde::Deserialize)]
-struct BindSource {
-    stage: Stage,
-    group: u32,
-    binding: u32,
-}
-
-#[derive(serde::Deserialize)]
-struct BindTarget {
-    #[cfg_attr(not(feature = "msl-out"), allow(dead_code))]
-    #[serde(default)]
-    buffer: Option<u8>,
-    #[cfg_attr(not(feature = "msl-out"), allow(dead_code))]
-    #[serde(default)]
-    texture: Option<u8>,
-    #[cfg_attr(not(feature = "msl-out"), allow(dead_code))]
-    #[serde(default)]
-    sampler: Option<u8>,
-    #[cfg_attr(not(feature = "msl-out"), allow(dead_code))]
-    #[serde(default)]
-    mutable: bool,
 }
 
 #[derive(Default, serde::Deserialize)]
 struct Parameters {
-    #[serde(default)]
-    #[allow(dead_code)]
-    spv_flow_dump_prefix: String,
     #[cfg_attr(not(feature = "spv-out"), allow(dead_code))]
     spv_version: (u8, u8),
     #[cfg_attr(not(feature = "spv-out"), allow(dead_code))]
     spv_capabilities: naga::FastHashSet<spirv::Capability>,
-    #[cfg_attr(not(feature = "msl-out"), allow(dead_code))]
-    mtl_bindings: naga::FastHashMap<BindSource, BindTarget>,
+    #[cfg_attr(not(feature = "spv-out"), allow(dead_code))]
+    spv_debug: bool,
+    #[cfg_attr(not(feature = "spv-out"), allow(dead_code))]
+    spv_adjust_coordinate_space: bool,
+    #[cfg(all(feature = "deserialize", feature = "msl-out"))]
+    #[serde(default)]
+    msl: naga::back::msl::Options,
+    #[cfg(all(not(feature = "deserialize"), feature = "msl-out"))]
+    msl_custom: bool,
+    #[cfg_attr(not(feature = "glsl-out"), allow(dead_code))]
+    #[serde(default)]
+    glsl_desktop_version: Option<u16>,
 }
 
-#[allow(dead_code)]
-fn with_snapshot_settings<F: FnOnce() -> ()>(snapshot_assertion: F) {
-    let mut settings = insta::Settings::new();
-    settings.set_snapshot_path("out");
-    settings.set_prepend_module_to_snapshot(false);
-    settings.bind(|| snapshot_assertion());
-}
-
-#[allow(unused_variables)]
+#[allow(dead_code, unused_variables)]
 fn check_targets(module: &naga::Module, name: &str, targets: Targets) {
-    let params = match std::fs::read_to_string(format!("tests/in/{}{}", name, ".param.ron")) {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let params = match fs::read_to_string(format!("{}/{}/{}.param.ron", root, DIR_IN, name)) {
         Ok(string) => ron::de::from_str(&string).expect("Couldn't find param file"),
         Err(_) => Parameters::default(),
     };
-    let analysis = naga::proc::Validator::new().validate(module).unwrap();
+    let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all())
+        .validate(module)
+        .unwrap();
+
+    let dest = PathBuf::from(root).join(DIR_OUT).join(name);
 
     #[cfg(feature = "serialize")]
     {
         if targets.contains(Targets::IR) {
             let config = ron::ser::PrettyConfig::default().with_new_line("\n".to_string());
-            let output = ron::ser::to_string_pretty(module, config).unwrap();
-            with_snapshot_settings(|| {
-                insta::assert_snapshot!(format!("{}.ron", name), output);
-            });
+            let string = ron::ser::to_string_pretty(module, config).unwrap();
+            fs::write(dest.with_extension("ron"), string).unwrap();
         }
         if targets.contains(Targets::ANALYSIS) {
             let config = ron::ser::PrettyConfig::default().with_new_line("\n".to_string());
-            let output = ron::ser::to_string_pretty(&analysis, config).unwrap();
-            with_snapshot_settings(|| {
-                insta::assert_snapshot!(format!("{}.info.ron", name), output);
-            });
+            let string = ron::ser::to_string_pretty(&info, config).unwrap();
+            fs::write(dest.with_extension("info.ron"), string).unwrap();
         }
     }
 
     #[cfg(feature = "spv-out")]
     {
         if targets.contains(Targets::SPIRV) {
-            check_output_spv(module, &analysis, name, &params);
+            check_output_spv(module, &info, &dest, &params);
         }
     }
     #[cfg(feature = "msl-out")]
     {
         if targets.contains(Targets::METAL) {
-            check_output_msl(module, &analysis, name, &params);
+            check_output_msl(module, &info, &dest, &params);
         }
     }
     #[cfg(feature = "glsl-out")]
     {
         if targets.contains(Targets::GLSL) {
-            for &(stage, ref ep_name) in module.entry_points.keys() {
-                check_output_glsl(module, &analysis, name, stage, ep_name);
+            for ep in module.entry_points.iter() {
+                check_output_glsl(module, &info, &dest, ep.stage, &ep.name, &params);
             }
+        }
+    }
+    #[cfg(feature = "dot-out")]
+    {
+        if targets.contains(Targets::DOT) {
+            let string = naga::back::dot::write(module, Some(&info)).unwrap();
+            fs::write(dest.with_extension("dot"), string).unwrap();
+        }
+    }
+    #[cfg(feature = "hlsl-out")]
+    {
+        if targets.contains(Targets::HLSL) {
+            check_output_hlsl(module, &dest);
+        }
+    }
+    #[cfg(feature = "wgsl-out")]
+    {
+        if targets.contains(Targets::WGSL) {
+            check_output_wgsl(module, &dest);
         }
     }
 }
@@ -110,179 +110,193 @@ fn check_targets(module: &naga::Module, name: &str, targets: Targets) {
 #[cfg(feature = "spv-out")]
 fn check_output_spv(
     module: &naga::Module,
-    analysis: &naga::proc::analyzer::Analysis,
-    name: &str,
+    info: &naga::valid::ModuleInfo,
+    destination: &PathBuf,
     params: &Parameters,
 ) {
     use naga::back::spv;
     use rspirv::binary::Disassemble;
 
+    let mut flags = spv::WriterFlags::empty();
+    if params.spv_debug {
+        flags |= spv::WriterFlags::DEBUG;
+    }
+    if params.spv_adjust_coordinate_space {
+        flags |= spv::WriterFlags::ADJUST_COORDINATE_SPACE;
+    }
     let options = spv::Options {
         lang_version: params.spv_version,
-        flags: spv::WriterFlags::DEBUG,
+        flags,
         capabilities: params.spv_capabilities.clone(),
     };
 
-    let spv = spv::write_vec(module, analysis, &options).unwrap();
+    let spv = spv::write_vec(module, info, &options).unwrap();
 
     let dis = rspirv::dr::load_words(spv)
         .expect("Produced invalid SPIR-V")
         .disassemble();
-    with_snapshot_settings(|| {
-        insta::assert_snapshot!(format!("{}.spvasm", name), dis);
-    });
+
+    fs::write(destination.with_extension("spvasm"), dis).unwrap();
 }
 
 #[cfg(feature = "msl-out")]
 fn check_output_msl(
     module: &naga::Module,
-    analysis: &naga::proc::analyzer::Analysis,
-    name: &str,
+    info: &naga::valid::ModuleInfo,
+    destination: &PathBuf,
     params: &Parameters,
 ) {
     use naga::back::msl;
 
-    let mut binding_map = msl::BindingMap::default();
-    for (key, value) in params.mtl_bindings.iter() {
-        binding_map.insert(
-            msl::BindSource {
-                stage: match key.stage {
-                    Stage::Vertex => naga::ShaderStage::Vertex,
-                    Stage::Fragment => naga::ShaderStage::Fragment,
-                    Stage::Compute => naga::ShaderStage::Compute,
-                },
-                group: key.group,
-                binding: key.binding,
-            },
-            msl::BindTarget {
-                buffer: value.buffer,
-                texture: value.texture,
-                sampler: value.sampler,
-                mutable: value.mutable,
-            },
-        );
-    }
-    let options = msl::Options {
-        lang_version: (1, 0),
-        binding_map,
-        spirv_cross_compatibility: false,
-        fake_missing_bindings: false,
+    #[cfg_attr(feature = "deserialize", allow(unused_variables))]
+    let default_options = msl::Options::default();
+    #[cfg(feature = "deserialize")]
+    let options = &params.msl;
+    #[cfg(not(feature = "deserialize"))]
+    let options = if params.msl_custom {
+        println!("Skipping {}", destination);
+        return;
+    } else {
+        &default_options
     };
 
-    let (msl, _) = msl::write_string(module, analysis, &options).unwrap();
+    let pipeline_options = msl::PipelineOptions {
+        allow_point_size: true,
+    };
 
-    with_snapshot_settings(|| {
-        insta::assert_snapshot!(format!("{}.msl", name), msl);
-    });
+    let (string, _) = msl::write_string(module, info, options, &pipeline_options).unwrap();
+
+    fs::write(destination.with_extension("msl"), string).unwrap();
 }
 
 #[cfg(feature = "glsl-out")]
 fn check_output_glsl(
     module: &naga::Module,
-    analysis: &naga::proc::analyzer::Analysis,
-    name: &str,
+    info: &naga::valid::ModuleInfo,
+    destination: &PathBuf,
     stage: naga::ShaderStage,
     ep_name: &str,
+    params: &Parameters,
 ) {
     use naga::back::glsl;
 
     let options = glsl::Options {
-        version: glsl::Version::Embedded(310),
+        version: match params.glsl_desktop_version {
+            Some(v) => glsl::Version::Desktop(v),
+            None => glsl::Version::Embedded(310),
+        },
         shader_stage: stage,
         entry_point: ep_name.to_string(),
     };
 
     let mut buffer = Vec::new();
-    let mut writer = glsl::Writer::new(&mut buffer, module, analysis, &options).unwrap();
+    let mut writer = glsl::Writer::new(&mut buffer, module, info, &options).unwrap();
     writer.write().unwrap();
 
     let string = String::from_utf8(buffer).unwrap();
 
-    with_snapshot_settings(|| {
-        insta::assert_snapshot!(format!("{}-{:?}.glsl", name, stage), string);
-    });
+    let ext = format!("{:?}.glsl", stage);
+    fs::write(destination.with_extension(&ext), string).unwrap();
 }
 
-#[cfg(feature = "wgsl-in")]
-fn convert_wgsl(name: &str, targets: Targets) {
-    let module = naga::front::wgsl::parse_str(
-        &std::fs::read_to_string(format!("tests/in/{}{}", name, ".wgsl"))
-            .expect("Couldn't find wgsl file"),
-    )
-    .unwrap();
-    check_targets(&module, name, targets);
+#[cfg(feature = "hlsl-out")]
+fn check_output_hlsl(module: &naga::Module, destination: &PathBuf) {
+    use naga::back::hlsl;
+
+    let string = hlsl::write_string(module).unwrap();
+
+    fs::write(destination.with_extension("hlsl"), string).unwrap();
 }
 
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_quad() {
-    convert_wgsl("quad", Targets::SPIRV | Targets::METAL | Targets::GLSL);
-}
+#[cfg(feature = "wgsl-out")]
+fn check_output_wgsl(module: &naga::Module, destination: &PathBuf) {
+    use naga::back::wgsl;
 
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_empty() {
-    convert_wgsl("empty", Targets::SPIRV | Targets::METAL | Targets::GLSL);
+    let string = wgsl::write_string(module).unwrap();
+
+    fs::write(destination.with_extension("wgsl"), string).unwrap();
 }
 
 #[cfg(feature = "wgsl-in")]
 #[test]
-fn convert_wgsl_boids() {
-    convert_wgsl("boids", Targets::SPIRV | Targets::METAL);
-}
+fn convert_wgsl() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let inputs = [
+        (
+            "empty",
+            Targets::SPIRV | Targets::METAL | Targets::GLSL | Targets::HLSL | Targets::WGSL,
+        ),
+        (
+            "quad",
+            Targets::SPIRV | Targets::METAL | Targets::GLSL | Targets::DOT,
+        ),
+        ("boids", Targets::SPIRV | Targets::METAL),
+        ("skybox", Targets::SPIRV | Targets::METAL | Targets::GLSL),
+        (
+            "collatz",
+            Targets::SPIRV | Targets::METAL | Targets::IR | Targets::ANALYSIS,
+        ),
+        ("shadow", Targets::SPIRV | Targets::METAL | Targets::GLSL),
+        //SPIR-V is blocked by https://github.com/gfx-rs/naga/issues/646
+        ("image-copy", Targets::METAL),
+        ("texture-array", Targets::SPIRV | Targets::METAL),
+        ("operators", Targets::SPIRV | Targets::METAL | Targets::GLSL),
+        (
+            "interpolate",
+            Targets::SPIRV | Targets::METAL | Targets::GLSL,
+        ),
+        ("access", Targets::SPIRV | Targets::METAL),
+    ];
 
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_skybox() {
-    convert_wgsl("skybox", Targets::SPIRV | Targets::METAL | Targets::GLSL);
-}
-
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_collatz() {
-    convert_wgsl(
-        "collatz",
-        Targets::SPIRV | Targets::METAL | Targets::IR | Targets::ANALYSIS,
-    );
-}
-
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_shadow() {
-    convert_wgsl("shadow", Targets::SPIRV | Targets::METAL);
-}
-
-#[cfg(feature = "wgsl-in")]
-#[test]
-fn convert_wgsl_texture_array() {
-    convert_wgsl("texture-array", Targets::SPIRV);
+    for &(name, targets) in inputs.iter() {
+        println!("Processing '{}'", name);
+        let file = fs::read_to_string(format!("{}/{}/{}.wgsl", root, DIR_IN, name))
+            .expect("Couldn't find wgsl file");
+        match naga::front::wgsl::parse_str(&file) {
+            Ok(module) => check_targets(&module, name, targets),
+            Err(e) => panic!("{}", e),
+        }
+    }
 }
 
 #[cfg(feature = "spv-in")]
-fn convert_spv(name: &str, targets: Targets) {
+fn convert_spv(name: &str, adjust_coordinate_space: bool, targets: Targets) {
+    let root = env!("CARGO_MANIFEST_DIR");
     let module = naga::front::spv::parse_u8_slice(
-        &std::fs::read(format!("tests/in/{}{}", name, ".spv")).expect("Couldn't find spv file"),
-        &Default::default(),
+        &fs::read(format!("{}/{}/{}.spv", root, DIR_IN, name)).expect("Couldn't find spv file"),
+        &naga::front::spv::Options {
+            adjust_coordinate_space,
+            flow_graph_dump_prefix: None,
+        },
     )
     .unwrap();
     check_targets(&module, name, targets);
-    naga::proc::Validator::new().validate(&module).unwrap();
+    naga::valid::Validator::new(naga::valid::ValidationFlags::all())
+        .validate(&module)
+        .unwrap();
+}
+
+#[cfg(feature = "spv-in")]
+#[test]
+fn convert_spv_quad_vert() {
+    convert_spv("quad-vert", false, Targets::METAL);
 }
 
 #[cfg(feature = "spv-in")]
 #[test]
 fn convert_spv_shadow() {
-    convert_spv("shadow", Targets::IR | Targets::ANALYSIS);
+    convert_spv("shadow", true, Targets::IR | Targets::ANALYSIS);
 }
 
 #[cfg(feature = "glsl-in")]
 fn convert_glsl(
     name: &str,
     entry_points: naga::FastHashMap<String, naga::ShaderStage>,
-    targets: Targets,
+    _targets: Targets,
 ) {
-    let module = naga::front::glsl::parse_str(
-        &std::fs::read_to_string(format!("tests/in/{}{}", name, ".glsl"))
+    let root = env!("CARGO_MANIFEST_DIR");
+    let _module = naga::front::glsl::parse_str(
+        &fs::read_to_string(format!("{}/{}/{}.glsl", root, DIR_IN, name))
             .expect("Couldn't find glsl file"),
         &naga::front::glsl::Options {
             entry_points,
@@ -290,7 +304,8 @@ fn convert_glsl(
         },
     )
     .unwrap();
-    check_targets(&module, name, targets);
+    //TODO
+    //check_targets(&module, name, targets);
 }
 
 #[cfg(feature = "glsl-in")]

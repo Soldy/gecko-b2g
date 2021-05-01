@@ -13,6 +13,17 @@ exclude: true
 
 ⚠️  breaking change and deprecation notices
 
+## v90
+- Added [`WebNotification.silent`][90.1] and [`WebNotification.vibrate`][90.2]
+  support. See also [Web/API/Notification/silent][90.3] and
+  [Web/API/Notification/vibrate][90.4].
+  ([bug 1696145]({{bugzilla}}1696145))
+
+[90.1]: {{javadoc_uri}}/WebNotification.html#silent
+[90.2]: {{javadoc_uri}}/WebNotification.html#vibrate
+[90.3]: https://developer.mozilla.org/en-US/docs/Web/API/Notification/silent
+[90.4]: https://developer.mozilla.org/en-US/docs/Web/API/Notification/vibrate
+
 ## v89
 - Added [`ContentPermission`][89.1], which is used to report what permissions content
   is loaded with in `onLocationChange`.
@@ -21,15 +32,42 @@ exclude: true
 - ⚠️ Deprecated [`NavigationDelegate.onLocationChange`][89.4], to be removed in v92. The
   new `onLocationChange` callback simply adds permissions information, migration of existing
   functionality should only require updating the function signature.
-- Added [`GeckoRuntimeSettings.setEnterpriseRootsEnabled`][89.1] which allows
+- Added [`GeckoRuntimeSettings.setEnterpriseRootsEnabled`][89.5] which allows
   GeckoView to add third party certificate roots from the Android OS CA store.
   ([bug 1678191]({{bugzilla}}1678191)).
+- ⚠️ [`GeckoSession.load`][89.6] now throws `IllegalArgumentException` if the
+  session has no [`GeckoSession.NavigationDelegate`][89.7] and the request's `data` URI is too long.
+  If a `GeckoSession` *does* have a `GeckoSession.NavigationDelegate` and `GeckoSession.load` is called
+  with a top-level `data` URI that is too long, [`NavigationDelgate.onLoadError`][89.8] will be called
+  with a [`WebRequestError`][89.9] containing error code [`WebRequestError.ERROR_DATA_URI_TOO_LONG`][89.10].
+  ([bug 1668952]({{bugzilla}}1668952))
+- Extended [`Autocomplete`][78.7] API to support credit cards.
+  ([bug 1691819]({{bugzilla}}1691819)).
+- ⚠️  Deprecated ['Autocomplete.LoginStorageDelegate'][78.8] with the intention
+  of removing it in GeckoView v93. Please use
+  [`Autocomplete.StorageDelegate`][89.11] instead.
+  ([bug 1691819]({{bugzilla}}1691819)).
+- Added [`ALLOWED_TRACKING_CONTENT`][89.12] to content blocking API to indicate
+  when unsafe content is allowed by a shim.
+  ([bug 1661330]({{bugzilla}}1661330))
+- ⚠️ Added [`setCookieBehaviorPrivateMode`][89.13] to control cookie behavior for private browsing
+  mode independently of normal browsing mode. To maintain current behavior, set this to the same
+  value as [`setCookieBehavior`][89.14] is set to.
 
 [89.1]: {{javadoc_uri}}/GeckoSession.PermissionDelegate.ContentPermission.html
 [89.2]: {{javadoc_uri}}/StorageController.html#getPermissions-java.lang.String-
 [89.3]: {{javadoc_uri}}/StorageController.html#getAllPermissions--
 [89.4]: {{javadoc_uri}}/GeckoSession.NavigationDelegate.html#onLocationChange-org.mozilla.geckoview.GeckoSession-java.lang.String-
 [89.5]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setEnterpriseRootsEnabled-boolean-
+[89.6]: {{javadoc_uri}}/GeckoSession.html#load-org.mozilla.geckoview.GeckoSession.Loader-
+[89.7]: {{javadoc_uri}}/GeckoSession.NavigationDelegate.html
+[89.8]: {{javadoc_uri}}/GeckoSession.NavigationDelegate.html#onLoadError-org.mozilla.geckoview.GeckoSession-java.lang.String-org.mozilla.geckoview.WebRequestError-
+[89.9]: {{javadoc_uri}}/WebRequestError.html
+[89.10]: {{javadoc_uri}}/WebRequestError.html#ERROR_DATA_URI_TOO_LONG
+[89.11]: {{javadoc_uri}}/Autocomplete.StorageDelegate.html
+[89.12]: {{javadoc_uri}}/ContentBlockingController.Event.html#ALLOWED_TRACKING_CONTENT
+[89.13]: {{javadoc_uri}}/ContentBlocking.Settings.html#setCookieBehaviorPrivateMode-int-
+[89.14]: {{javadoc_uri}}/ContentBlocking.Settings.html#setCookieBehavior-int-
 
 ## v88
 - Added [`WebExtension.Download#update`][88.1] that can be used to
@@ -952,4 +990,4 @@ to allow adding gecko profiler markers.
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: 03df1c68b161c8df9f9a1095fac75dc3446aefde
+[api-version]: d2704dbc8956197877f3a4e3ea3d7fc6f3cb4fc1

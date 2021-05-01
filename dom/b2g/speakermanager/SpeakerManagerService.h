@@ -80,7 +80,7 @@ class SpeakerManagerService : public nsIObserver {
 
   SpeakerManagerService();
 
-  virtual ~SpeakerManagerService();
+  virtual ~SpeakerManagerService() = default;
   // Notify to UA if device speaker status changed
   virtual void Notify();
 
@@ -89,9 +89,10 @@ class SpeakerManagerService : public nsIObserver {
   void UpdateSpeakerStatus();
 
   /**
-   * Shutdown the singleton.
+   * Shutdown the instance.
    */
-  static void Shutdown();
+  virtual void Shutdown();
+
   // Hash map between window ID and registered SpeakerManager
   nsTHashMap<nsUint64HashKey, RefPtr<SpeakerManager>>
       mRegisteredSpeakerManagers;

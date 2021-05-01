@@ -1334,8 +1334,9 @@
 
     webViewDownload(url) {
       console.log(`webViewDownload ${url}`);
+      let uri = Services.io.newURI(url);
       let channel = LazyModules.NetUtil.newChannel({
-        uri: Services.io.newURI(url),
+        uri,
         loadingPrincipal: this._contentPrincipal,
         securityFlags:
           Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_INHERITS_SEC_CONTEXT,
@@ -1343,6 +1344,9 @@
       });
 
       channel.loadInfo.cookieJarSettings = this.cookieJarSettings;
+      if (uri.schemeIs("data")) {
+        channel.contentDispositionFilename = "download";
+      }
 
       if (channel instanceof Ci.nsIHttpChannel) {
         if (channel instanceof Ci.nsIHttpChannelInternal) {
@@ -2070,14 +2074,6 @@
       return {
         permitUnload: this.docShell.contentViewer.permitUnload(),
       };
-    }
-
-    print(aOuterWindowID, aPrintSettings) {
-      if (!this.frameLoader) {
-        throw Components.Exception("No frame loader.", Cr.NS_ERROR_FAILURE);
-      }
-
-      return this.frameLoader.print(aOuterWindowID, aPrintSettings);
     }
 
     async drawSnapshot(x, y, w, h, scale, backgroundColor) {

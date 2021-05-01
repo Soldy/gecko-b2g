@@ -298,7 +298,6 @@
 #include "nsIObjectLoadingContent.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
-#include "nsIOfflineCacheUpdate.h"
 #include "nsIParser.h"
 #include "nsIParserUtils.h"
 #include "nsIPermissionManager.h"
@@ -1873,29 +1872,11 @@ void nsContentUtils::GetOfflineAppManifest(Document* aDocument, nsIURI** aURI) {
 }
 
 /* static */
-bool nsContentUtils::OfflineAppAllowed(nsIURI* aURI) {
-  nsCOMPtr<nsIOfflineCacheUpdateService> updateService =
-      components::OfflineCacheUpdate::Service();
-  if (!updateService) {
-    return false;
-  }
-
-  bool allowed;
-  nsresult rv = updateService->OfflineAppAllowedForURI(aURI, &allowed);
-  return NS_SUCCEEDED(rv) && allowed;
-}
+bool nsContentUtils::OfflineAppAllowed(nsIURI* aURI) { return false; }
 
 /* static */
 bool nsContentUtils::OfflineAppAllowed(nsIPrincipal* aPrincipal) {
-  nsCOMPtr<nsIOfflineCacheUpdateService> updateService =
-      components::OfflineCacheUpdate::Service();
-  if (!updateService) {
-    return false;
-  }
-
-  bool allowed;
-  nsresult rv = updateService->OfflineAppAllowed(aPrincipal, &allowed);
-  return NS_SUCCEEDED(rv) && allowed;
+  return false;
 }
 // Static
 bool nsContentUtils::IsErrorPage(nsIURI* aURI) {
@@ -6208,7 +6189,8 @@ nsresult nsContentUtils::DispatchXULCommand(nsIContent* aTarget, bool aTrusted,
                                             Event* aSourceEvent,
                                             PresShell* aPresShell, bool aCtrl,
                                             bool aAlt, bool aShift, bool aMeta,
-                                            uint16_t aInputSource) {
+                                            uint16_t aInputSource,
+                                            int16_t aButton) {
   NS_ENSURE_STATE(aTarget);
   Document* doc = aTarget->OwnerDoc();
   nsPresContext* presContext = doc->GetPresContext();
@@ -6217,8 +6199,8 @@ nsresult nsContentUtils::DispatchXULCommand(nsIContent* aTarget, bool aTrusted,
       new XULCommandEvent(doc, presContext, nullptr);
   xulCommand->InitCommandEvent(u"command"_ns, true, true,
                                nsGlobalWindowInner::Cast(doc->GetInnerWindow()),
-                               0, aCtrl, aAlt, aShift, aMeta, aSourceEvent,
-                               aInputSource, IgnoreErrors());
+                               0, aCtrl, aAlt, aShift, aMeta, aButton,
+                               aSourceEvent, aInputSource, IgnoreErrors());
 
   if (aPresShell) {
     nsEventStatus status = nsEventStatus_eIgnore;
@@ -6545,6 +6527,15 @@ PresShell* nsContentUtils::FindPresShellForDocument(const Document* aDocument) {
     docShellTreeItem = parent;
   }
 
+  return nullptr;
+}
+
+/* static */
+nsPresContext* nsContentUtils::FindPresContextForDocument(
+    const Document* aDocument) {
+  if (PresShell* presShell = FindPresShellForDocument(aDocument)) {
+    return presShell->GetPresContext();
+  }
   return nullptr;
 }
 
@@ -8178,7 +8169,7 @@ nsresult nsContentUtils::SendMouseEvent(
     return presShell->HandleEvent(view->GetFrame(), &event, false, &status);
   }
   if (StaticPrefs::test_events_async_enabled()) {
-    status = widget->DispatchInputEvent(&event);
+    status = widget->DispatchInputEvent(&event).mContentStatus;
   } else {
     nsresult rv = widget->DispatchEvent(&event, status);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -9851,7 +9842,7 @@ uint32_t nsContentUtils::HtmlObjectContentTypeForMIMEType(
     return nsIObjectLoadingContent::TYPE_NULL;
   }
 
-  if (imgLoader::SupportImageWithMimeType(aMIMEType.get())) {
+  if (imgLoader::SupportImageWithMimeType(aMIMEType)) {
     return nsIObjectLoadingContent::TYPE_IMAGE;
   }
 
@@ -10266,15 +10257,20 @@ bool nsContentUtils::StringifyJSON(JSContext* aCx,
 bool nsContentUtils::
     HighPriorityEventPendingForTopLevelDocumentBeforeContentfulPaint(
         Document* aDocument) {
-  if (!aDocument || aDocument->IsLoadedAsData()) {
-    return false;
-  }
+  MOZ_ASSERT(XRE_IsContentProcess(),
+             "This function only makes sense in content processes");
 
-  Document* topLevel = aDocument->GetTopLevelContentDocument();
-  return topLevel && topLevel->GetPresShell() &&
-         topLevel->GetPresShell()->GetPresContext() &&
-         !topLevel->GetPresShell()->GetPresContext()->HadContentfulPaint() &&
-         nsThreadManager::MainThreadHasPendingHighPriorityEvents();
+  if (aDocument && !aDocument->IsLoadedAsData()) {
+    if (nsPresContext* presContext = FindPresContextForDocument(aDocument)) {
+      MOZ_ASSERT(!presContext->IsChrome(),
+                 "Should never have a chrome PresContext in a content process");
+
+      return !presContext->GetInProcessRootContentDocumentPresContext()
+                  ->HadContentfulPaint() &&
+             nsThreadManager::MainThreadHasPendingHighPriorityEvents();
+    }
+  }
+  return false;
 }
 
 /* static */

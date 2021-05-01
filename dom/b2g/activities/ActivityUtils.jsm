@@ -20,27 +20,19 @@ ActivityUtils.prototype = {
   // nsIDOMGlobalPropertyInitializer implementation
   init(aWindow) {
     debug("init");
-    this._callbacks = {};
     this._window = aWindow;
     this._requestCount = 0;
   },
 
   getInstalled(aName) {
     debug(`getInstalled ${aName}`);
-    let requestID = this.generateRequestID();
-    let promise = new this._window.Promise(
-      function(aResolve, aReject) {
-        this._callbacks[requestID] = { resolve: aResolve, reject: aReject };
-      }.bind(this)
-    );
-
+    let requestID = `Activities:Get:${this.getRequestCount()}`;
     let self = this;
-    Services.cpmm.addMessageListener(
-      `Activities:Get:${requestID}`,
-      function receiveActivitiesGet(aMessage) {
-        debug(
-          `receive Activities:Get:${requestID} ${JSON.stringify(aMessage)}`
-        );
+    let promise = new this._window.Promise(function(aResolve, aReject) {
+      Services.cpmm.addMessageListener(requestID, function receiveActivitiesGet(
+        aMessage
+      ) {
+        debug(`receive ${requestID} ${JSON.stringify(aMessage)}`);
         Services.cpmm.removeMessageListener(requestID, receiveActivitiesGet);
         let json = aMessage.json ? aMessage.json : {};
         if (json.success) {
@@ -49,23 +41,22 @@ ActivityUtils.prototype = {
           options.forEach(function(aObject) {
             array.push(Cu.cloneInto(aObject, self._window));
           });
-          self._callbacks[requestID].resolve(array);
+          aResolve(array);
         } else {
-          self._callbacks[requestID].reject(json.error);
+          aReject(json.error);
         }
-        delete self._callbacks[requestID];
-      }
-    );
+      });
 
-    Services.cpmm.sendAsyncMessage("Activities:Get", {
-      requestID,
-      name: aName,
+      Services.cpmm.sendAsyncMessage("Activities:Get", {
+        requestID,
+        name: aName,
+      });
     });
 
     return promise;
   },
 
-  generateRequestID() {
+  getRequestCount() {
     return this._requestCount++;
   },
 

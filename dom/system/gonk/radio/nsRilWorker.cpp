@@ -1423,6 +1423,18 @@ NS_IMETHODIMP nsRilWorker::StopNetworkScan(int32_t serial) {
 
   return NS_OK;
 }
+
+NS_IMETHODIMP nsRilWorker::SetUnsolResponseFilter(int32_t serial, int32_t filter) {
+  DEBUG("nsRilWorker: [%d] > RIL_REQUEST_SET_UNSOLICITED_RESPONSE_FILTER", serial);
+  GetRadioProxy();
+  if (mRadioProxy == nullptr) {
+    ERROR_NS_OK("No Radio HAL exist");
+  }
+  mRadioProxy->setIndicationFilter(serial, filter);
+
+  return NS_OK;
+}
+
 void nsRilWorker::sendRilIndicationResult(nsRilIndicationResult* aIndication) {
   DEBUG("nsRilWorker: [USOL]< %s",
         NS_LossyConvertUTF16toASCII(aIndication->mRilMessageType).get());

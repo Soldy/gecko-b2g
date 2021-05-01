@@ -35,7 +35,6 @@ ChromeUtils.defineModuleGetter(
 
 const DEFAULT_SEARCH_STORE_TYPE = "default_search";
 const DEFAULT_SEARCH_SETTING_NAME = "defaultSearch";
-const ENGINE_ADDED_SETTING_NAME = "engineAdded";
 
 const HOMEPAGE_PREF = "browser.startup.homepage";
 const HOMEPAGE_PRIVATE_ALLOWED =
@@ -119,22 +118,19 @@ async function handleInitialHomepagePopup(extensionId, homepageUrl) {
  *   The homepage url to set.
  */
 async function handleHomepageUrl(extension, homepageUrl) {
-  let inControl;
-  if (
-    extension.startupReason == "ADDON_INSTALL" ||
-    extension.startupReason == "ADDON_ENABLE"
-  ) {
-    inControl = await ExtensionPreferencesManager.setSetting(
-      extension.id,
-      "homepage_override",
-      homepageUrl
-    );
-  } else {
-    let item = await ExtensionPreferencesManager.getSetting(
-      "homepage_override"
-    );
-    inControl = item && item.id && item.id == extension.id;
-  }
+  // For new installs and enabling a disabled addon, we will show
+  // the prompt.  We clear the confirmation in onDisabled and
+  // onUninstalled, so in either ADDON_INSTALL or ADDON_ENABLE it
+  // is already cleared, resulting in the prompt being shown if
+  // necessary the next time the homepage is shown.
+
+  // For localizing the homepageUrl, or otherwise updating the value
+  // we need to always set the setting here.
+  let inControl = await ExtensionPreferencesManager.setSetting(
+    extension.id,
+    "homepage_override",
+    homepageUrl
+  );
 
   if (inControl) {
     Services.prefs.setBoolPref(
@@ -218,20 +214,6 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
   }
 
   static async removeEngine(id) {
-    await ExtensionSettingsStore.initialize();
-    let item = await ExtensionSettingsStore.getSetting(
-      DEFAULT_SEARCH_STORE_TYPE,
-      ENGINE_ADDED_SETTING_NAME,
-      id
-    );
-    if (item) {
-      ExtensionSettingsStore.removeSetting(
-        id,
-        DEFAULT_SEARCH_STORE_TYPE,
-        ENGINE_ADDED_SETTING_NAME
-      );
-    }
-
     try {
       await Services.search.removeWebExtensionEngine(id);
     } catch (e) {
@@ -251,8 +233,8 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
     if (searchStartupPromise) {
       await searchStartupPromise.catch(Cu.reportError);
     }
-    // Note: We do not have to deal with homepage here as it is managed by
-    // the ExtensionPreferencesManager.
+    // Note: We do not have to manage the homepage setting here
+    // as it is managed by the ExtensionPreferencesManager.
     return Promise.all([
       this.removeSearchSettings(id),
       homepagePopup.clearConfirmation(id),
@@ -261,6 +243,7 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
 
   static async onUpdate(id, manifest) {
     if (!manifest?.chrome_settings_overrides?.homepage) {
+      // New or changed values are handled during onManifest.
       ExtensionPreferencesManager.removeSetting(id, "homepage_override");
     }
 
@@ -435,8 +418,11 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
 
     let engineName = searchProvider.name.trim();
     let result = await Services.search.maybeSetAndOverrideDefault(extension);
+    // This will only be set to true when the specified engine is an app-provided
+    // engine, or when it is an allowed add-on defined in the list stored in
+    // SearchDefaultOverrideAllowlistHandler.
     if (result.canChangeToAppProvided) {
-      await this.setDefault(engineName);
+      await this.setDefault(engineName, true);
     }
     if (!result.canInstallEngine) {
       // This extension is overriding an app-provided one, so we don't
@@ -452,7 +438,7 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
     }
   }
 
-  async setDefault(engineName) {
+  async setDefault(engineName, skipEnablePrompt = false) {
     let { extension } = this;
 
     if (extension.startupReason === "ADDON_INSTALL") {
@@ -480,8 +466,20 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
           Services.search.getEngineByName(engineName)
         );
       } else if (control === "controllable_by_this_extension") {
-        // This extension has precedence, but is not in control.  Ask the user.
-        await this.promptDefaultSearch(engineName);
+        if (skipEnablePrompt) {
+          // For overriding app-provided engines, we don't prompt, so set
+          // the default straight away.
+          await chrome_settings_overrides.processDefaultSearchSetting(
+            "enable",
+            extension.id
+          );
+          Services.search.defaultEngine = Services.search.getEngineByName(
+            engineName
+          );
+        } else {
+          // This extension has precedence, but is not in control.  Ask the user.
+          await this.promptDefaultSearch(engineName);
+        }
       }
     }
   }
@@ -489,16 +487,7 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
   async addSearchEngine() {
     let { extension } = this;
     try {
-      let engines = await Services.search.addEnginesFromExtension(extension);
-      if (engines.length) {
-        await ExtensionSettingsStore.initialize();
-        await ExtensionSettingsStore.addSetting(
-          extension.id,
-          DEFAULT_SEARCH_STORE_TYPE,
-          ENGINE_ADDED_SETTING_NAME,
-          engines[0].name
-        );
-      }
+      await Services.search.addEnginesFromExtension(extension);
     } catch (e) {
       Cu.reportError(e);
       return false;

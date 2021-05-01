@@ -39,18 +39,21 @@
 #endif
 #include <ctime>
 #include <math.h>
-#include <signal.h>
+#ifndef __wasi__
+#  include <signal.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <thread>
 #include <utility>
 #ifdef XP_UNIX
-#  include <sys/mman.h>
+#  ifndef __wasi__
+#    include <sys/mman.h>
+#    include <sys/wait.h>
+#  endif
 #  include <sys/stat.h>
-#  include <sys/wait.h>
 #  include <unistd.h>
 #endif
 #ifdef XP_LINUX
@@ -116,7 +119,7 @@
 #include "js/experimental/TypedData.h"   // JS_NewUint8Array
 #include "js/friend/DumpFunctions.h"     // JS::FormatStackDump
 #include "js/friend/ErrorMessages.h"     // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"       // js::CheckRecursionLimitConservative
+#include "js/friend/StackLimits.h"       // js::AutoCheckRecursionLimit
 #include "js/friend/WindowProxy.h"  // js::IsWindowProxy, js::SetWindowProxyClass, js::ToWindowProxyIfWindow, js::ToWindowIfWindowProxy
 #include "js/GCAPI.h"               // JS::AutoCheckCannotGC
 #include "js/GCVector.h"
@@ -591,33 +594,20 @@ bool shell::enableWasm = false;
 bool shell::enableSharedMemory = SHARED_MEMORY_DEFAULT;
 bool shell::enableWasmBaseline = false;
 bool shell::enableWasmOptimizing = false;
-#ifdef JS_CODEGEN_ARM64
-// Cranelift->Ion transition.  The right value for fuzzing-but-not-enabled is
-// 'false'; when we land for phase 2, we remove this flag.
-bool shell::forceWasmIon = false;
-#endif
-bool shell::enableWasmReftypes = true;
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-bool shell::enableWasmFunctionReferences = false;
-#endif
-#ifdef ENABLE_WASM_GC
-bool shell::enableWasmGc = false;
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-bool shell::enableWasmMultiValue = true;
-#endif
-#ifdef ENABLE_WASM_SIMD
-bool shell::enableWasmSimd = true;
-#endif
+
+#define WASM_DEFAULT_FEATURE(NAME, ...) bool shell::enableWasm##NAME = true;
+#define WASM_EXPERIMENTAL_FEATURE(NAME, ...) \
+  bool shell::enableWasm##NAME = false;
+JS_FOR_WASM_FEATURES(WASM_DEFAULT_FEATURE, WASM_EXPERIMENTAL_FEATURE);
+#undef WASM_DEFAULT_FEATURE
+#undef WASM_EXPERIMENTAL_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
 bool shell::enableWasmSimdWormhole = false;
 #endif
 bool shell::enableWasmVerbose = false;
 bool shell::enableTestWasmAwaitTier2 = false;
 bool shell::enableSourcePragmas = true;
-#ifdef ENABLE_WASM_EXCEPTIONS
-bool shell::enableWasmExceptions = false;
-#endif
 bool shell::enableAsyncStacks = false;
 bool shell::enableAsyncStackCaptureDebuggeeOnly = false;
 bool shell::enableStreams = false;
@@ -631,7 +621,8 @@ bool shell::enablePropertyErrorMessageFix = false;
 bool shell::enableIteratorHelpers = false;
 bool shell::enablePrivateClassFields = false;
 bool shell::enablePrivateClassMethods = false;
-bool shell::enableTopLevelAwait = false;
+bool shell::enableTopLevelAwait = true;
+bool shell::enableErgonomicBrandChecks = false;
 bool shell::useOffThreadParseGlobal = true;
 #ifdef JS_GC_ZEAL
 uint32_t shell::gZealBits = 0;
@@ -642,7 +633,6 @@ RCFile* shell::gErrFile = nullptr;
 RCFile* shell::gOutFile = nullptr;
 bool shell::reportWarnings = true;
 bool shell::compileOnly = false;
-bool shell::fuzzingSafe = false;
 bool shell::disableOOMFunctions = false;
 bool shell::defaultToSameCompartment = true;
 
@@ -1999,13 +1989,57 @@ static bool LoadScriptRelativeToScript(JSContext* cx, unsigned argc,
   return LoadScript(cx, argc, vp, true);
 }
 
+static bool ParseDebugMetadata(JSContext* cx, HandleObject opts,
+                               MutableHandleValue privateValue,
+                               MutableHandleString elementAttributeName) {
+  RootedValue v(cx);
+  RootedString s(cx);
+
+  if (!JS_GetProperty(cx, opts, "element", &v)) {
+    return false;
+  }
+  if (v.isObject()) {
+    RootedObject infoObject(cx, CreateScriptPrivate(cx));
+    if (!infoObject) {
+      return false;
+    }
+    RootedValue elementValue(cx, v);
+    if (!JS_WrapValue(cx, &elementValue)) {
+      return false;
+    }
+    if (!JS_DefineProperty(cx, infoObject, "element", elementValue, 0)) {
+      return false;
+    }
+    privateValue.set(ObjectValue(*infoObject));
+  }
+
+  if (!JS_GetProperty(cx, opts, "elementAttributeName", &v)) {
+    return false;
+  }
+  if (!v.isUndefined()) {
+    s = ToString(cx, v);
+    if (!s) {
+      return false;
+    }
+    elementAttributeName.set(s);
+  }
+
+  return true;
+}
+
 // Populate |options| with the options given by |opts|'s properties. If we
 // need to convert a filename to a C string, let fileNameBytes own the
 // bytes.
 static bool ParseCompileOptions(JSContext* cx, CompileOptions& options,
-                                HandleObject opts, UniqueChars* fileNameBytes) {
+                                HandleObject opts, UniqueChars* fileNameBytes,
+                                MutableHandleValue privateValue,
+                                MutableHandleString elementAttributeName) {
   RootedValue v(cx);
   RootedString s(cx);
+
+  if (!ParseDebugMetadata(cx, opts, privateValue, elementAttributeName)) {
+    return false;
+  }
 
   if (!JS_GetProperty(cx, opts, "isRunOnce", &v)) {
     return false;
@@ -2045,35 +2079,6 @@ static bool ParseCompileOptions(JSContext* cx, CompileOptions& options,
   }
   if (!v.isUndefined()) {
     options.setSkipFilenameValidation(ToBoolean(v));
-  }
-
-  if (!JS_GetProperty(cx, opts, "element", &v)) {
-    return false;
-  }
-  if (v.isObject()) {
-    RootedObject infoObject(cx, CreateScriptPrivate(cx));
-    if (!infoObject) {
-      return false;
-    }
-    RootedValue elementValue(cx, v);
-    if (!JS_WrapValue(cx, &elementValue)) {
-      return false;
-    }
-    if (!JS_DefineProperty(cx, infoObject, "element", elementValue, 0)) {
-      return false;
-    }
-    options.setPrivateValue(ObjectValue(*infoObject));
-  }
-
-  if (!JS_GetProperty(cx, opts, "elementAttributeName", &v)) {
-    return false;
-  }
-  if (!v.isUndefined()) {
-    s = ToString(cx, v);
-    if (!s) {
-      return false;
-    }
-    options.setElementAttributeName(s);
   }
 
   if (!JS_GetProperty(cx, opts, "lineNumber", &v)) {
@@ -2269,7 +2274,7 @@ static uint8_t* CacheEntry_getBytecode(JSContext* cx, HandleObject cache,
   }
 
   ArrayBufferObject* arrayBuffer = &v.toObject().as<ArrayBufferObject>();
-  *length = arrayBuffer->byteLength().get();
+  *length = arrayBuffer->byteLength();
   return arrayBuffer->dataPointer();
 }
 
@@ -2282,8 +2287,7 @@ static bool CacheEntry_setBytecode(JSContext* cx, HandleObject cache,
 
   BufferContents contents = BufferContents::createMalloced(buffer);
   Rooted<ArrayBufferObject*> arrayBuffer(
-      cx,
-      ArrayBufferObject::createForContents(cx, BufferSize(length), contents));
+      cx, ArrayBufferObject::createForContents(cx, length, contents));
   if (!arrayBuffer) {
     return false;
   }
@@ -2385,16 +2389,21 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
   CacheOptionSet optionSet;
 
   options.setIntroductionType("js shell evaluate")
-      .setFileAndLine("@evaluate", 1);
+      .setFileAndLine("@evaluate", 1)
+      .setdeferDebugMetadata();
 
   global = JS::CurrentGlobalOrNull(cx);
   MOZ_ASSERT(global);
+
+  RootedValue privateValue(cx);
+  RootedString elementAttributeName(cx);
 
   if (args.length() == 2) {
     RootedObject opts(cx, &args[1].toObject());
     RootedValue v(cx);
 
-    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes)) {
+    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes, &privateValue,
+                             &elementAttributeName)) {
       return false;
     }
 
@@ -2684,6 +2693,11 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
       if (!script->scriptSource()->setSourceMapURL(cx, std::move(chars))) {
         return false;
       }
+    }
+
+    if (!JS::UpdateDebugMetadata(cx, script, options, privateValue,
+                                 elementAttributeName, nullptr, nullptr)) {
+      return false;
     }
 
     if (!transcodeOnly) {
@@ -4086,7 +4100,7 @@ static bool DisassWithSrc(JSContext* cx, unsigned argc, Value* vp) {
 #endif /* defined(DEBUG) || defined(JS_JITSPEW) */
 
 #ifdef JS_CACHEIR_SPEW
-static bool RateMyCacheIR(JSContext* cx, unsigned argc, Value* vp) {
+static bool CacheIRHealthReport(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   js::jit::CacheIRHealth cih;
@@ -4096,9 +4110,9 @@ static bool RateMyCacheIR(JSContext* cx, unsigned argc, Value* vp) {
   // the environment variable is not set, AutoSpewChannel automatically
   // sets and unsets the proper channel for the duration of spewing
   // a health report.
-  AutoSpewChannel channel(cx, SpewChannel::RateMyCacheIR, script);
+  AutoSpewChannel channel(cx, SpewChannel::CacheIRHealthReport, script);
   if (!argc) {
-    // Calling RateMyCacheIR without any arguments will create health
+    // Calling CacheIRHealthReport without any arguments will create health
     // reports for all scripts in the zone.
     for (auto base = cx->zone()->cellIter<BaseScript>(); !base.done();
          base.next()) {
@@ -4107,7 +4121,7 @@ static bool RateMyCacheIR(JSContext* cx, unsigned argc, Value* vp) {
       }
 
       script = base->asJSScript();
-      cih.rateScript(cx, script, js::jit::SpewContext::Shell);
+      cih.healthReportForScript(cx, script, js::jit::SpewContext::Shell);
     }
   } else {
     RootedValue value(cx, args.get(0));
@@ -4122,7 +4136,7 @@ static bool RateMyCacheIR(JSContext* cx, unsigned argc, Value* vp) {
       return false;
     }
 
-    cih.rateScript(cx, script, js::jit::SpewContext::Shell);
+    cih.healthReportForScript(cx, script, js::jit::SpewContext::Shell);
   }
 
   args.rval().setUndefined();
@@ -5026,6 +5040,10 @@ static bool ScheduleWatchdog(JSContext* cx, double t) {
     return true;
   }
 
+#ifdef __wasi__
+  return false;
+#endif
+
   auto interval = TimeDuration::FromSeconds(t);
   auto timeout = TimeStamp::Now() + interval;
   LockGuard<Mutex> guard(sc->watchdogLock);
@@ -5449,7 +5467,10 @@ static bool Compile(JSContext* cx, unsigned argc, Value* vp) {
   options.setIntroductionType("js shell compile")
       .setFileAndLine("<string>", 1)
       .setIsRunOnce(true)
-      .setNoScriptRval(true);
+      .setNoScriptRval(true)
+      .setdeferDebugMetadata();
+  RootedValue privateValue(cx);
+  RootedString elementAttributeName(cx);
 
   if (args.length() >= 2) {
     if (args[1].isPrimitive()) {
@@ -5459,7 +5480,8 @@ static bool Compile(JSContext* cx, unsigned argc, Value* vp) {
     }
 
     RootedObject opts(cx, &args[1].toObject());
-    if (!ParseCompileOptions(cx, options, opts, nullptr)) {
+    if (!ParseCompileOptions(cx, options, opts, nullptr, &privateValue,
+                             &elementAttributeName)) {
       return false;
     }
   }
@@ -5472,6 +5494,11 @@ static bool Compile(JSContext* cx, unsigned argc, Value* vp) {
 
   RootedScript script(cx, JS::Compile(cx, options, srcBuf));
   if (!script) {
+    return false;
+  }
+
+  if (!JS::UpdateDebugMetadata(cx, script, options, privateValue,
+                               elementAttributeName, nullptr, nullptr)) {
     return false;
   }
 
@@ -5705,10 +5732,19 @@ static bool RegisterModule(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   ShellContext* sc = GetShellContext(cx);
-  RootedString specifier(cx, args[0].toString());
   RootedModuleObject module(cx, &args[1].toObject().as<ModuleObject>());
 
-  if (!sc->moduleLoader->registerTestModule(cx, specifier, module)) {
+  RootedAtom specifier(cx, AtomizeString(cx, args[0].toString()));
+  if (!specifier) {
+    return false;
+  }
+
+  RootedObject moduleRequest(cx, ModuleRequestObject::create(cx, specifier));
+  if (!moduleRequest) {
+    return false;
+  }
+
+  if (!sc->moduleLoader->registerTestModule(cx, moduleRequest, module)) {
     return false;
   }
 
@@ -5855,8 +5891,10 @@ static bool FrontendTest(JSContext* cx, unsigned argc, Value* vp,
                           typeName);
       return false;
     }
-
-    if (!ParseCompileOptions(cx, options, objOptions, nullptr)) {
+    RootedValue dummyValue(cx);
+    RootedString dummyAttributeName(cx);
+    if (!ParseCompileOptions(cx, options, objOptions, nullptr, &dummyValue,
+                             &dummyAttributeName)) {
       return false;
     }
 
@@ -6150,7 +6188,8 @@ static bool OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp) {
   UniqueChars fileNameBytes;
   CompileOptions options(cx);
   options.setIntroductionType("js shell offThreadCompileScript")
-      .setFileAndLine("<string>", 1);
+      .setFileAndLine("<string>", 1)
+      .setdeferDebugMetadata();
 
   if (args.length() >= 2) {
     if (args[1].isPrimitive()) {
@@ -6159,8 +6198,13 @@ static bool OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp) {
       return false;
     }
 
+    // Offthread compilation requires that the debug metadata be set when the
+    // script is collected from offthread, rather than when compiled.
+    RootedValue dummyPrivateValue(cx);
+    RootedString dummyElementAttributeName(cx);
     RootedObject opts(cx, &args[1].toObject());
-    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes)) {
+    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes,
+                             &dummyPrivateValue, &dummyElementAttributeName)) {
       return false;
     }
   }
@@ -6241,6 +6285,28 @@ static bool runOffThreadScript(JSContext* cx, unsigned argc, Value* vp) {
   RootedScript script(cx, JS::FinishOffThreadScript(cx, token));
   DeleteOffThreadJob(cx, job);
   if (!script) {
+    return false;
+  }
+
+  RootedValue privateValue(cx);
+  RootedString elementAttributeName(cx);
+
+  if (args.length() >= 2) {
+    if (args[1].isPrimitive()) {
+      JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr,
+                                JSSMSG_INVALID_ARGS, "compile");
+      return false;
+    }
+
+    RootedObject opts(cx, &args[1].toObject());
+    if (!ParseDebugMetadata(cx, opts, &privateValue, &elementAttributeName)) {
+      return false;
+    }
+  }
+
+  CompileOptions dummyOptions(cx);
+  if (!JS::UpdateDebugMetadata(cx, script, dummyOptions, privateValue,
+                               elementAttributeName, nullptr, nullptr)) {
     return false;
   }
 
@@ -6385,7 +6451,10 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
     }
 
     RootedObject opts(cx, &args[1].toObject());
-    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes)) {
+    RootedValue dummyValue(cx);
+    RootedString dummyAttributeName(cx);
+    if (!ParseCompileOptions(cx, options, opts, &fileNameBytes, &dummyValue,
+                             &dummyAttributeName)) {
       return false;
     }
   }
@@ -6530,6 +6599,7 @@ static bool EscapeForShell(JSContext* cx, AutoCStringVector& argv) {
 }
 #endif
 
+#ifndef __wasi__
 static bool ReadAll(int fd, wasm::Bytes* bytes) {
   size_t lastLength = bytes->length();
   while (true) {
@@ -6596,11 +6666,11 @@ class AutoPipe {
   }
 
   bool init() {
-#ifdef XP_WIN
+#  ifdef XP_WIN
     return !_pipe(fds_, 4096, O_BINARY);
-#else
+#  else
     return !pipe(fds_);
-#endif
+#  endif
   }
 
   int reader() const {
@@ -6625,10 +6695,12 @@ class AutoPipe {
     fds_[1] = -1;
   }
 };
+#endif  // __wasi__
 
 int shell::sArgc;
 char** shell::sArgv;
 
+#ifndef __wasi__
 static const char sWasmCompileAndSerializeFlag[] =
     "--wasm-compile-and-serialize";
 static Vector<const char*, 5, js::SystemAllocPolicy> sCompilerProcessFlags;
@@ -6665,7 +6737,7 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
     return false;
   }
 
-#ifdef XP_WIN
+#  ifdef XP_WIN
   // The spawned process will have all the stdIn/stdOut file handles open, but
   // without the power of fork, we need some other way to communicate the
   // integer fd values so we encode them in argv and WasmCompileAndSerialize()
@@ -6691,14 +6763,14 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
   if (!arg || !argv.append(std::move(arg))) {
     return false;
   }
-#endif
+#  endif
 
   // Required by both _spawnv and exec.
   if (!argv.append(nullptr)) {
     return false;
   }
 
-#ifdef XP_WIN
+#  ifdef XP_WIN
   if (!EscapeForShell(cx, argv)) {
     return false;
   }
@@ -6707,7 +6779,7 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
   if (childPid == -1) {
     return false;
   }
-#else
+#  else
   pid_t childPid = fork();
   switch (childPid) {
     case -1:
@@ -6730,7 +6802,7 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
       execv(sArgv[0], argv.get());
       exit(-1);
   }
-#endif
+#  endif
 
   // In the parent process. Closing stdOut.writer() is necessary for
   // stdOut.reader() below to hit EOF.
@@ -6750,11 +6822,11 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
   stdOut.closeReader();
 
   int status;
-#ifdef XP_WIN
+#  ifdef XP_WIN
   if (_cwait(&status, childPid, WAIT_CHILD) == -1) {
     return false;
   }
-#else
+#  else
   while (true) {
     if (waitpid(childPid, &status, 0) >= 0) {
       break;
@@ -6763,7 +6835,7 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
       return false;
     }
   }
-#endif
+#  endif
 
   return status == 0;
 }
@@ -6771,7 +6843,7 @@ static bool CompileAndSerializeInSeparateProcess(JSContext* cx,
 static bool WasmCompileAndSerialize(JSContext* cx) {
   MOZ_ASSERT(wasm::CodeCachingAvailable(cx));
 
-#ifdef XP_WIN
+#  ifdef XP_WIN
   // See CompileAndSerializeInSeparateProcess for why we've had to smuggle
   // these fd values through argv. Closing the writing ends is necessary for
   // the reading ends to hit EOF.
@@ -6795,10 +6867,10 @@ static bool WasmCompileAndSerialize(JSContext* cx) {
   close(stdInWriter);
   close(stdOutReader);
   int stdOut = stdOutWriter;
-#else
+#  else
   int stdIn = STDIN_FILENO;
   int stdOut = STDOUT_FILENO;
-#endif
+#  endif
 
   wasm::MutableBytes bytecode = js_new<wasm::ShareableBytes>();
   if (!ReadAll(stdIn, &bytecode->bytes)) {
@@ -6855,6 +6927,7 @@ static bool WasmCompileInSeparateProcess(JSContext* cx, unsigned argc,
   args.rval().setObject(*module);
   return true;
 }
+#endif  // __wasi__
 
 static bool DecompileFunction(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -7594,7 +7667,7 @@ struct SharedObjectMailbox {
   union Value {
     struct {
       SharedArrayRawBuffer* buffer;
-      BufferSize length;
+      size_t length;
     } sarb;
     JS::WasmModule* module;
     double number;
@@ -7665,7 +7738,7 @@ static bool GetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
         // incremented prior to the SAB creation.
 
         SharedArrayRawBuffer* buf = mbx->val.sarb.buffer;
-        BufferSize length = mbx->val.sarb.length;
+        size_t length = mbx->val.sarb.length;
         if (!buf->addReference()) {
           JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                                     JSMSG_SC_SAB_REFCNT_OFLO);
@@ -7902,7 +7975,7 @@ class StreamCacheEntryObject : public NativeObject {
     auto& bytes =
         args.thisv().toObject().as<StreamCacheEntryObject>().cache().bytes();
     RootedArrayBufferObject buffer(
-        cx, ArrayBufferObject::createZeroed(cx, BufferSize(bytes.length())));
+        cx, ArrayBufferObject::createZeroed(cx, bytes.length()));
     if (!buffer) {
       return false;
     }
@@ -8059,7 +8132,7 @@ static void BufferStreamMain(BufferStreamJob* job) {
       break;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(delayMillis));
+    ThisThread::SleepMilliseconds(delayMillis);
 
     chunkSize = std::min(chunkSize, byteLength - byteOffset);
 
@@ -8343,8 +8416,13 @@ static bool AddMarkObservers(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   RootedObject observersArg(cx, &args[0].toObject());
-  uint32_t length;
+  uint64_t length;
   if (!GetLengthProperty(cx, observersArg, &length)) {
+    return false;
+  }
+
+  if (length > UINT32_MAX) {
+    JS_ReportErrorASCII(cx, "Invalid length for observers array");
     return false;
   }
 
@@ -8647,6 +8725,7 @@ static bool EntryPoints(JSContext* cx, unsigned argc, Value* vp) {
   return false;
 }
 
+#ifndef __wasi__
 static bool WasmTextToBinary(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   RootedObject callee(cx, &args.callee());
@@ -8731,9 +8810,9 @@ static bool WasmCodeOffsets(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-#ifndef __AFL_HAVE_MANUAL_CONTROL
-#  define __AFL_LOOP(x) true
-#endif
+#  ifndef __AFL_HAVE_MANUAL_CONTROL
+#    define __AFL_LOOP(x) true
+#  endif
 
 static bool WasmLoop(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -8781,10 +8860,11 @@ static bool WasmLoop(JSContext* cx, unsigned argc, Value* vp) {
     }
   }
 
-#ifdef __AFL_HAVE_MANUAL_CONTROL  // to silence unreachable code warning
+#  ifdef __AFL_HAVE_MANUAL_CONTROL  // to silence unreachable code warning
   return true;
-#endif
+#  endif
 }
+#endif  // __wasi__
 
 static constexpr uint32_t DOM_OBJECT_SLOT = 0;
 static constexpr uint32_t DOM_OBJECT_SLOT2 = 1;
@@ -8887,7 +8967,7 @@ static bool TransplantObject(JSContext* cx, unsigned argc, Value* vp) {
 
   // The following steps aim to replicate the behavior of UpdateReflectorGlobal
   // in dom/bindings/BindingUtils.cpp. In detail:
-  // 1. Check the recursion depth using CheckRecursionLimitConservative.
+  // 1. Check the recursion depth using checkConservative.
   // 2. Enter the target compartment.
   // 3. Clone the source object using JS_CloneObject.
   // 4. Check if new wrappers can be created if source and target are in
@@ -8900,7 +8980,8 @@ static bool TransplantObject(JSContext* cx, unsigned argc, Value* vp) {
   // to transplant an object into the same compartment as the source object to
   // cover all operations supported by JS_TransplantObject.
 
-  if (!CheckRecursionLimitConservative(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.checkConservative(cx)) {
     return false;
   }
 
@@ -9703,6 +9784,7 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "underneath you."),
 #endif // JS_HAS_INTL_API
 
+#ifndef __wasi__
     JS_FN_HELP("wasmCompileInSeparateProcess", WasmCompileInSeparateProcess, 1, 0,
 "wasmCompileInSeparateProcess(buffer)",
 "  Compile the given buffer in a separate process, serialize the resulting\n"
@@ -9717,6 +9799,7 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "wasmCodeOffsets(binary)",
 "  Decodes the given wasm binary to find the offsets of every instruction in the"
 "  code section."),
+#endif // __wasi__
 
     JS_FN_HELP("transplantableObject", TransplantableObject, 0, 0,
 "transplantableObject([options])",
@@ -9799,10 +9882,12 @@ TestAssertRecoveredOnBailout,
 "  generated by the crash (which only has an effect if the breakpad\n"
 "  dumping library is loaded.)"),
 
+#ifndef __wasi__
     JS_FN_HELP("wasmLoop", WasmLoop, 2, 0,
 "wasmLoop(filename, imports)",
 "  Performs an AFL-style persistent loop reading data from the given file and passing it\n"
 "  to the 'wasmEval' function together with the specified imports object."),
+#endif // __wasi__
 
     JS_FN_HELP("setBufferStreamParams", SetBufferStreamParams, 2, 0,
 "setBufferStreamParams(delayMillis, chunkByteSize)",
@@ -9810,8 +9895,8 @@ TestAssertRecoveredOnBailout,
 "  size (in bytes)."),
 
 #ifdef JS_CACHEIR_SPEW
-  JS_FN_HELP("rateMyCacheIR", RateMyCacheIR, 0, 0,
-"rateMyCacheIR()",
+  JS_FN_HELP("cacheIRHealthReport", CacheIRHealthReport, 0, 0,
+"cacheIRHealthReport()",
 "  Show health rating of CacheIR stubs."),
 #endif
 
@@ -10871,9 +10956,6 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   enableWasmBaseline = true;
   enableWasmOptimizing = true;
 
-  bool commandLineRequestedWasmIon = false;
-  bool commandLineRequestedWasmCranelift = false;
-
   if (const char* str = op.getStringOption("wasm-compiler")) {
     if (strcmp(str, "none") == 0) {
       enableWasm = false;
@@ -10892,43 +10974,34 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
     } else if (strcmp(str, "cranelift") == 0) {
       enableWasmBaseline = false;
       enableWasmOptimizing = true;
-      commandLineRequestedWasmCranelift = true;
     } else if (strcmp(str, "baseline+cranelift") == 0) {
       MOZ_ASSERT(enableWasmBaseline);
       enableWasmOptimizing = true;
-      commandLineRequestedWasmCranelift = true;
-#endif
+#else
     } else if (strcmp(str, "ion") == 0) {
       enableWasmBaseline = false;
       enableWasmOptimizing = true;
-      commandLineRequestedWasmIon = true;
     } else if (strcmp(str, "baseline+ion") == 0) {
       MOZ_ASSERT(enableWasmBaseline);
       enableWasmOptimizing = true;
-      commandLineRequestedWasmIon = true;
+#endif
     } else {
       return OptionFailure("wasm-compiler", str);
     }
   }
 
-  enableWasmReftypes = !op.getBoolOption("no-wasm-reftypes");
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  enableWasmFunctionReferences = op.getBoolOption("wasm-function-references");
-#endif
-#ifdef ENABLE_WASM_GC
-  enableWasmGc = op.getBoolOption("wasm-gc");
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-  enableWasmMultiValue = !op.getBoolOption("no-wasm-multi-value");
-#endif
-#ifdef ENABLE_WASM_SIMD
-  enableWasmSimd = !op.getBoolOption("no-wasm-simd");
-#endif
+#define WASM_DEFAULT_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, \
+                             FLAG_PRED, SHELL, ...)                         \
+  enableWasm##NAME = !op.getBoolOption("no-wasm-" SHELL);
+#define WASM_EXPERIMENTAL_FEATURE(NAME, LOWER_NAME, COMPILE_PRED,       \
+                                  COMPILER_PRED, FLAG_PRED, SHELL, ...) \
+  enableWasm##NAME = op.getBoolOption("wasm-" SHELL);
+  JS_FOR_WASM_FEATURES(WASM_DEFAULT_FEATURE, WASM_EXPERIMENTAL_FEATURE);
+#undef WASM_DEFAULT_FEATURE
+#undef WASM_EXPERIMENTAL_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
   enableWasmSimdWormhole = op.getBoolOption("wasm-simd-wormhole");
-#endif
-#ifdef ENABLE_WASM_EXCEPTIONS
-  enableWasmExceptions = op.getBoolOption("wasm-exceptions");
 #endif
   enableWasmVerbose = op.getBoolOption("wasm-verbose");
   enableTestWasmAwaitTier2 = op.getBoolOption("test-wasm-await-tier2");
@@ -10949,59 +11022,30 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   enablePrivateClassFields = op.getBoolOption("enable-private-fields") ||
                              op.getBoolOption("enable-private-methods");
   enablePrivateClassMethods = op.getBoolOption("enable-private-methods");
+  enableErgonomicBrandChecks =
+      op.getBoolOption("enable-ergonomic-brand-checks");
   enableTopLevelAwait = op.getBoolOption("enable-top-level-await");
   useOffThreadParseGlobal = op.getBoolOption("off-thread-parse-global");
-
-  // ifdeffing the defs and uses of these two so as to avoid unused-variable
-  // complaints on all targets is difficult.  Simpler just to create fake uses.
-  mozilla::Unused << commandLineRequestedWasmIon;
-  mozilla::Unused << commandLineRequestedWasmCranelift;
-#ifdef JS_CODEGEN_ARM64
-  // Cranelift->Ion transition.  When we land for phase 1, this becomes
-  // wasm-force-ion (be sure to update below around line 11500), and the default
-  // value of the flag is flipped to false, see comments above.  When we land
-  // for phase 2, this goes away.
-  MOZ_ASSERT(
-      !(commandLineRequestedWasmIon && commandLineRequestedWasmCranelift));
-  if (commandLineRequestedWasmIon) {
-    forceWasmIon = true;
-  } else if (commandLineRequestedWasmCranelift) {
-    forceWasmIon = false;
-  } else {
-    forceWasmIon = op.getBoolOption("wasm-force-ion");
-  }
-#endif
 
   JS::ContextOptionsRef(cx)
       .setAsmJS(enableAsmJS)
       .setWasm(enableWasm)
       .setWasmForTrustedPrinciples(enableWasm)
       .setWasmBaseline(enableWasmBaseline)
-#if defined(ENABLE_WASM_CRANELIFT) && defined(JS_CODEGEN_ARM64)
-      // Cranelift->Ion transition
-      .setWasmCranelift(enableWasmOptimizing && !forceWasmIon)
-      .setWasmIon(enableWasmOptimizing && forceWasmIon)
+#if defined(ENABLE_WASM_CRANELIFT)
+      .setWasmCranelift(enableWasmOptimizing)
+      .setWasmIon(false)
 #else
+      .setWasmCranelift(false)
       .setWasmIon(enableWasmOptimizing)
 #endif
-      .setWasmReftypes(enableWasmReftypes)
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      .setWasmFunctionReferences(enableWasmFunctionReferences)
-#endif
-#ifdef ENABLE_WASM_GC
-      .setWasmGc(enableWasmGc)
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      .setWasmMultiValue(enableWasmMultiValue)
-#endif
-#ifdef ENABLE_WASM_SIMD
-      .setWasmSimd(enableWasmSimd)
-#endif
+
+#define WASM_FEATURE(NAME, ...) .setWasm##NAME(enableWasm##NAME)
+          JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#undef WASM_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
       .setWasmSimdWormhole(enableWasmSimdWormhole)
-#endif
-#ifdef ENABLE_WASM_EXCEPTIONS
-      .setWasmExceptions(enableWasmExceptions)
 #endif
       .setWasmVerbose(enableWasmVerbose)
       .setTestWasmAwaitTier2(enableTestWasmAwaitTier2)
@@ -11010,6 +11054,7 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
       .setAsyncStackCaptureDebuggeeOnly(enableAsyncStackCaptureDebuggeeOnly)
       .setPrivateClassFields(enablePrivateClassFields)
       .setPrivateClassMethods(enablePrivateClassMethods)
+      .setErgnomicBrandChecks(enableErgonomicBrandChecks)
       .setTopLevelAwait(enableTopLevelAwait);
 
   JS::SetUseOffThreadParseGlobal(useOffThreadParseGlobal);
@@ -11305,8 +11350,8 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
     }
   }
 
-  if (op.getBoolOption("large-arraybuffers")) {
-    JS::SetLargeArrayBuffersEnabled(true);
+  if (op.getBoolOption("no-large-arraybuffers")) {
+    JS::SetLargeArrayBuffersEnabled(false);
   }
 
   if (op.getBoolOption("disable-bailout-loop-check")) {
@@ -11385,29 +11430,20 @@ static void SetWorkerContextOptions(JSContext* cx) {
       .setAsmJS(enableAsmJS)
       .setWasm(enableWasm)
       .setWasmBaseline(enableWasmBaseline)
-#if defined(ENABLE_WASM_CRANELIFT) && defined(JS_CODEGEN_ARM64)
-      // Cranelift->Ion transition
-      .setWasmCranelift(enableWasmOptimizing && !forceWasmIon)
-      .setWasmIon(enableWasmOptimizing && forceWasmIon)
+#if defined(ENABLE_WASM_CRANELIFT)
+      .setWasmCranelift(enableWasmOptimizing)
+      .setWasmIon(false)
 #else
+      .setWasmCranelift(false)
       .setWasmIon(enableWasmOptimizing)
 #endif
-#ifdef ENABLE_WASM_GC
-      .setWasmGc(enableWasmGc)
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      .setWasmMultiValue(enableWasmMultiValue)
-#endif
-#ifdef ENABLE_WASM_SIMD
-      .setWasmSimd(enableWasmSimd)
-#endif
+#define WASM_FEATURE(NAME, ...) .setWasm##NAME(enableWasm##NAME)
+          JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#undef WASM_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
       .setWasmSimdWormhole(enableWasmSimdWormhole)
 #endif
-#ifdef ENABLE_WASM_EXCEPTIONS
-      .setWasmExceptions(enableWasmExceptions)
-#endif
-      .setWasmReftypes(enableWasmReftypes)
       .setWasmVerbose(enableWasmVerbose)
       .setTestWasmAwaitTier2(enableTestWasmAwaitTier2)
       .setSourcePragmas(enableSourcePragmas);
@@ -11530,7 +11566,7 @@ static void SetWorkerContextOptions(JSContext* cx) {
   return true;
 }
 
-static int Shell(JSContext* cx, OptionParser* op, char** envp) {
+static int Shell(JSContext* cx, OptionParser* op) {
   if (JS::TraceLoggerSupported()) {
     JS::StartTraceLogger(cx);
   }
@@ -11549,11 +11585,15 @@ static int Shell(JSContext* cx, OptionParser* op, char** envp) {
   });
 
   if (op->getBoolOption("wasm-compile-and-serialize")) {
+#ifdef __wasi__
+    MOZ_CRASH("WASI doesn't support wasm");
+#else
     if (!WasmCompileAndSerialize(cx)) {
       // Errors have been printed directly to stderr.
       MOZ_ASSERT(!cx->isExceptionPending());
       return -1;
     }
+#endif
     return EXIT_SUCCESS;
   }
 
@@ -11782,7 +11822,7 @@ static bool WriteSelfHostedXDRFile(JSContext* cx,
   return true;
 }
 
-int main(int argc, char** argv, char** envp) {
+int main(int argc, char** argv) {
   PreInit();
 
   sArgc = argc;
@@ -11902,51 +11942,21 @@ int main(int argc, char** argv, char** envp) {
       !op.addBoolOption('\0', "test-wasm-await-tier2",
                         "Forcibly activate tiering and block "
                         "instantiation on completion of tier2") ||
-      !op.addBoolOption('\0', "no-wasm-reftypes",
-                        "Disable wasm reference types features") ||
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      !op.addBoolOption(
-          '\0', "wasm-function-references",
-          "Enable experimental wasm function-references features") ||
-#else
-      !op.addBoolOption('\0', "wasm-function-references", "No-op") ||
-#endif
-#ifdef ENABLE_WASM_GC
-      !op.addBoolOption('\0', "wasm-gc",
-                        "Enable experimental wasm GC features") ||
-#else
-      !op.addBoolOption('\0', "wasm-gc", "No-op") ||
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      !op.addBoolOption('\0', "no-wasm-multi-value",
-                        "Disable wasm multi-value features") ||
-#else
-      !op.addBoolOption('\0', "no-wasm-multi-value", "No-op") ||
-#endif
-#ifdef ENABLE_WASM_SIMD
-      !op.addBoolOption('\0', "no-wasm-simd",
-                        "Disable experimental wasm SIMD features") ||
-#else
-      !op.addBoolOption('\0', "no-wasm-simd", "No-op") ||
-#endif
+#define WASM_DEFAULT_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, \
+                             FLAG_PRED, SHELL, ...)                         \
+  !op.addBoolOption('\0', "no-wasm-" SHELL, "Disable wasm " SHELL "feature.") ||
+#define WASM_EXPERIMENTAL_FEATURE(NAME, LOWER_NAME, COMPILE_PRED,       \
+                                  COMPILER_PRED, FLAG_PRED, SHELL, ...) \
+  !op.addBoolOption('\0', "wasm-" SHELL,                                \
+                    "Enable experimental wasm " SHELL "feature.") ||
+      JS_FOR_WASM_FEATURES(WASM_DEFAULT_FEATURE, WASM_EXPERIMENTAL_FEATURE)
+#undef WASM_DEFAULT_FEATURE
+#undef WASM_EXPERIMENTAL_FEATURE
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
-      !op.addBoolOption('\0', "wasm-simd-wormhole",
-                        "Enable wasm SIMD wormhole (UTSL)") ||
+          !op.addBoolOption('\0', "wasm-simd-wormhole",
+                            "Enable wasm SIMD wormhole (UTSL)") ||
 #else
-      !op.addBoolOption('\0', "wasm-simd-wormhole", "No-op") ||
-#endif
-#ifdef ENABLE_WASM_EXCEPTIONS
-      !op.addBoolOption('\0', "wasm-exceptions",
-                        "Enable wasm exceptions features") ||
-#else
-      !op.addBoolOption('\0', "wasm-exceptions", "No-op") ||
-#endif
-#ifdef JS_CODEGEN_ARM64
-      // Cranelift->Ion transition.  This disappears at Phase 2 of the landing.
-      // See sundry comments above.
-      !op.addBoolOption(
-          '\0', "wasm-force-ion",
-          "Temporary: Force Ion in builds with both Cranelift and Ion") ||
+          !op.addBoolOption('\0', "wasm-simd-wormhole", "No-op") ||
 #endif
       !op.addBoolOption('\0', "no-native-regexp",
                         "Disable native regexp compilation") ||
@@ -11987,13 +11997,16 @@ int main(int argc, char** argv, char** envp) {
                         "Enable private class fields") ||
       !op.addBoolOption('\0', "enable-private-methods",
                         "Enable private class methods") ||
+      !op.addBoolOption(
+          '\0', "enable-ergonomic-brand-checks",
+          "Enable ergonomic brand checks for private class fields") ||
       !op.addBoolOption('\0', "enable-top-level-await",
                         "Enable top-level await") ||
       !op.addBoolOption('\0', "off-thread-parse-global",
                         "Use parseGlobal in all off-thread compilation") ||
-      !op.addBoolOption('\0', "large-arraybuffers",
-                        "Allow creating ArrayBuffers larger than 2 GB on "
-                        "64-bit platforms (experimental!)") ||
+      !op.addBoolOption('\0', "no-large-arraybuffers",
+                        "Disallow creating ArrayBuffers larger than 2 GB on "
+                        "64-bit platforms") ||
       !op.addStringOption('\0', "shared-memory", "on/off",
                           "SharedArrayBuffer and Atomics "
 #if SHARED_MEMORY_DEFAULT
@@ -12503,7 +12516,7 @@ int main(int argc, char** argv, char** envp) {
   //   presented in the same order that they exist in the parent's `argv[]`.
   //   That could be a problem in the case where two flags with contradictory
   //   meanings are given, and they are presented to the child in the opposite
-  //   order.  For example: --wasm-compiler=cranelift --wasm-force-ion.
+  //   order.  For example: --wasm-compiler=optimizing --wasm-compiler=baseline.
 
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
   if (op.getBoolOption("no-sse3")) {
@@ -12542,6 +12555,7 @@ int main(int argc, char** argv, char** envp) {
   }
 #endif
 
+#ifndef __wasi__
   // --disable-wasm-huge-memory needs to be propagated.  See bug 1518210.
   if (op.getBoolOption("disable-wasm-huge-memory")) {
     if (!sCompilerProcessFlags.append("--disable-wasm-huge-memory")) {
@@ -12553,16 +12567,19 @@ int main(int argc, char** argv, char** envp) {
 
   // Also the following are to be propagated.
   const char* to_propagate[] = {
+#  define WASM_DEFAULT_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, \
+                               FLAG_PRED, SHELL, ...)                         \
+    "--no-wasm-" SHELL,
+#  define WASM_EXPERIMENTAL_FEATURE(NAME, LOWER_NAME, COMPILE_PRED,       \
+                                    COMPILER_PRED, FLAG_PRED, SHELL, ...) \
+    "--wasm-" SHELL,
+      JS_FOR_WASM_FEATURES(WASM_DEFAULT_FEATURE, WASM_EXPERIMENTAL_FEATURE)
+#  undef WASM_DEFAULT_FEATURE
+#  undef WASM_EXPERIMENTAL_FEATURE
       // Feature selection options
-      "--wasm-gc", "--wasm-simd-wormhole", "--wasm-exceptions",
-      "--wasm-function-references", "--no-wasm-simd", "--no-wasm-reftypes",
-      "--no-wasm-multi-value",
+      "--wasm-simd-wormhole",
       // Compiler selection options
-      "--test-wasm-await-tier2",
-#ifdef JS_CODEGEN_ARM64
-      "--wasm-force-ion",
-#endif
-      NULL};
+      "--test-wasm-await-tier2", NULL};
   for (const char** p = &to_propagate[0]; *p; p++) {
     if (op.getBoolOption(&(*p)[2] /* 2 => skip the leading '--' */)) {
       if (!sCompilerProcessFlags.append(*p)) {
@@ -12595,8 +12612,9 @@ int main(int argc, char** argv, char** envp) {
       return EXIT_FAILURE;
     }
   }
+#endif  // __wasi__
 
-  result = Shell(cx, &op, envp);
+  result = Shell(cx, &op);
 
 #ifdef DEBUG
   if (OOM_printAllocationCount) {

@@ -443,7 +443,8 @@ function matchVariablesViewProperty(prop, rule) {
     return resolve(false);
   }
 
-  if (rule.name) {
+  // Any kind of string is accepted as name, including empty ones
+  if (typeof rule.name == "string") {
     const match =
       rule.name instanceof RegExp
         ? rule.name.test(prop.name)
@@ -1103,11 +1104,19 @@ function isInTree(doc, path) {
  * @param {any} value
  */
 function checkStorageData(name, value) {
-  is(
-    gUI.table.items.get(name)?.value,
-    value,
+  ok(
+    hasStorageData(name, value),
     `Table row has an entry for: ${name} with value: ${value}`
   );
+}
+
+/**
+ * Returns whether the pair <name, value> is displayed at the data table
+ * @param {String} name
+ * @param {any} value
+ */
+function hasStorageData(name, value) {
+  return gUI.table.items.get(name)?.value === value;
 }
 
 /**

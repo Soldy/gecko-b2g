@@ -450,6 +450,9 @@ bool jit::PruneUnusedBranches(MIRGenerator* mir, MIRGraph& graph) {
     if (mir->shouldCancel("Prune unused branches (removal loop)")) {
       return false;
     }
+    if (!graph.alloc().ensureBallast()) {
+      return false;
+    }
 
     MBasicBlock* block = *it++;
     if (block->isMarked() && !block->alwaysBails()) {
@@ -1429,6 +1432,10 @@ bool TypeAnalyzer::shouldSpecializeOsrPhis() const {
   //
   //     * TypeAnalyzer::replaceRedundantPhi: adds a type guard for values that
   //       can't be unboxed (null/undefined/magic Values).
+  if (!mir->graph().osrBlock()) {
+    return false;
+  }
+
   return !mir->outerInfo().hadSpeculativePhiBailout();
 }
 
@@ -1651,7 +1658,7 @@ bool TypeAnalyzer::specializePhis() {
     return false;
   }
 
-  if (shouldSpecializeOsrPhis() && graph.osrBlock()) {
+  if (shouldSpecializeOsrPhis()) {
     // See shouldSpecializeOsrPhis comment. This is the second step, propagating
     // loop header phi types to preheader phis.
     MBasicBlock* preHeader = graph.osrPreHeaderBlock();
@@ -1843,19 +1850,18 @@ void TypeAnalyzer::replaceRedundantPhi(MPhi* phi) {
   block->insertBefore(*(block->begin()), c);
   phi->justReplaceAllUsesWith(c);
 
-  if (shouldSpecializeOsrPhis() && block == graph.osrPreHeaderBlock()) {
+  if (shouldSpecializeOsrPhis()) {
     // See shouldSpecializeOsrPhis comment. This is part of the third step,
     // guard the incoming MOsrValue is of this type.
-    MBasicBlock* osrBlock = graph.osrBlock();
-    MOZ_ASSERT(block->getPredecessor(1) == osrBlock);
-    MDefinition* def = phi->getOperand(1);
-    if (def->isOsrValue()) {
-      MGuardValue* guard = MGuardValue::New(alloc(), def, v);
-      guard->setBailoutKind(BailoutKind::SpeculativePhi);
-      osrBlock->insertBefore(osrBlock->lastIns(), guard);
-    } else {
-      MOZ_ASSERT(def->isConstant());
-      MOZ_ASSERT(def->type() == phi->type());
+    for (uint32_t i = 0; i < phi->numOperands(); i++) {
+      MDefinition* def = phi->getOperand(i);
+      if (def->type() != phi->type()) {
+        MOZ_ASSERT(def->isOsrValue() || def->isPhi());
+        MOZ_ASSERT(def->type() == MIRType::Value);
+        MGuardValue* guard = MGuardValue::New(alloc(), def, v);
+        guard->setBailoutKind(BailoutKind::SpeculativePhi);
+        def->block()->insertBefore(def->block()->lastIns(), guard);
+      }
     }
   }
 }
@@ -2846,6 +2852,7 @@ static bool IsResumableMIRType(MIRType type) {
     case MIRType::Symbol:
     case MIRType::BigInt:
     case MIRType::Object:
+    case MIRType::Shape:
     case MIRType::MagicOptimizedArguments:
     case MIRType::MagicOptimizedOut:
     case MIRType::MagicUninitializedLexical:
@@ -2859,7 +2866,6 @@ static bool IsResumableMIRType(MIRType type) {
     case MIRType::Slots:
     case MIRType::Elements:
     case MIRType::Pointer:
-    case MIRType::Shape:
     case MIRType::Int64:
     case MIRType::RefOrNull:
     case MIRType::StackResults:

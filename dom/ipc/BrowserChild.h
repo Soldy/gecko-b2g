@@ -565,15 +565,14 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvHandleAccessKey(const WidgetKeyboardEvent& aEvent,
                                               nsTArray<uint32_t>&& aCharCodes);
 
-  mozilla::ipc::IPCResult RecvPrintPreview(
-      const PrintData& aPrintData,
-      const mozilla::Maybe<uint64_t>& aSourceOuterWindowID,
-      PrintPreviewResolver&& aCallback);
+  mozilla::ipc::IPCResult RecvPrintPreview(const PrintData& aPrintData,
+                                           const MaybeDiscardedBrowsingContext&,
+                                           PrintPreviewResolver&& aCallback);
 
   mozilla::ipc::IPCResult RecvExitPrintPreview();
 
-  mozilla::ipc::IPCResult RecvPrint(const uint64_t& aOuterWindowID,
-                                    const PrintData& aPrintData);
+  mozilla::ipc::IPCResult RecvPrint(const MaybeDiscardedBrowsingContext&,
+                                    const PrintData&);
 
   mozilla::ipc::IPCResult RecvUpdateNativeWindowHandle(
       const uintptr_t& aNewHandle);
@@ -660,9 +659,6 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   }
 #endif
 
-  // The HANDLE object for the widget this BrowserChild in.
-  WindowsHandle WidgetNativeData() { return mWidgetNativeData; }
-
   // The transform from the coordinate space of this BrowserChild to the
   // coordinate space of the native window its BrowserParent is in.
   mozilla::LayoutDeviceToLayoutDeviceMatrix4x4
@@ -744,9 +740,6 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvStopIMEStateManagement();
 
   mozilla::ipc::IPCResult RecvAllowScriptsToClose();
-
-  mozilla::ipc::IPCResult RecvSetWidgetNativeData(
-      const WindowsHandle& aWidgetNativeData);
 
   mozilla::ipc::IPCResult RecvReleaseAllPointerCapture();
 
@@ -933,8 +926,6 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   // and once it reaches 0, it is no longer blocked.
   uint32_t mPendingDocShellBlockers;
   int32_t mCancelContentJSEpoch;
-
-  WindowsHandle mWidgetNativeData;
 
   Maybe<LayoutDeviceToLayoutDeviceMatrix4x4> mChildToParentConversionMatrix;
   ScreenRect mTopLevelViewportVisibleRectInBrowserCoords;

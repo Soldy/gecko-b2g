@@ -7,6 +7,7 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/dom/WebActivity.h"
 #include "mozilla/dom/WebActivityWorker.h"
@@ -103,7 +104,7 @@ already_AddRefed<WebActivity> WebActivity::Constructor(
     return nullptr;
   }
 
-  WebActivityOptions options;
+  RootedDictionary<WebActivityOptions> options(aOwner.Context());
   options.mName = aName;
   options.mData = aData;
 

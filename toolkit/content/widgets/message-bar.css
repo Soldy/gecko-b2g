@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 :host {
-  --info-icon-url: url("chrome://global/skin/icons/info.svg");
+  --info-icon-url: url("chrome://global/skin/icons/info-filled.svg");
   --warn-icon-url: url("chrome://global/skin/icons/warning.svg");
   --success-icon-url: url("chrome://global/skin/icons/success.svg");
   --error-icon-url: url("chrome://global/skin/icons/error.svg");
@@ -148,7 +148,7 @@
   flex-shrink: 0;
 }
 
-@media (-moz-proton-infobars) {
+@media (-moz-proton) {
 @media not (prefers-contrast) {
   .container.infobar {
     box-shadow: 0 1px 2px rgba(58, 57, 68, 0.1);
@@ -160,7 +160,7 @@
   fill: var(--in-content-icon-color);
 }
 
-@media (prefers-color-scheme: dark) {
+@media (-moz-toolbar-prefers-color-scheme: dark) {
   .container.infobar {
     background: rgb(66,65,77);
   }
@@ -254,7 +254,7 @@ strong {
   display: none;
 }
 :host([type=info]) .icon {
-  color: rgb(128,235,255);
+  color: rgb(0,144,237);
 }
 :host([type=warning]) .icon {
   color: rgb(255,164,54);
@@ -263,9 +263,9 @@ strong {
   color: rgb(226,40,80);
 }
 
-@media (prefers-color-scheme: dark) {
+@media (-moz-toolbar-prefers-color-scheme: dark) {
   :host([type=info]) .icon {
-    color: rgb(0,221,255);
+    color: rgb(128,235,255);
   }
   :host([type=warning]) .icon {
     color: rgb(255,189,79);
@@ -276,7 +276,7 @@ strong {
 }
 }
 
-@media not (-moz-proton-infobars) {
+@media not (-moz-proton) {
 :host {
   /* Colors used by default, and for [type=generic] message bars.*/
   background-color: var(--in-content-box-info-background);

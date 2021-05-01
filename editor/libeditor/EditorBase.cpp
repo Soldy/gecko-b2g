@@ -128,6 +128,7 @@ using namespace widget;
 
 using LeafNodeType = HTMLEditUtils::LeafNodeType;
 using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
+using WalkTreeOption = HTMLEditUtils::WalkTreeOption;
 
 /*****************************************************************************
  * mozilla::EditorBase
@@ -248,8 +249,10 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(EditorBase)
 nsresult EditorBase::Init(Document& aDocument, Element* aRoot,
                           nsISelectionController* aSelectionController,
                           uint32_t aFlags, const nsAString& aValue) {
-  MOZ_ASSERT(GetTopLevelEditSubAction() == EditSubAction::eNone,
-             "Initializing during an edit action is an error");
+  MOZ_ASSERT_IF(
+      !mEditActionData ||
+          !mEditActionData->HasEditorDestroyedDuringHandlingEditAction(),
+      GetTopLevelEditSubAction() == EditSubAction::eNone);
 
   // First only set flags, but other stuff shouldn't be initialized now.
   // Note that SetFlags() will be called by PostCreate().
@@ -287,8 +290,6 @@ nsresult EditorBase::Init(Document& aDocument, Element* aRoot,
     mRootElement = aRoot;
   }
 
-  mUpdateCount = 0;
-
   // If this is an editor for <input> or <textarea>, the text node which
   // has composition string is always recreated with same content. Therefore,
   // we need to nodify mComposition of text node destruction and replacing
@@ -312,7 +313,7 @@ nsresult EditorBase::Init(Document& aDocument, Element* aRoot,
 
   MOZ_ASSERT(IsInitialized());
 
-  AutoEditActionDataSetter editActionData(*this, EditAction::eNotEditing);
+  AutoEditActionDataSetter editActionData(*this, EditAction::eInitializing);
   if (NS_WARN_IF(!editActionData.CanHandle())) {
     return NS_ERROR_FAILURE;
   }
@@ -582,6 +583,10 @@ void EditorBase::PreDestroy(bool aDestroyingFrames) {
     NS_WARNING_ASSERTION(disabledUndoRedo,
                          "EditorBase::DisableUndoRedo() failed, but ignored");
     mTransactionManager = nullptr;
+  }
+
+  if (mEditActionData) {
+    mEditActionData->OnEditorDestroy();
   }
 
   mDidPreDestroy = true;
@@ -1115,8 +1120,23 @@ MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHODIMP EditorBase::BeginningOfDocument() {
   }
 
   // find first editable thingy
-  nsCOMPtr<nsINode> firstNode = GetFirstEditableNode(rootElement);
-  if (!firstNode) {
+  nsCOMPtr<nsIContent> firstEditableLeaf;
+  if (IsTextEditor()) {
+    // If we're `TextEditor`, the first editable leaf node is a text node or
+    // padding `<br>` element.  In the first case, we need to collapse selection
+    // into it.
+    if (rootElement->GetFirstChild() &&
+        rootElement->GetFirstChild()->IsText()) {
+      firstEditableLeaf = rootElement->GetFirstChild();
+    }
+  } else {
+    MOZ_ASSERT(IsHTMLEditor());
+    // XXX Why not the editing host?  This scans all nodes until meeting first
+    //     editing host.
+    firstEditableLeaf =
+        HTMLEditUtils::GetFirstEditableLeafContent(*rootElement);
+  }
+  if (!firstEditableLeaf) {
     // just the root node, set selection to inside the root
     nsresult rv = SelectionRef().CollapseInLimiter(rootElement, 0);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
@@ -1124,22 +1144,23 @@ MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHODIMP EditorBase::BeginningOfDocument() {
     return rv;
   }
 
-  if (firstNode->IsText()) {
-    // If firstNode is text, set selection to beginning of the text node.
-    nsresult rv = SelectionRef().CollapseInLimiter(firstNode, 0);
+  if (firstEditableLeaf->IsText()) {
+    // If firstEditableLeaf is text, set selection to beginning of the text
+    // node.
+    nsresult rv = SelectionRef().CollapseInLimiter(firstEditableLeaf, 0);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
                          "Selection::CollapseInLimiter() failed");
     return rv;
   }
 
   // Otherwise, it's a leaf node and we set the selection just in front of it.
-  nsCOMPtr<nsIContent> parent = firstNode->GetParent();
+  nsCOMPtr<nsIContent> parent = firstEditableLeaf->GetParent();
   if (NS_WARN_IF(!parent)) {
     return NS_ERROR_NULL_POINTER;
   }
 
   MOZ_ASSERT(
-      parent->ComputeIndexOf(firstNode) == 0,
+      parent->ComputeIndexOf(firstEditableLeaf) == 0,
       "How come the first node isn't the left most child in its parent?");
   nsresult rv = SelectionRef().CollapseInLimiter(parent, 0);
   NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
@@ -1444,10 +1465,9 @@ NS_IMETHODIMP EditorBase::SetSpellcheckUserOverride(bool enable) {
   return NS_OK;
 }
 
-already_AddRefed<Element> EditorBase::CreateNodeWithTransaction(
+Result<RefPtr<Element>, nsresult> EditorBase::CreateNodeWithTransaction(
     nsAtom& aTagName, const EditorDOMPoint& aPointToInsert) {
   MOZ_ASSERT(IsEditActionDataAvailable());
-
   MOZ_ASSERT(aPointToInsert.IsSetAndValid());
 
   // XXX We need offset at new node for RangeUpdaterRef().  Therefore, we need
@@ -1459,7 +1479,7 @@ already_AddRefed<Element> EditorBase::CreateNodeWithTransaction(
   AutoEditSubActionNotifier startToHandleEditSubAction(
       *this, EditSubAction::eCreateNode, nsIEditor::eNext, ignoredError);
   if (NS_WARN_IF(ignoredError.ErrorCodeIs(NS_ERROR_EDITOR_DESTROYED))) {
-    return nullptr;
+    return Err(NS_ERROR_EDITOR_DESTROYED);
   }
   NS_WARNING_ASSERTION(
       !ignoredError.Failed(),
@@ -1470,6 +1490,14 @@ already_AddRefed<Element> EditorBase::CreateNodeWithTransaction(
   RefPtr<CreateElementTransaction> transaction =
       CreateElementTransaction::Create(*this, aTagName, aPointToInsert);
   nsresult rv = DoTransactionInternal(transaction);
+  if (NS_WARN_IF(Destroyed())) {
+    rv = NS_ERROR_EDITOR_DESTROYED;
+  } else if (transaction->GetNewElement() &&
+             transaction->GetNewElement()->GetParentNode() !=
+                 aPointToInsert.GetContainer()) {
+    NS_WARNING("The new element was not inserted into the expected node");
+    rv = NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE;
+  }
   if (NS_FAILED(rv)) {
     NS_WARNING("EditorBase::DoTransactionInternal() failed");
     // XXX Why do we do this even when DoTransaction() returned error?
@@ -1500,7 +1528,11 @@ already_AddRefed<Element> EditorBase::CreateNodeWithTransaction(
     TopLevelEditSubActionDataRef().DidCreateElement(*this, *newElement);
   }
 
-  return newElement.forget();
+  if (NS_FAILED(rv)) {
+    return Err(rv);
+  }
+
+  return newElement;
 }
 
 NS_IMETHODIMP EditorBase::InsertNode(nsINode* aNodeToInsert,
@@ -1572,12 +1604,21 @@ EditorBase::InsertPaddingBRElementForEmptyLastLineWithTransaction(
   MOZ_ASSERT(IsEditActionDataAvailable());
   MOZ_ASSERT(IsHTMLEditor() || !aPointToInsert.IsInTextNode());
 
-  EditorDOMPoint pointToInsert =
-      IsTextEditor() ? aPointToInsert
-                     : MOZ_KnownLive(AsHTMLEditor())
-                           ->PrepareToInsertBRElement(aPointToInsert);
-  if (NS_WARN_IF(!pointToInsert.IsSet())) {
+  if (!aPointToInsert.IsSet()) {
     return CreateElementResult(NS_ERROR_FAILURE);
+  }
+
+  EditorDOMPoint pointToInsert;
+  if (IsTextEditor()) {
+    pointToInsert = aPointToInsert;
+  } else {
+    Result<EditorDOMPoint, nsresult> maybePointToInsert =
+        MOZ_KnownLive(AsHTMLEditor())->PrepareToInsertBRElement(aPointToInsert);
+    if (maybePointToInsert.isErr()) {
+      return CreateElementResult(maybePointToInsert.unwrapErr());
+    }
+    MOZ_ASSERT(maybePointToInsert.inspect().IsSetAndValid());
+    pointToInsert = maybePointToInsert.unwrap();
   }
 
   RefPtr<Element> newBRElement = CreateHTMLContent(nsGkAtoms::br);
@@ -1714,6 +1755,10 @@ void EditorBase::NotifyEditorObservers(
     case eNotifyEditorObserversOfEnd:
       mIsInEditSubAction = false;
 
+      if (mEditActionData) {
+        mEditActionData->MarkAsHandled();
+      }
+
       if (mTextInputListener) {
         // TODO: TextInputListener::OnEditActionHandled() may return
         //       NS_ERROR_OUT_OF_MEMORY.  If so and if
@@ -1771,6 +1816,10 @@ void EditorBase::NotifyEditorObservers(
       break;
     case eNotifyEditorObserversOfCancel:
       mIsInEditSubAction = false;
+
+      if (mEditActionData) {
+        mEditActionData->MarkAsHandled();
+      }
 
       if (mIMEContentObserver) {
         RefPtr<IMEContentObserver> observer = mIMEContentObserver;
@@ -2580,19 +2629,6 @@ nsresult EditorBase::InsertTextIntoTextNodeWithTransaction(
   return rv;
 }
 
-nsINode* EditorBase::GetFirstEditableNode(nsINode* aRoot) {
-  MOZ_ASSERT(aRoot);
-
-  EditorType editorType = GetEditorType();
-  nsIContent* content =
-      HTMLEditUtils::GetFirstLeafChild(*aRoot, {LeafNodeType::OnlyLeafNode});
-  if (content && !EditorUtils::IsEditableContent(*content, editorType)) {
-    content = GetNextEditableNode(*content);
-  }
-
-  return (content != aRoot) ? content : nullptr;
-}
-
 nsresult EditorBase::NotifyDocumentListeners(
     TDocumentListenerNotification aNotificationType) {
   switch (aNotificationType) {
@@ -2785,215 +2821,6 @@ nsresult EditorBase::DeleteTextWithTransaction(Text& aTextNode,
   }
 
   return rv;
-}
-
-nsIContent* EditorBase::GetPreviousNodeInternal(const nsINode& aNode,
-                                                bool aFindEditableNode,
-                                                bool aFindAnyDataNode,
-                                                bool aNoBlockCrossing) const {
-  if (!IsDescendantOfEditorRoot(&aNode)) {
-    return nullptr;
-  }
-  return FindNode(&aNode, false, aFindEditableNode, aFindAnyDataNode,
-                  aNoBlockCrossing);
-}
-
-nsIContent* EditorBase::GetPreviousNodeInternal(const EditorRawDOMPoint& aPoint,
-                                                bool aFindEditableNode,
-                                                bool aFindAnyDataNode,
-                                                bool aNoBlockCrossing) const {
-  MOZ_ASSERT(aPoint.IsSetAndValid());
-  NS_WARNING_ASSERTION(
-      !aPoint.IsInDataNode() || aPoint.IsInTextNode(),
-      "GetPreviousNodeInternal() doesn't assume that the start point is a "
-      "data node except text node");
-
-  // If we are at the beginning of the node, or it is a text node, then just
-  // look before it.
-  if (aPoint.IsStartOfContainer() || aPoint.IsInTextNode()) {
-    if (aNoBlockCrossing && aPoint.IsInContentNode() &&
-        HTMLEditUtils::IsBlockElement(*aPoint.ContainerAsContent())) {
-      // If we aren't allowed to cross blocks, don't look before this block.
-      return nullptr;
-    }
-    return GetPreviousNodeInternal(*aPoint.GetContainer(), aFindEditableNode,
-                                   aFindAnyDataNode, aNoBlockCrossing);
-  }
-
-  // else look before the child at 'aOffset'
-  if (aPoint.GetChild()) {
-    return GetPreviousNodeInternal(*aPoint.GetChild(), aFindEditableNode,
-                                   aFindAnyDataNode, aNoBlockCrossing);
-  }
-
-  // unless there isn't one, in which case we are at the end of the node
-  // and want the deep-right child.
-  nsIContent* lastLeafContent = HTMLEditUtils::GetLastLeafChild(
-      *aPoint.GetContainer(),
-      {aNoBlockCrossing ? LeafNodeType::LeafNodeOrChildBlock
-                        : LeafNodeType::OnlyLeafNode});
-  if (!lastLeafContent) {
-    return nullptr;
-  }
-
-  if ((!aFindEditableNode ||
-       EditorUtils::IsEditableContent(*lastLeafContent, GetEditorType())) &&
-      (aFindAnyDataNode || EditorUtils::IsElementOrText(*lastLeafContent))) {
-    return lastLeafContent;
-  }
-
-  // restart the search from the non-editable node we just found
-  return GetPreviousNodeInternal(*lastLeafContent, aFindEditableNode,
-                                 aFindAnyDataNode, aNoBlockCrossing);
-}
-
-nsIContent* EditorBase::GetNextNodeInternal(const nsINode& aNode,
-                                            bool aFindEditableNode,
-                                            bool aFindAnyDataNode,
-                                            bool aNoBlockCrossing) const {
-  if (!IsDescendantOfEditorRoot(&aNode)) {
-    return nullptr;
-  }
-  return FindNode(&aNode, true, aFindEditableNode, aFindAnyDataNode,
-                  aNoBlockCrossing);
-}
-
-nsIContent* EditorBase::GetNextNodeInternal(const EditorRawDOMPoint& aPoint,
-                                            bool aFindEditableNode,
-                                            bool aFindAnyDataNode,
-                                            bool aNoBlockCrossing) const {
-  MOZ_ASSERT(aPoint.IsSetAndValid());
-  NS_WARNING_ASSERTION(
-      !aPoint.IsInDataNode() || aPoint.IsInTextNode(),
-      "GetNextNodeInternal() doesn't assume that the start point is a "
-      "data node except text node");
-
-  EditorRawDOMPoint point(aPoint);
-
-  // if the container is a text node, use its location instead
-  if (point.IsInTextNode()) {
-    point.SetAfter(point.GetContainer());
-    if (NS_WARN_IF(!point.IsSet())) {
-      return nullptr;
-    }
-  }
-
-  if (point.GetChild()) {
-    if (aNoBlockCrossing && HTMLEditUtils::IsBlockElement(*point.GetChild())) {
-      return point.GetChild();
-    }
-
-    nsIContent* firstLeafContent = HTMLEditUtils::GetFirstLeafChild(
-        *point.GetChild(),
-        {aNoBlockCrossing ? LeafNodeType::LeafNodeOrChildBlock
-                          : LeafNodeType::OnlyLeafNode});
-    if (!firstLeafContent) {
-      return point.GetChild();
-    }
-
-    if (!IsDescendantOfEditorRoot(firstLeafContent)) {
-      return nullptr;
-    }
-
-    if ((!aFindEditableNode ||
-         EditorUtils::IsEditableContent(*firstLeafContent, GetEditorType())) &&
-        (aFindAnyDataNode || EditorUtils::IsElementOrText(*firstLeafContent))) {
-      return firstLeafContent;
-    }
-
-    // restart the search from the non-editable node we just found
-    return GetNextNodeInternal(*firstLeafContent, aFindEditableNode,
-                               aFindAnyDataNode, aNoBlockCrossing);
-  }
-
-  // unless there isn't one, in which case we are at the end of the node
-  // and want the next one.
-  if (aNoBlockCrossing && point.IsInContentNode() &&
-      HTMLEditUtils::IsBlockElement(*point.ContainerAsContent())) {
-    // don't cross out of parent block
-    return nullptr;
-  }
-
-  return GetNextNodeInternal(*point.GetContainer(), aFindEditableNode,
-                             aFindAnyDataNode, aNoBlockCrossing);
-}
-
-nsIContent* EditorBase::FindNextLeafNode(const nsINode* aCurrentNode,
-                                         bool aGoForward,
-                                         bool bNoBlockCrossing) const {
-  // called only by GetPriorNode so we don't need to check params.
-  MOZ_ASSERT(
-      IsDescendantOfEditorRoot(aCurrentNode) && !IsEditorRoot(aCurrentNode),
-      "Bogus arguments");
-
-  const nsINode* cur = aCurrentNode;
-  for (;;) {
-    // if aCurrentNode has a sibling in the right direction, return
-    // that sibling's closest child (or itself if it has no children)
-    nsIContent* sibling =
-        aGoForward ? cur->GetNextSibling() : cur->GetPreviousSibling();
-    if (sibling) {
-      if (bNoBlockCrossing && HTMLEditUtils::IsBlockElement(*sibling)) {
-        // don't look inside prevsib, since it is a block
-        return sibling;
-      }
-      const LeafNodeTypes leafNodeTypes = {
-          bNoBlockCrossing ? LeafNodeType::LeafNodeOrChildBlock
-                           : LeafNodeType::OnlyLeafNode};
-      nsIContent* leafContent =
-          aGoForward ? HTMLEditUtils::GetFirstLeafChild(*sibling, leafNodeTypes)
-                     : HTMLEditUtils::GetLastLeafChild(*sibling, leafNodeTypes);
-      return leafContent ? leafContent : sibling;
-    }
-
-    nsINode* parent = cur->GetParentNode();
-    if (!parent) {
-      return nullptr;
-    }
-
-    NS_ASSERTION(IsDescendantOfEditorRoot(parent),
-                 "We started with a proper descendant of root, and should stop "
-                 "if we ever hit the root, so we better have a descendant of "
-                 "root now!");
-    if (IsEditorRoot(parent) ||
-        (bNoBlockCrossing && parent->IsContent() &&
-         HTMLEditUtils::IsBlockElement(*parent->AsContent()))) {
-      return nullptr;
-    }
-
-    cur = parent;
-  }
-
-  MOZ_ASSERT_UNREACHABLE("What part of for(;;) do you not understand?");
-  return nullptr;
-}
-
-nsIContent* EditorBase::FindNode(const nsINode* aCurrentNode, bool aGoForward,
-                                 bool aEditableNode, bool aFindAnyDataNode,
-                                 bool bNoBlockCrossing) const {
-  if (IsEditorRoot(aCurrentNode)) {
-    // Don't allow traversal above the root node! This helps
-    // prevent us from accidentally editing browser content
-    // when the editor is in a text widget.
-
-    return nullptr;
-  }
-
-  nsIContent* candidate =
-      FindNextLeafNode(aCurrentNode, aGoForward, bNoBlockCrossing);
-
-  if (!candidate) {
-    return nullptr;
-  }
-
-  if ((!aEditableNode ||
-       EditorUtils::IsEditableContent(*candidate, GetEditorType())) &&
-      (aFindAnyDataNode || EditorUtils::IsElementOrText(*candidate))) {
-    return candidate;
-  }
-
-  return FindNode(candidate, aGoForward, aEditableNode, aFindAnyDataNode,
-                  bNoBlockCrossing);
 }
 
 bool EditorBase::IsRoot(const nsINode* inNode) const {
@@ -3428,6 +3255,45 @@ EditorBase::CreateTransactionForCollapsedRange(
   if (NS_WARN_IF(!point.IsSet())) {
     return nullptr;
   }
+  if (IsTextEditor()) {
+    // There should be only one text node in the anonymous `<div>` (but may
+    // be followed by a padding `<br>`).  We should adjust the point into
+    // the text node (or return nullptr if there is no text to delete) for
+    // avoiding finding the text node with complicated API.
+    if (!point.IsInTextNode()) {
+      const Element* anonymousDiv = GetRoot();
+      if (NS_WARN_IF(!anonymousDiv)) {
+        return nullptr;
+      }
+      if (!anonymousDiv->GetFirstChild() ||
+          !anonymousDiv->GetFirstChild()->IsText()) {
+        return nullptr;  // The value is empty.
+      }
+      if (point.GetContainer() == anonymousDiv) {
+        if (point.IsStartOfContainer()) {
+          point.Set(anonymousDiv->GetFirstChild(), 0);
+        } else {
+          point.SetToEndOf(anonymousDiv->GetFirstChild());
+        }
+      } else {
+        // Must be referring a padding `<br>` element or after the text node.
+        point.SetToEndOf(anonymousDiv->GetFirstChild());
+      }
+    }
+    MOZ_ASSERT(!point.ContainerAsText()->GetPreviousSibling());
+    MOZ_ASSERT(!point.ContainerAsText()->GetNextSibling() ||
+               !point.ContainerAsText()->GetNextSibling()->IsText());
+    if (aHowToHandleCollapsedRange ==
+            HowToHandleCollapsedRange::ExtendBackward &&
+        point.IsStartOfContainer()) {
+      return nullptr;
+    }
+    if (aHowToHandleCollapsedRange ==
+            HowToHandleCollapsedRange::ExtendForward &&
+        point.IsEndOfContainer()) {
+      return nullptr;
+    }
+  }
 
   // XXX: if the container of point is empty, then we'll need to delete the node
   //      as well as the 1 child
@@ -3436,10 +3302,12 @@ EditorBase::CreateTransactionForCollapsedRange(
   // XXX: this has to come from rule section
   if (aHowToHandleCollapsedRange == HowToHandleCollapsedRange::ExtendBackward &&
       point.IsStartOfContainer()) {
+    MOZ_ASSERT(IsHTMLEditor());
     // We're backspacing from the beginning of a node.  Delete the last thing
     // of previous editable content.
-    nsIContent* previousEditableContent =
-        GetPreviousEditableNode(*point.GetContainer());
+    nsIContent* previousEditableContent = HTMLEditUtils::GetPreviousContent(
+        *point.GetContainer(), {WalkTreeOption::IgnoreNonEditableNode},
+        GetEditorRoot());
     if (!previousEditableContent) {
       NS_WARNING("There was no editable content before the collapsed range");
       return nullptr;
@@ -3478,10 +3346,12 @@ EditorBase::CreateTransactionForCollapsedRange(
 
   if (aHowToHandleCollapsedRange == HowToHandleCollapsedRange::ExtendForward &&
       point.IsEndOfContainer()) {
+    MOZ_ASSERT(IsHTMLEditor());
     // We're deleting from the end of a node.  Delete the first thing of
     // next editable content.
-    nsIContent* nextEditableContent =
-        GetNextEditableNode(*point.GetContainer());
+    nsIContent* nextEditableContent = HTMLEditUtils::GetNextContent(
+        *point.GetContainer(), {WalkTreeOption::IgnoreNonEditableNode},
+        GetEditorRoot());
     if (!nextEditableContent) {
       NS_WARNING("There was no editable content after the collapsed range");
       return nullptr;
@@ -3538,27 +3408,46 @@ EditorBase::CreateTransactionForCollapsedRange(
     return deleteTextTransaction.forget();
   }
 
-  nsIContent* editableContent =
-      aHowToHandleCollapsedRange == HowToHandleCollapsedRange::ExtendBackward
-          ? GetPreviousEditableNode(point)
-          : GetNextEditableNode(point);
-  if (!editableContent) {
-    NS_WARNING("There was no editable content around the collapsed range");
-    return nullptr;
-  }
-  while (editableContent && editableContent->IsCharacterData() &&
-         !editableContent->Length()) {
-    // Can't delete an empty text node (bug 762183)
+  nsIContent* editableContent = nullptr;
+  if (IsHTMLEditor()) {
     editableContent =
         aHowToHandleCollapsedRange == HowToHandleCollapsedRange::ExtendBackward
-            ? GetPreviousEditableNode(*editableContent)
-            : GetNextEditableNode(*editableContent);
-  }
-  if (NS_WARN_IF(!editableContent)) {
-    NS_WARNING(
-        "There was no editable content which is not empty around the collapsed "
-        "range");
-    return nullptr;
+            ? HTMLEditUtils::GetPreviousContent(
+                  point, {WalkTreeOption::IgnoreNonEditableNode},
+                  GetEditorRoot())
+            : HTMLEditUtils::GetNextContent(
+                  point, {WalkTreeOption::IgnoreNonEditableNode},
+                  GetEditorRoot());
+    if (!editableContent) {
+      NS_WARNING("There was no editable content around the collapsed range");
+      return nullptr;
+    }
+    while (editableContent && editableContent->IsCharacterData() &&
+           !editableContent->Length()) {
+      // Can't delete an empty text node (bug 762183)
+      editableContent =
+          aHowToHandleCollapsedRange ==
+                  HowToHandleCollapsedRange::ExtendBackward
+              ? HTMLEditUtils::GetPreviousContent(
+                    *editableContent, {WalkTreeOption::IgnoreNonEditableNode},
+                    GetEditorRoot())
+              : HTMLEditUtils::GetNextContent(
+                    *editableContent, {WalkTreeOption::IgnoreNonEditableNode},
+                    GetEditorRoot());
+    }
+    if (!editableContent) {
+      NS_WARNING(
+          "There was no editable content which is not empty around the "
+          "collapsed range");
+      return nullptr;
+    }
+  } else {
+    MOZ_ASSERT(point.IsInTextNode());
+    editableContent = point.GetContainerAsContent();
+    if (!editableContent) {
+      NS_WARNING("If there was no text node, should've been handled first");
+      return nullptr;
+    }
   }
 
   if (editableContent->IsText()) {
@@ -3582,6 +3471,7 @@ EditorBase::CreateTransactionForCollapsedRange(
     return deleteTextTransaction.forget();
   }
 
+  MOZ_ASSERT(IsHTMLEditor());
   RefPtr<DeleteNodeTransaction> deleteNodeTransaction =
       DeleteNodeTransaction::MaybeCreate(*this, *editableContent);
   NS_WARNING_ASSERTION(deleteNodeTransaction,
@@ -4434,6 +4324,8 @@ nsresult EditorBase::ToggleTextDirectionAsAction(nsIPrincipal* aPrincipal) {
     return EditorBase::ToGenericNSResult(rv);
   }
 
+  editActionData.MarkAsHandled();
+
   // XXX When we don't change the text direction, do we really need to
   //     dispatch input event?
   DispatchInputEvent();
@@ -4478,6 +4370,8 @@ void EditorBase::SwitchTextDirectionTo(TextDirection aTextDirection) {
       return;
     }
   }
+
+  editActionData.MarkAsHandled();
 
   // XXX When we don't change the text direction, do we really need to
   //     dispatch input event?
@@ -5128,7 +5022,11 @@ EditorBase::AutoEditActionDataSetter::AutoEditActionDataSetter(
       mHasTriedToDispatchBeforeInputEvent(false),
       mBeforeInputEventCanceled(false),
       mMakeBeforeInputEventNonCancelable(false),
-      mHasTriedToDispatchClipboardEvent(false) {
+      mHasTriedToDispatchClipboardEvent(false),
+      mEditorWasDestroyedDuringHandlingEditAction(
+          mParentData &&
+          mParentData->mEditorWasDestroyedDuringHandlingEditAction),
+      mHandled(false) {
   // If we're nested edit action, copies necessary data from the parent.
   if (mParentData) {
     mSelection = mParentData->mSelection;

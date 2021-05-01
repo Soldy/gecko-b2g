@@ -27,8 +27,10 @@ add_task(async function() {
 });
 
 async function testDocumentElement(inspector, testActor) {
-  const currentDocElementOuterHTML = await testActor.eval(
-    "document.documentElement.outerHTML"
+  const currentDocElementOuterHTML = await SpecialPowers.spawn(
+    gBrowser.selectedBrowser,
+    [],
+    () => content.document.documentElement.outerHTML
   );
   const docElementSVG =
     '<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">' +
@@ -45,12 +47,12 @@ async function testDocumentElement(inspector, testActor) {
   await onReselected;
 
   is(
-    await testActor.getAttribute("svg", "width"),
+    await getAttributeInBrowser(gBrowser.selectedBrowser, "svg", "width"),
     "200",
     "<svg> width has been updated"
   );
   is(
-    await testActor.getAttribute("svg", "height"),
+    await getAttributeInBrowser(gBrowser.selectedBrowser, "svg", "height"),
     "200",
     "<svg> height has been updated"
   );
@@ -62,8 +64,10 @@ async function testDocumentElement(inspector, testActor) {
 }
 
 async function testDocumentElement2(inspector, testActor) {
-  const currentDocElementOuterHTML = await testActor.eval(
-    "document.documentElement.outerHTML"
+  const currentDocElementOuterHTML = await SpecialPowers.spawn(
+    gBrowser.selectedBrowser,
+    [],
+    () => content.document.documentElement.outerHTML
   );
   const docElementSVG =
     '<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">' +
@@ -80,12 +84,12 @@ async function testDocumentElement2(inspector, testActor) {
   await onReselected;
 
   is(
-    await testActor.getAttribute("svg", "width"),
+    await getAttributeInBrowser(gBrowser.selectedBrowser, "svg", "width"),
     "300",
     "<svg> width has been updated"
   );
   is(
-    await testActor.getAttribute("svg", "height"),
+    await getAttributeInBrowser(gBrowser.selectedBrowser, "svg", "height"),
     "300",
     "<svg> height has been updated"
   );

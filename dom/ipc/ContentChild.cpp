@@ -4,6 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifdef MOZ_WIDGET_ANDROID
+#  include "AndroidDecoderModule.h"
+#endif
+
 #include "BrowserChild.h"
 #include "ContentChild.h"
 #include "GeckoProfiler.h"
@@ -45,7 +49,6 @@
 #include "mozilla/Unused.h"
 #include "mozilla/WebBrowserPersistDocumentChild.h"
 #include "mozilla/devtools/HeapSnapshotTempFileHelperChild.h"
-#include "mozilla/docshell/OfflineCacheUpdateChild.h"
 #include "mozilla/dom/AutoSuppressEventHandlingAndSuspend.h"
 #include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/BrowserBridgeHost.h"
@@ -329,7 +332,6 @@
 extern mozilla::LazyLogModule gSHIPBFCacheLog;
 
 using namespace mozilla;
-using namespace mozilla::docshell;
 #ifdef MOZ_B2G_BT
 using namespace mozilla::dom::bluetooth;
 #endif
@@ -3290,12 +3292,32 @@ void ContentChild::ShutdownInternal() {
 
 #ifdef MOZ_GECKO_PROFILER
   if (mProfilerController) {
+    const bool isProfiling = profiler_is_active();
+    CrashReporter::AnnotateCrashReport(
+        CrashReporter::Annotation::ProfilerChildShutdownPhase,
+        isProfiling ? "Profiling - GrabShutdownProfileAndShutdown"_ns
+                    : "Not profiling - GrabShutdownProfileAndShutdown"_ns);
     nsCString shutdownProfile =
         mProfilerController->GrabShutdownProfileAndShutdown();
+    CrashReporter::AnnotateCrashReport(
+        CrashReporter::Annotation::ProfilerChildShutdownPhase,
+        isProfiling ? "Profiling - Destroying ChildProfilerController"_ns
+                    : "Not profiling - Destroying ChildProfilerController"_ns);
     mProfilerController = nullptr;
+    CrashReporter::AnnotateCrashReport(
+        CrashReporter::Annotation::ProfilerChildShutdownPhase,
+        isProfiling ? "Profiling - SendShutdownProfile (sending)"_ns
+                    : "Not profiling - SendShutdownProfile (sending)"_ns);
     // Send the shutdown profile to the parent process through our own
     // message channel, which we know will survive for long enough.
-    Unused << SendShutdownProfile(shutdownProfile);
+    bool sent = SendShutdownProfile(shutdownProfile);
+    CrashReporter::AnnotateCrashReport(
+        CrashReporter::Annotation::ProfilerChildShutdownPhase,
+        sent ? (isProfiling ? "Profiling - SendShutdownProfile (sent)"_ns
+                            : "Not profiling - SendShutdownProfile (sent)"_ns)
+             : (isProfiling
+                    ? "Profiling - SendShutdownProfile (failed)"_ns
+                    : "Not profiling - SendShutdownProfile (failed)"_ns));
   }
 #endif
 
@@ -4647,6 +4669,14 @@ mozilla::ipc::IPCResult ContentChild::RecvCanSavePresentation(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvDecoderSupportedMimeTypes(
+    nsTArray<nsCString>&& aSupportedTypes) {
+#ifdef MOZ_WIDGET_ANDROID
+  AndroidDecoderModule::SetSupportedMimeTypes(std::move(aSupportedTypes));
+#endif
+  return IPC_OK();
+}
+
 /* static */ void ContentChild::DispatchBeforeUnloadToSubtree(
     BrowsingContext* aStartingAt,
     const DispatchBeforeUnloadToSubtreeResolver& aResolver) {
@@ -4691,7 +4721,8 @@ mozilla::ipc::IPCResult ContentChild::RecvFlushTabState(
 
 mozilla::ipc::IPCResult ContentChild::RecvGoBack(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction) {
+    const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction,
+    bool aUserActivation) {
   if (aContext.IsNullOrDiscarded()) {
     return IPC_OK();
   }
@@ -4701,7 +4732,7 @@ mozilla::ipc::IPCResult ContentChild::RecvGoBack(
     if (aCancelContentJSEpoch) {
       docShell->SetCancelContentJSEpoch(*aCancelContentJSEpoch);
     }
-    docShell->GoBack(aRequireUserInteraction);
+    docShell->GoBack(aRequireUserInteraction, aUserActivation);
 
     if (BrowserChild* browserChild = BrowserChild::GetFrom(docShell)) {
       browserChild->NotifyNavigationFinished();
@@ -4713,7 +4744,8 @@ mozilla::ipc::IPCResult ContentChild::RecvGoBack(
 
 mozilla::ipc::IPCResult ContentChild::RecvGoForward(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction) {
+    const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction,
+    bool aUserActivation) {
   if (aContext.IsNullOrDiscarded()) {
     return IPC_OK();
   }
@@ -4723,7 +4755,7 @@ mozilla::ipc::IPCResult ContentChild::RecvGoForward(
     if (aCancelContentJSEpoch) {
       docShell->SetCancelContentJSEpoch(*aCancelContentJSEpoch);
     }
-    docShell->GoForward(aRequireUserInteraction);
+    docShell->GoForward(aRequireUserInteraction, aUserActivation);
 
     if (BrowserChild* browserChild = BrowserChild::GetFrom(docShell)) {
       browserChild->NotifyNavigationFinished();
@@ -4735,7 +4767,7 @@ mozilla::ipc::IPCResult ContentChild::RecvGoForward(
 
 mozilla::ipc::IPCResult ContentChild::RecvGoToIndex(
     const MaybeDiscarded<BrowsingContext>& aContext, const int32_t& aIndex,
-    const Maybe<int32_t>& aCancelContentJSEpoch) {
+    const Maybe<int32_t>& aCancelContentJSEpoch, bool aUserActivation) {
   if (aContext.IsNullOrDiscarded()) {
     return IPC_OK();
   }
@@ -4745,7 +4777,7 @@ mozilla::ipc::IPCResult ContentChild::RecvGoToIndex(
     if (aCancelContentJSEpoch) {
       docShell->SetCancelContentJSEpoch(*aCancelContentJSEpoch);
     }
-    docShell->GotoIndex(aIndex);
+    docShell->GotoIndex(aIndex, aUserActivation);
 
     if (BrowserChild* browserChild = BrowserChild::GetFrom(docShell)) {
       browserChild->NotifyNavigationFinished();

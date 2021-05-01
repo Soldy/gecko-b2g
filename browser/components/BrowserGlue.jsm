@@ -45,7 +45,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
     "resource:///modules/DownloadsViewableInternally.jsm",
   E10SUtils: "resource://gre/modules/E10SUtils.jsm",
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
-  ExperimentAPI: "resource://nimbus/ExperimentAPI.jsm",
   FeatureGate: "resource://featuregates/FeatureGate.jsm",
   FirefoxMonitor: "resource:///modules/FirefoxMonitor.jsm",
   FxAccounts: "resource://gre/modules/FxAccounts.jsm",
@@ -55,6 +54,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   LoginBreaches: "resource:///modules/LoginBreaches.jsm",
   NetUtil: "resource://gre/modules/NetUtil.jsm",
   NewTabUtils: "resource://gre/modules/NewTabUtils.jsm",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.jsm",
   Normandy: "resource://normandy/Normandy.jsm",
   OS: "resource://gre/modules/osfile.jsm",
   OsEnvironment: "resource://gre/modules/OsEnvironment.jsm",
@@ -85,6 +85,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   TelemetryUtils: "resource://gre/modules/TelemetryUtils.jsm",
   TRRRacer: "resource:///modules/TRRPerformance.jsm",
   UIState: "resource://services-sync/UIState.jsm",
+  UrlbarQuickSuggest: "resource:///modules/UrlbarQuickSuggest.jsm",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
   WebChannel: "resource://gre/modules/WebChannel.jsm",
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.jsm",
@@ -113,12 +114,10 @@ let initializedModules = {};
   });
 });
 
-XPCOMUtils.defineLazyServiceGetter(
-  this,
-  "PushService",
-  "@mozilla.org/push/Service;1",
-  "nsIPushService"
-);
+XPCOMUtils.defineLazyServiceGetters(this, {
+  BrowserHandler: ["@mozilla.org/browser/clh;1", "nsIBrowserHandler"],
+  PushService: ["@mozilla.org/push/Service;1", "nsIPushService"],
+});
 
 const PREF_PDFJS_ISDEFAULT_CACHE_STATE = "pdfjs.enabledCache.state";
 
@@ -211,21 +210,6 @@ let JSWINDOWACTORS = {
     matches: ["about:logins", "about:logins?*", "about:loginsimportreport"],
   },
 
-  AboutNewInstall: {
-    parent: {
-      moduleURI: "resource:///actors/AboutNewInstallParent.jsm",
-    },
-    child: {
-      moduleURI: "resource:///actors/AboutNewInstallChild.jsm",
-
-      events: {
-        DOMWindowCreated: { capture: true },
-      },
-    },
-
-    matches: ["about:newinstall"],
-  },
-
   AboutNewTab: {
     parent: {
       moduleURI: "resource:///actors/AboutNewTabParent.jsm",
@@ -275,7 +259,11 @@ let JSWINDOWACTORS = {
       },
     },
 
-    matches: ["about:pocket-saved*", "about:pocket-signup*"],
+    matches: [
+      "about:pocket-saved*",
+      "about:pocket-signup*",
+      "about:pocket-home*",
+    ],
   },
 
   AboutPrivateBrowsing: {
@@ -523,6 +511,7 @@ let JSWINDOWACTORS = {
       moduleURI: "resource:///actors/LightweightThemeChild.jsm",
       events: {
         pageshow: { mozSystemGroup: true },
+        DOMContentLoaded: {},
       },
     },
     includeChrome: true,
@@ -1024,7 +1013,7 @@ BrowserGlue.prototype = {
         Services.console.reset();
         break;
       case "restart-in-safe-mode":
-        this._onSafeModeRestart();
+        this._onSafeModeRestart(subject);
         break;
       case "quit-application-requested":
         this._onQuitRequest(subject, data);
@@ -1315,6 +1304,10 @@ BrowserGlue.prototype = {
       this._matchCBCategory
     );
     Services.prefs.removeObserver(
+      "network.cookie.cookieBehavior.pbmode",
+      this._matchCBCategory
+    );
+    Services.prefs.removeObserver(
       ContentBlockingCategoriesPrefs.PREF_CB_CATEGORY,
       this._updateCBCategory
     );
@@ -1419,7 +1412,7 @@ BrowserGlue.prototype = {
     }
   },
 
-  _onSafeModeRestart: function BG_onSafeModeRestart() {
+  async _onSafeModeRestart(window) {
     // prompt the user to confirm
     let productName = gBrandBundle.GetStringFromName("brandShortName");
     let strings = gBrowserBundle;
@@ -1438,8 +1431,9 @@ BrowserGlue.prototype = {
       Services.prompt.BUTTON_POS_1 * Services.prompt.BUTTON_TITLE_CANCEL +
       Services.prompt.BUTTON_POS_0_DEFAULT;
 
-    let rv = Services.prompt.confirmEx(
-      null,
+    let rv = await Services.prompt.asyncConfirmEx(
+      window.browsingContext,
+      Ci.nsIPrompt.MODAL_TYPE_INTERNAL_WINDOW,
       promptTitle,
       promptMessage,
       buttonFlags,
@@ -1449,7 +1443,7 @@ BrowserGlue.prototype = {
       null,
       {}
     );
-    if (rv != 0) {
+    if (rv.get("buttonNumClicked") != 0) {
       return;
     }
 
@@ -1718,16 +1712,16 @@ BrowserGlue.prototype = {
       this._matchCBCategory
     );
     Services.prefs.addObserver(
+      "network.cookie.cookieBehavior.pbmode",
+      this._matchCBCategory
+    );
+    Services.prefs.addObserver(
       ContentBlockingCategoriesPrefs.PREF_CB_CATEGORY,
       this._updateCBCategory
     );
     Services.prefs.addObserver(
       "media.autoplay.default",
       this._updateAutoplayPref
-    );
-    Services.prefs.addObserver(
-      "media.hardwaremediakeys.enabled",
-      this._updateMediaControlPref
     );
     Services.prefs.addObserver(
       "privacy.trackingprotection",
@@ -1748,16 +1742,6 @@ BrowserGlue.prototype = {
     if (blocked in labels) {
       telemetry.add(labels[blocked]);
     }
-  },
-
-  _updateMediaControlPref() {
-    const enabled = Services.prefs.getBoolPref(
-      "media.hardwaremediakeys.enabled"
-    );
-    const telemetry = Services.telemetry.getHistogramById(
-      "MEDIA_CONTROL_SETTING_CHANGE"
-    );
-    telemetry.add(enabled ? "EnableTotal" : "DisableTotal");
   },
 
   _setPrefExpectations() {
@@ -2108,27 +2092,6 @@ BrowserGlue.prototype = {
     Services.wm.addListener(windowListener);
   },
 
-  _showNewInstallModal() {
-    // Allow other observers of the same topic to run while we open the dialog.
-    Services.tm.dispatchToMainThread(() => {
-      let win = BrowserWindowTracker.getTopWindow();
-
-      let stack = win.gBrowser.getPanel().querySelector(".browserStack");
-      let mask = win.document.createXULElement("box");
-      mask.setAttribute("id", "content-mask");
-      stack.appendChild(mask);
-
-      Services.ww.openWindow(
-        win,
-        "chrome://browser/content/newInstall.xhtml",
-        "_blank",
-        "chrome,modal,resizable=no,centerscreen",
-        null
-      );
-      mask.remove();
-    });
-  },
-
   // All initial windows have opened.
   _onWindowsRestored: function BG__onWindowsRestored() {
     if (this._windowsWereRestored) {
@@ -2200,13 +2163,6 @@ BrowserGlue.prototype = {
     this._monitorHTTPSOnlyPref();
     this._monitorIonPref();
     this._monitorIonStudies();
-
-    let pService = Cc["@mozilla.org/toolkit/profile-service;1"].getService(
-      Ci.nsIToolkitProfileService
-    );
-    if (pService.createdAlternateProfile) {
-      this._showNewInstallModal();
-    }
 
     FirefoxMonitor.init();
   },
@@ -2388,6 +2344,12 @@ BrowserGlue.prototype = {
 
       {
         task: () => {
+          UrlbarQuickSuggest.maybeShowOnboardingDialog();
+        },
+      },
+
+      {
+        task: () => {
           let { setTimeout } = ChromeUtils.import(
             "resource://gre/modules/Timer.jsm"
           );
@@ -2524,8 +2486,7 @@ BrowserGlue.prototype = {
       },
 
       {
-        condition:
-          AppConstants.MOZ_BACKGROUNDTASKS && AppConstants.MOZ_UPDATE_AGENT,
+        condition: AppConstants.MOZ_UPDATE_AGENT,
         task: () => {
           // Never in automation!  This is close to
           // `UpdateService.disabledForTesting`, but without creating the
@@ -3152,7 +3113,7 @@ BrowserGlue.prototype = {
   _migrateUI: function BG__migrateUI() {
     // Use an increasing number to keep track of the current migration state.
     // Completely unrelated to the current Firefox release number.
-    const UI_VERSION = 108;
+    const UI_VERSION = 109;
     const BROWSER_DOCURL = AppConstants.BROWSER_CHROME_URL;
 
     if (!Services.prefs.prefHasUserValue("browser.migration.version")) {
@@ -3750,44 +3711,100 @@ BrowserGlue.prototype = {
       Services.prefs.clearUserPref(oldPrefName);
     }
 
+    if (currentUIVersion < 109) {
+      // Migrate old pref to new pref
+      if (
+        Services.prefs.prefHasUserValue("signon.recipes.remoteRecipesEnabled")
+      ) {
+        // Fetch the previous value of signon.recipes.remoteRecipesEnabled and assign it to signon.recipes.remoteRecipes.enabled.
+        Services.prefs.setBoolPref(
+          "signon.recipes.remoteRecipes.enabled",
+          Services.prefs.getBoolPref(
+            "signon.recipes.remoteRecipesEnabled",
+            true
+          )
+        );
+        //Then clear user pref
+        Services.prefs.clearUserPref("signon.recipes.remoteRecipesEnabled");
+      }
+    }
+
     // Update the migration version.
     Services.prefs.setIntPref("browser.migration.version", UI_VERSION);
   },
 
-  _maybeShowDefaultBrowserPrompt() {
-    Promise.all([
-      DefaultBrowserCheck.willCheckDefaultBrowser(/* isStartupCheck */ true),
-      ExperimentAPI.ready,
-    ]).then(async ([willPrompt]) => {
-      let { DefaultBrowserNotification } = ChromeUtils.import(
-        "resource:///actors/AboutNewTabParent.jsm",
-        {}
-      );
-      let isFeatureEnabled = ExperimentAPI.getExperiment({
-        featureId: "infobar",
-      })?.branch.feature.enabled;
-      if (willPrompt) {
-        // Prevent the related notification from appearing and
-        // show the modal prompt.
-        DefaultBrowserNotification.notifyModalDisplayed();
+  _showUpgradeDialog() {
+    BrowserWindowTracker.getTopWindow().gDialogBox.open(
+      "chrome://browser/content/upgradeDialog.html"
+    );
+  },
+
+  async _maybeShowDefaultBrowserPrompt() {
+    // Highest priority is the upgrade dialog, which can include a "primary
+    // browser" request and is limited in various ways, e.g., major upgrades.
+    const dialogVersion = 89;
+    const dialogVersionPref = "browser.startup.upgradeDialog.version";
+    const dialogReason = await (async () => {
+      if (!Services.prefs.getBoolPref("browser.proton.enabled", true)) {
+        return "no-proton";
       }
-      // If no experiment go ahead with default experience
-      if (willPrompt && !isFeatureEnabled) {
-        let win = BrowserWindowTracker.getTopWindow();
-        DefaultBrowserCheck.prompt(win);
+      if (!BrowserHandler.majorUpgrade) {
+        return "not-major";
       }
-      // If in experiment notify ASRouter to dispatch message
-      if (isFeatureEnabled) {
-        ASRouter.waitForInitialized.then(() =>
-          ASRouter.sendTriggerMessage({
-            browser: BrowserWindowTracker.getTopWindow()?.gBrowser
-              .selectedBrowser,
-            // triggerId and triggerContext
-            id: "defaultBrowserCheck",
-            context: { willShowDefaultPrompt: willPrompt },
-          })
-        );
+      const lastVersion = Services.prefs.getIntPref(dialogVersionPref, 0);
+      if (lastVersion > dialogVersion) {
+        return "newer-shown";
       }
+      if (lastVersion === dialogVersion) {
+        return "already-shown";
+      }
+      if (
+        !Services.prefs.getBoolPref(
+          "browser.messaging-system.whatsNewPanel.enabled",
+          true
+        )
+      ) {
+        return "no-whatsNew";
+      }
+      if (!Services.prefs.getBoolPref("browser.aboutwelcome.enabled", true)) {
+        return "no-welcome";
+      }
+      if (!Services.policies.isAllowed("postUpdateCustomPage")) {
+        return "disallow-postUpdate";
+      }
+
+      return NimbusFeatures.upgradeDialog.isEnabled() ? "" : "disabled";
+    })();
+
+    // Record why the dialog is showing or not.
+    Services.telemetry.setEventRecordingEnabled("upgrade_dialog", true);
+    Services.telemetry.recordEvent(
+      "upgrade_dialog",
+      "trigger",
+      "reason",
+      dialogReason || "satisfied"
+    );
+
+    // Show the upgrade dialog if allowed and remember the version.
+    if (!dialogReason) {
+      Services.prefs.setIntPref(dialogVersionPref, dialogVersion);
+      this._showUpgradeDialog();
+      return;
+    }
+
+    const willPrompt = await DefaultBrowserCheck.willCheckDefaultBrowser(
+      /* isStartupCheck */ true
+    );
+    if (willPrompt) {
+      let win = BrowserWindowTracker.getTopWindow();
+      DefaultBrowserCheck.prompt(win);
+    }
+    await ASRouter.waitForInitialized;
+    ASRouter.sendTriggerMessage({
+      browser: BrowserWindowTracker.getTopWindow()?.gBrowser.selectedBrowser,
+      // triggerId and triggerContext
+      id: "defaultBrowserCheck",
+      context: { willShowDefaultPrompt: willPrompt, source: "startup" },
     });
   },
 
@@ -4139,6 +4156,7 @@ var ContentBlockingCategoriesPrefs = {
     this.CATEGORY_PREFS = {
       strict: {
         "network.cookie.cookieBehavior": null,
+        "network.cookie.cookieBehavior.pbmode": null,
         "privacy.trackingprotection.pbmode.enabled": null,
         "privacy.trackingprotection.enabled": null,
         "privacy.trackingprotection.socialtracking.enabled": null,
@@ -4148,6 +4166,7 @@ var ContentBlockingCategoriesPrefs = {
       },
       standard: {
         "network.cookie.cookieBehavior": null,
+        "network.cookie.cookieBehavior.pbmode": null,
         "privacy.trackingprotection.pbmode.enabled": null,
         "privacy.trackingprotection.enabled": null,
         "privacy.trackingprotection.socialtracking.enabled": null,
@@ -4244,6 +4263,30 @@ var ContentBlockingCategoriesPrefs = {
           break;
         case "cookieBehavior5":
           this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
+            Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN;
+          break;
+        case "cookieBehaviorPBM0":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
+            Ci.nsICookieService.BEHAVIOR_ACCEPT;
+          break;
+        case "cookieBehaviorPBM1":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
+            Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN;
+          break;
+        case "cookieBehaviorPBM2":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
+            Ci.nsICookieService.BEHAVIOR_REJECT;
+          break;
+        case "cookieBehaviorPBM3":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
+            Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN;
+          break;
+        case "cookieBehaviorPBM4":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
+            Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER;
+          break;
+        case "cookieBehaviorPBM5":
+          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior.pbmode"] =
             Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN;
           break;
         default:
@@ -4506,35 +4549,46 @@ ContentPermissionPrompt.prototype = {
 };
 
 var DefaultBrowserCheck = {
-  prompt(win) {
-    let brandBundle = win.document.getElementById("bundle_brand");
-    let brandShortName = brandBundle.getString("brandShortName");
+  async prompt(win) {
+    const shellService = win.getShellService();
+    const needPin = await shellService.doesAppNeedPin();
 
-    let shellBundle = win.document.getElementById("bundle_shell");
-    let buttonPrefix = "setDefaultBrowserAlert";
-    let yesButton = shellBundle.getFormattedString(
-      buttonPrefix + "Confirm.label",
-      [brandShortName]
+    win.MozXULElement.insertFTLIfNeeded("branding/brand.ftl");
+    win.MozXULElement.insertFTLIfNeeded(
+      "browser/defaultBrowserNotification.ftl"
     );
-    let notNowButton = shellBundle.getString(buttonPrefix + "NotNow.label");
-
-    let promptTitle = shellBundle.getString("setDefaultBrowserTitle");
-    let promptMessage = shellBundle.getFormattedString(
-      "setDefaultBrowserMessage",
-      [brandShortName]
-    );
-    let askLabel = shellBundle.getFormattedString("setDefaultBrowserDontAsk", [
-      brandShortName,
-    ]);
+    // Resolve the translations for the prompt elements and return only the
+    // string values
+    let [promptTitle, promptMessage, askLabel, yesButton, notNowButton] = (
+      await win.document.l10n.formatMessages([
+        {
+          id: needPin
+            ? "default-browser-prompt-title-pin"
+            : "default-browser-prompt-title-alt",
+        },
+        {
+          id: needPin
+            ? "default-browser-prompt-message-pin"
+            : "default-browser-prompt-message-alt",
+        },
+        { id: "default-browser-prompt-checkbox-not-again-label" },
+        {
+          id: needPin
+            ? "default-browser-prompt-button-primary-pin"
+            : "default-browser-prompt-button-primary-alt",
+        },
+        { id: "default-browser-prompt-button-secondary" },
+      ])
+    ).map(({ value }) => value);
 
     let ps = Services.prompt;
-    let shouldAsk = { value: true };
     let buttonFlags =
       ps.BUTTON_TITLE_IS_STRING * ps.BUTTON_POS_0 +
       ps.BUTTON_TITLE_IS_STRING * ps.BUTTON_POS_1 +
       ps.BUTTON_POS_0_DEFAULT;
-    let rv = ps.confirmEx(
-      win,
+    let rv = await ps.asyncConfirmEx(
+      win.browsingContext,
+      ps.MODAL_TYPE_INTERNAL_WINDOW,
       promptTitle,
       promptMessage,
       buttonFlags,
@@ -4542,16 +4596,20 @@ var DefaultBrowserCheck = {
       notNowButton,
       null,
       askLabel,
-      shouldAsk
+      false, // checkbox state
+      { headerIconURL: "chrome://branding/content/icon32.png" }
     );
-    if (rv == 0) {
-      win.getShellService().setAsDefault();
-    } else if (!shouldAsk.value) {
-      win.getShellService().shouldCheckDefaultBrowser = false;
+    let buttonNumClicked = rv.get("buttonNumClicked");
+    let checkboxState = rv.get("checked");
+    if (buttonNumClicked == 0) {
+      shellService.setAsDefault();
+      shellService.pinToTaskbar();
+    } else if (checkboxState) {
+      shellService.shouldCheckDefaultBrowser = false;
     }
 
     try {
-      let resultEnum = rv * 2 + shouldAsk.value;
+      let resultEnum = buttonNumClicked * 2 + !checkboxState;
       Services.telemetry
         .getHistogramById("BROWSER_SET_DEFAULT_RESULT")
         .add(resultEnum);
@@ -4576,12 +4634,7 @@ var DefaultBrowserCheck = {
     }
 
     let shouldCheck =
-      !AppConstants.DEBUG &&
-      shellService.shouldCheckDefaultBrowser &&
-      !Services.prefs.getBoolPref(
-        "browser.defaultbrowser.notificationbar",
-        false
-      );
+      !AppConstants.DEBUG && shellService.shouldCheckDefaultBrowser;
 
     // Even if we shouldn't check the default browser, we still continue when
     // isStartupCheck = true to set prefs and telemetry.
@@ -4917,7 +4970,7 @@ var AboutHomeStartupCache = {
     });
 
     let lci = Services.loadContextInfo.default;
-    let storage = Services.cache2.diskCacheStorage(lci, false);
+    let storage = Services.cache2.diskCacheStorage(lci);
     try {
       storage.asyncOpenURI(
         this.aboutHomeURI,
@@ -5649,11 +5702,11 @@ var AboutHomeStartupCache = {
 
   /** nsICacheEntryOpenCallback **/
 
-  onCacheEntryCheck(aEntry, aApplicationCache) {
+  onCacheEntryCheck(aEntry) {
     return Ci.nsICacheEntryOpenCallback.ENTRY_WANTED;
   },
 
-  onCacheEntryAvailable(aEntry, aNew, aApplicationCache, aResult) {
+  onCacheEntryAvailable(aEntry, aNew, aResult) {
     this.log.trace("Cache entry is available.");
 
     this._cacheEntry = aEntry;

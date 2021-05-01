@@ -1001,6 +1001,66 @@ pub enum WordBreak {
     BreakWord,
 }
 
+/// Values for the `text-justify` CSS property.
+#[repr(u8)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    MallocSizeOf,
+    Parse,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToComputedValue,
+    ToCss,
+    ToResolvedValue,
+    ToShmem,
+)]
+#[allow(missing_docs)]
+pub enum TextJustify {
+    Auto,
+    None,
+    InterWord,
+    // See https://drafts.csswg.org/css-text-3/#valdef-text-justify-distribute
+    // and https://github.com/w3c/csswg-drafts/issues/6156 for the alias.
+    #[parse(aliases = "distribute")]
+    InterCharacter,
+}
+
+/// Values for the `-moz-control-character-visibility` CSS property.
+#[repr(u8)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    MallocSizeOf,
+    Parse,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToComputedValue,
+    ToCss,
+    ToResolvedValue,
+    ToShmem,
+)]
+#[allow(missing_docs)]
+pub enum MozControlCharacterVisibility {
+    Hidden,
+    Visible,
+}
+
+impl Default for MozControlCharacterVisibility {
+    fn default() -> Self {
+        if static_prefs::pref!("layout.css.control-characters.visible") {
+            Self::Visible
+        } else {
+            Self::Hidden
+        }
+    }
+}
+
+
 /// Values for the `line-break` property.
 #[repr(u8)]
 #[derive(

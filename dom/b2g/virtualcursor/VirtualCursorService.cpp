@@ -206,6 +206,19 @@ void VirtualCursorService::StartPanning() {
               ("Try to start panning while already in panning state"));
       mPanSimulator->Finish();
     }
+
+    // Bring the cursor to the center of the screen when the user starts
+    // panning outside of the window.
+    if (mCSSCursorPoint.x == -1 || mCSSCursorPoint.y == -1) {
+      double width, height;
+      mWindow->GetInnerWidth(&width);
+      mWindow->GetInnerHeight(&height);
+
+      CSSPoint centerPos(width, height);
+      mCSSCursorPoint.x = centerPos.x / 2;
+      mCSSCursorPoint.y = centerPos.y / 2;
+    }
+
     nsIntPoint point((int)mCSSCursorPoint.x, (int)mCSSCursorPoint.y);
     mPanSimulator->Start(point);
     CursorOut();

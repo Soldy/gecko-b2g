@@ -198,13 +198,14 @@ class Browsertime(Perftest):
                 )
             ]
         else:
+            # Custom scripts are treated as pageload tests for now
             browsertime_script = [
                 os.path.join(
                     os.path.dirname(__file__),
                     "..",
                     "..",
                     "browsertime",
-                    "browsertime_pageload.js",
+                    test.get("test_script", "browsertime_pageload.js"),
                 )
             ]
 
@@ -308,22 +309,59 @@ class Browsertime(Perftest):
             ] = self.results_handler.result_dir_for_test(test)
             self._init_gecko_profiling(test)
             browsertime_options.append("--firefox.geckoProfiler")
-            browsertime_options.extend(
-                [
+            for option, browser_time_option, default in (
+                (
+                    "gecko_profile_features",
                     "--firefox.geckoProfilerParams.features",
                     "js,leaf,stackwalk,cpu,threads",
-                ]
-            )
-
-            for option, browser_time_option in (
-                ("gecko_profile_interval", "--firefox.geckoProfilerParams.interval"),
-                ("gecko_profile_entries", "--firefox.geckoProfilerParams.bufferSize"),
+                ),
+                (
+                    "gecko_profile_threads",
+                    "--firefox.geckoProfilerParams.threads",
+                    "GeckoMain,Compositor",
+                ),
+                (
+                    "gecko_profile_interval",
+                    "--firefox.geckoProfilerParams.interval",
+                    None,
+                ),
+                (
+                    "gecko_profile_entries",
+                    "--firefox.geckoProfilerParams.bufferSize",
+                    None,
+                ),
             ):
+                # 0 is a valid value. The setting may be present but set to None.
                 value = self.config.get(option)
                 if value is None:
                     value = test.get(option)
+                if value is None:
+                    value = default
+                if option == "gecko_profile_threads":
+                    extra = self.config.get("gecko_profile_extra_threads", [])
+                    value = ",".join(value.split(",") + extra)
                 if value is not None:
                     browsertime_options.extend([browser_time_option, str(value)])
+
+        # Add custom test-specific options and allow them to
+        # overwrite our presets.
+        if test.get("browsertime_args", None):
+            split_args = test.get("browsertime_args").strip().split()
+            for split_arg in split_args:
+                pairing = split_arg.split("=")
+                if len(pairing) not in (1, 2):
+                    raise Exception(
+                        "One of the browsertime_args from the test was not split properly. "
+                        f"Expecting a --flag, or a --option=value pairing. Found: {split_arg}"
+                    )
+
+                if pairing[0] in browsertime_options:
+                    # If it's a flag, don't re-add it
+                    if len(pairing) > 1:
+                        ind = browsertime_options.index(pairing[0])
+                        browsertime_options[ind + 1] = pairing[1]
+                else:
+                    browsertime_options.extend(pairing)
 
         return (
             [self.browsertime_node, self.browsertime_browsertimejs]

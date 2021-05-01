@@ -1337,6 +1337,10 @@ static void SetAutoMounterRndisIOThread(const bool& aEnable) {
   MOZ_ASSERT(MessageLoop::current() == XRE_GetIOMessageLoop());
   MOZ_ASSERT(sAutoMounter);
 
+  if (!sAutoMounter) {
+    ERR("AutoMounter not ready yet, skip the setup Rndis");
+    return;
+  }
   sAutoMounter->SetRndisEnable(aEnable);
 }
 

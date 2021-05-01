@@ -193,7 +193,7 @@ class ProcessHandlerMixin(object):
             else:
                 subprocess.Popen.__del__(self)
 
-        def kill(self, sig=None):
+        def kill(self, sig=None, timeout=None):
             if isWin:
                 try:
                     if not self._ignore_children and self._handle and self._job:
@@ -260,7 +260,7 @@ class ProcessHandlerMixin(object):
                     # a signal was explicitly set or not posix
                     send_sig(sig or signal.SIGKILL)
 
-            self.returncode = self.wait()
+            self.returncode = self.wait(timeout)
             self._cleanup()
             return self.returncode
 
@@ -806,7 +806,7 @@ falling back to not using job objects for managing child processes""",
                 else:
                     self._handle = None
 
-        elif isPosix:
+        else:
 
             def _custom_wait(self, timeout=None):
                 """Haven't found any reason to differentiate between these platforms
@@ -814,60 +814,16 @@ falling back to not using job objects for managing child processes""",
                 craft different styles of wait, then a new _custom_wait method
                 could be easily implemented.
                 """
-
-                if not self._ignore_children:
-                    try:
-                        # os.waitpid return value:
-                        # > [...] a tuple containing its pid and exit status
-                        # > indication: a 16-bit number, whose low byte is the
-                        # > signal number that killed the process, and whose
-                        # > high byte is the exit status (if the signal number
-                        # > is zero)
-                        # - http://docs.python.org/2/library/os.html#os.wait
-                        status = os.waitpid(self.pid, 0)[1]
-
-                        # For consistency, format status the same as subprocess'
-                        # returncode attribute
-                        if status > 255:
-                            return status >> 8
-                        return -status
-                    except OSError as e:
-                        if getattr(e, "errno", None) != 10:
-                            # Error 10 is "no child process", which could indicate normal
-                            # close
-                            print(
-                                "Encountered error waiting for pid to close: %s" % e,
-                                file=sys.stderr,
-                            )
-                            raise
-
-                        return self.returncode
-
-                else:
-                    # For non-group wait, call base class
+                # For non-group wait, call base class
+                try:
                     if six.PY2:
                         subprocess.Popen.wait(self)
                     else:
                         # timeout was introduced in Python 3.3
                         subprocess.Popen.wait(self, timeout=timeout)
-                    return self.returncode
-
-            def _cleanup(self):
-                pass
-
-        else:
-            # An unrecognized platform, we will call the base class for everything
-            print(
-                "Unrecognized platform, process groups may not " "be managed properly",
-                file=sys.stderr,
-            )
-
-            def _custom_wait(self, timeout=None):
-                if six.PY2:
-                    self.returncode = subprocess.Popen.wait(self)
-                else:
-                    # timeout was introduced in Python 3.3
-                    self.returncode = subprocess.Popen.wait(self, timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    # We want to return None in this case
+                    pass
                 return self.returncode
 
             def _cleanup(self):
@@ -996,7 +952,7 @@ falling back to not using job objects for managing child processes""",
 
         self.processOutput(timeout=timeout, outputTimeout=outputTimeout)
 
-    def kill(self, sig=None):
+    def kill(self, sig=None, timeout=None):
         """
         Kills the managed process.
 
@@ -1014,12 +970,12 @@ falling back to not using job objects for managing child processes""",
         if not hasattr(self, "proc"):
             raise RuntimeError("Process hasn't been started yet")
 
-        self.proc.kill(sig=sig)
+        self.proc.kill(sig=sig, timeout=timeout)
 
         # When we kill the the managed process we also have to wait for the
         # reader thread to be finished. Otherwise consumers would have to assume
         # that it still has not completely shutdown.
-        rc = self.wait()
+        rc = self.wait(timeout)
         if rc is None:
             self.debug("kill: wait failed -- process is still alive")
         return rc
@@ -1093,7 +1049,7 @@ falling back to not using job objects for managing child processes""",
                     self.debug("wait timeout for reader thread")
                     return None
 
-        self.returncode = self.proc.wait()
+        self.returncode = self.proc.wait(timeout)
         return self.returncode
 
     @property

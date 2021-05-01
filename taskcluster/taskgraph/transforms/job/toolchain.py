@@ -46,11 +46,14 @@ toolchain_run_schema = Schema(
             "internal",
         ),
         # Sparse profile to give to checkout using `run-task`.  If given,
-        # a filename in `build/sparse-profiles`.  Defaults to
-        # "toolchain-build", i.e., to
-        # `build/sparse-profiles/toolchain-build`.  If `None`, instructs
-        # `run-task` to not use a sparse profile at all.
+        # Defaults to "toolchain-build". The value is relative to
+        # "sparse-profile-prefix", optionally defined below is the path,
+        # defaulting to "build/sparse-profiles".
+        # i.e. `build/sparse-profiles/toolchain-build`.
+        # If `None`, instructs `run-task` to not use a sparse profile at all.
         Required("sparse-profile"): Any(text_type, None),
+        # The relative path to the sparse profile.
+        Optional("sparse-profile-prefix"): text_type,
         # Paths/patterns pointing to files that influence the outcome of a
         # toolchain build.
         Optional("resources"): [text_type],
@@ -148,12 +151,14 @@ def docker_worker_toolchain(config, job, taskdesc):
     if "toolchain-alias" in run:
         attributes["toolchain-alias"] = run.pop("toolchain-alias")
 
-    if not taskgraph.fast:
+    digest_data = get_digest_data(config, run, taskdesc)
+
+    if job.get("attributes", {}).get("cached_task") is not False and not taskgraph.fast:
         name = taskdesc["label"].replace("{}-".format(config.kind), "", 1)
         taskdesc["cache"] = {
             "type": CACHE_TYPE,
             "name": name,
-            "digest-data": get_digest_data(config, run, taskdesc),
+            "digest-data": digest_data,
         }
 
     run["using"] = "run-task"
@@ -208,12 +213,14 @@ def generic_worker_toolchain(config, job, taskdesc):
     if "toolchain-alias" in run:
         attributes["toolchain-alias"] = run.pop("toolchain-alias")
 
-    if not taskgraph.fast:
+    digest_data = get_digest_data(config, run, taskdesc)
+
+    if job.get("attributes", {}).get("cached_task") is not False and not taskgraph.fast:
         name = taskdesc["label"].replace("{}-".format(config.kind), "", 1)
         taskdesc["cache"] = {
             "type": CACHE_TYPE,
             "name": name,
-            "digest-data": get_digest_data(config, run, taskdesc),
+            "digest-data": digest_data,
         }
 
     run["using"] = "run-task"

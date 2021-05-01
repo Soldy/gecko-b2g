@@ -9,11 +9,44 @@ Benchmarks
 Standard benchmarks are third-party tests (i.e. Speedometer) that we have integrated into Raptor to run per-commit in our production CI. 
 
 
+Custom
+------
+Browsertime tests that use a custom pageload test script. These use the pageload type, but may have other intentions.
+
+.. dropdown:: process-switch (Measures process switch time)
+   :container: + anchor-id-process-switch-c
+
+   * **accept zero vismet**: true
+   * **alert on**: fcp, loadtime
+   * **alert threshold**: 2.0
+   * **apps**: firefox, chrome, chromium
+   * **browser cycles**: 25
+   * **browsertime args**: --pageCompleteWaitTime=1000 --pageCompleteCheckInactivity=true
+   * **expected**: pass
+   * **gecko profile entries**: 14000000
+   * **gecko profile interval**: 1
+   * **lower is better**: true
+   * **measure**: fnbpaint, fcp, dcf, loadtime
+   * **page cycles**: 25
+   * **page timeout**: 60000
+   * **playback**: mitmproxy
+   * **playback pageset manifest**: mitm5-linux-firefox-proc-switch.manifest
+   * **playback recordings**: mitm5-linux-firefox-seanfeng.mp mitm5-linux-firefox-pettay.mp
+   * **playback version**: 5.1.1
+   * **test script**: process_switch.js
+   * **test url**: `<https://mozilla.seanfeng.dev/files/red.html,https://mozilla.pettay.fi/moztests/blue.html>`__
+   * **type**: pageload
+   * **unit**: ms
+   * **use live sites**: false
+
+
+
 Desktop
 -------
 Tests for page-load performance. The links direct to the actual websites that are being tested. (WX: WebExtension, BT: Browsertime, FF: Firefox, CH: Chrome, CU: Chromium)
 
 .. dropdown:: amazon (BT, FF, CH, CU)
+   :container: + anchor-id-amazon-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -37,6 +70,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: bing-search (BT, FF, CH, CU)
+   :container: + anchor-id-bing-search-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -60,6 +94,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: buzzfeed (BT, FF, CH, CU)
+   :container: + anchor-id-buzzfeed-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -83,6 +118,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: cnn (BT, FF, CH, CU)
+   :container: + anchor-id-cnn-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -106,6 +142,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: ebay (BT, FF, CH, CU)
+   :container: + anchor-id-ebay-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -129,6 +166,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: espn (BT, FF, CH, CU)
+   :container: + anchor-id-espn-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -152,6 +190,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: expedia (BT, FF, CH, CU)
+   :container: + anchor-id-expedia-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -175,6 +214,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: facebook (BT, FF, CH, CU)
+   :container: + anchor-id-facebook-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -198,6 +238,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: fandom (BT, FF, CH, CU)
+   :container: + anchor-id-fandom-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -221,6 +262,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: google-docs (BT, FF, CH, CU)
+   :container: + anchor-id-google-docs-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -244,6 +286,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: google-mail (BT, FF, CH, CU)
+   :container: + anchor-id-google-mail-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -267,6 +310,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: google-search (BT, FF, CH, CU)
+   :container: + anchor-id-google-search-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -290,6 +334,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: google-slides (BT, FF, CH, CU)
+   :container: + anchor-id-google-slides-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -313,6 +358,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: imdb (BT, FF, CH, CU)
+   :container: + anchor-id-imdb-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -336,6 +382,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: imgur (BT, FF, CH, CU)
+   :container: + anchor-id-imgur-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -359,6 +406,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: instagram (BT, FF, CH, CU)
+   :container: + anchor-id-instagram-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -382,6 +430,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: linkedin (BT, FF, CH, CU)
+   :container: + anchor-id-linkedin-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -405,6 +454,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: microsoft (BT, FF, CH, CU)
+   :container: + anchor-id-microsoft-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -428,6 +478,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: netflix (BT, FF, CH, CU)
+   :container: + anchor-id-netflix-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -451,6 +502,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: nytimes (BT, FF, CH, CU)
+   :container: + anchor-id-nytimes-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -474,6 +526,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: office (BT, FF, CH, CU)
+   :container: + anchor-id-office-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -497,6 +550,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: outlook (BT, FF, CH, CU)
+   :container: + anchor-id-outlook-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -520,6 +574,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: paypal (BT, FF, CH, CU)
+   :container: + anchor-id-paypal-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -543,6 +598,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: pinterest (BT, FF, CH, CU)
+   :container: + anchor-id-pinterest-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -566,6 +622,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: reddit (BT, FF, CH, CU)
+   :container: + anchor-id-reddit-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -589,6 +646,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: tumblr (BT, FF, CH, CU)
+   :container: + anchor-id-tumblr-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -612,6 +670,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: twitch (BT, FF, CH, CU)
+   :container: + anchor-id-twitch-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -635,6 +694,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: twitter (BT, FF, CH, CU)
+   :container: + anchor-id-twitter-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -658,6 +718,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: wikia (BT, FF, CH, CU)
+   :container: + anchor-id-wikia-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -681,6 +742,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: wikipedia (BT, FF, CH, CU)
+   :container: + anchor-id-wikipedia-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -704,6 +766,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: yahoo-mail (BT, FF, CH, CU)
+   :container: + anchor-id-yahoo-mail-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -727,6 +790,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
 
 
 .. dropdown:: youtube (BT, FF, CH, CU)
+   :container: + anchor-id-youtube-d
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -760,6 +824,7 @@ Mobile
 Page-load performance test suite on Android. The links direct to the actual websites that are being tested. (WX: WebExtension, BT: Browsertime, GV: Geckoview, RB: Refbrow, FE: Fenix, CH-M: Chrome mobile)
 
 .. dropdown:: allrecipes (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-allrecipes-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -770,8 +835,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.allrecipes.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -779,6 +845,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: amazon (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-amazon-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -789,8 +856,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.amazon.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -798,6 +866,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: amazon-search (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-amazon-search-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -808,8 +877,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.amazon.com/s/ref=nb_sb_noss_2/139-6317191-5622045?url=search-alias%3Daps&field-keywords=mobile+phone>`__
    * **type**: pageload
    * **unit**: ms
@@ -817,6 +887,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: bbc (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-bbc-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -829,6 +900,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
    * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.bbc.com/news/business-47245877>`__
    * **type**: pageload
    * **unit**: ms
@@ -836,6 +908,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: bing (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-bing-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -846,8 +919,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.bing.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -855,6 +929,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: bing-search-restaurants (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-bing-search-restaurants-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -867,6 +942,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
    * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.bing.com/search?q=restaurants>`__
    * **type**: pageload
    * **unit**: ms
@@ -874,6 +950,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: booking (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-booking-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -884,8 +961,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.booking.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -893,6 +971,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: cnn (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-cnn-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -903,8 +982,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://cnn.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -912,6 +992,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: cnn-ampstories (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-cnn-ampstories-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -924,6 +1005,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
    * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://cnn.com/ampstories/us/why-hurricane-michael-is-a-monster-unlike-any-other>`__
    * **type**: pageload
    * **unit**: ms
@@ -931,6 +1013,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: ebay-kleinanzeigen (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-ebay-kleinanzeigen-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -941,8 +1024,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.ebay-kleinanzeigen.de>`__
    * **type**: pageload
    * **unit**: ms
@@ -950,6 +1034,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: ebay-kleinanzeigen-search (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-ebay-kleinanzeigen-search-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -960,8 +1045,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.ebay-kleinanzeigen.de/s-anzeigen/auf-zeit-wg-berlin/zimmer/c199-l3331>`__
    * **type**: pageload
    * **unit**: ms
@@ -969,6 +1055,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: espn (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-espn-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -979,8 +1066,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<http://www.espn.com/nba/story/_/page/allstarweekend25788027/the-comparison-lebron-james-michael-jordan-their-own-words>`__
    * **type**: pageload
    * **unit**: ms
@@ -988,18 +1076,21 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: facebook (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-facebook-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
    * **apps**: geckoview, fenix, refbrow, chrome-m
    * **browser cycles**: 15
    * **expected**: pass
+   * **login**: true
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-g5-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-g5-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.facebook.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -1007,6 +1098,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: facebook-cristiano (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-facebook-cristiano-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1017,8 +1109,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.facebook.com/Cristiano>`__
    * **type**: pageload
    * **unit**: ms
@@ -1026,18 +1119,21 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: google (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-google-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
    * **apps**: geckoview, fenix, refbrow, chrome-m
    * **browser cycles**: 15
    * **expected**: pass
+   * **login**: true
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-g5-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-g5-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.google.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -1045,6 +1141,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: google-maps (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-google-maps-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1055,9 +1152,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm5-motog5-gve-{subtest}.manifest
-   * **playback recordings**: mitm5-motog5-gve-{subtest}.mp
-   * **playback version**: 5.1.1
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.google.com/maps?force=pwa>`__
    * **type**: pageload
    * **unit**: ms
@@ -1065,18 +1162,21 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: google-search-restaurants (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-google-search-restaurants-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
    * **apps**: geckoview, fenix, refbrow, chrome-m
    * **browser cycles**: 15
    * **expected**: pass
+   * **login**: true
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-g5-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-g5-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.google.com/search?q=restaurants+near+me>`__
    * **type**: pageload
    * **unit**: ms
@@ -1084,6 +1184,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: imdb (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-imdb-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1094,8 +1195,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.imdb.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -1103,18 +1205,21 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: instagram (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-instagram-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
    * **apps**: geckoview, fenix, refbrow, chrome-m
    * **browser cycles**: 15
    * **expected**: pass
+   * **login**: true
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-g5-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-g5-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.instagram.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -1122,6 +1227,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: jianshu (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-jianshu-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1134,6 +1240,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
    * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.jianshu.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -1141,6 +1248,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: microsoft-support (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-microsoft-support-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1151,8 +1259,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://support.microsoft.com/en-us>`__
    * **type**: pageload
    * **unit**: ms
@@ -1160,6 +1269,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: reddit (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-reddit-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1170,8 +1280,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.reddit.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -1179,6 +1290,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: stackoverflow (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-stackoverflow-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1189,8 +1301,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://stackoverflow.com/>`__
    * **type**: pageload
    * **unit**: ms
@@ -1198,6 +1311,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: web-de (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-web-de-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1208,8 +1322,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://web.de/magazine/politik/politologe-glaubt-grossen-koalition-herbst-knallen-33563566>`__
    * **type**: pageload
    * **unit**: ms
@@ -1217,6 +1332,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: wikipedia (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-wikipedia-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1227,8 +1343,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://en.m.wikipedia.org/wiki/Main_Page>`__
    * **type**: pageload
    * **unit**: ms
@@ -1236,6 +1353,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: youtube (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-youtube-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1248,6 +1366,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
    * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://m.youtube.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -1255,6 +1374,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
 
 
 .. dropdown:: youtube-watch (BT, GV, FE, RB, CH-M)
+   :container: + anchor-id-youtube-watch-m
 
    * **alert on**: fcp, loadtime
    * **alert threshold**: 2.0
@@ -1265,8 +1385,9 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
-   * **playback pageset manifest**: mitm4-pixel2-fennec-{subtest}.manifest
-   * **playback recordings**: mitm4-pixel2-fennec-{subtest}.mp
+   * **playback pageset manifest**: mitm6-android-fenix-{subtest}.manifest
+   * **playback recordings**: mitm6-android-fenix-{subtest}.mp
+   * **playback version**: 6.0.2
    * **test url**: `<https://www.youtube.com/watch?v=COU5T-Wafa4>`__
    * **type**: pageload
    * **unit**: ms

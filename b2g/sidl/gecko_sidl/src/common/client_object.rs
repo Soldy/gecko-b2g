@@ -69,7 +69,7 @@ impl<K: SessionObject + 'static> Drop for ClientObject<K> {
         self.transport.unregister_session_object(self.inner.clone());
 
         if self.should_release {
-            struct DummyDelegate {};
+            struct DummyDelegate {}
             impl CoreSimpleReceiverDelegate for DummyDelegate {
                 fn on_success(&mut self) {
                     debug!("Success releasing object");

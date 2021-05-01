@@ -726,7 +726,6 @@ button.tab-button[selected] {
 
 button.tab-button:-moz-focusring {
   outline-offset: -2px;
-  -moz-outline-radius: 0;
 }
 
 .tab-group[last-input-type="mouse"] > button.tab-button:-moz-focusring {
@@ -736,6 +735,10 @@ button.tab-button:-moz-focusring {
 
 panel-list {
   font: menu;
+}
+
+section:not(:empty) ~ #empty-addons-message {
+  display: none;
 }
 
 @media (max-width: 830px) {

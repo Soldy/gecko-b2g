@@ -131,9 +131,6 @@ typedef void* nsNativeWidget;
 #define NS_NATIVE_SCREEN 9
 // The toplevel GtkWidget containing this nsIWidget:
 #define NS_NATIVE_SHELLWIDGET 10
-// Has to match to NPNVnetscapeWindow, and shareable across processes
-// HWND on Windows and XID on X11
-#define NS_NATIVE_SHAREABLE_WINDOW 11
 #define NS_NATIVE_OPENGL_CONTEXT 12
 // See RegisterPluginWindowForRemoteUpdates
 #define NS_NATIVE_PLUGIN_ID 13
@@ -154,8 +151,6 @@ typedef void* nsNativeWidget;
 #  define NS_NATIVE_TSF_CATEGORY_MGR 101
 #  define NS_NATIVE_TSF_DISPLAY_ATTR_MGR 102
 #  define NS_NATIVE_ICOREWINDOW 103  // winrt specific
-#  define NS_NATIVE_CHILD_WINDOW 104
-#  define NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW 105
 #endif
 #if defined(MOZ_WIDGET_GTK)
 // set/get nsPluginNativeWindowGtk, e10s specific
@@ -988,16 +983,35 @@ class nsIWidget : public nsISupports {
 
   virtual void ClearCachedCursor() = 0;
 
+  struct Cursor {
+    // The system cursor chosen by the page. This is used if there's no custom
+    // cursor, or if we fail to use the custom cursor in some way (if the image
+    // fails to load, for example).
+    nsCursor mDefaultCursor = eCursor_standard;
+    // May be null, to represent no custom cursor image.
+    nsCOMPtr<imgIContainer> mContainer;
+    uint32_t mHotspotX = 0;
+    uint32_t mHotspotY = 0;
+    float mResolution = 1.0f;
+
+    bool IsCustom() const { return !!mContainer; }
+
+    bool operator==(const Cursor& aOther) const {
+      return mDefaultCursor == aOther.mDefaultCursor &&
+             mContainer.get() == aOther.mContainer.get() &&
+             mHotspotX == aOther.mHotspotX && mHotspotY == aOther.mHotspotY &&
+             mResolution == aOther.mResolution;
+    }
+
+    bool operator!=(const Cursor& aOther) { return !(*this == aOther); }
+  };
+
   /**
-   * Sets the cursor cursor for this widget.
-   *
-   * @param aDefaultCursor the default cursor to be set
-   * @param aCursorImage a custom cursor, maybe null.
-   * @param aX the X coordinate of the hotspot for aCursorImage (from left).
-   * @param aY the Y coordinate of the hotspot for aCursorImage (from top).
+   * Sets the cursor for this widget.
    */
-  virtual void SetCursor(nsCursor aDefaultCursor, imgIContainer* aCursorImage,
-                         uint32_t aHotspotX, uint32_t aHotspotY) = 0;
+  virtual void SetCursor(const Cursor&) = 0;
+
+  static nsIntSize CustomCursorSize(const Cursor&);
 
   /**
    * Get the window type of this widget.
@@ -1450,12 +1464,21 @@ class nsIWidget : public nsISupports {
    */
   virtual void DispatchEventToAPZOnly(mozilla::WidgetInputEvent* aEvent) = 0;
 
+  // A structure that groups the statuses from APZ dispatch and content
+  // dispatch.
+  struct ContentAndAPZEventStatus {
+    // Either of these may not be set if the event was not dispatched
+    // to APZ or to content.
+    nsEventStatus mApzStatus = nsEventStatus_eIgnore;
+    nsEventStatus mContentStatus = nsEventStatus_eIgnore;
+  };
+
   /**
    * Dispatches an event that must be handled by APZ first, when APZ is
    * enabled. If invoked in the child process, it is forwarded to the
    * parent process synchronously.
    */
-  virtual nsEventStatus DispatchInputEvent(
+  virtual ContentAndAPZEventStatus DispatchInputEvent(
       mozilla::WidgetInputEvent* aEvent) = 0;
 
   /**
@@ -1805,6 +1828,16 @@ class nsIWidget : public nsISupports {
   }
 
 #endif
+
+  /**
+   * If this widget uses native pointer lock instead of warp-to-center
+   * (currently only GTK on Wayland), these methods provide access to that
+   * functionality.
+   */
+  virtual void SetNativePointerLockCenter(
+      const LayoutDeviceIntPoint& aLockCenter) {}
+  virtual void LockNativePointer() {}
+  virtual void UnlockNativePointer() {}
 
   /*
    * Get safe area insets except to cutout.

@@ -18,6 +18,7 @@
 #include "frontend/BytecodeCompilation.h"  // CanLazilyParse
 #include "frontend/BytecodeSection.h"      // EmitScriptThingsVector
 #include "frontend/CompilationStencil.h"  // CompilationStencil, CompilationState, ExtensibleCompilationStencil, CompilationGCOutput, CompilationStencilMerger
+#include "frontend/NameAnalysisTypes.h"   // EnvironmentCoordinate
 #include "frontend/SharedContext.h"
 #include "gc/AllocKind.h"               // gc::AllocKind
 #include "gc/Rooting.h"                 // RootedAtom
@@ -281,6 +282,22 @@ bool ScopeContext::cacheEnclosingScopeBindingForEval(
           }
           break;
 
+        case BindingKind::Synthetic:
+          if (!addToEnclosingLexicalBindingCache(
+                  cx, input, parserAtoms, bi.name(),
+                  EnclosingLexicalBindingKind::Synthetic)) {
+            return false;
+          }
+          break;
+
+        case BindingKind::PrivateMethod:
+          if (!addToEnclosingLexicalBindingCache(
+                  cx, input, parserAtoms, bi.name(),
+                  EnclosingLexicalBindingKind::PrivateMethod)) {
+            return false;
+          }
+          break;
+
         case BindingKind::Import:
         case BindingKind::FormalParameter:
         case BindingKind::Var:
@@ -346,24 +363,36 @@ bool ScopeContext::cachePrivateFieldsForEval(JSContext* cx,
 
   effectiveScopePrivateFieldCache_.emplace();
 
+  // We compute an environment coordinate relative to the effective scope
+  // environment. In order to safely consume these environment coordinates, they
+  // need to be appropriately mapped at the calling context.
+  uint32_t hops = 0;
   for (ScopeIter si(effectiveScope); si; si++) {
     if (si.scope()->kind() != ScopeKind::ClassBody) {
       continue;
     }
-
+    uint32_t slots = 0;
     for (js::BindingIter bi(si.scope()); bi; bi++) {
-      if (IsPrivateField(bi.name())) {
+      if (bi.kind() == BindingKind::PrivateMethod ||
+          (bi.kind() == BindingKind::Synthetic && IsPrivateField(bi.name()))) {
         auto parserName =
             parserAtoms.internJSAtom(cx, input.atomCache, bi.name());
         if (!parserName) {
           return false;
         }
 
-        if (!effectiveScopePrivateFieldCache_->put(parserName)) {
+        NameLocation loc =
+            NameLocation::EnvironmentCoordinate(bi.kind(), hops, slots);
+
+        if (!effectiveScopePrivateFieldCache_->put(parserName, loc)) {
           ReportOutOfMemory(cx);
           return false;
         }
       }
+      slots++;
+    }
+    if (si.scope()->hasEnvironment()) {
+      hops++;
     }
   }
 
@@ -563,6 +592,15 @@ bool ScopeContext::effectiveScopePrivateFieldCacheHas(
   return effectiveScopePrivateFieldCache_->has(name);
 }
 
+mozilla::Maybe<NameLocation> ScopeContext::getPrivateFieldLocation(
+    TaggedParserAtomIndex name) {
+  auto p = effectiveScopePrivateFieldCache_->lookup(name);
+  if (!p) {
+    return mozilla::Nothing();
+  }
+  return mozilla::Some(p->value());
+}
+
 bool CompilationInput::initScriptSource(JSContext* cx) {
   source = do_AddRef(cx->new_<ScriptSource>());
   if (!source) {
@@ -658,9 +696,14 @@ Scope* ScopeStencil::createScope(JSContext* cx, CompilationAtomCache& atomCache,
     case ScopeKind::Catch:
     case ScopeKind::NamedLambda:
     case ScopeKind::StrictNamedLambda:
-    case ScopeKind::FunctionLexical:
-    case ScopeKind::ClassBody: {
+    case ScopeKind::FunctionLexical: {
       using ScopeType = LexicalScope;
+      MOZ_ASSERT(matchScopeKind<ScopeType>(kind()));
+      return createSpecificScope<ScopeType, BlockLexicalEnvironmentObject>(
+          cx, atomCache, enclosingScope, baseScopeData);
+    }
+    case ScopeKind::ClassBody: {
+      using ScopeType = ClassBodyScope;
       MOZ_ASSERT(matchScopeKind<ScopeType>(kind()));
       return createSpecificScope<ScopeType, BlockLexicalEnvironmentObject>(
           cx, atomCache, enclosingScope, baseScopeData);
@@ -1174,6 +1217,10 @@ static void LinkEnclosingLazyScript(const CompilationStencil& stencil,
     auto& scriptStencil = item.script;
     auto& fun = item.function;
     if (!scriptStencil.functionFlags.hasBaseScript()) {
+      continue;
+    }
+
+    if (!fun->baseScript()) {
       continue;
     }
 
@@ -2257,12 +2304,21 @@ void ScopeStencil::dumpFields(js::JSONPrinter& json,
     case ScopeKind::Catch:
     case ScopeKind::NamedLambda:
     case ScopeKind::StrictNamedLambda:
-    case ScopeKind::FunctionLexical:
-    case ScopeKind::ClassBody: {
+    case ScopeKind::FunctionLexical: {
       const auto* data =
           static_cast<const LexicalScope::ParserData*>(baseScopeData);
       json.property("nextFrameSlot", data->slotInfo.nextFrameSlot);
       json.property("constStart", data->slotInfo.constStart);
+
+      trailingNames = GetScopeDataTrailingNames(data);
+      break;
+    }
+
+    case ScopeKind::ClassBody: {
+      const auto* data =
+          static_cast<const ClassBodyScope::ParserData*>(baseScopeData);
+      json.property("nextFrameSlot", data->slotInfo.nextFrameSlot);
+      json.property("privateMethodStart", data->slotInfo.privateMethodStart);
 
       trailingNames = GetScopeDataTrailingNames(data);
       break;

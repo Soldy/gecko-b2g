@@ -99,8 +99,6 @@ bool Axis::AdjustDisplacement(
     return false;
   }
 
-  EndOverscrollAnimation();
-
   ParentLayerCoord displacement = aDisplacement;
 
   // First consume any overscroll in the opposite direction along this axis.
@@ -231,6 +229,10 @@ bool Axis::SampleOverscrollAnimation(const TimeDuration& aDelta) {
 
   // Otherwise, continue the animation.
   return true;
+}
+
+bool Axis::IsOverscrollAnimationRunning() const {
+  return !mMSDModel.IsFinished(1.0);
 }
 
 bool Axis::IsOverscrolled() const { return mOverscroll != 0.f; }

@@ -58,6 +58,7 @@ static struct sigaction SIGFPE_osa;
 
 #    include <unistd.h>
 #    include "nsISupportsUtils.h"
+#    include "mozilla/Attributes.h"
 #    include "mozilla/StackWalk.h"
 
 static const char* gProgname = "huh?";
@@ -80,12 +81,12 @@ static void PrintStackFrame(uint32_t aFrameNumber, void* aPC, void* aSP,
 }
 }
 
-void ah_crap_handler(int signum) {
+void common_crap_handler(int signum, const void* aFirstFramePC) {
   printf("\nProgram %s (pid = %d) received signal %d.\n", gProgname, getpid(),
          signum);
 
   printf("Stack:\n");
-  MozStackWalk(PrintStackFrame, /* skipFrames */ 2, /* maxFrames */ 0, nullptr);
+  MozStackWalk(PrintStackFrame, aFirstFramePC, /* maxFrames */ 0, nullptr);
 
   printf("Sleeping for %d seconds.\n", _gdb_sleep_duration);
   printf("Type 'gdb %s %d' to attach your debugger to this thread.\n",
@@ -101,10 +102,14 @@ void ah_crap_handler(int signum) {
   _exit(signum);
 }
 
-void child_ah_crap_handler(int signum) {
+MOZ_NEVER_INLINE void ah_crap_handler(int signum) {
+  common_crap_handler(signum, CallerPC());
+}
+
+MOZ_NEVER_INLINE void child_ah_crap_handler(int signum) {
   if (!getenv("MOZ_DONT_UNBLOCK_PARENT_ON_CHILD_CRASH"))
     close(kClientChannelFd);
-  ah_crap_handler(signum);
+  common_crap_handler(signum, CallerPC());
 }
 
 #  endif  // CRAWL_STACK_ON_SIGSEGV

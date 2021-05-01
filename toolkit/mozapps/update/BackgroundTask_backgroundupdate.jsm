@@ -8,8 +8,8 @@
 var EXPORTED_SYMBOLS = ["runBackgroundTask"];
 
 const { EXIT_CODE } = ChromeUtils.import(
-  "resource://gre/modules/BackgroundTasksManager.jsm"
-).BackgroundTasksManager;
+  "resource://gre/modules/BackgroundUpdate.jsm"
+).BackgroundUpdate;
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
@@ -20,6 +20,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   BackgroundTasksUtils: "resource://gre/modules/BackgroundTasksUtils.jsm",
   BackgroundUpdate: "resource://gre/modules/BackgroundUpdate.jsm",
   ExtensionUtils: "resource://gre/modules/ExtensionUtils.jsm",
+  FileUtils: "resource://gre/modules/FileUtils.jsm",
   Services: "resource://gre/modules/Services.jsm",
   UpdateUtils: "resource://gre/modules/UpdateUtils.jsm",
 });
@@ -42,6 +43,8 @@ XPCOMUtils.defineLazyGetter(this, "log", () => {
   };
   return new ConsoleAPI(consoleOptions);
 });
+
+Cu.importGlobalProperties(["Glean", "GleanPings"]);
 
 /**
  * Verify that pre-conditions to update this installation (both persistent and
@@ -72,15 +75,19 @@ async function _attemptBackgroundUpdate() {
   );
   let reasons = await BackgroundUpdate._reasonsToNotUpdateInstallation();
 
-  // Other instances running are a transient precondition (during this invocation).
-  if (!reasons.length) {
-    log.debug(`${SLUG}: checking if other instance is running`);
-    let syncManager = Cc[
-      "@mozilla.org/updates/update-sync-manager;1"
-    ].getService(Ci.nsIUpdateSyncManager);
-    if (syncManager.isOtherInstanceRunning()) {
-      reasons = BackgroundUpdate.REASON.OTHER_INSTANCE;
-    }
+  if (BackgroundUpdate._force()) {
+    // We want to allow developers and testers to monkey with the system.
+    log.debug(
+      `${SLUG}: app.update.background.force=true, ignoring reasons: ${JSON.stringify(
+        reasons
+      )}`
+    );
+    reasons = [];
+  }
+
+  reasons.sort();
+  for (let reason of reasons) {
+    Glean.backgroundUpdate.reasons.add(reason);
   }
 
   let enabled = !reasons.length;
@@ -99,6 +106,9 @@ async function _attemptBackgroundUpdate() {
 
     let _appUpdaterListener = (status, progress, progressMax) => {
       let stringStatus = AppUpdater.STATUS.debugStringFor(status);
+      Glean.backgroundUpdate.states.add(stringStatus);
+      Glean.backgroundUpdate.finalState.set(stringStatus);
+
       if (AppUpdater.STATUS.isTerminalStatus(status)) {
         log.debug(
           `${SLUG}: background update transitioned to terminal status ${status}: ${stringStatus}`
@@ -158,9 +168,28 @@ async function _attemptBackgroundUpdate() {
   return result;
 }
 
+/**
+ * Maybe submit a "background-update" custom Glean ping.
+ *
+ * If data reporting upload in general is enabled Glean will submit a ping.  To determine if
+ * telemetry is enabled, Glean will look at the relevant pref, which was mirrored from the default
+ * profile.  Note that the Firefox policy mechanism will manage this pref, locking it to particular
+ * values as appropriate.
+ */
+async function maybeSubmitBackgroundUpdatePing() {
+  let SLUG = "maybeSubmitBackgroundUpdatePing";
+
+  // It should be possible to turn AUSTLMY data into Glean data, but mapping histograms isn't
+  // trivial, so we don't do it at this time.  Bug 1703313.
+
+  GleanPings.backgroundUpdate.submit();
+
+  log.info(`${SLUG}: submitted "background-update" ping`);
+}
+
 async function runBackgroundTask() {
   let SLUG = "runBackgroundTask";
-  log.info(`${SLUG}: backgroundupdate`);
+  log.error(`${SLUG}: backgroundupdate`);
 
   // Help debugging.  This is a pared down version of
   // `dataProviders.application` in `Troubleshoot.jsm`.  When adding to this
@@ -183,6 +212,24 @@ async function runBackgroundTask() {
   };
   log.debug(`${SLUG}: current configuration`, data);
 
+  // Other instances running are a transient precondition (during this invocation).  We'd prefer to
+  // check this later, as a reason for not updating, but Glean is not tested in multi-process
+  // environments and while its storage (backed by rkv) can in theory support multiple processes, it
+  // is not clear that it in fact does support multiple processes.  So we are conservative here.
+  // There is a potential time-of-check/time-of-use race condition here, but if process B starts
+  // after we pass this test, that process should exit after it gets to this check, avoiding
+  // multiple processes using the same Glean storage.  If and when more and longer-running
+  // background tasks become common, we may need to be more fine-grained and share just the Glean
+  // storage resource.
+  log.debug(`${SLUG}: checking if other instance is running`);
+  let syncManager = Cc["@mozilla.org/updates/update-sync-manager;1"].getService(
+    Ci.nsIUpdateSyncManager
+  );
+  if (syncManager.isOtherInstanceRunning()) {
+    log.error(`${SLUG}: another instance is running`);
+    return EXIT_CODE.OTHER_INSTANCE;
+  }
+
   // Here we mirror specific prefs from the default profile into our temporary profile.  We want to
   // do this early because some of the prefs may impact internals such as log levels.  Generally,
   // however, we want prefs from the default profile to not impact the mechanics of checking for,
@@ -190,9 +237,28 @@ async function runBackgroundTask() {
   // the mechanisms of Bug 1691486.  Sadly using this mechanism for many relevant prefs (namely
   // `app.update.BITS.enabled` and `app.update.service.enabled`) is difficult: see Bug 1657533.
   try {
-    let defaultProfilePrefs = await BackgroundTasksUtils.readPreferences(name =>
-      name.startsWith("app.update.")
-    );
+    let defaultProfilePrefs;
+    await BackgroundTasksUtils.withProfileLock(async lock => {
+      let predicate = name => {
+        return (
+          name.startsWith("app.update.") || // For obvious reasons.
+          name.startsWith("datareporting.") || // For Glean.
+          name.startsWith("logging.") || // For Glean.
+          name.startsWith("telemetry.fog.") || // For Glean.
+          name.startsWith("app.partner.") // For our metrics.
+        );
+      };
+
+      defaultProfilePrefs = await BackgroundTasksUtils.readPreferences(
+        predicate,
+        lock
+      );
+      let telemetryClientID = await BackgroundTasksUtils.readTelemetryClientID(
+        lock
+      );
+      Glean.backgroundUpdate.clientId.set(telemetryClientID);
+    });
+
     for (let [name, value] of Object.entries(defaultProfilePrefs)) {
       switch (typeof value) {
         case "boolean":
@@ -211,13 +277,47 @@ async function runBackgroundTask() {
       }
     }
   } catch (e) {
+    if (!BackgroundTasksUtils.hasDefaultProfile()) {
+      log.error(`${SLUG}: caught exception; no default profile exists`, e);
+      return EXIT_CODE.DEFAULT_PROFILE_DOES_NOT_EXIST;
+    }
+
+    if (e.name == "CannotLockProfileError") {
+      log.error(`${SLUG}: caught exception; could not lock default profile`, e);
+      return EXIT_CODE.DEFAULT_PROFILE_CANNOT_BE_LOCKED;
+    }
+
     log.error(
-      `${SLUG}: caught exception reading preferences from default profile`,
+      `${SLUG}: caught exception reading preferences and telemetry client ID from default profile`,
       e
     );
-
-    return EXIT_CODE.EXCEPTION;
+    return EXIT_CODE.DEFAULT_PROFILE_CANNOT_BE_READ;
   }
+
+  // Now that we have prefs from the default profile, we can configure Firefox-on-Glean.
+
+  // Glean has a preinit queue for metric operations that happen before init, so
+  // this is safe.  We want to have these metrics set before the first possible
+  // time we might send (built-in) pings.
+  await BackgroundUpdate.recordUpdateEnvironment();
+
+  // The final leaf is for the benefit of `FileUtils`.  To help debugging, use
+  // the `GLEAN_LOG_PINGS` and `GLEAN_DEBUG_VIEW_TAG` environment variables: see
+  // https://mozilla.github.io/glean/book/user/debugging/index.html.
+  let gleanRoot = FileUtils.getFile("UpdRootD", [
+    "backgroundupdate",
+    "datareporting",
+    "glean",
+    "__dummy__",
+  ]).parent.path;
+  let FOG = Cc["@mozilla.org/toolkit/glean;1"].createInstance(Ci.nsIFOG);
+  FOG.initializeFOG(gleanRoot, "firefox.desktop.background.update");
+
+  // For convenience, mirror our loglevel.
+  Services.prefs.setCharPref(
+    "toolkit.backgroundtasks.loglevel",
+    Services.prefs.getCharPref("app.update.background.loglevel", "error")
+  );
 
   // The langpack updating mechanism expects the addons manager, but in background task mode, the
   // addons manager is not present.  Since we can't update langpacks from the background task
@@ -230,23 +330,34 @@ async function runBackgroundTask() {
   Services.prefs.setBoolPref("app.update.langpack.enabled", false);
 
   let result = EXIT_CODE.SUCCESS;
+
+  let stringStatus = AppUpdater.STATUS.debugStringFor(
+    AppUpdater.STATUS.NEVER_CHECKED
+  );
+  Glean.backgroundUpdate.states.add(stringStatus);
+  Glean.backgroundUpdate.finalState.set(stringStatus);
+
   try {
     await _attemptBackgroundUpdate();
 
     log.info(`${SLUG}: attempted background update`);
-
-    // TODO: ensure the update service has persisted its state before we exit.  Bug 1700846.
-    await ExtensionUtils.promiseTimeout(500);
+    Glean.backgroundUpdate.exitCodeSuccess.set(true);
   } catch (e) {
     // TODO: in the future, we might want to classify failures into transient and persistent and
-    // backoff the update task in the fast of continuous persistent errors.
+    // backoff the update task in the face of continuous persistent errors.
     log.error(`${SLUG}: caught exception attempting background update`, e);
 
     result = EXIT_CODE.EXCEPTION;
+    Glean.backgroundUpdate.exitCodeException.set(true);
   } finally {
-    // TODO: this is the point to report telemetry (assuming that the default profile's data
-    // reporting configuration allows it).  Bug 1654891.
+    // This is the point to report telemetry, assuming that the default profile's data reporting
+    // configuration allows it.
+    await maybeSubmitBackgroundUpdatePing();
   }
+
+  // TODO: ensure the update service has persisted its state before we exit.  Bug 1700846.
+  // TODO: ensure that Glean's upload mechanism is aware of Gecko shutdown.  Bug 1703572.
+  await ExtensionUtils.promiseTimeout(500);
 
   return result;
 }

@@ -7,6 +7,7 @@
 <window title="Notification Box" width="500" height="600"
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
   <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>  
+  <script src="chrome://mochikit/content/tests/SimpleTest/EventUtils.js"></script>  
 
   <vbox id="nb"/>
   <menupopup id="menupopup" onpopupshown="this.hidePopup()" onpopuphidden="checkPopupClosed()">
@@ -19,8 +20,8 @@
   <!-- test code goes here -->
   <script type="application/javascript"><![CDATA[
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
-const PROTON_INFOBARS_ENABLED = Services.prefs.getBoolPref("browser.proton.infobars.enabled", false);
-const NOTIFICATION_LOCAL_NAME = PROTON_INFOBARS_ENABLED ?  "notification-message" : "notification";
+const PROTON_ENABLED = Services.prefs.getBoolPref("browser.proton.enabled", false);
+const NOTIFICATION_LOCAL_NAME = PROTON_ENABLED ?  "notification-message" : "notification";
 SimpleTest.waitForExplicitFinish();
 
 var testtag_notificationbox_buttons = [
@@ -29,6 +30,19 @@ var testtag_notificationbox_buttons = [
     accesskey: "u",
     callback: testtag_notificationbox_buttonpressed,
     popup: "menupopup"
+  }
+];
+
+var testtag_notificationbox_buttons_nopopup = [
+  {
+    label: "Button 1 No Popup",
+    accesskey: "u",
+    callback: testtag_notificationbox_button1pressed,
+  },
+  {
+    label: "Button 2 No Popup",
+    accesskey: "u",
+    callback: testtag_notificationbox_button2pressed,
   }
 ];
 
@@ -60,6 +74,10 @@ function testtag_notificationbox_buttonpressed(notification, button)
   SimpleTest.is(button.localName, "button");
   return false;
 }
+
+let buttonsPressedLog = "";
+function testtag_notificationbox_button1pressed(notification, button) { buttonsPressedLog += "button1"; return true; }
+function testtag_notificationbox_button2pressed(notification, button) { buttonsPressedLog += "button2"; return true; }
 
 function testtag_notificationbox(nb)
 {
@@ -318,7 +336,7 @@ var tests =
     result(nb, ntf) {
       testtag_notificationbox_State(nb, "append link with callback", ntf, 1);
 
-      let buttonContainer = PROTON_INFOBARS_ENABLED ? ntf.buttonContainer : ntf.messageDetails;
+      let buttonContainer = PROTON_ENABLED ? ntf.buttonContainer : ntf.messageDetails;
       let button = buttonContainer.lastElementChild;
       SimpleTest.is(button.localName, "button", "button is a button");
       SimpleTest.ok(!button.href, "button href is not set");
@@ -328,6 +346,31 @@ var tests =
       SimpleTest.is(link.href, "about:mozilla", "link href is correct");
 
       SimpleTest.is(nb.removeAllNotifications(false), undefined, "removeAllNotifications");
+    }
+  },
+  {
+    test(nb, ntf) {
+      // append a new notification
+      ntf = nb.appendNotification("Notification", "note", "happy.png",
+                                  nb.PRIORITY_INFO_LOW, testtag_notificationbox_buttons_nopopup);
+      return ntf;
+    },
+    result(nb, ntf) {
+      let buttons = nb.currentNotification.buttonContainer.querySelectorAll("* button");
+
+      buttons[0].focus();
+      synthesizeKey(" ", {});
+      SimpleTest.is(buttonsPressedLog, "button1", "button 1 with keyboard");
+      buttons[1].focus();
+      synthesizeKey(" ", {});
+      SimpleTest.is(buttonsPressedLog, "button1button2", "button 2 with keyboard");
+
+      synthesizeMouseAtCenter(buttons[0], {});
+      SimpleTest.is(buttonsPressedLog, "button1button2button1", "button 1 with mouse");
+      synthesizeMouseAtCenter(buttons[1], {});
+      SimpleTest.is(buttonsPressedLog, "button1button2button1button2", "button 2 with mouse");
+
+      nb.removeAllNotifications(true);
     }
   },
   {
@@ -342,7 +385,7 @@ var tests =
     result(nb, ntf) {
       testtag_notificationbox_State(nb, "append link with callback", ntf, 1);
 
-      let link = PROTON_INFOBARS_ENABLED
+      let link = PROTON_ENABLED
         ? ntf.messageText.lastElementChild.previousSibling.previousSibling
         : ntf.messageText.lastElementChild.previousSibling;
       SimpleTest.is(link.localName, "label", "link 1 is a label");
@@ -373,8 +416,13 @@ var tests =
       return ntf;
     },
     result(nb, ntf) {
+      let expectedValue = "10";
+      if (PROTON_ENABLED) {
+        expectedValue = "3";
+        ntf = nb.getNotificationWithValue(expectedValue);
+      }
       is(nb.currentNotification, ntf, "appendNotification last notification");
-      is(nb.currentNotification.getAttribute("value"), "10", "appendNotification order");
+      is(nb.currentNotification.getAttribute("value"), expectedValue, "appendNotification order");
       return 1;
     }
   },
@@ -382,6 +430,11 @@ var tests =
     // test closing notifications to make sure that the current notification is still set properly
     repeat: true,
     test(nb, testidx) {
+      if (PROTON_ENABLED) {
+        this.repeat = false;
+        return undefined;
+      }
+
       switch (testidx) {
         case 1:
           nb.getNotificationWithValue("10").close();
@@ -405,6 +458,19 @@ var tests =
       return testidx;
     },
     result(nb, arr) {
+      if (PROTON_ENABLED) {
+        let notificationOrder = [4, 7, 2, 8, 5, 6, 1, 9, 10, 3];
+        let allNotificationValues = [...nb.stack.children].map(n => n.getAttribute("value"));
+        is(allNotificationValues.length, notificationOrder.length, "Expected number of notifications");
+        for (let i = 0; i < allNotificationValues.length; i++) {
+          is(
+            allNotificationValues[i],
+            notificationOrder[i].toString(),
+            `Notification ${i} matches`
+          );
+        }
+        return undefined;
+      }
       // arr is [testindex, expectedvalue]
       is(nb.currentNotification.getAttribute("value"), "" + arr[1], "close order " + arr[0]);
       is(nb.allNotifications.length, 10 - arr[0], "close order " + arr[0] + " count");
@@ -498,9 +564,9 @@ function testtag_notification_State(nb, ntf, testid, label, value, image, priori
 
   is(ntf.getAttribute("type"), type, testid + " notification type");
 
-  if (PROTON_INFOBARS_ENABLED) {
+  if (PROTON_ENABLED) {
     let icons = {
-      info: "chrome://global/skin/icons/info.svg",
+      info: "chrome://global/skin/icons/info-filled.svg",
       warning: "chrome://global/skin/icons/warning.svg",
       critical: "chrome://global/skin/icons/error.svg",
     };
@@ -514,12 +580,12 @@ function testtag_notification_State(nb, ntf, testid, label, value, image, priori
 function checkPopupTest(nb, ntf)
 {
   if (nb._animating) {
-    setTimeout(checkPopupTest, ntf);
+    setTimeout(checkPopupTest, 50, nb, ntf);
   } else {
     var evt = new Event("");
     ntf.dispatchEvent(evt);
     evt.target.buttonInfo = testtag_notificationbox_buttons[0];
-    if (PROTON_INFOBARS_ENABLED) {
+    if (PROTON_ENABLED) {
       ntf.handleEvent(evt);
     } else {
       ntf._doButtonCommand(evt);

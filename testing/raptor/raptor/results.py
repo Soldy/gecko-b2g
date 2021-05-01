@@ -21,7 +21,7 @@ KNOWN_TEST_MODIFIERS = [
     "condprof-settled",
     "fission",
     "live",
-    "gecko_profile",
+    "gecko-profile",
     "cold",
     "webrender",
 ]
@@ -83,7 +83,7 @@ class PerftestResultsHandler(object):
             if self.live_sites:
                 extra_options.append("live")
             if self.gecko_profile:
-                extra_options.append("gecko_profile")
+                extra_options.append("gecko-profile")
             if self.cold:
                 extra_options.append("cold")
             if self.webrender_enabled:
@@ -560,15 +560,8 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
             custom_types = raw_result["extras"][0]
             if custom_types:
                 for custom_type in custom_types:
-                    # TODO (bug 1702689): Fix non-youtube-playback multi-cycle data so we
-                    # don't have to use this hack
-                    if any(["youtube" in k for k in custom_types[custom_type]]):
-                        for k, v in custom_types[custom_type].items():
-                            bt_result["measurements"].setdefault(k, []).append([v])
-                    else:
-                        bt_result["measurements"].update(
-                            {k: [v] for k, v in custom_types[custom_type].items()}
-                        )
+                    for k, v in custom_types[custom_type].items():
+                        bt_result["measurements"].setdefault(k, []).append(v)
             else:
                 # extracting values from browserScripts and statistics
                 for bt, raptor in conversion:
@@ -622,6 +615,7 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
         browsertime_json,
         json_name="browsertime.json",
         extra_options=[],
+        accept_zero_vismet=False,
     ):
         # The visual metrics task expects posix paths.
         def _normalized_join(*args):
@@ -635,6 +629,7 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
             "browsertime_json_path": _normalized_join(reldir, json_name),
             "test_name": test_name,
             "extra_options": extra_options,
+            "accept_zero_vismet": accept_zero_vismet,
         }
 
     def summarize_and_output(self, test_config, tests, test_names):
@@ -670,6 +665,8 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
 
         for test in tests:
             test_name = test["name"]
+            accept_zero_vismet = test.get("accept_zero_vismet", False)
+
             bt_res_json = os.path.join(
                 self.result_dir_for_test(test), "browsertime.json"
             )
@@ -718,6 +715,7 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
                             cold_path,
                             json_name="cold-browsertime.json",
                             extra_options=list(extra_options),
+                            accept_zero_vismet=accept_zero_vismet,
                         )
                     )
 
@@ -729,12 +727,16 @@ class BrowsertimeResultsHandler(PerftestResultsHandler):
                             warm_path,
                             json_name="warm-browsertime.json",
                             extra_options=list(extra_options),
+                            accept_zero_vismet=accept_zero_vismet,
                         )
                     )
                 else:
                     video_jobs.append(
                         self._extract_vmetrics(
-                            test_name, bt_res_json, extra_options=list(extra_options)
+                            test_name,
+                            bt_res_json,
+                            extra_options=list(extra_options),
+                            accept_zero_vismet=accept_zero_vismet,
                         )
                     )
 

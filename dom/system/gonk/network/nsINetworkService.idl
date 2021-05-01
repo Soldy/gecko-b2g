@@ -618,21 +618,6 @@ interface nsINetworkService : nsISupports
                      in nsINativeCommandCallback callback);
 
   /**
-   * Set ipv6 privacy extensions for a network interface.
-   *
-   * @param interfaceName
-   *        The name of the network interface that we want to set ipv6 privacy extensions.
-   *
-   * @param enable
-   *        Boolean to indicate we want enable or disable ipv6 privacy extensions.
-   *
-   * @param callback
-   *        Callback to notify the result of setting ipv6 privacy extensions.
-   */
-  void setIpv6PrivacyExtensions(in AString interfaceName, in boolean enable,
-                                in nsINativeCommandCallback callback);
-
-  /**
    * Set maximum transmission unit on a network interface.
    *
    * @param interfaceName

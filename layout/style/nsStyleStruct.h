@@ -908,7 +908,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText {
   mozilla::StyleRubyPosition mRubyPosition;
   mozilla::StyleTextSizeAdjust mTextSizeAdjust;
   uint8_t mTextCombineUpright;  // NS_STYLE_TEXT_COMBINE_UPRIGHT_*
-  mozilla::StyleControlCharacterVisibility mControlCharacterVisibility;
+  mozilla::StyleMozControlCharacterVisibility mMozControlCharacterVisibility;
   uint8_t mTextEmphasisPosition;  // NS_STYLE_TEXT_EMPHASIS_POSITION_*
   mozilla::StyleTextRendering mTextRendering;
   mozilla::StyleColor mTextEmphasisColor;
@@ -1747,7 +1747,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUI {
 
   mozilla::StyleCursor mCursor;
 
-  mozilla::StyleColorOrAuto mCaretColor;
+  mozilla::StyleColorOrAuto mAccentColor;
+  mozilla::StyleCaretColor mCaretColor;
   mozilla::StyleScrollbarColor mScrollbarColor;
 
   inline mozilla::StylePointerEvents GetEffectivePointerEvents(

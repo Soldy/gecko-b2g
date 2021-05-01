@@ -1718,7 +1718,14 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
   if (resumeMode != ResumeMode::Return && resumeMode != ResumeMode::Throw) {
     return true;
   }
-  if (!frame || !frame.isFunctionFrame()) {
+
+  if (!frame) {
+    return true;
+  }
+  // Async modules need to be handled separately, as they do not have a callee.
+  // frame.callee will throw if it is called on a moduleFrame.
+  bool isAsyncModule = frame.isModuleFrame() && frame.script()->isAsync();
+  if (!frame.isFunctionFrame() && !isAsyncModule) {
     return true;
   }
 
@@ -1729,7 +1736,9 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
   // avoid re-entering the debugger from it.
   //
   // Similarly treat `{throw: <value>}` like a `throw` statement.
-  if (frame.callee()->isGenerator()) {
+  //
+  // Note: Async modules use the same handling as async functions.
+  if (frame.isFunctionFrame() && frame.callee()->isGenerator()) {
     // Throw doesn't require any special processing for (async) generators.
     if (resumeMode == ResumeMode::Throw) {
       return true;
@@ -1767,7 +1776,7 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
     if (genObj->is<AsyncGeneratorObject>()) {
       genObj->as<AsyncGeneratorObject>().setCompleted();
     }
-  } else if (frame.callee()->isAsync()) {
+  } else if (isAsyncModule || frame.callee()->isAsync()) {
     if (AbstractGeneratorObject* genObj =
             GetGeneratorObjectForFrame(cx, frame)) {
       // Throw doesn't require any special processing for async functions when
@@ -5188,10 +5197,16 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
         if (!thing.is<JSObject>() || !thing.as<JSObject>().is<JSFunction>()) {
           continue;
         }
-        if (!thing.as<JSObject>().as<JSFunction>().hasBaseScript()) {
+        JSFunction* fun = &thing.as<JSObject>().as<JSFunction>();
+        if (!fun->hasBaseScript()) {
           continue;
         }
-        BaseScript* inner = thing.as<JSObject>().as<JSFunction>().baseScript();
+        BaseScript* inner = fun->baseScript();
+        MOZ_ASSERT(inner);
+        if (!inner) {
+          // If the function doesn't have script, ignore it.
+          continue;
+        }
 
         if (!scriptIsPartialLineMatch(inner)) {
           continue;

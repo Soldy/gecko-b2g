@@ -275,11 +275,10 @@ class MOZ_STACK_CLASS WSRunScanner final {
   using WSType = WSScanResult::WSType;
 
   template <typename EditorDOMPointType>
-  WSRunScanner(const HTMLEditor& aHTMLEditor,
+  WSRunScanner(dom::Element* aEditingHost,
                const EditorDOMPointType& aScanStartPoint)
       : mScanStartPoint(aScanStartPoint),
-        mEditingHost(aHTMLEditor.GetActiveEditingHost()),
-        mHTMLEditor(&aHTMLEditor),
+        mEditingHost(aEditingHost),
         mTextFragmentDataAtStart(mScanStartPoint, mEditingHost) {}
 
   // ScanNextVisibleNodeOrBlockBoundaryForwardFrom() returns the first visible
@@ -291,8 +290,8 @@ class MOZ_STACK_CLASS WSRunScanner final {
       const EditorDOMPointBase<PT, CT>& aPoint) const;
   template <typename PT, typename CT>
   static WSScanResult ScanNextVisibleNodeOrBlockBoundary(
-      const HTMLEditor& aHTMLEditor, const EditorDOMPointBase<PT, CT>& aPoint) {
-    return WSRunScanner(aHTMLEditor, aPoint)
+      dom::Element* aEditingHost, const EditorDOMPointBase<PT, CT>& aPoint) {
+    return WSRunScanner(aEditingHost, aPoint)
         .ScanNextVisibleNodeOrBlockBoundaryFrom(aPoint);
   }
 
@@ -305,8 +304,8 @@ class MOZ_STACK_CLASS WSRunScanner final {
       const EditorDOMPointBase<PT, CT>& aPoint) const;
   template <typename PT, typename CT>
   static WSScanResult ScanPreviousVisibleNodeOrBlockBoundary(
-      const HTMLEditor& aHTMLEditor, const EditorDOMPointBase<PT, CT>& aPoint) {
-    return WSRunScanner(aHTMLEditor, aPoint)
+      dom::Element* aEditingHost, const EditorDOMPointBase<PT, CT>& aPoint) {
+    return WSRunScanner(aEditingHost, aPoint)
         .ScanPreviousVisibleNodeOrBlockBoundaryFrom(aPoint);
   }
 
@@ -317,13 +316,13 @@ class MOZ_STACK_CLASS WSRunScanner final {
    */
   template <typename PT, typename CT>
   static EditorDOMPointInText GetInclusiveNextEditableCharPoint(
-      const HTMLEditor& aHTMLEditor, const EditorDOMPointBase<PT, CT>& aPoint) {
+      dom::Element* aEditingHost, const EditorDOMPointBase<PT, CT>& aPoint) {
     if (aPoint.IsInTextNode() && !aPoint.IsEndOfContainer() &&
         HTMLEditUtils::IsSimplyEditableNode(*aPoint.ContainerAsText())) {
       return EditorDOMPointInText(aPoint.ContainerAsText(), aPoint.Offset());
     }
-    WSRunScanner scanner(aHTMLEditor, aPoint);
-    return scanner.GetInclusiveNextEditableCharPoint(aPoint);
+    return WSRunScanner(aEditingHost, aPoint)
+        .GetInclusiveNextEditableCharPoint(aPoint);
   }
 
   /**
@@ -332,14 +331,14 @@ class MOZ_STACK_CLASS WSRunScanner final {
    */
   template <typename PT, typename CT>
   static EditorDOMPointInText GetPreviousEditableCharPoint(
-      const HTMLEditor& aHTMLEditor, const EditorDOMPointBase<PT, CT>& aPoint) {
+      dom::Element* aEditingHost, const EditorDOMPointBase<PT, CT>& aPoint) {
     if (aPoint.IsInTextNode() && !aPoint.IsStartOfContainer() &&
         HTMLEditUtils::IsSimplyEditableNode(*aPoint.ContainerAsText())) {
       return EditorDOMPointInText(aPoint.ContainerAsText(),
                                   aPoint.Offset() - 1);
     }
-    WSRunScanner scanner(aHTMLEditor, aPoint);
-    return scanner.GetPreviousEditableCharPoint(aPoint);
+    return WSRunScanner(aEditingHost, aPoint)
+        .GetPreviousEditableCharPoint(aPoint);
   }
 
   /**
@@ -362,7 +361,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
    * text when caret is at aPoint.
    */
   static Result<EditorDOMRangeInTexts, nsresult>
-  GetRangeInTextNodesToForwardDeleteFrom(const HTMLEditor& aHTMLEditor,
+  GetRangeInTextNodesToForwardDeleteFrom(dom::Element* aEditingHost,
                                          const EditorDOMPoint& aPoint);
 
   /**
@@ -370,7 +369,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
    * when caret is at aPoint.
    */
   static Result<EditorDOMRangeInTexts, nsresult>
-  GetRangeInTextNodesToBackspaceFrom(const HTMLEditor& aHTMLEditor,
+  GetRangeInTextNodesToBackspaceFrom(dom::Element* aEditingHost,
                                      const EditorDOMPoint& aPoint);
 
   /**
@@ -379,7 +378,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
    * be included into the range.
    */
   static EditorDOMRange GetRangesForDeletingAtomicContent(
-      const HTMLEditor& aHTMLEditor, const nsIContent& aAtomicContent);
+      dom::Element* aEditingHost, const nsIContent& aAtomicContent);
 
   /**
    * GetRangeForDeleteBlockElementBoundaries() returns a range starting from end
@@ -420,7 +419,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
    * extended range if range boundaries of aRange are in invisible white-spaces.
    */
   static EditorDOMRange GetRangeContainingInvisibleWhiteSpacesAtRangeBoundaries(
-      const HTMLEditor& aHTMLEditor, const EditorDOMRange& aRange);
+      dom::Element* aEditingHost, const EditorDOMRange& aRange);
 
   /**
    * GetPrecedingBRElementUnlessVisibleContentFound() scans a `<br>` element
@@ -431,7 +430,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
   template <typename EditorDOMPointType>
   MOZ_NEVER_INLINE_DEBUG static dom::HTMLBRElement*
   GetPrecedingBRElementUnlessVisibleContentFound(
-      const HTMLEditor& aHTMLEditor, const EditorDOMPointType& aPoint) {
+      dom::Element* aEditingHost, const EditorDOMPointType& aPoint) {
     MOZ_ASSERT(aPoint.IsSetAndValid());
     // XXX This method behaves differently even in similar point.
     //     If aPoint is in a text node following `<br>` element, reaches the
@@ -445,8 +444,7 @@ class MOZ_STACK_CLASS WSRunScanner final {
     }
     // TODO: Scan for end boundary is redundant in this case, we should optimize
     //       it.
-    TextFragmentData textFragmentData(aPoint,
-                                      aHTMLEditor.GetActiveEditingHost());
+    TextFragmentData textFragmentData(aPoint, aEditingHost);
     return textFragmentData.StartsFromBRElement()
                ? textFragmentData.StartReasonBRElementPtr()
                : nullptr;
@@ -1215,9 +1213,6 @@ class MOZ_STACK_CLASS WSRunScanner final {
 
   // The editing host when the instance is created.
   RefPtr<dom::Element> mEditingHost;
-
-  // Non-owning.
-  const HTMLEditor* mHTMLEditor;
 
  private:
   /**

@@ -38,7 +38,9 @@ NetdEventListener::NetdEventListener(NetdEventCallback aCallback)
   ps->startThreadPool();
 }
 
-void NetdEventListener::updateDebug(bool aEnable) { ENABLE_NEL_DEBUG = aEnable; }
+void NetdEventListener::updateDebug(bool aEnable) {
+  ENABLE_NEL_DEBUG = aEnable;
+}
 
 void NetdEventListener::sendBroadcast(NetdEvent evt, char* reason) {
   mozilla::dom::NetworkResultOptions result;

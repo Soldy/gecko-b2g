@@ -54,10 +54,10 @@ ffi::WGPURenderPass* BeginRenderPass(
     RawId aEncoderId, const dom::GPURenderPassDescriptor& aDesc) {
   ffi::WGPURenderPassDescriptor desc = {};
 
-  ffi::WGPUDepthStencilAttachmentDescriptor dsDesc = {};
+  ffi::WGPURenderPassDepthStencilAttachment dsDesc = {};
   if (aDesc.mDepthStencilAttachment.WasPassed()) {
     const auto& dsa = aDesc.mDepthStencilAttachment.Value();
-    dsDesc.attachment = dsa.mView->mId;
+    dsDesc.view = dsa.mView->mId;
 
     if (dsa.mDepthLoadValue.IsFloat()) {
       dsDesc.depth.load_op = ffi::WGPULoadOp_Clear;
@@ -83,15 +83,15 @@ ffi::WGPURenderPass* BeginRenderPass(
     desc.depth_stencil_attachment = &dsDesc;
   }
 
-  std::array<ffi::WGPUColorAttachmentDescriptor, WGPUMAX_COLOR_TARGETS>
+  std::array<ffi::WGPURenderPassColorAttachment, WGPUMAX_COLOR_TARGETS>
       colorDescs = {};
   desc.color_attachments = colorDescs.data();
   desc.color_attachments_length = aDesc.mColorAttachments.Length();
 
   for (size_t i = 0; i < aDesc.mColorAttachments.Length(); ++i) {
     const auto& ca = aDesc.mColorAttachments[i];
-    ffi::WGPUColorAttachmentDescriptor& cd = colorDescs[i];
-    cd.attachment = ca.mView->mId;
+    ffi::WGPURenderPassColorAttachment& cd = colorDescs[i];
+    cd.view = ca.mView->mId;
     cd.channel.store_op = ConvertStoreOp(ca.mStoreOp);
 
     if (ca.mResolveTarget.WasPassed()) {
@@ -234,11 +234,11 @@ void RenderPassEncoder::SetScissorRect(uint32_t x, uint32_t y, uint32_t width,
   }
 }
 
-void RenderPassEncoder::SetBlendColor(
+void RenderPassEncoder::SetBlendConstant(
     const dom::DoubleSequenceOrGPUColorDict& color) {
   if (mValid) {
     ffi::WGPUColor aColor = ConvertColor(color.GetAsGPUColorDict());
-    ffi::wgpu_render_pass_set_blend_color(mPass, &aColor);
+    ffi::wgpu_render_pass_set_blend_constant(mPass, &aColor);
   }
 }
 

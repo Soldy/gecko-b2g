@@ -1284,7 +1284,7 @@ void PresShell::Destroy() {
         }
       }
     }
-    mPresContext->ClearOneShotPostRefreshObservers();
+    mPresContext->CancelManagedPostRefreshObservers();
   }
 
 #ifdef MOZ_REFLOW_PERF
@@ -5435,6 +5435,12 @@ void PresShell::SetRenderingState(const RenderingState& aState) {
     LayerManager* manager = GetLayerManager();
     if (manager) {
       FrameLayerBuilder::InvalidateAllLayers(manager);
+    }
+  }
+
+  if (GetResolution() != aState.mResolution.valueOr(1.f)) {
+    if (nsIFrame* frame = GetRootFrame()) {
+      frame->SchedulePaint();
     }
   }
 

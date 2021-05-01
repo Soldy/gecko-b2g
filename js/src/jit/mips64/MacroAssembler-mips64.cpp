@@ -1932,6 +1932,10 @@ void MacroAssembler::subFromStackPtr(Imm32 imm32) {
 // ===============================================================
 // Stack manipulation functions.
 
+size_t MacroAssembler::PushRegsInMaskSizeInBytes(LiveRegisterSet set) {
+  return set.gprs().size() * sizeof(intptr_t) + set.fpus().getPushSizeInBytes();
+}
+
 void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
   int32_t diff =
       set.gprs().size() * sizeof(intptr_t) + set.fpus().getPushSizeInBytes();
@@ -2564,7 +2568,7 @@ static void CompareExchange64(MacroAssembler& masm,
                               const Synchronization& sync, const T& mem,
                               Register64 expect, Register64 replace,
                               Register64 output) {
-  MOZ_ASSERT(oldval != output && newval != output);
+  MOZ_ASSERT(expect != output && replace != output);
   masm.computeEffectiveAddress(mem, SecondScratchReg);
 
   Label tryAgain;

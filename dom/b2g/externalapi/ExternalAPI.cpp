@@ -18,6 +18,28 @@
 namespace mozilla {
 namespace dom {
 
+NS_IMPL_ISUPPORTS0(ExternalAPI::SidlDefaultResponse)
+
+NS_IMETHODIMP
+ExternalAPI::SidlDefaultResponse::Resolve() {
+  if (mExternalApi) {
+    nsresult rv = mExternalApi->Resolve();
+    mExternalApi = nullptr;
+    return rv;
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+ExternalAPI::SidlDefaultResponse::Reject() {
+  if (mExternalApi) {
+    nsresult rv = mExternalApi->Reject();
+    mExternalApi = nullptr;
+    return rv;
+  }
+  return NS_OK;
+}
+
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(ExternalAPI, mGlobal, mPromises)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(ExternalAPI)
@@ -26,7 +48,6 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(ExternalAPI)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(ExternalAPI)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY(nsISupports)
-  NS_INTERFACE_MAP_ENTRY(nsISidlDefaultResponse)
 NS_INTERFACE_MAP_END
 
 class PrepareMessageRunnable : public WorkerMainThreadRunnable {
@@ -83,8 +104,7 @@ ExternalAPI::~ExternalAPI() {
   mTokens.Clear();
 }
 
-NS_IMETHODIMP
-ExternalAPI::Resolve() {
+nsresult ExternalAPI::Resolve() {
   // api-daemon successful response:
   // pop a promise from the stack(mPromises) and resolve it with a token,
   // which also poped from a stack of tokens(mTokens).
@@ -92,14 +112,12 @@ ExternalAPI::Resolve() {
     return NS_ERROR_FAILURE;
   }
   mPromises[0]->MaybeResolve(NS_ConvertUTF8toUTF16(mTokens[0]));
-
   mPromises.RemoveElementAt(0);
   mTokens.RemoveElementAt(0);
   return NS_OK;
 }
 
-NS_IMETHODIMP
-ExternalAPI::Reject() {
+nsresult ExternalAPI::Reject() {
   // api-daemon error response: reject a promise if possible.
   PopAndRejectPromise();
   if (!mTokens.IsEmpty()) {
@@ -280,9 +298,9 @@ nsresult ExternalAPI::SendMessage() {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv =
-      mBridge->RegisterToken(NS_ConvertUTF8toUTF16(token),
-                             NS_ConvertUTF8toUTF16(origin), permissions, this);
+  nsresult rv = mBridge->RegisterToken(
+      NS_ConvertUTF8toUTF16(token), NS_ConvertUTF8toUTF16(origin), permissions,
+      new ExternalAPI::SidlDefaultResponse(this));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return NS_ERROR_FAILURE;
   }

@@ -49,6 +49,8 @@ class nsMenuItemX final : public nsChangeObserver,
   nsMenuItemX(nsMenuX* aParent, const nsString& aLabel, EMenuItemType aItemType,
               nsMenuGroupOwnerX* aMenuGroupOwner, nsIContent* aNode);
 
+  bool IsVisible() const { return mIsVisible; }
+
   // Unregisters nsMenuX from the nsMenuGroupOwner, and nulls out the group
   // owner pointer. This is needed because nsMenuX is reference-counted and can
   // outlive its owner, and the menu group owner asserts that everything has
@@ -70,7 +72,7 @@ class nsMenuItemX final : public nsChangeObserver,
   // nsMenuItemX
   nsresult SetChecked(bool aIsChecked);
   EMenuItemType GetMenuItemType();
-  void DoCommand(NSEventModifierFlags aModifierFlags);
+  void DoCommand(NSEventModifierFlags aModifierFlags, int16_t aButton);
   nsresult DispatchDOMEvent(const nsString& eventName,
                             bool* preventDefaultCalled);
   void SetupIcon();
@@ -96,6 +98,7 @@ class nsMenuItemX final : public nsChangeObserver,
   RefPtr<mozilla::dom::Element> mCommandElement;
   mozilla::UniquePtr<nsMenuItemIconX> mIcon;  // always non-null
   bool mIsChecked = false;
+  bool mIsVisible = false;
 };
 
 #endif  // nsMenuItemX_h_

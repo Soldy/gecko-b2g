@@ -55,7 +55,6 @@
 #include <stdio.h>
 #include <wayland-egl.h>
 
-#include "gfxPlatformGtk.h"
 #include "nsGtkUtils.h"
 #include "nsWaylandDisplay.h"
 
@@ -166,6 +165,7 @@ void moz_container_wayland_init(MozContainerWayland* container) {
   container->subsurface = nullptr;
   container->eglwindow = nullptr;
   container->frame_callback_handler = nullptr;
+  container->viewport = nullptr;
   container->ready_to_draw = false;
   container->opaque_region_needs_updates = false;
   container->opaque_region_subtract_corners = false;
@@ -174,6 +174,7 @@ void moz_container_wayland_init(MozContainerWayland* container) {
   container->subsurface_dx = 0;
   container->subsurface_dy = 0;
   container->before_first_size_alloc = true;
+  container->buffer_scale = 1;
   container->initial_draw_cbs.clear();
   container->container_lock = new mozilla::Mutex("MozContainer lock");
 }
@@ -182,6 +183,7 @@ static void moz_container_wayland_destroy(GtkWidget* widget) {
   MozContainerWayland* container = &MOZ_CONTAINER(widget)->wl_container;
   delete container->container_lock;
   container->container_lock = nullptr;
+  container->initial_draw_cbs.clear();
 }
 
 void moz_container_wayland_add_initial_draw_callback(
@@ -276,10 +278,12 @@ static void moz_container_wayland_unmap_internal(MozContainer* container) {
   g_clear_pointer(&wl_container->eglwindow, wl_egl_window_destroy);
   g_clear_pointer(&wl_container->subsurface, wl_subsurface_destroy);
   g_clear_pointer(&wl_container->surface, wl_surface_destroy);
+  g_clear_pointer(&wl_container->viewport, wp_viewport_destroy);
   g_clear_pointer(&wl_container->frame_callback_handler, wl_callback_destroy);
 
   wl_container->surface_needs_clear = true;
   wl_container->ready_to_draw = false;
+  wl_container->buffer_scale = 1;
 
   LOGWAYLAND(("%s [%p]\n", __FUNCTION__, (void*)container));
 }
@@ -422,11 +426,30 @@ static void moz_container_wayland_set_opaque_region(MozContainer* container) {
 
 static void moz_container_wayland_set_scale_factor_locked(
     MozContainer* container) {
+  MozContainerWayland* wl_container = &container->wl_container;
   nsWindow* window = moz_container_get_nsWindow(container);
-  int scale = window ? window->GdkScaleFactor() : 1;
 
-  LOGWAYLAND(("%s [%p] scale %d\n", __FUNCTION__, (void*)container, scale));
-  wl_surface_set_buffer_scale(container->wl_container.surface, scale);
+  if (window && window->UseFractionalScale()) {
+    if (!wl_container->viewport) {
+      wl_container->viewport = wp_viewporter_get_viewport(
+          WaylandDisplayGet()->GetViewporter(), wl_container->surface);
+    }
+
+    GdkWindow* gdkWindow = gtk_widget_get_window(GTK_WIDGET(container));
+    wp_viewport_set_destination(wl_container->viewport,
+                                gdk_window_get_width(gdkWindow),
+                                gdk_window_get_height(gdkWindow));
+  } else {
+    int scale = window ? window->GdkCeiledScaleFactor() : 1;
+
+    if (scale == wl_container->buffer_scale) {
+      return;
+    }
+
+    LOGWAYLAND(("%s [%p] scale %d\n", __FUNCTION__, (void*)container, scale));
+    wl_surface_set_buffer_scale(wl_container->surface, scale);
+    wl_container->buffer_scale = scale;
+  }
 }
 
 void moz_container_wayland_set_scale_factor(MozContainer* container) {
@@ -534,7 +557,7 @@ void moz_container_wayland_surface_unlock(MozContainer* container,
 }
 
 struct wl_egl_window* moz_container_wayland_get_egl_window(
-    MozContainer* container, int scale) {
+    MozContainer* container, double scale) {
   MozContainerWayland* wl_container = &container->wl_container;
 
   LOGWAYLAND(("%s [%p] eglwindow %p\n", __FUNCTION__, (void*)container,
@@ -547,8 +570,8 @@ struct wl_egl_window* moz_container_wayland_get_egl_window(
   if (!wl_container->eglwindow) {
     GdkWindow* window = gtk_widget_get_window(GTK_WIDGET(container));
     wl_container->eglwindow = wl_egl_window_create(
-        wl_container->surface, gdk_window_get_width(window) * scale,
-        gdk_window_get_height(window) * scale);
+        wl_container->surface, (int)round(gdk_window_get_width(window) * scale),
+        (int)round(gdk_window_get_height(window) * scale));
 
     LOGWAYLAND(("%s [%p] created eglwindow %p\n", __FUNCTION__,
                 (void*)container, (void*)wl_container->eglwindow));
@@ -557,7 +580,7 @@ struct wl_egl_window* moz_container_wayland_get_egl_window(
 }
 
 gboolean moz_container_wayland_has_egl_window(MozContainer* container) {
-  return container->wl_container.eglwindow ? true : false;
+  return container->wl_container.eglwindow != nullptr;
 }
 
 gboolean moz_container_wayland_surface_needs_clear(MozContainer* container) {

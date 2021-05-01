@@ -291,7 +291,7 @@ class CraneliftContext {
  public:
   explicit CraneliftContext(const ModuleEnvironment& moduleEnv)
       : moduleEnv_(moduleEnv), compiler_(nullptr) {
-    staticEnv_.ref_types_enabled = moduleEnv.refTypesEnabled();
+    staticEnv_.ref_types_enabled = true;
     staticEnv_.threads_enabled = true;
     staticEnv_.v128_enabled = moduleEnv.v128Enabled();
 #ifdef WASM_SUPPORTS_HUGE_MEMORY
@@ -656,6 +656,8 @@ static_assert(offsetof(wasm::FuncImportTls, tls) == sizeof(void*),
 bool global_isConstant(const GlobalDesc* global) {
   return global->isConstant();
 }
+
+bool global_isMutable(const GlobalDesc* global) { return global->isMutable(); }
 
 bool global_isIndirect(const GlobalDesc* global) {
   return global->isIndirect();

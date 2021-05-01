@@ -9,12 +9,8 @@
 
 #include "nsCOMPtr.h"
 #include "LocalAccessible.h"
-#include "ia2Accessible.h"
-#include "ia2AccessibleComponent.h"
-#include "ia2AccessibleHyperlink.h"
-#include "ia2AccessibleValue.h"
+#include "MsaaAccessible.h"
 #include "mozilla/a11y/AccessibleHandler.h"
-#include "mozilla/a11y/MsaaIdGenerator.h"
 #include "mozilla/a11y/RemoteAccessible.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/mscom/Utils.h"
@@ -33,11 +29,7 @@ namespace mozilla {
 namespace a11y {
 class DocRemoteAccessibleWrap;
 
-class AccessibleWrap : public LocalAccessible,
-                       public ia2Accessible,
-                       public ia2AccessibleComponent,
-                       public ia2AccessibleHyperlink,
-                       public ia2AccessibleValue {
+class AccessibleWrap : public LocalAccessible, public MsaaAccessible {
  public:  // construction, destruction
   AccessibleWrap(nsIContent* aContent, DocAccessible* aDoc);
 
@@ -160,11 +152,6 @@ class AccessibleWrap : public LocalAccessible,
   virtual void Shutdown() override;
 
   // Helper methods
-  static int32_t GetChildIDFor(LocalAccessible* aAccessible);
-  static HWND GetHWNDFor(LocalAccessible* aAccessible);
-
-  static void FireWinEvent(LocalAccessible* aTarget, uint32_t aEventType);
-
   /**
    * System caret support: update the Windows caret position.
    * The system caret works more universally than the MSAA caret
@@ -176,20 +163,6 @@ class AccessibleWrap : public LocalAccessible,
   static void UpdateSystemCaretFor(RemoteAccessible* aProxy,
                                    const LayoutDeviceIntRect& aCaretRect);
 
-  /**
-   * Associate a COM object with this LocalAccessible so it will be disconnected
-   * from remote clients when this LocalAccessible shuts down.
-   * This should only be called with separate COM objects with a different
-   * IUnknown to this AccessibleWrap; e.g. IAccessibleRelation.
-   */
-  void AssociateCOMObjectForDisconnection(IUnknown* aObject) {
-    // We only need to track these for content processes because COM garbage
-    // collection is disabled there.
-    if (XRE_IsContentProcess()) {
-      mAssociatedCOMObjectsForDisconnection.AppendElement(aObject);
-    }
-  }
-
  private:
   static void UpdateSystemCaretFor(HWND aCaretWnd,
                                    const LayoutDeviceIntRect& aCaretRect);
@@ -200,22 +173,9 @@ class AccessibleWrap : public LocalAccessible,
    */
   bool IsRootForHWND();
 
-  /**
-   * Find an accessible by the given child ID in cached documents.
-   */
-  [[nodiscard]] already_AddRefed<IAccessible> GetIAccessibleFor(
-      const VARIANT& aVarChild, bool* aIsDefunct);
-
   virtual void GetNativeInterface(void** aOutAccessible) override;
 
   static IDispatch* NativeAccessible(LocalAccessible* aAccessible);
-
-  uint32_t GetExistingID() const { return mID; }
-  static const uint32_t kNoID = 0;
-  void SetID(uint32_t aID);
-
-  static uint32_t GetContentProcessIdFor(dom::ContentParentId aIPCContentId);
-  static void ReleaseContentProcessIdFor(dom::ContentParentId aIPCContentId);
 
   static void SetHandlerControl(DWORD aPid, RefPtr<IHandlerControl> aCtrl);
 
@@ -224,22 +184,8 @@ class AccessibleWrap : public LocalAccessible,
   bool DispatchTextChangeToHandler(bool aIsInsert, const nsString& aText,
                                    int32_t aStart, uint32_t aLen);
 
-  static void AssignChildIDTo(NotNull<sdnAccessible*> aSdnAcc);
-  static void ReleaseChildID(NotNull<sdnAccessible*> aSdnAcc);
-
  protected:
-  virtual ~AccessibleWrap();
-
-  uint32_t mID;
-
-  HRESULT
-  ResolveChild(const VARIANT& aVarChild, IAccessible** aOutInterface);
-
-  /**
-   * Find a remote accessible by the given child ID.
-   */
-  [[nodiscard]] already_AddRefed<IAccessible> GetRemoteIAccessibleFor(
-      const VARIANT& aVarChild);
+  virtual ~AccessibleWrap() = default;
 
   /**
    * Return the wrapper for the document's proxy.
@@ -252,8 +198,6 @@ class AccessibleWrap : public LocalAccessible,
   static ITypeInfo* GetTI(LCID lcid);
 
   static ITypeInfo* gTypeInfo;
-
-  static MsaaIdGenerator sIDGen;
 
   enum navRelations {
     NAVRELATION_CONTROLLED_BY = 0x1000,
@@ -306,8 +250,6 @@ class AccessibleWrap : public LocalAccessible,
   };
 
   static StaticAutoPtr<nsTArray<HandlerControllerData>> sHandlerControllers;
-
-  nsTArray<RefPtr<IUnknown>> mAssociatedCOMObjectsForDisconnection;
 };
 
 static inline AccessibleWrap* WrapperFor(const RemoteAccessible* aProxy) {
@@ -316,14 +258,5 @@ static inline AccessibleWrap* WrapperFor(const RemoteAccessible* aProxy) {
 
 }  // namespace a11y
 }  // namespace mozilla
-
-#ifdef XP_WIN
-// Undo the windows.h damage
-#  undef GetMessage
-#  undef CreateEvent
-#  undef GetClassName
-#  undef GetBinaryType
-#  undef RemoveDirectory
-#endif
 
 #endif

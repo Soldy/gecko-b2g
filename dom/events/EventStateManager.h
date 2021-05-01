@@ -245,8 +245,8 @@ class EventStateManager : public nsSupportsWeakReference, public nsIObserver {
                                     nsPresContext* aPresContext);
 
   nsresult SetCursor(StyleCursorKind aCursor, imgIContainer* aContainer,
-                     const Maybe<gfx::IntPoint>& aHotspot, nsIWidget* aWidget,
-                     bool aLockCursor);
+                     float aResolution, const Maybe<gfx::IntPoint>& aHotspot,
+                     nsIWidget* aWidget, bool aLockCursor);
 
   /**
    * Checks if the current mouse over element matches the given
@@ -825,6 +825,9 @@ class EventStateManager : public nsSupportsWeakReference, public nsIObserver {
     COMPUTE_SCROLLABLE_ANCESTOR_ALONG_Y_AXIS_WITH_AUTO_DIR =
         (COMPUTE_SCROLLABLE_ANCESTOR_ALONG_Y_AXIS |
          MAY_BE_ADJUSTED_BY_AUTO_DIR),
+    COMPUTE_SCROLLABLE_TARGET_ALONG_X_Y_AXIS =
+        (PREFER_ACTUAL_SCROLLABLE_TARGET_ALONG_X_AXIS |
+         PREFER_ACTUAL_SCROLLABLE_TARGET_ALONG_Y_AXIS),
   };
   static ComputeScrollTargetOptions RemovePluginFromTarget(
       ComputeScrollTargetOptions aOptions) {

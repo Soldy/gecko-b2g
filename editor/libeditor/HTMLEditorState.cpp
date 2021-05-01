@@ -38,6 +38,9 @@
 
 namespace mozilla {
 
+using EditorType = EditorUtils::EditorType;
+using WalkTreeOption = HTMLEditUtils::WalkTreeOption;
+
 /*****************************************************************************
  * ListElementSelectionState
  ****************************************************************************/
@@ -245,7 +248,9 @@ AlignStateAtSelection::AlignStateAtSelection(HTMLEditor& aHTMLEditor,
   else if (atStartOfSelection.IsContainerHTMLElement(nsGkAtoms::html) &&
            atBodyOrDocumentElement.IsSet() &&
            atStartOfSelection.Offset() == atBodyOrDocumentElement.Offset()) {
-    editTargetContent = aHTMLEditor.GetNextEditableNode(atStartOfSelection);
+    editTargetContent = HTMLEditUtils::GetNextContent(
+        atStartOfSelection, {WalkTreeOption::IgnoreNonEditableNode},
+        aHTMLEditor.GetActiveEditingHost());
     if (NS_WARN_IF(!editTargetContent)) {
       aRv.Throw(NS_ERROR_FAILURE);
       return;

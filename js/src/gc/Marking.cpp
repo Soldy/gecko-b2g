@@ -1277,13 +1277,6 @@ void Shape::traceChildren(JSTracer* trc) {
   if (parent) {
     TraceEdge(trc, &parent, "parent");
   }
-  if (dictNext.isObject()) {
-    JSObject* obj = dictNext.toObject();
-    TraceManuallyBarrieredEdge(trc, &obj, "dictNext object");
-    if (obj != dictNext.toObject()) {
-      dictNext.setObject(obj);
-    }
-  }
   cache_.trace(trc);
 }
 inline void js::GCMarker::eagerlyMarkChildren(Shape* shape) {
@@ -1297,13 +1290,6 @@ inline void js::GCMarker::eagerlyMarkChildren(Shape* shape) {
     }
 
     markAndTraverseEdge(shape, shape->propidRef().get());
-
-    // Normally only the last shape in a dictionary list can have a pointer to
-    // an object here, but it's possible that we can see this if we trace
-    // barriers while removing a shape from a dictionary list.
-    if (shape->dictNext.isObject()) {
-      markAndTraverseEdge(shape, shape->dictNext.toObject());
-    }
 
     // Special case: if a shape has a shape table then all its pointers
     // must point to this shape or an anscestor.  Since these pointers will
@@ -1439,6 +1425,7 @@ void RuntimeScopeData<SlotInfo>::trace(JSTracer* trc) {
   TraceBindingNames(trc, GetScopeDataTrailingNamesPointer(this), length);
 }
 template void RuntimeScopeData<LexicalScope::SlotInfo>::trace(JSTracer* trc);
+template void RuntimeScopeData<ClassBodyScope::SlotInfo>::trace(JSTracer* trc);
 template void RuntimeScopeData<VarScope::SlotInfo>::trace(JSTracer* trc);
 template void RuntimeScopeData<GlobalScope::SlotInfo>::trace(JSTracer* trc);
 template void RuntimeScopeData<EvalScope::SlotInfo>::trace(JSTracer* trc);
@@ -1492,9 +1479,14 @@ inline void js::GCMarker::eagerlyMarkChildren(Scope* scope) {
       case ScopeKind::Catch:
       case ScopeKind::NamedLambda:
       case ScopeKind::StrictNamedLambda:
-      case ScopeKind::FunctionLexical:
-      case ScopeKind::ClassBody: {
+      case ScopeKind::FunctionLexical: {
         LexicalScope::RuntimeData& data = scope->as<LexicalScope>().data();
+        names = GetScopeDataTrailingNames(&data);
+        break;
+      }
+
+      case ScopeKind::ClassBody: {
+        ClassBodyScope::RuntimeData& data = scope->as<ClassBodyScope>().data();
         names = GetScopeDataTrailingNames(&data);
         break;
       }
@@ -3201,7 +3193,7 @@ JSObject* js::TenuringTracer::moveToTenuredSlow(JSObject* src) {
     if (tarray->hasInlineElements()) {
       AllocKind srcKind = GetGCObjectKind(TypedArrayObject::FIXED_DATA_START);
       size_t headerSize = Arena::thingSize(srcKind);
-      srcSize = headerSize + tarray->byteLength().get();
+      srcSize = headerSize + tarray->byteLength();
     }
   }
 
@@ -4166,7 +4158,6 @@ void BarrierTracer::performBarrier(JS::GCCellPtr cell) {
   MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime()));
   MOZ_ASSERT(!runtime()->gc.isBackgroundMarking());
   MOZ_ASSERT(!cell.asCell()->isForwarded());
-  MOZ_ASSERT(!cell.asCell()->hasTempHeaderData());
 
   // Mark the cell here to prevent us recording it again.
   if (!cell.asCell()->asTenured().markIfUnmarked()) {
@@ -4223,7 +4214,7 @@ void GCMarker::traceBarrieredCell(JS::GCCellPtr cell) {
     MOZ_ASSERT(thing->isMarkedBlack());
 
     if constexpr (std::is_same_v<decltype(thing), JSString*>) {
-      if (thing->isBeingFlattened()) {
+      if (thing->isRope() && thing->asRope().isBeingFlattened()) {
         // This string is an interior node of a rope that is currently being
         // flattened. The flattening process invokes the barrier on all nodes in
         // the tree, so interior nodes need not be traversed.

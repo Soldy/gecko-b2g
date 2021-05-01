@@ -233,7 +233,11 @@ static bool CheckOffloadAllowlist(const MediaMIMEType& aMimeType) {
 }
 
 static bool CanOffloadMedia(nsIURI* aURI, const MediaMIMEType& aMimeType,
-                            bool aIsVideo) {
+                            bool aIsVideo, bool aIsTransportSeekable) {
+  if (!aIsTransportSeekable) {
+    return false;
+  }
+
   if (!CheckOffloadAllowlist(aMimeType)) {
     return false;
   }
@@ -273,7 +277,8 @@ MediaDecoderStateMachineProxy* ChannelMediaDecoder::CreateStateMachine() {
 
   // Offload path uses MediaOffloadPlayer.
   if (CanOffloadMedia(uri, ContainerType().Type(),
-                      /* aIsVideo = */ GetVideoFrameContainer())) {
+                      /* aIsVideo = */ GetVideoFrameContainer(),
+                      mResource->IsTransportSeekable())) {
     RefPtr<MediaOffloadPlayer> player = MediaOffloadPlayer::Create(init, uri);
     mReader = new MediaFormatReaderProxy(player);
     return new MediaDecoderStateMachineProxy(player);

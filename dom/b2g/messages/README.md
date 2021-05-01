@@ -53,57 +53,57 @@ First, we need to specify the registration info of service worker in manifest, t
 ```
 The `options` object is optional, as defined in [ServiceWorkerContainer.register()#Syntax](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerContainer/register#Syntax), for example:
 
+`script_url` refers to the URL of service worker script, relative to the root directory of your site, and by default, the `scope` value for a service worker registration is set to the directory where the service worker script is located. So in the following example, service worker will loaded as `site_root_directory/your_service_worker_script.js`, and will control pages underneath it.
+
 ```javascript
 "serviceworker": {
-  "script_url": "sw.js"
+  "script_url": "your_service_worker_script.js"
 },
 ```
 
-In the most case the above example is good enough.
-
 Second, subscribe the names of system messages in manifest.
 
+For example:
 ```javascript
 "messages": [
   "alarm",
   "sms-received"
 ],
 ```
-Since now that system messages are dispatched to service worker, the field of `target page` ("/index.html" in the above example) in gecko48 does not affect the receiving of system messages.
 
-### Subscribe system messages from service worker
+### Subscribe system messages manually in scripts
 
 Apps can use `SystemMessageManager.subscribe()` to subscribe system messages on an active service worker. `systemMessageManager` is a property of `ServiceWorkerRegistration`, which returns a reference to the `SystemMessageManager` interface.
 
-##### Use from main scripts
+##### Subscribe from window script
 ```javascript
-navigator.serviceWorker.register("sw.js").then(registration => {
-  registration.systemMessageManager.subscribe("alarm").then(
-    rv => {
-      console.log('Successfully subscribe system messages of name "alarm".');
+navigator.serviceWorker.register('your_service_worker_script.js').then(registration => {
+  registration.systemMessageManager.subscribe('name_of_systemmessage').then(
+    () => {
+      console.log(`Subscribe system message success!`);
     },
     error => {
-      console.log("Fail to subscribe system message, error: " + error);
+      console.log(`Subscribe system message failed: ${error}`);
     }
   );
 });
 ```
 
-##### Use from service worker script
+##### Subscribe from service worker script
 ```javascript
-self.registration.systemMessageManager.subscribe("alarm").then(
-  rv => {
-    console.log('Successfully subscribe system messages of name "alarm".');
+self.registration.systemMessageManager.subscribe('name_of_systemmessage').then(
+  () => {
+    console.log(`Subscribe system message success!`);
   },
   error => {
-    console.log("Fail to subscribe system message, error: " + error);
+    console.log(`Subscribe system message failed: ${error}`);
   }
 );
 ```
 
 ### Receive system messages
 
-System messages are delivered to the `ServiceWorkerGlobalScope.onsystemmessage` event handler, in the format of `SystemMessageEvent`.
+System messages are delivered as `SystemMessageEvent`, which is an ExtendableEvent and will be dispatched to `ServiceWorkerGlobalScope`.
 
 <dl>
 <b>SystemMessageEvent</b>
@@ -116,22 +116,20 @@ System messages are delivered to the `ServiceWorkerGlobalScope.onsystemmessage` 
 <dl>
 <b>SystemMessageData</b>
     <dt>json()</dt>
-    <dd>Extracts the message data as a JSON object, not available for <em>activity</em> messages.</dd>
+    <dd>Might throw, extracts the message data as a JSON object, not available for <em>activity</em> messages.</dd>
     <dt>WebActivityRequestHandler()</dt>
-    <dd>Only available for <em>activity</em> messages, details stated in <code>WebActivity API</code>.</dd>
+    <dd>Might throw, only available for <em>activity</em> messages, details stated in <code>WebActivity API</code>.</dd>
 </dl>
 
 ```javascript
-self.onsystemmessage = evt => {
-  console.log("Receive systemmessage event with name: " + evt.name);
-  console.log(" message data: " + evt.data);
-  console.log("  data detail:");
+self.addEventListener('systemmessage', (event) => {
+  console.log(`Receive systemmessage event with system message of name: ${event.name}`);
   try {
-    console.log(evt.data.json());
-  } catch (err) {
-    console.log(err);
+    console.log(` with data detail: ${event.data.json()}`);
+  } catch (error) {
+    console.log(`${error}`);
   }
-};
+});
 ```
 
 ## For gecko developers

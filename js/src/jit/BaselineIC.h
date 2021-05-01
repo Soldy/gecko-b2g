@@ -395,10 +395,7 @@ class ICFallbackStub : public ICStub {
 
   inline size_t numOptimizedStubs() const { return state_.numOptimizedStubs(); }
 
-  bool newStubIsFirstStub() const {
-    return (state_.mode() == ICState::Mode::Specialized &&
-            numOptimizedStubs() == 0);
-  }
+  bool newStubIsFirstStub() const { return state_.newStubIsFirstStub(); }
 
   ICState& state() { return state_; }
 
@@ -758,16 +755,8 @@ class ICNewArray_Fallback : public ICFallbackStub {
 class ICNewObject_Fallback : public ICFallbackStub {
   friend class ICStubSpace;
 
-  GCPtrObject templateObject_;
-
   explicit ICNewObject_Fallback(TrampolinePtr stubCode)
-      : ICFallbackStub(ICStub::NewObject_Fallback, stubCode),
-        templateObject_(nullptr) {}
-
- public:
-  GCPtrObject& templateObject() { return templateObject_; }
-
-  void setTemplateObject(JSObject* obj) { templateObject_ = obj; }
+      : ICFallbackStub(ICStub::NewObject_Fallback, stubCode) {}
 };
 
 struct IonOsrTempData;

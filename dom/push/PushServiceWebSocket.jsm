@@ -1690,14 +1690,7 @@ var PushServiceWebSocket = {
       use_webpush: true,
     };
 
-    if (records.length && this._UAID) {
-      // Only send our UAID if we have existing push subscriptions, to
-      // avoid tying a persistent identifier to the connection (bug
-      // 1617136). The push server will issue our client a new UAID in
-      // the `hello` response, which we'll store until either the next
-      // time we reconnect, or the user subscribes to push. Once we have a
-      // push subscription, we'll stop rotating the UAID when we connect,
-      // so that we can receive push messages for them.
+    if (this._UAID) {
       data.uaid = this._UAID;
     }
 
@@ -1747,6 +1740,7 @@ var PushServiceWebSocket = {
     // connection attempt and ping interval counters.
     if (this._currentState == STATE_READY) {
       this._retryFailCount = 0;
+      this._pingIntervalRetryTimes = {};
     }
 
     let doNotHandle = false;

@@ -7,34 +7,65 @@
 
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "pipeline"'
     - if: '$CI_MERGE_REQUEST_PROJECT_PATH == "KaiOS/gecko-dev"'
     - when: never
 
-include: '.gitlab/ci/bases.yml'
+include:
+  - '.gitlab/ci/bases.yml'
+  - '.gitlab/ci/lint.yml'
+
+default:
+  image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.49.0_5_2
+  tags:
+    - hk-fantastic4
 
 variables:
+  # set GIT_DEPTH=1 to fetch current branch only
   GIT_DEPTH: 1
   # GIT_CLONE_PATH would be overidden with "koost" if pipeline gets triggered from within koost
   # also, in order for sccache, perisitent path is preferred
   GIT_CLONE_PATH: ${CI_BUILDS_DIR}/kaios/gecko
+  # since we can always get nearly the whole git history from mirror,
+  # it's ok to `fetch` the incoming MR instead of re-cloning the repo.
+  GIT_STRATEGY: fetch
+  # we don't need to checkout the whole working tree since we'd like to
+  # lint the modified files only.
+  GIT_CHECKOUT: 'false'
 
-lint:
-  extends: .lint_base
-  stage: .pre
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "pipeline" || $CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
-      when: never
-    - when: on_success
+stages:
+  - lint
+  - build
+
+Check if rebased and validate commit messages:
+  extends: .precautions_base
+
+lint:eslint:
+  extends: .lint_eslint
+  stage: lint
+
+lint:common:
+  extends: .lint_common
+  stage: lint
+
+lint:cpp:
+  extends: .lint_cpp
+  stage: lint
+
+lint:python:
+  extends: .lint_python
+  stage: lint
+
+lint:rs:
+  extends: .lint_rs
+  stage: lint
+
+lint:yml:
+  extends: .lint_yml
+  stage: lint
 
 build:arm:
   extends: .build_arm
   stage: build
-  artifacts:
-    expire_in: 2 week
-    paths:
-      - "objdir-arm-gecko/dist/b2g-*"
-      - "push-b2g.sh"
 
 build:desktop:
   extends: .build_desktop
@@ -44,10 +75,6 @@ build:desktop:
       when: never
     - when: delayed
       start_in: 10 seconds
-  artifacts:
-    expire_in: 1 week
-    paths:
-      - "objdir-desktop-gecko/dist/b2g-*"
 
 build:emulator:
   extends: .build_emulator

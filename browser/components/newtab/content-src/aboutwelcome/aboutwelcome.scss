@@ -8,6 +8,7 @@ $break-point-medium: 610px;
 $break-point-large: 866px;
 $break-point-widest: 1122px;
 $logo-size: 112px;
+$proton-break-point-smallest: 690px;
 
 html {
   height: 100%;
@@ -375,52 +376,54 @@ body {
     from { opacity: 0; }
   }
 
-  button {
-    font-family: inherit;
-    cursor: pointer;
-    border: 0;
-    border-radius: 4px;
+  &:not(.proton) {
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: 0;
+      border-radius: 4px;
 
-    &.primary {
-      font-size: 16px;
-      margin-inline-start: 12px;
-      margin: 20px 0 0;
-      padding: 12px 20px;
-      white-space: nowrap;
-      background-color: var(--newtab-button-primary-color);
-      color: var(--welcome-button-text-color);
-      fill: currentColor;
-      position: relative;
-      z-index: 1;
-      // This transparent border will show up in Windows High Contrast Mode to improve accessibility.
-      border: 1px solid transparent;
+      &.primary {
+        font-size: 16px;
+        margin-inline-start: 12px;
+        margin: 20px 0 0;
+        padding: 12px 20px;
+        white-space: nowrap;
+        background-color: var(--newtab-button-primary-color);
+        color: var(--welcome-button-text-color);
+        fill: currentColor;
+        position: relative;
+        z-index: 1;
+        // This transparent border will show up in Windows High Contrast Mode to improve accessibility.
+        border: 1px solid transparent;
 
-      &:focus {
-        background: var(--welcome-button-background-hover-color);
-        box-shadow: 0 0 0 4px var(--welcome-button-box-shadow-color);
+        &:focus {
+          background: var(--welcome-button-background-hover-color);
+          box-shadow: 0 0 0 4px var(--welcome-button-box-shadow-color);
+        }
+
+        &:hover {
+          background: var(--welcome-button-background-hover-color);
+        }
+
+        &:active {
+          background: var(--welcome-button-background-active-color);
+        }
       }
 
-      &:hover {
-        background: var(--welcome-button-background-hover-color);
-      }
-
-      &:active {
-        background: var(--welcome-button-background-active-color);
-      }
-    }
-
-    &.secondary {
-      background-color: initial;
-      text-decoration: underline;
-      display: block;
-      padding: 0;
-      width: auto;
-      color: var(--newtab-button-secondary-color);
-      margin-top: 14px;
-
-      &:hover,
-      &:active {
+      &.secondary {
         background-color: initial;
+        text-decoration: underline;
+        display: block;
+        padding: 0;
+        width: auto;
+        color: var(--newtab-button-secondary-color);
+        margin-top: 14px;
+
+        &:hover,
+        &:active {
+          background-color: initial;
+        }
       }
     }
   }
@@ -511,31 +514,51 @@ body {
 
   // Styles specific to Proton multistage welcome UI
   &.proton {
-    background: url('chrome://activity-stream/content/data/content/assets/proton-bkg.avif') center / cover no-repeat fixed;
+    background: radial-gradient(79.33% 221.6% at 7.58% 89.55%, #15141A 0%, rgba(21, 20, 26, 0) 54.36%, rgba(21, 20, 26, 0.63) 100%) center / cover no-repeat fixed;
+    background-color: #212121;
+
+    &:dir(rtl) {
+      transform: rotateY(180deg);
+    }
 
     .screen {
+      position: relative;
       flex-flow: row nowrap;
+      height: 100%;
+      min-height: 500px;
+      overflow: hidden;
+
+      &:dir(rtl) {
+        transform: rotateY(180deg);
+      }
     }
 
     .section-main {
-      background-color: var(--newtab-card-background-color);
-      border-radius: 20px;
       display: flex;
       flex-direction: column;
       justify-content: center;
     }
 
+    .main-content {
+      background-color: var(--in-content-page-background);
+      border-radius: 20px;
+      height: 100%;
+      padding: 0;
+      z-index: 1;
+    }
+
     .welcome-text {
       h1,
       h2 {
+        color: var(--in-content-page-color);
         width: 376px;
       }
 
       h1 {
-        color: var(--newtab-text-primary-color);
         font-size: 24px;
         line-height: 36px;
-        font-weight: normal;
+        font-weight: 600;
+        letter-spacing: -0.02em;
       }
 
       h2 {
@@ -550,22 +573,41 @@ body {
       padding: 80px 0 10px;
     }
 
-    .primary,
-    .secondary {
+    .primary {
       font-size: 13px;
       line-height: 16px;
+      padding: 11px 15px;
+    }
+
+    .secondary {
+      background: none;
+      color: var(--in-content-link-color) !important; // sass-lint:disable-line no-important
+      font-size: 14px;
+      font-weight: normal;
+      line-height: 20px;
+    }
+
+    .secondary-cta.top {
+      position: absolute;
+      top: 10px;
+      inset-inline-end: 47px;
+      z-index: 2;
+
+      button {
+        color: #FFF !important; // sass-lint:disable-line no-important
+      }
     }
 
     .steps {
-      padding-bottom: 44px;
+      padding-bottom: 0;
 
       .indicator {
         width: 6px;
         height: 6px;
-        background: #E0E0E6;
+        background: var(--checkbox-border-color);
 
         &.current {
-          background: #0090ED;
+          background: var(--checkbox-checked-bgcolor);
         }
       }
     }
@@ -573,15 +615,19 @@ body {
     .tiles-theme-section {
       border: var(--tiles-theme-section-border-width)
       solid
-      var(--newtab-card-background-color);
+      var(--in-content-page-background);
+
+      &:focus-within {
+        border: var(--tiles-theme-section-border-width) dotted;
+      }
     }
 
     .theme {
       align-items: center;
       width: auto;
-      min-width: 80px;
+      min-width: 50px;
       height: initial;
-      background-color: var(--newtab-card-background-color);
+      background-color: inherit;
       box-shadow: none;
 
       &:focus,
@@ -591,6 +637,7 @@ body {
       }
 
       .text {
+        color: var(--in-content-page-color);
         font-weight: normal;
         line-height: 20px;
       }
@@ -600,66 +647,78 @@ body {
         height: 40px;
         border-radius: 40px;
         margin-inline-start: 12px;
-
-        &.selected {
-          outline: 4px solid #0090ED;
-          outline-offset: -4px;
-        }
+        outline: 1px solid var(--in-content-border-color);
+        outline-offset: -0.5px;
 
         &:focus,
-        &:active {
-          outline: 4px solid #0090ED;
-          outline-offset: -4px;
+        &:active,
+        &.selected {
+          outline: 2px solid var(--in-content-primary-button-background);
         }
 
         &.light {
-          background-image: none;
-          background-color: #F0F0F4;
-          border: 1px solid #BFBFC9;
+          background-image: url('resource://builtin-themes/light/icon.svg');
         }
 
         &.dark {
-          background-image: none;
-          background-color: #15141A;
-          border: 1px solid #8F8F9D;
+          background-image: url('resource://builtin-themes/dark/icon.svg');
         }
 
         &.alpenglow {
-          background-image: none;
-          background: linear-gradient(51.22deg, #9059FF 8.75%, #FF4AA2 56.28%, #FFBD4F 100.01%);
+          background-image: url('resource://builtin-themes/alpenglow/icon.svg');
         }
 
         &.automatic {
-          background-image: none;
-          background-color: rgba(21, 20, 26, 0.4);
-          border: 1px solid #BFBFC9;
+          background-image: url('resource://default-theme/icon.svg');
         }
       }
     }
 
+    .noodle {
+      display: block;
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      position: absolute;
+    }
+
+    .outline-L {
+      background-image: url('chrome://activity-stream/content/data/content/assets/noodle-outline-L.svg');
+    }
+
+    .solid-L {
+      background-image: url('chrome://activity-stream/content/data/content/assets/noodle-solid-L.svg');
+      -moz-context-properties: fill;
+      fill: var(--in-content-page-background);
+    }
+
+    .purple-C {
+      background-image: url('chrome://activity-stream/content/data/content/assets/noodle-C.svg');
+    }
+
+    .yellow-circle {
+      width: 10px;
+      height: 10px;
+      background: #FFD567;
+      border-radius: 50%;
+    }
+
+    .orange-L {
+      background-image: url('chrome://activity-stream/content/data/content/assets/noodle-solid-L.svg');
+      -moz-context-properties: fill;
+      fill: #FFA437;
+    }
 
     .screen-0 {
-      /**
-       * Proton welcome content is above white background noodle on first screen even when
-       * using the RTL UI direction; below rule enforce that ordering.
-       */
-      direction: ltr;
-      @media (max-width: $break-point-large) {
-        width: 800px;
-      }
-
-      @media (max-width: $break-point-medium) {
-        width: 700px;
-      }
+      min-width: 700px;
 
       .section-left {
         width: 50%;
         display: flex;
         flex-direction: column;
-        margin: 0 0 0 101px;
+        margin-inline-start: 101px;
 
         @media (max-width: $break-point-widest) {
-          margin: 0 0 0 71px;
+          margin-inline-start: 71px;
         }
 
         .message-text {
@@ -671,8 +730,8 @@ body {
           h1 {
             color: #FFF;
             font-weight: bold;
-            font-size: 64px;
-            line-height: 72px;
+            font-size: 104px;
+            line-height: 92px;
             margin: 0 6px;
             width: 517px;
             text-align: initial;
@@ -699,24 +758,35 @@ body {
 
         .attrib-text {
           height: 18px;
-          width: 517px;
           margin-bottom: 25px;
-          text-align: left;
+          text-align: initial;
           font-size: 12px;
           line-height: 18px;
           color: #F9F9FB;
           text-shadow: 0 0 7px rgba(0, 0, 0, 0.6);
+
+          @media (max-width: 900px) {
+            width: 200px;
+          }
+
+          @media (max-width: 750px) {
+            width: 200px;
+            margin-inline-start: -50px;
+          }
         }
       }
 
-      // TBD: Update below section to show up above solid
-      // background noodle
       .section-main {
         z-index: 1;
-        height: 350px;
-        position: sticky;
-        top: 60%;
-        left: 80%;
+        width: 50%;
+
+        .main-content {
+          background: transparent;
+          position: absolute;
+          height: 350px;
+          bottom: -60px;
+          inset-inline-end: 80px;
+        }
 
         .brand-logo {
           margin-top: 0;
@@ -730,12 +800,69 @@ body {
           }
         }
       }
+
+      // Position of noodles on first screen
+      .outline-L {
+        width: 87px;
+        height: 80px;
+        bottom: 94px;
+        inset-inline-end: 430px;
+
+        &:dir(rtl) {
+          transform: rotate(240deg);
+        }
+
+        @media (max-width: $proton-break-point-smallest) {
+          visibility: hidden;
+        }
+      }
+
+      .solid-L {
+        width: 1300px;
+        height: 1050px;
+        bottom: -390px;
+        inset-inline-end: -640px;
+        transform: rotate(-80deg);
+
+        &:dir(rtl) {
+          transform: rotate(-260deg);
+        }
+      }
+
+      .orange-L {
+        width: 466px;
+        height: 356px;
+        bottom: 270px;
+        inset-inline-end: -245px;
+
+        &:dir(rtl) {
+          bottom: 208px;
+          inset-inline-end: -100px;
+          transform: rotate(-245deg);
+        }
+      }
+
+      .purple-C {
+        width: 467px;
+        height: 382px;
+        bottom: -100px;
+        inset-inline-end: 125px;
+        transform: rotate(-75deg);
+
+        &:dir(rtl) {
+          transform: rotate(-207deg);
+        }
+      }
+
+      .yellow-circle {
+        bottom: 75px;
+        inset-inline-end: 540px;
+      }
     }
 
-    .screen-1,
-    .screen-2 {
-
+    .screen-1 {
       .section-main {
+        z-index: 1;
         width: 504px;
         height: 503px;
         margin: auto;
@@ -748,6 +875,136 @@ body {
         @media (max-width: $break-point-medium) {
           width: 420px;
           height: auto;
+        }
+      }
+
+      //Position of noodles on second screen
+      .outline-L {
+        width: 87px;
+        height: 80px;
+        transform: rotate(10deg) translate(-30%, 200%);
+        z-index: 2;
+
+        &:dir(rtl) {
+          transform: rotate(232deg) translate(-160%, -145%);
+        }
+      }
+
+      .orange-L {
+        width: 448px;
+        height: 568px;
+        transform: rotate(-155deg) translate(12%, -21%);
+
+        &:dir(rtl) {
+          transform: rotate(-180deg) translate(-10%, -12%);
+        }
+      }
+
+      .purple-C {
+        width: 294px;
+        height: 254px;
+        transform: translate(-20%, -62%);
+
+        &:dir(rtl) {
+          transform: rotate(50deg) translate(-25%, -50%);
+        }
+      }
+
+      .yellow-circle {
+        width: 165px;
+        height: 165px;
+        transform: translate(230%, -5%);
+        background: #FF7139;
+
+        &:dir(rtl) {
+          transform: translate(-225%, -5%);
+        }
+
+        @media (max-width: $break-point-large) {
+          transform: translate(205%, -5%);
+
+          &:dir(rtl) {
+            transform: translate(-200%, -5%);
+          }
+        }
+
+        @media (max-width: $break-point-medium) {
+          transform: translate(185%, -5%);
+        }
+      }
+    }
+
+    .screen-2 {
+      .section-main {
+        z-index: 1;
+        width: 504px;
+        height: 503px;
+        margin: auto;
+
+        @media (max-width: $break-point-large) {
+          width: 450px;
+          height: auto;
+        }
+
+        @media (max-width: $break-point-medium) {
+          width: 420px;
+          height: auto;
+        }
+      }
+
+      // Position of noodles on third screen
+      .outline-L {
+        width: 87px;
+        height: 80px;
+        transform: rotate(250deg) translate(-420%, 425%);
+        z-index: 2;
+
+        &:dir(rtl) {
+          transform: rotate(10deg) translate(-475%, 300%);
+        }
+
+        @media (max-width: $break-point-large) {
+          transform: rotate(250deg) translate(-400%, 280%);
+
+          &:dir(rtl) {
+            transform: rotate(10deg) translate(-390%, 340%);
+          }
+        }
+      }
+
+      .orange-L {
+        height: 800px;
+        width: 660px;
+        transform: rotate(35deg) translate(-10%, -7%);
+
+        &:dir(rtl) {
+          transform: rotate(215deg) translate(-10%, -7%);
+        }
+
+        @media (max-width: $break-point-large) {
+          height: 740px;
+          width: 600px;
+        }
+      }
+
+      .purple-C {
+        width: 392px;
+        height: 394px;
+        transform: rotate(260deg) translate(-34%, -35%);
+
+        &:dir(rtl) {
+          transform: rotate(50deg) translate(-20%, -40%);
+        }
+      }
+
+      .yellow-circle {
+        width: 165px;
+        height: 165px;
+        transform: translate(160%, 130%);
+        background: #FF7139;
+
+        &:dir(rtl) {
+          transform: translate(-190%, -130%);
         }
       }
     }

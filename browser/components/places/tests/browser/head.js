@@ -13,33 +13,6 @@ XPCOMUtils.defineLazyGetter(this, "gFluentStrings", function() {
   return new Localization(["branding/brand.ftl", "browser/browser.ftl"], true);
 });
 
-if (AppConstants.TSAN) {
-  // A test in this folder used to rely on the initial timer of
-  // TestUtils.waitForCondition. Removing these timers makes
-  // browser_bookmarkProperties_folderSelection.js and a few of the
-  // following tests fail frequently on tsan builds.
-  // See bug 1695011.
-  const originalWaitForCondition = TestUtils.waitForCondition;
-  TestUtils.waitForCondition = async function(
-    condition,
-    msg,
-    interval = 100,
-    maxTries = 50
-  ) {
-    // Using the window global setTimeout will fail for modal dialogs.
-    const { setTimeout } = ChromeUtils.import(
-      "resource://gre/modules/Timer.jsm"
-    );
-    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    return originalWaitForCondition(condition, msg, interval, maxTries);
-  };
-  registerCleanupFunction(function() {
-    TestUtils.waitForCondition = originalWaitForCondition;
-  });
-}
-
 function openLibrary(callback, aLeftPaneRoot) {
   let library = window.openDialog(
     "chrome://browser/content/places/places.xhtml",
@@ -81,6 +54,10 @@ function promiseLibrary(aLeftPaneRoot) {
 
 function promiseLibraryClosed(organizer) {
   return new Promise(resolve => {
+    if (organizer.closed) {
+      resolve();
+      return;
+    }
     // Wait for the Organizer window to actually be closed
     organizer.addEventListener(
       "unload",
@@ -237,33 +214,43 @@ var withBookmarksDialog = async function(
   skipOverlayWait = false
 ) {
   let closed = false;
-  let dialogPromise = new Promise(resolve => {
-    Services.ww.registerNotification(function winObserver(
-      subject,
-      topic,
-      data
-    ) {
-      if (topic == "domwindowopened") {
-        let win = subject;
-        win.addEventListener(
-          "load",
-          function() {
-            ok(
-              win.location.href.startsWith(dialogUrl),
-              "The bookmark properties dialog is open: " + win.location.href
-            );
-            // This is needed for the overlay.
-            waitForFocus(() => {
-              resolve(win);
-            }, win);
-          },
-          { once: true }
-        );
-      } else if (topic == "domwindowclosed") {
-        Services.ww.unregisterNotification(winObserver);
-        closed = true;
-      }
+  let protonModal =
+    Services.prefs.getBoolPref("browser.proton.modals.enabled", false) &&
+    // We can't show the in-window prompt for windows which don't have
+    // gDialogBox, like the library (Places:Organizer) window.
+    Services.wm.getMostRecentWindow("").gDialogBox;
+  let dialogPromise;
+  if (protonModal) {
+    dialogPromise = BrowserTestUtils.promiseAlertDialogOpen(null, dialogUrl, {
+      isSubDialog: true,
     });
+  } else {
+    dialogPromise = BrowserTestUtils.domWindowOpenedAndLoaded(null, win => {
+      return win.document.documentURI.startsWith(dialogUrl);
+    }).then(win => {
+      ok(
+        win.location.href.startsWith(dialogUrl),
+        "The bookmark properties dialog is open: " + win.location.href
+      );
+      // This is needed for the overlay.
+      return SimpleTest.promiseFocus(win).then(() => win);
+    });
+  }
+  let dialogClosePromise = dialogPromise.then(win => {
+    if (!protonModal) {
+      return BrowserTestUtils.domWindowClosed(win);
+    }
+    let container = win.top.document.getElementById("window-modal-dialog");
+    return BrowserTestUtils.waitForEvent(container, "close").then(() => {
+      return BrowserTestUtils.waitForMutationCondition(
+        container,
+        { childList: true, attributes: true },
+        () => !container.hasChildNodes() && !container.open
+      );
+    });
+  });
+  dialogClosePromise.then(() => {
+    closed = true;
   });
 
   info("withBookmarksDialog: opening the dialog");
@@ -311,10 +298,7 @@ var withBookmarksDialog = async function(
       await closePromise;
     }
     // Give the dialog a little time to close itself.
-    await BrowserTestUtils.waitForCondition(
-      () => closed,
-      "The dialog should be closed!"
-    );
+    await dialogClosePromise;
   }
 };
 

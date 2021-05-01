@@ -207,6 +207,10 @@ const GPU_TAG_CACHE_FAST_LINEAR_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "C_FastLinearGradient",
     color: debug_colors::BROWN,
 };
+const GPU_TAG_CACHE_LINEAR_GRADIENT: GpuProfileTag = GpuProfileTag {
+    label: "C_LinearGradient",
+    color: debug_colors::BROWN,
+};
 const GPU_TAG_CACHE_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "C_RadialGradient",
     color: debug_colors::BROWN,
@@ -760,6 +764,7 @@ pub struct Renderer {
     enable_clear_scissor: bool,
     enable_advanced_blend_barriers: bool,
     clear_caches_with_quads: bool,
+    clear_alpha_targets_with_quads: bool,
 
     debug: debug::LazyInitializedDebugRenderer,
     debug_flags: DebugFlags,
@@ -1108,6 +1113,8 @@ impl Renderer {
 
         let backend_notifier = notifier.clone();
 
+        let clear_alpha_targets_with_quads = !device.get_capabilities().supports_alpha_target_clears;
+
         let prefer_subpixel_aa = options.force_subpixel_aa || (options.enable_subpixel_aa && use_dual_source_blending);
         let default_font_render_mode = match (options.enable_aa, prefer_subpixel_aa) {
             (true, true) => FontRenderMode::Subpixel,
@@ -1147,6 +1154,7 @@ impl Renderer {
             max_depth_ids: device.max_depth_ids(),
             max_target_size: max_internal_texture_size,
             force_invalidation: false,
+            is_software,
         };
         info!("WR {:?}", config);
 
@@ -1324,6 +1332,7 @@ impl Renderer {
             enable_clear_scissor: options.enable_clear_scissor,
             enable_advanced_blend_barriers: !ext_blend_equation_advanced_coherent,
             clear_caches_with_quads: options.clear_caches_with_quads,
+            clear_alpha_targets_with_quads,
             last_time: 0,
             gpu_profiler,
             vaos,
@@ -1407,8 +1416,8 @@ impl Renderer {
         self.device.preferred_color_formats().external
     }
 
-    pub fn optimal_texture_stride_alignment(&self, format: ImageFormat) -> usize {
-        self.device.optimal_pbo_stride().num_bytes(format).get()
+    pub fn required_texture_stride_alignment(&self, format: ImageFormat) -> usize {
+        self.device.required_pbo_stride().num_bytes(format).get()
     }
 
     pub fn set_clear_color(&mut self, color: Option<ColorF>) {
@@ -1997,7 +2006,6 @@ impl Renderer {
                     offset: surface_info.origin,
                     external_fbo_id: surface_info.fbo_id,
                     dimensions: surface_size,
-                    surface_origin_is_top_left: self.device.surface_origin_is_top_left(),
                 };
                 self.device.bind_draw_target(draw_target);
 
@@ -2184,16 +2192,17 @@ impl Renderer {
         let _gm = self.gpu_profiler.start_marker("end frame");
         self.gpu_profiler.end_frame();
 
-        if let Some(device_size) = device_size {
+        let debug_overlay = device_size.and_then(|device_size| {
             // Bind a surface to draw the debug / profiler information to.
-            if let Some(draw_target) = self.bind_debug_overlay(device_size) {
+            self.bind_debug_overlay(device_size).map(|draw_target| {
                 self.draw_render_target_debug(&draw_target);
                 self.draw_texture_cache_debug(&draw_target);
                 self.draw_gpu_cache_debug(device_size);
                 self.draw_zoom_debug(device_size);
                 self.draw_epoch_debug();
-            }
-        }
+                draw_target
+            })
+        });
 
         self.profile.end_time(profiler::RENDERER_TIME);
         self.profile.end_time_if_started(profiler::TOTAL_FRAME_CPU_TIME);
@@ -2269,9 +2278,11 @@ impl Renderer {
                 CompositorKind::Native { .. } => true,
                 CompositorKind::Draw { .. } => self.device.surface_origin_is_top_left(),
             };
+            // If there is a debug overlay, render it. Otherwise, just clear
+            // the debug renderer.
             debug_renderer.render(
                 &mut self.device,
-                device_size,
+                debug_overlay.and(device_size),
                 scale,
                 surface_origin_is_top_left,
             );
@@ -2281,7 +2292,7 @@ impl Renderer {
         self.texture_upload_pbo_pool.end_frame(&mut self.device);
         self.device.end_frame();
 
-        if device_size.is_some() {
+        if debug_overlay.is_some() {
             self.last_time = current_time;
 
             // Unbind the target for the debug overlay. No debug or profiler drawing
@@ -3133,7 +3144,6 @@ impl Renderer {
                 offset: surface_info.origin,
                 external_fbo_id: surface_info.fbo_id,
                 dimensions: surface_size,
-                surface_origin_is_top_left: self.device.surface_origin_is_top_left(),
             };
             self.device.bind_draw_target(draw_target);
 
@@ -3741,6 +3751,7 @@ impl Renderer {
     fn draw_clip_batch_list(
         &mut self,
         list: &ClipBatchList,
+        draw_target: &DrawTarget,
         projection: &default::Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
@@ -3795,8 +3806,27 @@ impl Renderer {
         }
 
         // draw image masks
-        for (mask_texture_id, items) in list.images.iter() {
+        let mut using_scissor = false;
+        for ((mask_texture_id, clip_rect), items) in list.images.iter() {
             let _gm2 = self.gpu_profiler.start_marker("clip images");
+            // Some image masks may require scissoring to ensure they don't draw
+            // outside their task's target bounds. Axis-aligned primitives will
+            // be clamped inside the shader and should not require scissoring.
+            // TODO: We currently assume scissor state is off by default for
+            // alpha targets here, but in the future we may want to track the
+            // current scissor state so that this can be properly saved and
+            // restored here.
+            if let Some(clip_rect) = clip_rect {
+                if !using_scissor {
+                    self.device.enable_scissor();
+                    using_scissor = true;
+                }
+                let scissor_rect = draw_target.build_scissor_rect(Some(*clip_rect));
+                self.device.set_scissor_rect(scissor_rect);
+            } else if using_scissor {
+                self.device.disable_scissor();
+                using_scissor = false;
+            }
             let textures = BatchTextures::composite_rgb(*mask_texture_id);
             self.shaders.borrow_mut().cs_clip_image
                 .bind(&mut self.device, projection, None, &mut self.renderer_errors);
@@ -3806,6 +3836,9 @@ impl Renderer {
                 &textures,
                 stats,
             );
+        }
+        if using_scissor {
+            self.device.disable_scissor();
         }
     }
 
@@ -3830,30 +3863,77 @@ impl Renderer {
             self.device.disable_depth_write();
             self.set_blend(false, FramebufferKind::Other);
 
-            // TODO(gw): Applying a scissor rect and minimal clear here
-            // is a very large performance win on the Intel and nVidia
-            // GPUs that I have tested with. It's possible it may be a
-            // performance penalty on other GPU types - we should test this
-            // and consider different code paths.
-
             let zero_color = [0.0, 0.0, 0.0, 0.0];
-            for &task_id in &target.zero_clears {
-                let rect = render_tasks[task_id].get_target_rect();
-                self.device.clear_target(
-                    Some(zero_color),
-                    None,
-                    Some(draw_target.to_framebuffer_rect(rect)),
-                );
-            }
-
             let one_color = [1.0, 1.0, 1.0, 1.0];
-            for &task_id in &target.one_clears {
-                let rect = render_tasks[task_id].get_target_rect();
-                self.device.clear_target(
-                    Some(one_color),
+
+            // On some Mali-T devices we have observed crashes in subsequent draw calls
+            // immediately after clearing the alpha render target regions with glClear().
+            // Using the shader to clear the regions avoids the crash. See bug 1638593.
+            if self.clear_alpha_targets_with_quads
+                && !(target.zero_clears.is_empty() && target.one_clears.is_empty())
+            {
+                let zeroes = target.zero_clears
+                    .iter()
+                    .map(|task_id| {
+                        let rect = render_tasks[*task_id].get_target_rect().to_f32();
+                        ClearInstance {
+                            rect: [
+                                rect.origin.x, rect.origin.y,
+                                rect.size.width, rect.size.height,
+                            ],
+                            color: zero_color,
+                        }
+                    });
+
+                let ones = target.one_clears
+                    .iter()
+                    .map(|task_id| {
+                        let rect = render_tasks[*task_id].get_target_rect().to_f32();
+                        ClearInstance {
+                            rect: [
+                                rect.origin.x, rect.origin.y,
+                                rect.size.width, rect.size.height,
+                            ],
+                            color: one_color,
+                        }
+                    });
+
+                let instances = zeroes.chain(ones).collect::<Vec<_>>();
+                self.shaders.borrow_mut().ps_clear.bind(
+                    &mut self.device,
+                    &projection,
                     None,
-                    Some(draw_target.to_framebuffer_rect(rect)),
+                    &mut self.renderer_errors,
                 );
+                self.draw_instanced_batch(
+                    &instances,
+                    VertexArrayKind::Clear,
+                    &BatchTextures::empty(),
+                    stats,
+                );
+            } else {
+                // TODO(gw): Applying a scissor rect and minimal clear here
+                // is a very large performance win on the Intel and nVidia
+                // GPUs that I have tested with. It's possible it may be a
+                // performance penalty on other GPU types - we should test this
+                // and consider different code paths.
+                for &task_id in &target.zero_clears {
+                    let rect = render_tasks[task_id].get_target_rect();
+                    self.device.clear_target(
+                        Some(zero_color),
+                        None,
+                        Some(draw_target.to_framebuffer_rect(rect)),
+                    );
+                }
+
+                for &task_id in &target.one_clears {
+                    let rect = render_tasks[task_id].get_target_rect();
+                    self.device.clear_target(
+                        Some(one_color),
+                        None,
+                        Some(draw_target.to_framebuffer_rect(rect)),
+                    );
+                }
             }
         }
 
@@ -3903,6 +3983,7 @@ impl Renderer {
             self.set_blend(false, FramebufferKind::Other);
             self.draw_clip_batch_list(
                 &target.clip_batcher.primary_clips,
+                &draw_target,
                 projection,
                 stats,
             );
@@ -3913,6 +3994,7 @@ impl Renderer {
             self.set_blend_mode_multiply(FramebufferKind::Other);
             self.draw_clip_batch_list(
                 &target.clip_batcher.secondary_clips,
+                &draw_target,
                 projection,
                 stats,
             );
@@ -4070,7 +4152,7 @@ impl Renderer {
             self.set_blend(false, FramebufferKind::Other);
         }
 
-        // Draw any gradients for this target.
+        // Draw any fast path linear gradients for this target.
         if !target.fast_linear_gradients.is_empty() {
             let _timer = self.gpu_profiler.start_timer(GPU_TAG_CACHE_FAST_LINEAR_GRADIENT);
 
@@ -4086,6 +4168,31 @@ impl Renderer {
             self.draw_instanced_batch(
                 &target.fast_linear_gradients,
                 VertexArrayKind::FastLinearGradient,
+                &BatchTextures::empty(),
+                stats,
+            );
+        }
+
+        // Draw any linear gradients for this target.
+        if !target.linear_gradients.is_empty() {
+            let _timer = self.gpu_profiler.start_timer(GPU_TAG_CACHE_LINEAR_GRADIENT);
+
+            self.set_blend(false, FramebufferKind::Other);
+
+            self.shaders.borrow_mut().cs_linear_gradient.bind(
+                &mut self.device,
+                &projection,
+                None,
+                &mut self.renderer_errors,
+            );
+
+            if let Some(ref texture) = self.dither_matrix_texture {
+                self.device.bind_texture(TextureSampler::Dither, texture, Swizzle::default());
+            }
+
+            self.draw_instanced_batch(
+                &target.linear_gradients,
+                VertexArrayKind::LinearGradient,
                 &BatchTextures::empty(),
                 stats,
             );
@@ -4573,20 +4680,6 @@ impl Renderer {
                                 offset: surface_info.origin,
                                 external_fbo_id: surface_info.fbo_id,
                                 dimensions: size,
-                                surface_origin_is_top_left: self.device.surface_origin_is_top_left(),
-                            }
-                        }
-                    };
-
-                    let (bottom, top) = match picture_target.surface {
-                        ResolvedSurfaceTexture::TextureCache { .. } => {
-                            (0.0, draw_target.dimensions().height as f32)
-                        }
-                        ResolvedSurfaceTexture::Native { .. } => {
-                            if self.device.surface_origin_is_top_left() {
-                              (0.0, draw_target.dimensions().height as f32)
-                            } else {
-                              (draw_target.dimensions().height as f32, 0.0)
                             }
                         }
                     };
@@ -4594,8 +4687,8 @@ impl Renderer {
                     let projection = Transform3D::ortho(
                         0.0,
                         draw_target.dimensions().width as f32,
-                        bottom,
-                        top,
+                        0.0,
+                        draw_target.dimensions().height as f32,
                         self.device.ortho_near_plane(),
                         self.device.ortho_far_plane(),
                     );
@@ -5590,6 +5683,7 @@ fn new_debug_server(_enable: bool, api_tx: Sender<ApiMsg>) -> Box<dyn DebugServe
 /// The cumulative times spent in each painting phase to generate this frame.
 #[derive(Debug, Default)]
 pub struct FullFrameStats {
+    pub full_display_list: bool,
     pub gecko_display_list_time: f64,
     pub wr_display_list_time: f64,
     pub scene_build_time: f64,
@@ -5599,6 +5693,7 @@ pub struct FullFrameStats {
 impl FullFrameStats {
     pub fn merge(&self, other: &FullFrameStats) -> Self {
         Self {
+            full_display_list: self.full_display_list || other.full_display_list,
             gecko_display_list_time: self.gecko_display_list_time + other.gecko_display_list_time,
             wr_display_list_time: self.wr_display_list_time + other.wr_display_list_time,
             scene_build_time: self.scene_build_time + other.scene_build_time,
@@ -5627,7 +5722,8 @@ pub struct RendererStats {
     pub wr_display_list_time: f64,
     pub scene_build_time: f64,
     pub frame_build_time: f64,
-    pub full_frame: bool,
+    pub full_display_list: bool,
+    pub full_paint: bool,
 }
 
 impl RendererStats {
@@ -5636,7 +5732,8 @@ impl RendererStats {
         self.wr_display_list_time = stats.wr_display_list_time;
         self.scene_build_time = stats.scene_build_time;
         self.frame_build_time = stats.frame_build_time;
-        self.full_frame = true;
+        self.full_display_list = stats.full_display_list;
+        self.full_paint = true;
     }
 }
 

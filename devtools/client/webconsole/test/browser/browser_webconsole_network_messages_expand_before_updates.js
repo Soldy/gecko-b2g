@@ -13,6 +13,10 @@ requestLongerTimeout(4);
 pushPref("devtools.webconsole.filter.net", false);
 pushPref("devtools.webconsole.filter.netxhr", true);
 
+// Update waitFor default interval (10ms) to avoid test timeouts.
+// The test often times out on waitFor statements use a 50ms interval instead.
+waitFor.overrideIntervalForTestFile = 50;
+
 const tabs = [
   {
     id: "headers",

@@ -23,6 +23,7 @@ function ActivityProxy() {
   Services.cpmm.addMessageListener("Activity:FireSuccess", this);
   Services.cpmm.addMessageListener("Activity:FireError", this);
   Services.cpmm.addMessageListener("Activity:FireCancel", this);
+  Services.obs.addObserver(this, "inner-window-destroyed");
 }
 
 ActivityProxy.prototype = {
@@ -38,6 +39,7 @@ ActivityProxy.prototype = {
       owner: owner ? owner : {},
       options,
       origin,
+      innerWindowId: owner?.windowGlobalChild.innerWindowId,
     });
 
     debug(`${id} create activity`);
@@ -96,11 +98,36 @@ ActivityProxy.prototype = {
     this.activities.delete(msg.id);
   },
 
+  observe(subject, topic, data) {
+    switch (topic) {
+      case "inner-window-destroyed":
+        let id = subject.QueryInterface(Ci.nsISupportsPRUint64).data;
+        debug(`inner-window-destroyed id=${id}`);
+
+        let keys = [];
+        this.activities.forEach((value, key, map) => {
+          if (value.innerWindowId == id) {
+            value.callback.onStart(
+              Cr.NS_ERROR_FAILURE,
+              Cu.cloneInto("ACTIVITY_CANCELED", value.owner)
+            );
+            keys.push(key);
+          }
+        });
+        keys.forEach((key, index, array) => {
+          this.activities.delete(key);
+        });
+        break;
+      default:
+        debug("Observed unexpected topic " + topic);
+    }
+  },
+
   contractID: "@mozilla.org/dom/activities/proxy;1",
 
   classID: Components.ID("{1d069f6a-bb82-4648-8bcd-b8671b4a963d}"),
 
-  QueryInterface: ChromeUtils.generateQI([Ci.nsIActivityProxy]),
+  QueryInterface: ChromeUtils.generateQI([Ci.nsIObserver, Ci.nsIActivityProxy]),
 };
 
 //module initialization

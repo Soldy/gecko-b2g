@@ -6087,8 +6087,10 @@ biz.ss
 com.ss
 edu.ss
 gov.ss
+me.ss
 net.ss
 org.ss
+sch.ss
 
 // st : http://www.nic.st/html/policyrules/
 st
@@ -6097,7 +6099,6 @@ com.st
 consulado.st
 edu.st
 embaixada.st
-gov.st
 mil.st
 net.st
 org.st
@@ -7125,7 +7126,7 @@ org.zw
 
 // newGTLDs
 
-// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2021-03-27T15:15:50Z
+// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2021-04-22T15:17:15Z
 // This list is auto-generated, don't edit it manually.
 // aaa : 2015-02-26 American Automobile Association, Inc.
 aaa
@@ -8645,9 +8646,6 @@ itau
 // itv : 2015-07-09 ITV Services Limited
 itv
 
-// iveco : 2015-09-03 CNH Industrial N.V.
-iveco
-
 // jaguar : 2014-11-13 Jaguar Land Rover Ltd
 jaguar
 
@@ -9104,9 +9102,6 @@ nab
 // nagoya : 2013-10-24 GMO Registry, Inc.
 nagoya
 
-// nationwide : 2015-07-23 Nationwide Mutual Insurance Company
-nationwide
-
 // natura : 2015-03-12 NATURA COSMÉTICOS S.A.
 natura
 
@@ -9244,9 +9239,6 @@ onl
 
 // online : 2015-01-15 DotOnline Inc.
 online
-
-// onyourside : 2015-07-23 Nationwide Mutual Insurance Company
-onyourside
 
 // ooo : 2014-01-09 INFIBEAM AVENUES LIMITED
 ooo
@@ -9832,9 +9824,6 @@ sport
 
 // spot : 2015-02-26 Amazon Registry Services, Inc.
 spot
-
-// spreadbetting : 2014-12-11 Dotspreadbetting Registry Limited
-spreadbetting
 
 // srl : 2015-05-07 InterNetX, Corp
 srl
@@ -11947,8 +11936,10 @@ gsj.bz
 
 // GitHub, Inc.
 // Submitted by Patrick Toomey <security@github.com>
-github.io
 githubusercontent.com
+github.dev
+githubpreview.dev
+github.io
 
 // GitLab, Inc.
 // Submitted by Alex Hanselka <alex@gitlab.com>
@@ -12512,6 +12503,10 @@ mayfirst.org
 // Submitted by Ilya Zaretskiy <zaretskiy@corp.mail.ru>
 hb.cldmail.ru
 
+// Mail Transfer Platform : https://www.neupeer.com
+// Submitted by Li Hui <lihui@neupeer.com>
+cn.vu
+
 // Maze Play: https://www.mazeplay.com
 // Submitted by Adam Humpherys <adam@mws.dev>
 mazeplay.com
@@ -13041,8 +13036,8 @@ pubtls.org
 
 // PythonAnywhere LLP: https://www.pythonanywhere.com
 // Submitted by Giles Thomas <giles@pythonanywhere.com>
-*.pythonanywhere.com
-*.eu.pythonanywhere.com
+pythonanywhere.com
+eu.pythonanywhere.com
 
 // QOTO, Org.
 // Submitted by Jeffrey Phillips Freeman <jeffrey.freeman@qoto.org>
@@ -13278,6 +13273,10 @@ stackhero-network.com
 static.land
 dev.static.land
 sites.static.land
+
+// Storebase : https://www.storebase.io
+// Submitted by Tony Schirmer <tony@storebase.io>
+storebase.store
 
 // Strategic System Consulting (eApps Hosting): https://www.eapps.com/
 // Submitted by Alex Oancea <aoancea@cloudscale365.com>
@@ -13613,9 +13612,10 @@ meinforum.net
 wpenginepowered.com
 js.wpenginepowered.com
 
-// www.com.vc : http://www.com.vc
-// Submitted by Li Hui <lihui@sinopub.com>
-cn.vu
+// Wix.com, Inc. : https://www.wix.com
+// Submitted by Shahar Talmi <shahart@wix.com>
+wixsite.com
+editorx.io
 
 // XenonCloud GbR: https://xenoncloud.net
 // Submitted by Julian Uphoff <publicsuffixlist@xenoncloud.net>

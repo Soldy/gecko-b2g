@@ -35,7 +35,7 @@
 #include "js/SweepingAPI.h"    // JS::WeakCache
 #include "js/TypeDecls.h"  // HandleValue, HandleObject, MutableHandleObject, MutableHandleFunction
 #include "js/Vector.h"  // JS::Vector
-#include "vm/BufferSize.h"
+#include "js/WasmFeatures.h"
 #include "vm/JSFunction.h"    // JSFunction
 #include "vm/NativeObject.h"  // NativeObject
 #include "wasm/WasmTypes.h"   // MutableHandleWasmInstanceObject, wasm::*
@@ -131,23 +131,12 @@ bool StreamingCompilationAvailable(JSContext* cx);
 // optimizing compiler tier.
 bool CodeCachingAvailable(JSContext* cx);
 
-// General reference types (externref, funcref) and operations on them.
-bool ReftypesAvailable(JSContext* cx);
-
-// Typed functions reference support.
-bool FunctionReferencesAvailable(JSContext* cx);
-
-// Experimental (ref T) types and structure types.
-bool GcTypesAvailable(JSContext* cx);
-
-// Multi-value block and function returns.
-bool MultiValuesAvailable(JSContext* cx);
-
 // Shared memory and atomics.
 bool ThreadsAvailable(JSContext* cx);
 
-// SIMD data and operations.
-bool SimdAvailable(JSContext* cx);
+#define WASM_FEATURE(NAME, ...) bool NAME##Available(JSContext* cx);
+JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#undef WASM_FEATURE
 
 // Very experimental SIMD operations.
 bool SimdWormholeAvailable(JSContext* cx);
@@ -411,12 +400,12 @@ class WasmMemoryObject : public NativeObject {
   // The current length of the memory.  In the case of shared memory, the
   // length can change at any time.  Also note that this will acquire a lock
   // for shared memory, so do not call this from a signal handler.
-  js::BufferSize volatileMemoryLength() const;
+  size_t volatileMemoryLength() const;
 
   bool isShared() const;
   bool isHuge() const;
   bool movingGrowable() const;
-  js::BufferSize boundsCheckLimit() const;
+  size_t boundsCheckLimit() const;
 
   // If isShared() is true then obtain the underlying buffer object.
   SharedArrayRawBuffer* sharedArrayRawBuffer() const;

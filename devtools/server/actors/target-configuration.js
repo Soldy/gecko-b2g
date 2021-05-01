@@ -22,6 +22,8 @@ const SUPPORTED_OPTIONS = {
   cacheDisabled: true,
   // Enable color scheme simulation.
   colorSchemeSimulation: true,
+  // Set a custom user agent
+  customUserAgent: true,
   // Enable JavaScript
   javascriptEnabled: true,
   // Force a custom device pixel ratio (used in RDM). Set to null to restore origin ratio.
@@ -30,10 +32,16 @@ const SUPPORTED_OPTIONS = {
   paintFlashing: true,
   // Enable print simulation mode.
   printSimulationEnabled: true,
+  // Override navigator.maxTouchPoints (used in RDM and doesn't apply if RDM isn't enabled)
+  rdmPaneMaxTouchPoints: true,
+  // Page orientation (used in RDM and doesn't apply if RDM isn't enabled)
+  rdmPaneOrientation: true,
   // Restore focus in the page after closing DevTools.
   restoreFocus: true,
   // Enable service worker testing over HTTP (instead of HTTPS only).
   serviceWorkersTestingEnabled: true,
+  // Enable touch events simulation
+  touchEventsOverride: true,
 };
 /* eslint-disable sort-keys */
 
@@ -45,7 +53,7 @@ const SUPPORTED_OPTIONS = {
  * flags when they are created. The flags will be forwarded to the WatcherActor
  * and stored as TARGET_CONFIGURATION data entries.
  * Some flags will be set directly set from this actor, in the parent process
- * (see _updateParentProcessConfiguration), nad others will be set from the target actor,
+ * (see _updateParentProcessConfiguration), and others will be set from the target actor,
  * in the content process.
  *
  * @constructor
@@ -80,11 +88,27 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
   },
 
   /**
+   * Returns whether or not this actor should handle the flag that should be set on the
+   * BrowsingContext in the parent process.
+   *
+   * @returns {Boolean}
+   */
+  _shouldHandleConfigurationInParentProcess() {
+    // Only handle parent process configuration if the watcherActor is tied to a
+    // browser element (i.e. we're *not* in the Browser Toolbox)
+    return this.watcherActor.browserElement;
+  },
+
+  /**
    * Event handler for attached browsing context. This will be called when
    * a new browsing context is created that we might want to handle
    * (e.g. when navigating to a page with Cross-Origin-Opener-Policy header)
    */
   _onBrowsingContextAttached(browsingContext) {
+    if (!this._shouldHandleConfigurationInParentProcess()) {
+      return;
+    }
+
     // We only want to set flags on top-level browsing context. The platform
     // will take care of propagating it to the entire browsing contexts tree.
     if (browsingContext.parent) {
@@ -100,9 +124,17 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
       return;
     }
 
+    const rdmEnabledInPreviousBrowsingContext = this._browsingContext.inRDMPane;
+
     // We need to store the browsing context as this.watcherActor.browserElement.browsingContext
     // can still refer to the previous browsing context at this point.
     this._browsingContext = browsingContext;
+
+    // If `inRDMPane` was set in the previous browsing context, set it again on the new one,
+    // otherwise some RDM-related configuration won't be applied (e.g. orientation).
+    if (rdmEnabledInPreviousBrowsingContext) {
+      this._browsingContext.inRDMPane = true;
+    }
     this._updateParentProcessConfiguration(this._getConfiguration());
   },
 
@@ -147,30 +179,42 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
    * @param {Object} configuration: See `updateConfiguration`
    */
   _updateParentProcessConfiguration(configuration) {
-    if (!this._browsingContext) {
+    if (!this._shouldHandleConfigurationInParentProcess()) {
       return;
     }
 
     for (const [key, value] of Object.entries(configuration)) {
       switch (key) {
+        case "colorSchemeSimulation":
+          this._setColorSchemeSimulation(value);
+          break;
+        case "customUserAgent":
+          this._setCustomUserAgent(value);
+          break;
+        case "overrideDPPX":
+          this._setDPPXOverride(value);
+          break;
         case "printSimulationEnabled":
           this._setPrintSimulationEnabled(value);
           break;
-        case "colorSchemeSimulation":
-          this._setColorSchemeSimulation(value);
+        case "rdmPaneMaxTouchPoints":
+          this._setRDMPaneMaxTouchPoints(value);
+          break;
+        case "rdmPaneOrientation":
+          this._setRDMPaneOrientation(value);
           break;
         case "serviceWorkersTestingEnabled":
           this._setServiceWorkersTestingEnabled(value);
           break;
-        case "overrideDPPX":
-          this._setDPPXOverride(value);
+        case "touchEventsOverride":
+          this._setTouchEventsOverride(value);
           break;
       }
     }
   },
 
   _restoreParentProcessConfiguration() {
-    if (!this._browsingContext) {
+    if (!this._shouldHandleConfigurationInParentProcess()) {
       return;
     }
 
@@ -186,10 +230,19 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
       this._setColorSchemeSimulation(null);
     }
 
+    // Restore the user agent only if it was explicitly updated by this specific actor.
+    if (this._initialUserAgent !== undefined) {
+      this._setCustomUserAgent(this._initialUserAgent);
+    }
+
     // Restore the origin device pixel ratio only if it was explicitly updated by this
     // specific actor.
     if (this._initialDPPXOverride !== undefined) {
       this._setDPPXOverride(this._initialDPPXOverride);
+    }
+
+    if (this._initialTouchEventsOverride !== undefined) {
+      this._setTouchEventsOverride(this._initialTouchEventsOverride);
     }
   },
 
@@ -223,6 +276,25 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
     }
   },
 
+  /**
+   * Set a custom user agent on the page
+   *
+   * @param {String} userAgent: The user agent to set on the page. If null, will reset the
+   *                 user agent to its original value.
+   * @returns {Boolean} Whether the user agent was changed or not.
+   */
+  _setCustomUserAgent(userAgent = "") {
+    if (this._browsingContext.customUserAgent === userAgent) {
+      return;
+    }
+
+    if (this._initialUserAgent === undefined) {
+      this._initialUserAgent = this._browsingContext.customUserAgent;
+    }
+
+    this._browsingContext.customUserAgent = userAgent;
+  },
+
   /* DPPX override */
   _setDPPXOverride(dppx) {
     if (this._browsingContext.overrideDPPX === dppx) {
@@ -238,6 +310,53 @@ const TargetConfigurationActor = ActorClassWithSpec(targetConfigurationSpec, {
     if (dppx !== undefined) {
       this._browsingContext.overrideDPPX = dppx;
     }
+  },
+
+  /**
+   * Set the touchEventsOverride on the browsing context.
+   *
+   * @param {String} flag: See BrowsingContext.webidl `TouchEventsOverride` enum for values.
+   */
+  _setTouchEventsOverride(flag) {
+    if (this._browsingContext.touchEventsOverride === flag) {
+      return;
+    }
+
+    if (!flag && this._initialTouchEventsOverride) {
+      flag = this._initialTouchEventsOverride;
+    } else if (
+      flag !== undefined &&
+      this._initialTouchEventsOverride === undefined
+    ) {
+      this._initialTouchEventsOverride = this._browsingContext.touchEventsOverride;
+    }
+
+    if (flag !== undefined) {
+      this._browsingContext.touchEventsOverride = flag;
+    }
+  },
+
+  /**
+   * Overrides navigator.maxTouchPoints.
+   * Note that we don't need to reset the original value when the actor is destroyed,
+   * as it's directly handled by the platform when RDM is closed.
+   *
+   * @param {Integer} maxTouchPoints
+   */
+  _setRDMPaneMaxTouchPoints(maxTouchPoints) {
+    this._browsingContext.setRDMPaneMaxTouchPoints(maxTouchPoints);
+  },
+
+  /**
+   * Set an orientation and an angle on the browsing context. This will be applied only
+   * if Responsive Design Mode is enabled.
+   *
+   * @param {Object} options
+   * @param {String} options.type: The orientation type of the rotated device.
+   * @param {Number} options.angle: The rotated angle of the device.
+   */
+  _setRDMPaneOrientation({ type, angle }) {
+    this._browsingContext.setRDMPaneOrientation(type, angle);
   },
 
   destroy() {

@@ -974,6 +974,10 @@ extern JS_PUBLIC_API bool JS_GetOwnPropertyDescriptorById(
     JSContext* cx, JS::HandleObject obj, JS::HandleId id,
     JS::MutableHandle<JS::PropertyDescriptor> desc);
 
+extern JS_PUBLIC_API bool JS_GetOwnPropertyDescriptorById(
+    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc);
+
 extern JS_PUBLIC_API bool JS_GetOwnPropertyDescriptor(
     JSContext* cx, JS::HandleObject obj, const char* name,
     JS::MutableHandle<JS::PropertyDescriptor> desc);
@@ -983,22 +987,27 @@ extern JS_PUBLIC_API bool JS_GetOwnUCPropertyDescriptor(
     JS::MutableHandle<JS::PropertyDescriptor> desc);
 
 /**
+ * DEPRECATED
+ *
  * Like JS_GetOwnPropertyDescriptorById, but also searches the prototype chain
  * if no own property is found directly on obj. The object on which the
- * property is found is returned in desc.object(). If the property is not found
- * on the prototype chain, this returns true with desc.object() set to null.
+ * property is found is returned in holder. If the property is not found
+ * on the prototype chain, then desc is Nothing.
  */
 extern JS_PUBLIC_API bool JS_GetPropertyDescriptorById(
     JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc,
+    JS::MutableHandleObject holder);
 
 extern JS_PUBLIC_API bool JS_GetPropertyDescriptor(
     JSContext* cx, JS::HandleObject obj, const char* name,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc,
+    JS::MutableHandleObject holder);
 
 extern JS_PUBLIC_API bool JS_GetUCPropertyDescriptor(
     JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc,
+    JS::MutableHandleObject holder);
 
 /**
  * Define a property on obj.
@@ -2243,7 +2252,7 @@ JS_PUBLIC_API size_t JS_GetStringEncodingLength(JSContext* cx, JSString* str);
  *
  * The function does not store an additional zero byte.
  */
-JS_PUBLIC_API mozilla::Maybe<mozilla::Tuple<size_t, size_t> >
+JS_PUBLIC_API mozilla::Maybe<mozilla::Tuple<size_t, size_t>>
 JS_EncodeStringToUTF8BufferPartial(JSContext* cx, JSString* str,
                                    mozilla::Span<char> buffer);
 

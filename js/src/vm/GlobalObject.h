@@ -115,6 +115,7 @@ class GlobalObject : public NativeObject {
     IMPORT_ENTRY_PROTO,
     EXPORT_ENTRY_PROTO,
     REQUESTED_MODULE_PROTO,
+    MODULE_REQUEST_PROTO,
     REGEXP_STATICS,
     RUNTIME_CODEGEN_ENABLED,
     INTRINSICS,
@@ -123,6 +124,7 @@ class GlobalObject : public NativeObject {
     GLOBAL_THIS_RESOLVED,
     INSTRUMENTATION,
     SOURCE_URLS,
+    REALM_WEAK_MAP_KEY,
 
     /* Total reserved-slot count for global objects. */
     RESERVED_SLOTS
@@ -517,6 +519,12 @@ class GlobalObject : public NativeObject {
                              initRequestedModuleProto);
   }
 
+  static JSObject* getOrCreateModuleRequestPrototype(
+      JSContext* cx, Handle<GlobalObject*> global) {
+    return getOrCreateObject(cx, global, MODULE_REQUEST_PROTO,
+                             initModuleRequestProto);
+  }
+
   static JSFunction* getOrCreateTypedArrayConstructor(
       JSContext* cx, Handle<GlobalObject*> global) {
     if (!ensureConstructor(cx, global, JSProto_TypedArray)) {
@@ -741,13 +749,13 @@ class GlobalObject : public NativeObject {
     }
 
     NativeObject* holder = &slot.toObject().as<NativeObject>();
-    Shape* shape = holder->lookupPure(name);
-    if (!shape) {
+    mozilla::Maybe<ShapeProperty> prop = holder->lookupPure(name);
+    if (prop.isNothing()) {
       *vp = UndefinedValue();
       return false;
     }
 
-    *vp = holder->getSlot(shape->slot());
+    *vp = holder->getSlot(prop->slot());
     return true;
   }
 
@@ -760,8 +768,8 @@ class GlobalObject : public NativeObject {
       return false;
     }
 
-    if (Shape* shape = holder->lookup(cx, name)) {
-      vp.set(holder->getSlot(shape->slot()));
+    if (mozilla::Maybe<ShapeProperty> prop = holder->lookup(cx, name)) {
+      vp.set(holder->getSlot(prop->slot()));
       *exists = true;
     } else {
       *exists = false;
@@ -781,11 +789,12 @@ class GlobalObject : public NativeObject {
     if (exists) {
       return true;
     }
-    if (!cx->runtime()->cloneSelfHostedValue(cx, name, value)) {
-      return false;
-    }
-    return GlobalObject::addIntrinsicValue(cx, global, name, value);
+    return getIntrinsicValueSlow(cx, global, name, value);
   }
+
+  static bool getIntrinsicValueSlow(JSContext* cx, Handle<GlobalObject*> global,
+                                    HandlePropertyName name,
+                                    MutableHandleValue value);
 
   static bool addIntrinsicValue(JSContext* cx, Handle<GlobalObject*> global,
                                 HandlePropertyName name, HandleValue value);
@@ -840,6 +849,8 @@ class GlobalObject : public NativeObject {
   static bool initExportEntryProto(JSContext* cx, Handle<GlobalObject*> global);
   static bool initRequestedModuleProto(JSContext* cx,
                                        Handle<GlobalObject*> global);
+  static bool initModuleRequestProto(JSContext* cx,
+                                     Handle<GlobalObject*> global);
 
   static bool initStandardClasses(JSContext* cx, Handle<GlobalObject*> global);
   static bool initSelfHostingBuiltins(JSContext* cx,
@@ -893,6 +904,10 @@ class GlobalObject : public NativeObject {
     // This is called at the start of shrinking GCs, so avoids barriers.
     getSlotRef(SOURCE_URLS).unbarrieredSet(UndefinedValue());
   }
+
+  // Returns a key for a weak map, used by embedder.
+  static JSObject* getOrCreateRealmWeakMapKey(JSContext* cx,
+                                              Handle<GlobalObject*> global);
 
   // A class used in place of a prototype during off-thread parsing.
   struct OffThreadPlaceholderObject : public NativeObject {

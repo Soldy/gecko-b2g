@@ -698,10 +698,11 @@ class HTMLEditor final : public TextEditor,
    *                            If ePrevious, selection will be collapsed at
    *                            the <br> element.
    * @return                    The new <br> node.  If failed to create new
-   *                            <br> node, returns nullptr.
+   *                            <br> node, returns error.
    */
-  MOZ_CAN_RUN_SCRIPT already_AddRefed<Element> InsertBRElementWithTransaction(
-      const EditorDOMPoint& aPointToInsert, EDirection aSelect = eNone);
+  MOZ_CAN_RUN_SCRIPT Result<RefPtr<Element>, nsresult>
+  InsertBRElementWithTransaction(const EditorDOMPoint& aPointToInsert,
+                                 EDirection aSelect = eNone);
 
   /**
    * DeleteNodeWithTransaction() removes aContent from the DOM tree if it's
@@ -832,35 +833,6 @@ class HTMLEditor final : public TextEditor,
    */
   MOZ_CAN_RUN_SCRIPT nsresult CollapseAdjacentTextNodes(nsRange& aRange);
 
-  /**
-   * IsInVisibleTextFrames() returns true if all text in aText is in visible
-   * text frames.  Callers have to guarantee that there is no pending reflow.
-   */
-  bool IsInVisibleTextFrames(dom::Text& aText) const;
-
-  /**
-   * IsVisibleTextNode() returns true if aText has visible text.  If it has
-   * only white-spaces and they are collapsed, returns false.
-   */
-  bool IsVisibleTextNode(Text& aText) const;
-
-  /**
-   * IsEmptyNode() figures out if aNode is an empty node.  A block can have
-   * children and still be considered empty, if the children are empty or
-   * non-editable.
-   */
-  bool IsEmptyNode(nsINode& aNode, bool aSingleBRDoesntCount = false,
-                   bool aListOrCellNotEmpty = false,
-                   bool aSafeToAskFrames = false) const {
-    bool seenBR = false;
-    return IsEmptyNodeImpl(aNode, aSingleBRDoesntCount, aListOrCellNotEmpty,
-                           aSafeToAskFrames, &seenBR);
-  }
-
-  bool IsEmptyNodeImpl(nsINode& aNode, bool aSingleBRDoesntCount,
-                       bool aListOrCellNotEmpty, bool aSafeToAskFrames,
-                       bool* aSeenBR) const;
-
   static bool HasAttributes(Element* aElement) {
     MOZ_ASSERT(aElement);
     uint32_t attrCount = aElement->GetAttrCount();
@@ -972,144 +944,6 @@ class HTMLEditor final : public TextEditor,
     return aSkipWS == SkipWhiteSpace::Yes && aNode->IsText() &&
            aNode->AsText()->TextIsOnlyWhitespace();
   }
-
-  /**
-   * GetPreviousHTMLElementOrText*() methods are similar to
-   * EditorBase::GetPreviousElementOrText*() but this won't return nodes
-   * outside active editing host.
-   */
-  nsIContent* GetPreviousHTMLElementOrText(const nsINode& aNode) const {
-    return GetPreviousHTMLElementOrTextInternal(aNode, false);
-  }
-  nsIContent* GetPreviousHTMLElementOrTextInBlock(const nsINode& aNode) const {
-    return GetPreviousHTMLElementOrTextInternal(aNode, true);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousHTMLElementOrText(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetPreviousHTMLElementOrTextInternal(aPoint, false);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousHTMLElementOrTextInBlock(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetPreviousHTMLElementOrTextInternal(aPoint, true);
-  }
-
-  /**
-   * GetPreviousHTMLElementOrTextInternal() methods are common implementation
-   * of above methods.  Please don't use this method directly.
-   */
-  nsIContent* GetPreviousHTMLElementOrTextInternal(const nsINode& aNode,
-                                                   bool aNoBlockCrossing) const;
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousHTMLElementOrTextInternal(
-      const EditorDOMPointBase<PT, CT>& aPoint, bool aNoBlockCrossing) const;
-
-  /**
-   * GetPreviousEditableHTMLNode*() methods are similar to
-   * EditorBase::GetPreviousEditableNode() but this won't return nodes outside
-   * active editing host.
-   */
-  nsIContent* GetPreviousEditableHTMLNode(nsINode& aNode) const {
-    return GetPreviousEditableHTMLNodeInternal(aNode, false);
-  }
-  nsIContent* GetPreviousEditableHTMLNodeInBlock(nsINode& aNode) const {
-    return GetPreviousEditableHTMLNodeInternal(aNode, true);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousEditableHTMLNode(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetPreviousEditableHTMLNodeInternal(aPoint, false);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousEditableHTMLNodeInBlock(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetPreviousEditableHTMLNodeInternal(aPoint, true);
-  }
-
-  /**
-   * GetPreviousEditableHTMLNodeInternal() methods are common implementation
-   * of above methods.  Please don't use this method directly.
-   */
-  nsIContent* GetPreviousEditableHTMLNodeInternal(nsINode& aNode,
-                                                  bool aNoBlockCrossing) const;
-  template <typename PT, typename CT>
-  nsIContent* GetPreviousEditableHTMLNodeInternal(
-      const EditorDOMPointBase<PT, CT>& aPoint, bool aNoBlockCrossing) const;
-
-  /**
-   * GetNextHTMLElementOrText*() methods are similar to
-   * EditorBase::GetNextElementOrText*() but this won't return nodes outside
-   * active editing host.
-   *
-   * Note that same as EditorBase::GetTextEditableNode(), methods which take
-   * |const EditorRawDOMPoint&| start to search from the node pointed by it.
-   * On the other hand, methods which take |nsINode&| start to search from
-   * next node of aNode.
-   */
-  nsIContent* GetNextHTMLElementOrText(const nsINode& aNode) const {
-    return GetNextHTMLElementOrTextInternal(aNode, false);
-  }
-  nsIContent* GetNextHTMLElementOrTextInBlock(const nsINode& aNode) const {
-    return GetNextHTMLElementOrTextInternal(aNode, true);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetNextHTMLElementOrText(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetNextHTMLElementOrTextInternal(aPoint, false);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetNextHTMLElementOrTextInBlock(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetNextHTMLElementOrTextInternal(aPoint, true);
-  }
-
-  /**
-   * GetNextHTMLNodeInternal() methods are common implementation
-   * of above methods.  Please don't use this method directly.
-   */
-  nsIContent* GetNextHTMLElementOrTextInternal(const nsINode& aNode,
-                                               bool aNoBlockCrossing) const;
-  template <typename PT, typename CT>
-  nsIContent* GetNextHTMLElementOrTextInternal(
-      const EditorDOMPointBase<PT, CT>& aPoint, bool aNoBlockCrossing) const;
-
-  /**
-   * GetNextEditableHTMLNode*() methods are similar to
-   * EditorBase::GetNextEditableNode() but this won't return nodes outside
-   * active editing host.
-   *
-   * Note that same as EditorBase::GetTextEditableNode(), methods which take
-   * |const EditorRawDOMPoint&| start to search from the node pointed by it.
-   * On the other hand, methods which take |nsINode&| start to search from
-   * next node of aNode.
-   */
-  nsIContent* GetNextEditableHTMLNode(nsINode& aNode) const {
-    return GetNextEditableHTMLNodeInternal(aNode, false);
-  }
-  nsIContent* GetNextEditableHTMLNodeInBlock(nsINode& aNode) const {
-    return GetNextEditableHTMLNodeInternal(aNode, true);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetNextEditableHTMLNode(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetNextEditableHTMLNodeInternal(aPoint, false);
-  }
-  template <typename PT, typename CT>
-  nsIContent* GetNextEditableHTMLNodeInBlock(
-      const EditorDOMPointBase<PT, CT>& aPoint) const {
-    return GetNextEditableHTMLNodeInternal(aPoint, true);
-  }
-
-  /**
-   * GetNextEditableHTMLNodeInternal() methods are common implementation
-   * of above methods.  Please don't use this method directly.
-   */
-  nsIContent* GetNextEditableHTMLNodeInternal(nsINode& aNode,
-                                              bool aNoBlockCrossing) const;
-  template <typename PT, typename CT>
-  nsIContent* GetNextEditableHTMLNodeInternal(
-      const EditorDOMPointBase<PT, CT>& aPoint, bool aNoBlockCrossing) const;
 
   bool IsFirstEditableChild(nsINode* aNode) const;
   bool IsLastEditableChild(nsINode* aNode) const;
@@ -3650,10 +3484,10 @@ class HTMLEditor final : public TextEditor,
    *
    * @param aPointToInsert      Candidate point to insert new <br> element.
    * @return                    Computed point to insert new <br> element.
-   *                            If something failed, this is unset.
+   *                            If something failed, this return error.
    */
-  MOZ_CAN_RUN_SCRIPT EditorDOMPoint
-  PrepareToInsertBRElement(const EditorDOMPoint& aPointToInsert);
+  MOZ_CAN_RUN_SCRIPT Result<EditorDOMPoint, nsresult> PrepareToInsertBRElement(
+      const EditorDOMPoint& aPointToInsert);
 
   /**
    * IndentAsSubAction() indents the content around Selection.
@@ -4584,14 +4418,6 @@ class HTMLEditor final : public TextEditor,
    * during moving.
    */
   MOZ_CAN_RUN_SCRIPT nsresult RefreshInlineTableEditingUIInternal();
-
-  /**
-   * IsEmptyTextNode() returns true if aNode is a text node and does not have
-   * any visible characters.
-   */
-  bool IsEmptyTextNode(nsINode& aNode) const {
-    return aNode.IsText() && IsEmptyNode(aNode);
-  }
 
   /**
    * ElementIsGoodContainerForTheStyle() returns true if aElement is a

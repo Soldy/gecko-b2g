@@ -6,37 +6,29 @@
 
 const EXPORTED_SYMBOLS = ["AlarmDB"];
 
-const { Log } = ChromeUtils.import("resource://gre/modules/Log.jsm");
-const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
-
-if (Services.prefs.getBoolPref("dom.alarm.debug", false)) {
-  let logger = Log.repository.getLogger("AlarmDB");
-  logger.addAppender(new Log.ConsoleAppender(new Log.BasicFormatter()));
-  logger.level = Log.Level.Debug;
-  this.debug = function debug(aStr) {
-    logger.debug(aStr);
-  };
-} else {
-  this.debug = function debug(aStr) {};
-}
-
 const { IndexedDBHelper } = ChromeUtils.import(
   "resource://gre/modules/IndexedDBHelper.jsm"
 );
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 const ALARMDB_NAME = "alarms";
 const ALARMDB_VERSION = 1;
 const ALARMSTORE_NAME = "alarms";
 
+const DEBUG = Services.prefs.getBoolPref("dom.alarm.debug", false);
+function debug(aMsg) {
+  console.log(`AlarmDB: ${aMsg}`);
+}
+
 this.AlarmDB = function AlarmDB() {
-  debug("AlarmDB()");
+  DEBUG && debug("AlarmDB()");
 };
 
 AlarmDB.prototype = {
   __proto__: IndexedDBHelper.prototype,
 
   init: function init() {
-    debug("init()");
+    DEBUG && debug("init()");
 
     this.initDBHelper(ALARMDB_NAME, ALARMDB_VERSION, [ALARMSTORE_NAME]);
   },
@@ -47,7 +39,7 @@ AlarmDB.prototype = {
     aOldVersion,
     aNewVersion
   ) {
-    debug("upgradeSchema()");
+    DEBUG && debug("upgradeSchema()");
 
     let objStore = aDb.createObjectStore(ALARMSTORE_NAME, {
       keyPath: "id",
@@ -60,7 +52,7 @@ AlarmDB.prototype = {
     objStore.createIndex("data", "data", { unique: false });
     objStore.createIndex("url", "url", { unique: false });
 
-    debug("Created object stores and indexes");
+    DEBUG && debug("Created object stores and indexes");
   },
 
   /**
@@ -72,16 +64,16 @@ AlarmDB.prototype = {
    *        Callback function to invoke when there was an error.
    */
   add: function add(aAlarm, aSuccessCb, aErrorCb) {
-    debug("add()");
+    DEBUG && debug("add()");
 
     this.newTxn(
       "readwrite",
       ALARMSTORE_NAME,
       function txnCb(aTxn, aStore) {
-        debug("Going to add " + JSON.stringify(aAlarm));
+        DEBUG && debug("Going to add " + JSON.stringify(aAlarm));
         aStore.put(aAlarm).onsuccess = function setTxnResult(aEvent) {
           aTxn.result = aEvent.target.result;
-          debug("Request successful. New record ID: " + aTxn.result);
+          DEBUG && debug("Request successful. New record ID: " + aTxn.result);
         };
       },
       aSuccessCb,
@@ -102,13 +94,13 @@ AlarmDB.prototype = {
    *        Callback function to invoke when there was an error.
    */
   remove: function remove(aId, aUrl, aSuccessCb, aErrorCb) {
-    debug("remove()");
+    DEBUG && debug("remove()");
 
     this.newTxn(
       "readwrite",
       ALARMSTORE_NAME,
       function txnCb(aTxn, aStore) {
-        debug("Going to remove " + aId);
+        DEBUG && debug("Going to remove " + aId);
 
         // Look up the existing record and compare the url
         // to see if the alarm to be removed belongs to this app.
@@ -116,12 +108,12 @@ AlarmDB.prototype = {
           let alarm = aEvent.target.result;
 
           if (!alarm) {
-            debug("Alarm doesn't exist. No need to remove it.");
+            DEBUG && debug("Alarm doesn't exist. No need to remove it.");
             return;
           }
 
           if (aUrl && aUrl != alarm.url) {
-            debug("Cannot remove the alarm added by other apps.");
+            DEBUG && debug("Cannot remove the alarm added by other apps.");
             return;
           }
 
@@ -144,7 +136,7 @@ AlarmDB.prototype = {
    *        Callback function to invoke when there was an error.
    */
   getAll: function getAll(aUrl, aSuccessCb, aErrorCb) {
-    debug("getAll()");
+    DEBUG && debug("getAll()");
 
     this.newTxn(
       "readonly",
@@ -157,7 +149,8 @@ AlarmDB.prototype = {
         let index = aStore.index("url");
         index.mozGetAll(aUrl).onsuccess = function setTxnResult(aEvent) {
           aTxn.result = aEvent.target.result;
-          debug("Request successful. Record count: " + aTxn.result.length);
+          DEBUG &&
+            debug("Request successful. Record count: " + aTxn.result.length);
         };
       },
       aSuccessCb,

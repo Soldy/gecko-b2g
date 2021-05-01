@@ -217,6 +217,7 @@
 #include "mozilla/layers/ScrollInputMethods.h"
 #include "InputData.h"
 
+#include "mozilla/TaskController.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/layers/IAPZCTreeManager.h"
@@ -251,7 +252,7 @@ uint32_t nsWindow::sInstanceCount = 0;
 bool nsWindow::sSwitchKeyboardLayout = false;
 BOOL nsWindow::sIsOleInitialized = FALSE;
 HCURSOR nsWindow::sHCursor = nullptr;
-imgIContainer* nsWindow::sCursorImgContainer = nullptr;
+nsIWidget::Cursor nsWindow::sCurrentCursor = {};
 nsWindow* nsWindow::sCurrentWindow = nullptr;
 bool nsWindow::sJustGotDeactivate = false;
 bool nsWindow::sJustGotActivate = false;
@@ -366,6 +367,11 @@ static const int32_t kGlassMarginAdjustment = 2;
 // we will always display a resize cursor in, regardless of the underlying
 // content.
 static const int32_t kResizableBorderMinSize = 3;
+
+// Getting this object from the window server can be expensive. Keep it
+// around, also get it off the main thread. (See bug 1640852)
+StaticRefPtr<IVirtualDesktopManager> gVirtualDesktopManager;
+static bool gInitializedVirtualDesktopManager = false;
 
 // We should never really try to accelerate windows bigger than this. In some
 // cases this might lead to no D3D9 acceleration where we could have had it
@@ -557,6 +563,38 @@ WindowsDllInterceptor::FuncHookType<decltype(&SendMessageTimeoutW)>
     TIPMessageHandler::sSendMessageTimeoutWStub;
 StaticAutoPtr<TIPMessageHandler> TIPMessageHandler::sInstance;
 
+// This task will get the VirtualDesktopManager from the generic thread pool
+// since doing this on the main thread on startup causes performance issues.
+//
+// See bug 1640852.
+//
+// This should be fine and should not require any locking, as when the main
+// thread will access it, if it races with this function it will either find
+// it to be null or to have a valid value.
+class InitializeVirtualDesktopManagerTask : public Task {
+ public:
+  InitializeVirtualDesktopManagerTask() : Task(false, kDefaultPriorityValue) {}
+
+  virtual bool Run() override {
+#  ifndef __MINGW32__
+    if (!IsWin10OrLater()) {
+      return true;
+    }
+
+    RefPtr<IVirtualDesktopManager> desktopManager;
+    HRESULT hr = ::CoCreateInstance(
+        CLSID_VirtualDesktopManager, NULL, CLSCTX_INPROC_SERVER,
+        __uuidof(IVirtualDesktopManager), getter_AddRefs(desktopManager));
+    if (FAILED(hr)) {
+      return true;
+    }
+
+    gVirtualDesktopManager = desktopManager;
+#  endif
+    return true;
+  }
+};
+
 }  // namespace mozilla
 
 #endif  // defined(ACCESSIBILITY)
@@ -582,6 +620,12 @@ nsWindow::nsWindow(bool aIsChildWindow)
     : nsWindowBase(),
       mResizeState(NOT_RESIZING),
       mIsChildWindow(aIsChildWindow) {
+  if (!gInitializedVirtualDesktopManager) {
+    TaskController::Get()->AddTask(
+        MakeAndAddRef<InitializeVirtualDesktopManagerTask>());
+    gInitializedVirtualDesktopManager = true;
+  }
+
   mIconSmall = nullptr;
   mIconBig = nullptr;
   mWnd = nullptr;
@@ -694,7 +738,7 @@ nsWindow::~nsWindow() {
       InkCollector::sInkCollector = nullptr;
     }
     IMEHandler::Terminate();
-    NS_IF_RELEASE(sCursorImgContainer);
+    sCurrentCursor = {};
     if (sIsOleInitialized) {
       ::OleFlushClipboard();
       ::OleUninitialize();
@@ -1653,7 +1697,7 @@ void nsWindow::Show(bool bState) {
 
         // Set the cursor before showing the window to avoid the default wait
         // cursor.
-        SetCursor(eCursor_standard, nullptr, 0, 0);
+        SetCursor(Cursor{eCursor_standard});
 
         switch (mSizeMode) {
           case nsSizeMode_Fullscreen:
@@ -1793,8 +1837,8 @@ void nsWindow::SetThemeRegion() {
             NSToIntRound(size.width * GetDesktopToDeviceScale().scale);
         int32_t height =
             NSToIntRound(size.height * GetDesktopToDeviceScale().scale);
-        HRGN region = CreateRoundRectRgn(0, 0, mBounds.Width(),
-                                         mBounds.Height(), width, height);
+        HRGN region = CreateRoundRectRgn(0, 0, mBounds.Width() + 1,
+                                         mBounds.Height() + 1, width, height);
         if (!SetWindowRgn(mWnd, region, false)) {
           DeleteObject(region);  // region setting failed so delete the region.
         }
@@ -2346,31 +2390,8 @@ void nsWindow::SetSizeMode(nsSizeMode aMode) {
   }
 }
 
-RefPtr<IVirtualDesktopManager> GetVirtualDesktopManager() {
-#ifdef __MINGW32__
-  return nullptr;
-#else
-  if (!IsWin10OrLater()) {
-    return nullptr;
-  }
-
-  RefPtr<IServiceProvider> serviceProvider;
-  HRESULT hr = ::CoCreateInstance(
-      CLSID_ImmersiveShell, NULL, CLSCTX_LOCAL_SERVER,
-      __uuidof(IServiceProvider), getter_AddRefs(serviceProvider));
-  if (FAILED(hr)) {
-    return nullptr;
-  }
-
-  RefPtr<IVirtualDesktopManager> desktopManager;
-  serviceProvider->QueryService(__uuidof(IVirtualDesktopManager),
-                                desktopManager.StartAssignment());
-  return desktopManager;
-#endif
-}
-
 void nsWindow::GetWorkspaceID(nsAString& workspaceID) {
-  RefPtr<IVirtualDesktopManager> desktopManager = GetVirtualDesktopManager();
+  RefPtr<IVirtualDesktopManager> desktopManager = gVirtualDesktopManager;
   if (!desktopManager) {
     return;
   }
@@ -2389,7 +2410,7 @@ void nsWindow::GetWorkspaceID(nsAString& workspaceID) {
 }
 
 void nsWindow::MoveToWorkspace(const nsAString& workspaceID) {
-  RefPtr<IVirtualDesktopManager> desktopManager = GetVirtualDesktopManager();
+  RefPtr<IVirtualDesktopManager> desktopManager = gVirtualDesktopManager;
   if (!desktopManager) {
     return;
   }
@@ -3167,34 +3188,29 @@ static HCURSOR CursorFor(nsCursor aCursor) {
   }
 }
 
-static HCURSOR CursorForImage(imgIContainer* aImageContainer,
-                              CSSIntPoint aHotspot,
+static HCURSOR CursorForImage(const nsIWidget::Cursor& aCursor,
                               CSSToLayoutDeviceScale aScale) {
-  if (!aImageContainer) {
+  if (!aCursor.IsCustom()) {
     return nullptr;
   }
 
-  int32_t width = 0;
-  int32_t height = 0;
-
-  if (NS_FAILED(aImageContainer->GetWidth(&width)) ||
-      NS_FAILED(aImageContainer->GetHeight(&height))) {
-    return nullptr;
-  }
+  nsIntSize size = nsIWidget::CustomCursorSize(aCursor);
 
   // Reject cursors greater than 128 pixels in either direction, to prevent
   // spoofing.
   // XXX ideally we should rescale. Also, we could modify the API to
   // allow trusted content to set larger cursors.
-  if (width > 128 || height > 128) {
+  if (size.width > 128 || size.height > 128) {
     return nullptr;
   }
 
-  LayoutDeviceIntSize size = RoundedToInt(CSSIntSize(width, height) * aScale);
-  LayoutDeviceIntPoint hotspot = RoundedToInt(aHotspot * aScale);
+  LayoutDeviceIntSize layoutSize =
+      RoundedToInt(CSSIntSize(size.width, size.height) * aScale);
+  LayoutDeviceIntPoint hotspot =
+      RoundedToInt(CSSIntPoint(aCursor.mHotspotX, aCursor.mHotspotY) * aScale);
   HCURSOR cursor;
-  nsresult rv =
-      nsWindowGfx::CreateIcon(aImageContainer, true, hotspot, size, &cursor);
+  nsresult rv = nsWindowGfx::CreateIcon(aCursor.mContainer, true, hotspot,
+                                        layoutSize, &cursor);
   if (NS_FAILED(rv)) {
     return nullptr;
   }
@@ -3203,23 +3219,18 @@ static HCURSOR CursorForImage(imgIContainer* aImageContainer,
 }
 
 // Setting the actual cursor
-void nsWindow::SetCursor(nsCursor aDefaultCursor, imgIContainer* aImageCursor,
-                         uint32_t aHotspotX, uint32_t aHotspotY) {
-  if (aImageCursor && sCursorImgContainer == aImageCursor && sHCursor) {
+void nsWindow::SetCursor(const Cursor& aCursor) {
+  if (sCurrentCursor == aCursor && sHCursor) {
     ::SetCursor(sHCursor);
     return;
   }
 
-  HCURSOR cursor = CursorForImage(
-      aImageCursor, CSSIntPoint(aHotspotX, aHotspotY), GetDefaultScale());
+  mCursor = aCursor;
+
+  HCURSOR cursor = CursorForImage(aCursor, GetDefaultScale());
   if (cursor) {
-    mCursor = eCursorInvalid;
     ::SetCursor(cursor);
-
-    NS_IF_RELEASE(sCursorImgContainer);
-    sCursorImgContainer = aImageCursor;
-    NS_ADDREF(sCursorImgContainer);
-
+    sCurrentCursor = aCursor;
     if (sHCursor) {
       ::DestroyIcon(sHCursor);
     }
@@ -3227,16 +3238,15 @@ void nsWindow::SetCursor(nsCursor aDefaultCursor, imgIContainer* aImageCursor,
     return;
   }
 
-  cursor = CursorFor(aDefaultCursor);
+  cursor = CursorFor(aCursor.mDefaultCursor);
   if (!cursor) {
     return;
   }
 
-  mCursor = aDefaultCursor;
   HCURSOR oldCursor = ::SetCursor(cursor);
+  sCurrentCursor = aCursor;
 
   if (sHCursor == oldCursor) {
-    NS_IF_RELEASE(sCursorImgContainer);
     if (sHCursor) {
       ::DestroyIcon(sHCursor);
     }
@@ -3730,8 +3740,6 @@ void* nsWindow::GetNativeData(uint32_t aDataType) {
     case NS_NATIVE_WINDOW:
     case NS_NATIVE_WINDOW_WEBRTC_DEVICE_ID:
       return (void*)mWnd;
-    case NS_NATIVE_SHAREABLE_WINDOW:
-      return (void*)WinUtils::GetTopLevelHWND(mWnd);
     case NS_NATIVE_GRAPHIC:
       MOZ_ASSERT_UNREACHABLE("Not supported on Windows:");
       return nullptr;
@@ -3755,16 +3763,7 @@ void* nsWindow::GetNativeData(uint32_t aDataType) {
 }
 
 void nsWindow::SetNativeData(uint32_t aDataType, uintptr_t aVal) {
-  switch (aDataType) {
-    case NS_NATIVE_CHILD_WINDOW:
-    case NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW: {
-      MOZ_ASSERT_UNREACHABLE(
-          "SetNativeData window origin was not a plugin process.");
-      break;
-    }
-    default:
-      NS_ERROR("SetNativeData called with unsupported data type.");
-  }
+  NS_ERROR("SetNativeData called with unsupported data type.");
 }
 
 // Free some native data according to aDataType
@@ -4353,7 +4352,7 @@ bool nsWindow::DispatchStandardEvent(EventMessage aMsg) {
 }
 
 bool nsWindow::DispatchKeyboardEvent(WidgetKeyboardEvent* event) {
-  nsEventStatus status = DispatchInputEvent(event);
+  nsEventStatus status = DispatchInputEvent(event).mContentStatus;
   return ConvertStatus(status);
 }
 
@@ -4364,7 +4363,8 @@ bool nsWindow::DispatchContentCommandEvent(WidgetContentCommandEvent* aEvent) {
 }
 
 bool nsWindow::DispatchWheelEvent(WidgetWheelEvent* aEvent) {
-  nsEventStatus status = DispatchInputEvent(aEvent->AsInputEvent());
+  nsEventStatus status =
+      DispatchInputEvent(aEvent->AsInputEvent()).mContentStatus;
   return ConvertStatus(status);
 }
 
@@ -4505,11 +4505,6 @@ bool nsWindow::DispatchMouseEvent(EventMessage aEventMessage, WPARAM wParam,
   }
 
   if (WinUtils::GetIsMouseFromTouch(aEventMessage)) {
-    if (aEventMessage == eMouseDown) {
-      Telemetry::ScalarAdd(Telemetry::ScalarID::BROWSER_INPUT_TOUCH_EVENT_COUNT,
-                           1);
-    }
-
     if (mTouchWindow) {
       // If mTouchWindow is true, then we must have APZ enabled and be
       // feeding it raw touch events. In that case we only want to
@@ -4702,7 +4697,7 @@ bool nsWindow::DispatchMouseEvent(EventMessage aEventMessage, WPARAM wParam,
       }
     }
 
-    result = ConvertStatus(DispatchInputEvent(&event));
+    result = ConvertStatus(DispatchInputEvent(&event).mContentStatus);
 
     // Release the widget with NS_IF_RELEASE() just in case
     // the context menu key code in EventListenerManager::HandleEvent()
@@ -7461,8 +7456,8 @@ void nsWindow::OnDestroy() {
   }
 
   // Destroy any custom cursor resources.
-  if (mCursor == eCursorInvalid) {
-    SetCursor(eCursor_standard, nullptr, 0, 0);
+  if (mCursor.IsCustom()) {
+    SetCursor(Cursor{eCursor_standard});
   }
 
   if (mCompositorWidgetDelegate) {
@@ -8514,12 +8509,6 @@ void nsWindow::PickerClosed() {
   }
 }
 
-bool nsWindow::WidgetTypePrefersSoftwareWebRender() const {
-  return (mTransparencyMode == eTransparencyTransparent &&
-          StaticPrefs::gfx_webrender_software_unaccelerated_widget_allow()) ||
-         nsBaseWidget::WidgetTypePrefersSoftwareWebRender();
-}
-
 bool nsWindow::WidgetTypeSupportsAcceleration() {
   // We don't currently support using an accelerated layer manager with
   // transparent windows so don't even try. I'm also not sure if we even
@@ -8550,6 +8539,47 @@ bool nsWindow::WidgetTypeSupportsAcceleration() {
   // shadows.
   return mTransparencyMode != eTransparencyTransparent &&
          !(IsPopup() && DeviceManagerDx::Get()->IsWARP());
+}
+
+bool nsWindow::DispatchTouchEventFromWMPointer(
+    UINT msg, LPARAM aLParam, const WinPointerInfo& aPointerInfo) {
+  MultiTouchInput::MultiTouchType touchType;
+  switch (msg) {
+    case WM_POINTERDOWN:
+      touchType = MultiTouchInput::MULTITOUCH_START;
+      break;
+    case WM_POINTERUPDATE:
+      if (aPointerInfo.mPressure == 0) {
+        return false;  // hover
+      }
+      touchType = MultiTouchInput::MULTITOUCH_MOVE;
+      break;
+    case WM_POINTERUP:
+      touchType = MultiTouchInput::MULTITOUCH_END;
+      break;
+    default:
+      return false;
+  }
+
+  nsPointWin touchPoint;
+  touchPoint.x = GET_X_LPARAM(aLParam);
+  touchPoint.y = GET_Y_LPARAM(aLParam);
+  touchPoint.ScreenToClient(mWnd);
+
+  SingleTouchData touchData(aPointerInfo.pointerId,
+                            ScreenIntPoint::FromUnknownPoint(touchPoint),
+                            ScreenSize(1, 1),  // pixel size radius for pen
+                            0.0f,              // no radius rotation
+                            aPointerInfo.mPressure);
+
+  MultiTouchInput touchInput;
+  touchInput.mType = touchType;
+  touchInput.mTime = ::GetMessageTime();
+  touchInput.mTimeStamp = GetMessageTimeStamp(touchInput.mTime);
+  touchInput.mTouches.AppendElement(touchData);
+
+  DispatchTouchInput(touchInput);
+  return true;
 }
 
 bool nsWindow::OnPointerEvents(UINT msg, WPARAM aWParam, LPARAM aLParam) {
@@ -8629,7 +8659,7 @@ bool nsWindow::OnPointerEvents(UINT msg, WPARAM aWParam, LPARAM aLParam) {
       return false;
   }
   uint32_t pointerId = mPointerEvents.GetPointerId(aWParam);
-  POINTER_PEN_INFO penInfo;
+  POINTER_PEN_INFO penInfo{};
   mPointerEvents.GetPointerPenInfo(pointerId, &penInfo);
 
   // Windows defines the pen pressure is normalized to a range between 0 and
@@ -8641,6 +8671,11 @@ bool nsWindow::OnPointerEvents(UINT msg, WPARAM aWParam, LPARAM aLParam) {
                                  : MouseButtonsFlag::eNoButtons;
   WinPointerInfo pointerInfo(pointerId, penInfo.tiltX, penInfo.tiltY, pressure,
                              buttons);
+
+  if (StaticPrefs::dom_w3c_pointer_events_scroll_by_pen_enabled() &&
+      DispatchTouchEventFromWMPointer(msg, aLParam, pointerInfo)) {
+    return true;
+  }
 
   // The aLParam of WM_POINTER* is the screen location. Convert it to client
   // location

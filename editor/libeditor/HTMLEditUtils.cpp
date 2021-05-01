@@ -38,6 +38,31 @@ namespace mozilla {
 using namespace dom;
 using EditorType = EditorBase::EditorType;
 
+template nsIContent* HTMLEditUtils::GetPreviousContent(
+    const EditorDOMPoint& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetPreviousContent(
+    const EditorRawDOMPoint& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetPreviousContent(
+    const EditorDOMPointInText& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetPreviousContent(
+    const EditorRawDOMPointInText& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetNextContent(
+    const EditorDOMPoint& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetNextContent(
+    const EditorRawDOMPoint& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetNextContent(
+    const EditorDOMPointInText& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+template nsIContent* HTMLEditUtils::GetNextContent(
+    const EditorRawDOMPointInText& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter);
+
 template EditorDOMPoint HTMLEditUtils::GetPreviousEditablePoint(
     nsIContent& aContent, const Element* aAncestorLimiter,
     InvisibleWhiteSpaces aInvisibleWhiteSpaces,
@@ -339,6 +364,175 @@ bool HTMLEditUtils::SupportsAlignAttr(nsINode& aNode) {
       nsGkAtoms::thead, nsGkAtoms::tr, nsGkAtoms::td, nsGkAtoms::th,
       nsGkAtoms::div, nsGkAtoms::p, nsGkAtoms::h1, nsGkAtoms::h2, nsGkAtoms::h3,
       nsGkAtoms::h4, nsGkAtoms::h5, nsGkAtoms::h6);
+}
+
+bool HTMLEditUtils::IsVisibleTextNode(Text& aText,
+                                      Element* aEditingHost /* = nullptr */) {
+  if (!aText.TextDataLength()) {
+    return false;
+  }
+
+  if (!aText.TextIsOnlyWhitespace()) {
+    return true;
+  }
+
+  if (!aEditingHost) {
+    aEditingHost = HTMLEditUtils::
+        GetInclusiveAncestorEditableBlockElementOrInlineEditingHost(aText);
+  }
+  WSScanResult nextWSScanResult =
+      WSRunScanner::ScanNextVisibleNodeOrBlockBoundary(
+          aEditingHost, EditorRawDOMPoint(&aText, 0));
+  return nextWSScanResult.InNormalWhiteSpacesOrText() &&
+         nextWSScanResult.TextPtr() == &aText;
+}
+
+bool HTMLEditUtils::IsInVisibleTextFrames(nsPresContext* aPresContext,
+                                          Text& aText) {
+  MOZ_ASSERT(aPresContext);
+
+  nsIFrame* frame = aText.GetPrimaryFrame();
+  if (!frame) {
+    return false;
+  }
+
+  nsCOMPtr<nsISelectionController> selectionController;
+  nsresult rv = frame->GetSelectionController(
+      aPresContext, getter_AddRefs(selectionController));
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                       "nsIFrame::GetSelectionController() failed");
+  if (NS_FAILED(rv) || !selectionController) {
+    return false;
+  }
+
+  if (!aText.TextDataLength()) {
+    return false;
+  }
+
+  // Ask the selection controller for information about whether any of the
+  // data in the node is really rendered.  This is really something that
+  // frames know about, but we aren't supposed to talk to frames.  So we put
+  // a call in the selection controller interface, since it's already in bed
+  // with frames anyway.  (This is a fix for bug 22227, and a partial fix for
+  // bug 46209.)
+  bool isVisible = false;
+  rv = selectionController->CheckVisibilityContent(
+      &aText, 0, aText.TextDataLength(), &isVisible);
+  NS_WARNING_ASSERTION(
+      NS_SUCCEEDED(rv),
+      "nsISelectionController::CheckVisibilityContent() failed");
+  return NS_SUCCEEDED(rv) && isVisible;
+}
+
+bool HTMLEditUtils::IsEmptyNode(nsPresContext* aPresContext, nsINode& aNode,
+                                const EmptyCheckOptions& aOptions /* = {} */,
+                                bool* aSeenBR /* = nullptr */) {
+  MOZ_ASSERT_IF(aOptions.contains(EmptyCheckOption::SafeToAskLayout),
+                aPresContext);
+
+  if (aSeenBR) {
+    *aSeenBR = false;
+  }
+
+  Element* maybeParentBlockElement =
+      aNode.IsContent() && EditorUtils::IsEditableContent(*aNode.AsContent(),
+                                                          EditorType::HTML)
+          ? GetInclusiveAncestorEditableBlockElementOrInlineEditingHost(
+                *aNode.AsContent())
+          : nullptr;
+
+  if (Text* text = Text::FromNode(&aNode)) {
+    return aOptions.contains(EmptyCheckOption::SafeToAskLayout)
+               ? !IsInVisibleTextFrames(aPresContext, *text)
+               : !IsVisibleTextNode(*text, maybeParentBlockElement);
+  }
+
+  // if it's not a text node (handled above) and it's not a container,
+  // then we don't call it empty (it's an <hr>, or <br>, etc.).
+  // Also, if it's an anchor then don't treat it as empty - even though
+  // anchors are containers, named anchors are "empty" but we don't
+  // want to treat them as such.  Also, don't call ListItems or table
+  // cells empty if caller desires.  Form Widgets not empty.
+  // XXX Why do we treat non-content node is not empty?
+  // XXX Why do we treat non-text data node may be not empty?
+  if (!aNode.IsContent() || !IsContainerNode(*aNode.AsContent()) ||
+      IsNamedAnchor(&aNode) || IsFormWidget(&aNode) ||
+      (aOptions.contains(EmptyCheckOption::TreatListItemAsVisible) &&
+       IsListItem(&aNode)) ||
+      (aOptions.contains(EmptyCheckOption::TreatTableCellAsVisible) &&
+       IsTableCell(&aNode))) {
+    return false;
+  }
+
+  const bool isListItem = IsListItem(&aNode);
+  const bool isTableCell = IsTableCell(&aNode);
+
+  // loop over children of node. if no children, or all children are either
+  // empty text nodes or non-editable, then node qualifies as empty
+  bool seenBR = aSeenBR && *aSeenBR;
+  for (nsIContent* childContent = aNode.GetFirstChild(); childContent;
+       childContent = childContent->GetNextSibling()) {
+    // Is the child editable and non-empty?  if so, return false
+    if (!EditorUtils::IsEditableContent(*childContent, EditorType::HTML)) {
+      continue;
+    }
+
+    if (Text* text = Text::FromNode(childContent)) {
+      // break out if we find we aren't empty
+      if (aOptions.contains(EmptyCheckOption::SafeToAskLayout)
+              ? IsInVisibleTextFrames(aPresContext, *text)
+              : IsVisibleTextNode(*text, maybeParentBlockElement)) {
+        return false;
+      }
+      continue;
+    }
+
+    // An editable, non-text node. We need to check its content.
+    // Is it the node we are iterating over?
+    if (childContent == &aNode) {
+      break;
+    }
+
+    if (!aOptions.contains(EmptyCheckOption::TreatSingleBRElementAsVisible) &&
+        !seenBR && childContent->IsHTMLElement(nsGkAtoms::br)) {
+      // Ignore first <br> element in it if caller wants so because it's
+      // typically a padding <br> element of for a parent block.
+      seenBR = true;
+      if (aSeenBR) {
+        *aSeenBR = true;
+      }
+      continue;
+    }
+
+    // is it an empty node of some sort?
+    // note: list items or table cells are not considered empty
+    // if they contain other lists or tables
+    if (childContent->IsElement()) {
+      if (isListItem || isTableCell) {
+        if (IsAnyListElement(childContent) ||
+            childContent->IsHTMLElement(nsGkAtoms::table)) {
+          // break out if we find we aren't empty
+          return false;
+        }
+      } else if (IsFormWidget(childContent)) {
+        // is it a form widget?
+        // break out if we find we aren't empty
+        return false;
+      }
+    }
+
+    if (!IsEmptyNode(aPresContext, *childContent, aOptions, &seenBR)) {
+      if (aSeenBR) {
+        *aSeenBR = seenBR;
+      }
+      return false;
+    }
+  }
+
+  if (aSeenBR) {
+    *aSeenBR = seenBR;
+  }
+  return true;
 }
 
 // We use bitmasks to test containment of elements. Elements are marked to be
@@ -694,6 +888,209 @@ bool HTMLEditUtils::IsNonListSingleLineContainer(nsINode& aNode) {
 bool HTMLEditUtils::IsSingleLineContainer(nsINode& aNode) {
   return IsNonListSingleLineContainer(aNode) ||
          aNode.IsAnyOfHTMLElements(nsGkAtoms::li, nsGkAtoms::dt, nsGkAtoms::dd);
+}
+
+// static
+template <typename PT, typename CT>
+nsIContent* HTMLEditUtils::GetPreviousContent(
+    const EditorDOMPointBase<PT, CT>& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter /* = nullptr */) {
+  MOZ_ASSERT(aPoint.IsSetAndValid());
+  NS_WARNING_ASSERTION(
+      !aPoint.IsInDataNode() || aPoint.IsInTextNode(),
+      "GetPreviousContent() doesn't assume that the start point is a "
+      "data node except text node");
+
+  // If we are at the beginning of the node, or it is a text node, then just
+  // look before it.
+  if (aPoint.IsStartOfContainer() || aPoint.IsInTextNode()) {
+    if (aOptions.contains(WalkTreeOption::StopAtBlockBoundary) &&
+        aPoint.IsInContentNode() &&
+        HTMLEditUtils::IsBlockElement(*aPoint.ContainerAsContent())) {
+      // If we aren't allowed to cross blocks, don't look before this block.
+      return nullptr;
+    }
+    return HTMLEditUtils::GetPreviousContent(*aPoint.GetContainer(), aOptions,
+                                             aAncestorLimiter);
+  }
+
+  // else look before the child at 'aOffset'
+  if (aPoint.GetChild()) {
+    return HTMLEditUtils::GetPreviousContent(*aPoint.GetChild(), aOptions,
+                                             aAncestorLimiter);
+  }
+
+  // unless there isn't one, in which case we are at the end of the node
+  // and want the deep-right child.
+  nsIContent* lastLeafContent = HTMLEditUtils::GetLastLeafChild(
+      *aPoint.GetContainer(),
+      {aOptions.contains(WalkTreeOption::StopAtBlockBoundary)
+           ? LeafNodeType::LeafNodeOrChildBlock
+           : LeafNodeType::OnlyLeafNode});
+  if (!lastLeafContent) {
+    return nullptr;
+  }
+
+  if ((!aOptions.contains(WalkTreeOption::IgnoreNonEditableNode) ||
+       EditorUtils::IsEditableContent(*lastLeafContent, EditorType::HTML)) &&
+      (!aOptions.contains(WalkTreeOption::IgnoreDataNodeExceptText) ||
+       EditorUtils::IsElementOrText(*lastLeafContent))) {
+    return lastLeafContent;
+  }
+
+  // restart the search from the non-editable node we just found
+  return HTMLEditUtils::GetPreviousContent(*lastLeafContent, aOptions,
+                                           aAncestorLimiter);
+}
+
+// static
+template <typename PT, typename CT>
+nsIContent* HTMLEditUtils::GetNextContent(
+    const EditorDOMPointBase<PT, CT>& aPoint, const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter /* = nullptr */) {
+  MOZ_ASSERT(aPoint.IsSetAndValid());
+  NS_WARNING_ASSERTION(
+      !aPoint.IsInDataNode() || aPoint.IsInTextNode(),
+      "GetNextContent() doesn't assume that the start point is a "
+      "data node except text node");
+
+  EditorRawDOMPoint point(aPoint);
+
+  // if the container is a text node, use its location instead
+  if (point.IsInTextNode()) {
+    point.SetAfter(point.GetContainer());
+    if (NS_WARN_IF(!point.IsSet())) {
+      return nullptr;
+    }
+  }
+
+  if (point.GetChild()) {
+    if (aOptions.contains(WalkTreeOption::StopAtBlockBoundary) &&
+        HTMLEditUtils::IsBlockElement(*point.GetChild())) {
+      return point.GetChild();
+    }
+
+    nsIContent* firstLeafContent = HTMLEditUtils::GetFirstLeafChild(
+        *point.GetChild(),
+        {aOptions.contains(WalkTreeOption::StopAtBlockBoundary)
+             ? LeafNodeType::LeafNodeOrChildBlock
+             : LeafNodeType::OnlyLeafNode});
+    if (!firstLeafContent) {
+      return point.GetChild();
+    }
+
+    // XXX Why do we need to do this check?  The leaf node must be a descendant
+    //     of `point.GetChild()`.
+    if (aAncestorLimiter &&
+        (firstLeafContent == aAncestorLimiter ||
+         !firstLeafContent->IsInclusiveDescendantOf(aAncestorLimiter))) {
+      return nullptr;
+    }
+
+    if ((!aOptions.contains(WalkTreeOption::IgnoreNonEditableNode) ||
+         EditorUtils::IsEditableContent(*firstLeafContent, EditorType::HTML)) &&
+        (!aOptions.contains(WalkTreeOption::IgnoreDataNodeExceptText) ||
+         EditorUtils::IsElementOrText(*firstLeafContent))) {
+      return firstLeafContent;
+    }
+
+    // restart the search from the non-editable node we just found
+    return HTMLEditUtils::GetNextContent(*firstLeafContent, aOptions,
+                                         aAncestorLimiter);
+  }
+
+  // unless there isn't one, in which case we are at the end of the node
+  // and want the next one.
+  if (aOptions.contains(WalkTreeOption::StopAtBlockBoundary) &&
+      point.IsInContentNode() &&
+      HTMLEditUtils::IsBlockElement(*point.ContainerAsContent())) {
+    // don't cross out of parent block
+    return nullptr;
+  }
+
+  return HTMLEditUtils::GetNextContent(*point.GetContainer(), aOptions,
+                                       aAncestorLimiter);
+}
+
+// static
+nsIContent* HTMLEditUtils::GetAdjacentLeafContent(
+    const nsINode& aNode, WalkTreeDirection aWalkTreeDirection,
+    const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter /* = nullptr */) {
+  // called only by GetPriorNode so we don't need to check params.
+  MOZ_ASSERT(&aNode != aAncestorLimiter);
+  MOZ_ASSERT_IF(aAncestorLimiter,
+                aAncestorLimiter->IsInclusiveDescendantOf(aAncestorLimiter));
+
+  const nsINode* node = &aNode;
+  for (;;) {
+    // if aNode has a sibling in the right direction, return
+    // that sibling's closest child (or itself if it has no children)
+    nsIContent* sibling = aWalkTreeDirection == WalkTreeDirection::Forward
+                              ? node->GetNextSibling()
+                              : node->GetPreviousSibling();
+    if (sibling) {
+      if (aOptions.contains(WalkTreeOption::StopAtBlockBoundary) &&
+          HTMLEditUtils::IsBlockElement(*sibling)) {
+        // don't look inside prevsib, since it is a block
+        return sibling;
+      }
+      const LeafNodeTypes leafNodeTypes = {
+          aOptions.contains(WalkTreeOption::StopAtBlockBoundary)
+              ? LeafNodeType::LeafNodeOrChildBlock
+              : LeafNodeType::OnlyLeafNode};
+      nsIContent* leafContent =
+          aWalkTreeDirection == WalkTreeDirection::Forward
+              ? HTMLEditUtils::GetFirstLeafChild(*sibling, leafNodeTypes)
+              : HTMLEditUtils::GetLastLeafChild(*sibling, leafNodeTypes);
+      return leafContent ? leafContent : sibling;
+    }
+
+    nsIContent* parent = node->GetParent();
+    if (!parent) {
+      return nullptr;
+    }
+
+    if (parent == aAncestorLimiter ||
+        (aOptions.contains(WalkTreeOption::StopAtBlockBoundary) &&
+         HTMLEditUtils::IsBlockElement(*parent))) {
+      return nullptr;
+    }
+
+    node = parent;
+  }
+
+  MOZ_ASSERT_UNREACHABLE("What part of for(;;) do you not understand?");
+  return nullptr;
+}
+
+// static
+nsIContent* HTMLEditUtils::GetAdjacentContent(
+    const nsINode& aNode, WalkTreeDirection aWalkTreeDirection,
+    const WalkTreeOptions& aOptions,
+    const Element* aAncestorLimiter /* = nullptr */) {
+  if (&aNode == aAncestorLimiter) {
+    // Don't allow traversal above the root node! This helps
+    // prevent us from accidentally editing browser content
+    // when the editor is in a text widget.
+    return nullptr;
+  }
+
+  nsIContent* leafContent = HTMLEditUtils::GetAdjacentLeafContent(
+      aNode, aWalkTreeDirection, aOptions, aAncestorLimiter);
+  if (!leafContent) {
+    return nullptr;
+  }
+
+  if ((!aOptions.contains(WalkTreeOption::IgnoreNonEditableNode) ||
+       EditorUtils::IsEditableContent(*leafContent, EditorType::HTML)) &&
+      (!aOptions.contains(WalkTreeOption::IgnoreDataNodeExceptText) ||
+       EditorUtils::IsElementOrText(*leafContent))) {
+    return leafContent;
+  }
+
+  return HTMLEditUtils::GetAdjacentContent(*leafContent, aWalkTreeDirection,
+                                           aOptions, aAncestorLimiter);
 }
 
 // static

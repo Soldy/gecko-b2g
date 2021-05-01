@@ -59,7 +59,6 @@ dictionary NetworkCommandOptions
   long mtu;                           // for "setMtu".
 
   DOMString type;                     // for "updateUpStream".
-  boolean privacyExtensions;          // for "setIpv6PrivacyExtensions".
   DOMString tcpBufferSizes;           // for "setTcpBufferSizes"
   long networkType;                   // for "createNetwork", "destroyNetwork".
   sequence<DOMString> IPv6Routes;     // for "addIPv6RouteToLocalNetwork".

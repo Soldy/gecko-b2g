@@ -59,6 +59,7 @@ using mozilla::gfx::SurfaceFormat;
 #include "nsFocusManager.h"
 #include "nsUserIdleService.h"
 #include "nsLayoutUtils.h"
+#include "nsNetUtil.h"
 #include "nsViewManager.h"
 
 #include "WidgetUtils.h"
@@ -147,6 +148,8 @@ static const int32_t INPUT_RESULT_HANDLED_CONTENT =
     java::PanZoomController::INPUT_RESULT_HANDLED_CONTENT;
 static const int32_t INPUT_RESULT_IGNORED =
     java::PanZoomController::INPUT_RESULT_IGNORED;
+
+static const nsCString::size_type MAX_TOPLEVEL_DATA_URI_LEN = 2 * 1024 * 1024;
 
 namespace {
 template <class Instance, class Impl>
@@ -841,7 +844,7 @@ class NPZCSupport final
 
     // Dispatch APZ input event on Gecko thread.
     PostInputEvent([aInput, result](nsWindow* window) {
-      WidgetTouchEvent touchEvent = aInput.ToWidgetTouchEvent(window);
+      WidgetTouchEvent touchEvent = aInput.ToWidgetEvent(window);
       window->ProcessUntransformedAPZEvent(&touchEvent, result);
       window->DispatchHitTest(touchEvent);
     });
@@ -1880,9 +1883,14 @@ RefPtr<MozPromise<bool, bool, false>> nsWindow::OnLoadRequest(
   if (!geckoViewSupport) {
     return MozPromise<bool, bool, false>::CreateAndResolve(false, __func__);
   }
+
   nsAutoCString spec, triggeringSpec;
   if (aUri) {
     aUri->GetDisplaySpec(spec);
+    if (aIsTopLevel && mozilla::net::SchemeIsData(aUri) &&
+        spec.Length() > MAX_TOPLEVEL_DATA_URI_LEN) {
+      return MozPromise<bool, bool, false>::CreateAndResolve(false, __func__);
+    }
   }
 
   bool isNullPrincipal = false;
@@ -2513,30 +2521,31 @@ nsresult nsWindow::SynthesizeNativeMouseEvent(
       MOZ_ASSERT_UNREACHABLE("Non supported mouse event on Android");
       return NS_ERROR_INVALID_ARG;
   }
-  int32_t button;
-  switch (aButton) {
-    case MouseButton::ePrimary:
-      button = java::sdk::MotionEvent::BUTTON_PRIMARY;
-      break;
-    case MouseButton::eMiddle:
-      button = java::sdk::MotionEvent::BUTTON_TERTIARY;
-      break;
-    case MouseButton::eSecondary:
-      button = java::sdk::MotionEvent::BUTTON_SECONDARY;
-      break;
-    case MouseButton::eX1:
-      button = java::sdk::MotionEvent::BUTTON_BACK;
-      break;
-    case MouseButton::eX2:
-      button = java::sdk::MotionEvent::BUTTON_FORWARD;
-      break;
-    default:
-      if (aNativeMessage != NativeMouseMessage::ButtonDown &&
-          aNativeMessage != NativeMouseMessage::ButtonUp) {
-        button = 0;
+  int32_t button = 0;
+  if (aNativeMessage != NativeMouseMessage::ButtonUp) {
+    switch (aButton) {
+      case MouseButton::ePrimary:
+        button = java::sdk::MotionEvent::BUTTON_PRIMARY;
         break;
-      }
-      return NS_ERROR_INVALID_ARG;
+      case MouseButton::eMiddle:
+        button = java::sdk::MotionEvent::BUTTON_TERTIARY;
+        break;
+      case MouseButton::eSecondary:
+        button = java::sdk::MotionEvent::BUTTON_SECONDARY;
+        break;
+      case MouseButton::eX1:
+        button = java::sdk::MotionEvent::BUTTON_BACK;
+        break;
+      case MouseButton::eX2:
+        button = java::sdk::MotionEvent::BUTTON_FORWARD;
+        break;
+      default:
+        if (aNativeMessage == NativeMouseMessage::ButtonDown) {
+          MOZ_ASSERT_UNREACHABLE("Non supported mouse button type on Android");
+          return NS_ERROR_INVALID_ARG;
+        }
+        break;
+    }
   }
 
   // TODO (bug 1693237): Handle aModifierFlags.

@@ -192,6 +192,29 @@ var gIdentityHandler = {
       let wrapper = document.getElementById("template-identity-popup");
       wrapper.replaceWith(wrapper.content);
       this._popupInitialized = true;
+
+      if (this._protonEnabled) {
+        // When proton is enabled, we need to place the security section
+        // within a toolbarbutton.
+        let button = document.createXULElement("toolbarbutton");
+        button.id = "identity-popup-security-button";
+        button.classList.add("subviewbutton-nav", "subviewbutton");
+        button.setAttribute("align", "center");
+        this.showSecuritySubView = this.showSecuritySubView.bind(this);
+        button.addEventListener("command", this.showSecuritySubView);
+        button.appendChild(
+          document
+            .getElementById("identity-popup-security")
+            .querySelector(".identity-popup-security-connection")
+        );
+
+        this._identityPopupMainView.insertBefore(
+          button,
+          this._identityPopupMainView.querySelector("toolbarseparator")
+            .nextSibling
+        );
+        this._popupExpander.hidden = true;
+      }
     }
   },
 
@@ -395,6 +418,16 @@ var gIdentityHandler = {
     );
     return this._useGrayLockIcon;
   },
+  get _protonEnabled() {
+    delete this._protonEnabled;
+    XPCOMUtils.defineLazyPreferenceGetter(
+      this,
+      "_protonEnabled",
+      "browser.proton.doorhangers.enabled",
+      false
+    );
+    return this._protonEnabled;
+  },
 
   /**
    * Handles clicks on the "Clear Cookies and Site Data" button.
@@ -456,20 +489,36 @@ var gIdentityHandler = {
       "MIXED_CONTENT_UNBLOCK_COUNTER"
     );
     histogram.add(kMIXED_CONTENT_UNBLOCK_EVENT);
+
+    SitePermissions.setForPrincipal(
+      gBrowser.contentPrincipal,
+      "mixed-content",
+      SitePermissions.ALLOW,
+      SitePermissions.SCOPE_SESSION
+    );
+
     // Reload the page with the content unblocked
-    BrowserReloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_ALLOW_MIXED_CONTENT);
+    BrowserReloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE);
     if (this._popupInitialized) {
       PanelMultiView.hidePopup(this._identityPopup);
     }
   },
 
-  enableMixedContentProtection() {
-    gBrowser.selectedBrowser.sendMessageToActor(
-      "MixedContent:ReenableProtection",
-      {},
-      "BrowserTab"
+  // This is needed for some tests which need the permission reset, but which
+  // then reuse the browser and would race between the reload and the next
+  // load.
+  enableMixedContentProtectionNoReload() {
+    this.enableMixedContentProtection(false);
+  },
+
+  enableMixedContentProtection(reload = true) {
+    SitePermissions.removeFromPrincipal(
+      gBrowser.contentPrincipal,
+      "mixed-content"
     );
-    BrowserReload();
+    if (reload) {
+      BrowserReload();
+    }
     if (this._popupInitialized) {
       PanelMultiView.hidePopup(this._identityPopup);
     }
@@ -914,9 +963,10 @@ var gIdentityHandler = {
    */
   refreshIdentityPopup() {
     // Update cookies and site data information and show the
-    // "Clear Site Data" button if the site is storing local data.
+    // "Clear Site Data" button if the site is storing local data, and
+    // if the page is not controlled by a WebExtension.
     this._clearSiteDataFooter.hidden = true;
-    if (this._uriHasHost) {
+    if (this._uriHasHost && !this._pageExtensionPolicy) {
       SiteDataManager.hasSiteData(this._uri.asciiHost).then(hasData => {
         this._clearSiteDataFooter.hidden = !hasData;
       });
@@ -963,6 +1013,17 @@ var gIdentityHandler = {
       connection = "not-secure";
     } else if (this._isPotentiallyTrustworthy) {
       connection = "file";
+    }
+
+    if (this._protonEnabled) {
+      document.getElementById("identity-popup-security-button").disabled = ![
+        "not-secure",
+        "secure",
+        "secure-ev",
+        "secure-cert-user-overridden",
+        "cert-error-page",
+        "https-only-error-page",
+      ].includes(connection);
     }
 
     // Determine the mixed content state.
@@ -1080,16 +1141,20 @@ var gIdentityHandler = {
     }
 
     // Push the appropriate strings out to the UI.
-    this._identityPopupMainViewHeaderLabel.textContent = gNavigatorBundle.getFormattedString(
-      "identity.headerMainWithHost",
-      [host]
+    document.l10n.setAttributes(
+      this._identityPopupMainViewHeaderLabel,
+      "identity-site-information",
+      {
+        host,
+      }
     );
 
-    this._identityPopupSecurityView.setAttribute(
-      "title",
-      gNavigatorBundle.getFormattedString("identity.headerSecurityWithHost", [
+    document.l10n.setAttributes(
+      this._identityPopupSecurityView,
+      "identity-header-security-with-host",
+      {
         host,
-      ])
+      }
     );
 
     this._identityPopupSecurityEVContentOwner.textContent = gNavigatorBundle.getFormattedString(
@@ -1169,9 +1234,6 @@ var gIdentityHandler = {
     // Update the popup strings
     this.refreshIdentityPopup();
 
-    // Add the "open" attribute to the identity box for styling
-    this._identityIconBox.setAttribute("open", "true");
-
     // Check the panel state of other panels. Hide them if needed.
     let openPanels = Array.from(document.querySelectorAll("panel[openpanel]"));
     for (let panel of openPanels) {
@@ -1195,7 +1257,6 @@ var gIdentityHandler = {
   onPopupHidden(event) {
     if (event.target == this._identityPopup) {
       window.removeEventListener("focus", this, true);
-      this._identityIconBox.removeAttribute("open");
     }
   },
 

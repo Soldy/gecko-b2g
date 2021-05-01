@@ -7,7 +7,6 @@
 #include "mozilla/dom/AlarmManagerWorker.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Preferences.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsIPermissionManager.h"
@@ -104,13 +103,45 @@ AlarmAddCallback::OnAdd(nsresult aStatus, JS::HandleValue aResult,
   return NS_OK;
 }
 
-AlarmManagerMain::AlarmManagerMain(nsCString aUrl,
-                                   nsIGlobalObject* aOuterGlobal)
-    : AlarmManagerImpl(aUrl, aOuterGlobal) {
+AlarmManagerMain::AlarmManagerMain(nsIGlobalObject* aOuterGlobal)
+    : AlarmManagerImpl(aOuterGlobal) {
   LOG("AlarmManagerMain constructor.");
   if (NS_WARN_IF(!NS_IsMainThread())) {
-    LOG("Error! AlarmManagerWorker should be on main thread.");
+    LOG("Error! AlarmManagerMain should be on main thread.");
   }
+}
+
+nsresult AlarmManagerMain::Init() {
+  LOG("AlarmManagerMain::Init");
+  if (NS_WARN_IF(!NS_IsMainThread())) {
+    LOG("Error! AlarmManagerMain should be on main thread.");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  if (NS_WARN_IF(!mOuterGlobal)) {
+    LOG("!mOuterGlobal");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> inner = mOuterGlobal->AsInnerWindow();
+  if (NS_WARN_IF(!inner)) {
+    LOG("!inner");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  RefPtr<Document> doc = inner->GetDoc();
+  if (NS_WARN_IF(!doc)) {
+    LOG("!doc");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  nsCOMPtr<nsIPrincipal> principal = doc->NodePrincipal();
+  if (NS_WARN_IF(!principal)) {
+    LOG("!principal");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  return alarm::SetupUrlFromPrincipal(principal, mUrl);
 }
 
 already_AddRefed<Promise> AlarmManagerMain::GetAll() {
@@ -205,7 +236,7 @@ already_AddRefed<AlarmManager> AlarmManager::Create(nsIGlobalObject* aGlobal,
 
   aRv = alarmManager->Init();
   if (NS_WARN_IF(NS_FAILED(aRv))) {
-    LOG("Init failed. rv:[%u]", uint(aRv));
+    LOG("Init failed. rv:[%x]", uint(aRv));
     return nullptr;
   }
 
@@ -222,7 +253,7 @@ AlarmManager::AlarmManager(nsIGlobalObject* aGlobal) : mGlobal(aGlobal) {
   LOG("AlarmManager constructor.");
 }
 
-NS_IMETHODIMP AlarmManager::Init() {
+nsresult AlarmManager::Init() {
   LOG("AlarmManager Init. NS_IsMainThread:[%s]",
       NS_IsMainThread() ? "true" : "false");
 
@@ -231,54 +262,13 @@ NS_IMETHODIMP AlarmManager::Init() {
     return NS_ERROR_DOM_ABORT_ERR;
   }
 
-  Maybe<ClientInfo> clientInfo = mGlobal->GetClientInfo();
-  if (clientInfo.isSome()) {
-    // System app might call AlarmManager from the system startup chrome url.
-    // To ensure proper system message receiver, replace the url with system
-    // app's origin.
-    // Other modules or services in Gecko of chrome origins should call
-    // AlarmService directly, not through AlarmManager or AlarmProxy.
-    LOG("clientInfo->URL() [%s]", clientInfo->URL().get());
-    if (nsContentUtils::IsCallerChrome()) {
-      nsAutoCString systemStartupUrl;
-      nsresult rv =
-          Preferences::GetCString("b2g.system_startup_url", systemStartupUrl);
-      if (NS_SUCCEEDED(rv) && clientInfo->URL().Equals(systemStartupUrl)) {
-        mUrl = "http://system.localhost"_ns;
-      }
-    } else {
-      nsCOMPtr<nsIIOService> ios(do_GetIOService());
-      nsCOMPtr<nsIURI> uri;
-      nsresult rv =
-          ios->NewURI(clientInfo->URL(), nullptr, nullptr, getter_AddRefs(uri));
-
-      if (NS_WARN_IF(NS_FAILED(rv)) || !uri) {
-        LOG("NewURI failed.");
-        return NS_ERROR_DOM_UNKNOWN_ERR;
-      }
-
-      uri->GetPrePath(mUrl);
-    }
-  } else {
-    LOG("Error: !clientInfo.isSome()");
-    return NS_ERROR_DOM_UNKNOWN_ERR;
-  }
-
-  LOG("mUrl:[%s]", mUrl.get());
-
-  // Alarms added by apps should be well-managed according to app urls.
-  // Empty urls may cause ambiguity.
-  if (mUrl.IsEmpty()) {
-    return NS_ERROR_DOM_UNKNOWN_ERR;
-  }
-
   if (NS_IsMainThread()) {
-    mImpl = new AlarmManagerMain(mUrl, mGlobal);
+    mImpl = new AlarmManagerMain(mGlobal);
   } else {
-    mImpl = new AlarmManagerWorker(mUrl, mGlobal);
+    mImpl = new AlarmManagerWorker(mGlobal);
   }
 
-  return NS_OK;
+  return mImpl->Init();
 }
 
 bool AlarmManager::CheckPermission() {
@@ -291,7 +281,7 @@ bool AlarmManager::CheckPermission() {
 }
 
 already_AddRefed<Promise> AlarmManager::GetAll() {
-  LOG("AlarmManager::GetAll mUrl:[%s] NS_IsMainThread:[%s]", mUrl.get(),
+  LOG("AlarmManager::GetAll NS_IsMainThread:[%s]",
       NS_IsMainThread() ? "true" : "false");
   if (NS_WARN_IF(!mImpl)) {
     LOG("!mImpl");
@@ -303,7 +293,7 @@ already_AddRefed<Promise> AlarmManager::GetAll() {
 
 already_AddRefed<Promise> AlarmManager::Add(JSContext* aCx,
                                             const AlarmOptions& aOptions) {
-  LOG("AlarmManager::Add mUrl:[%s] NS_IsMainThread:[%s]", mUrl.get(),
+  LOG("AlarmManager::Add NS_IsMainThread:[%s]",
       NS_IsMainThread() ? "true" : "false");
   if (NS_WARN_IF(!mImpl)) {
     LOG("!mImpl");
@@ -314,8 +304,8 @@ already_AddRefed<Promise> AlarmManager::Add(JSContext* aCx,
 }
 
 void AlarmManager::Remove(long aId) {
-  LOG("AlarmManager::Remove mUrl:[%s] aId:[%d] NS_IsMainThread:[%s]",
-      mUrl.get(), aId, NS_IsMainThread() ? "true" : "false");
+  LOG("AlarmManager::Remove aId:[%d] NS_IsMainThread:[%s]", aId,
+      NS_IsMainThread() ? "true" : "false");
   if (NS_WARN_IF(!mImpl)) {
     LOG("!mImpl");
     return;
@@ -358,6 +348,40 @@ already_AddRefed<nsIAlarmProxy> alarm::CreateAlarmProxy() {
   return alarmProxy.forget();
 }
 
+nsresult alarm::SetupUrlFromPrincipal(const nsCOMPtr<nsIPrincipal>& aPrincipal,
+                                      nsCString& aUrl) {
+  if (NS_WARN_IF(!NS_IsMainThread())) {
+    LOG("SetupUrlFromPrincipal should not be called from non main threads.");
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  if (aPrincipal->IsSystemPrincipal()) {
+    // System app might call AlarmManager from the system startup chrome url.
+    // To ensure proper system message receiver, replace the url with system
+    // app's origin.
+    // Other modules or services in Gecko should send messages to AlarmService
+    // directly, not through AlarmManager or AlarmProxy.
+    aUrl = "http://system.localhost"_ns;
+  } else {
+    nsresult rv;
+    rv = aPrincipal->GetAsciiOrigin(aUrl);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      LOG("GetAsciiOrigin failed. [%x]", uint(rv));
+      return NS_ERROR_DOM_ABORT_ERR;
+    }
+  }
+
+  LOG("aUrl:[%s]", aUrl.get());
+
+  // Alarms added by apps should be well-managed according to app urls.
+  // Empty urls may cause ambiguity.
+  if (aUrl.IsEmpty()) {
+    return NS_ERROR_DOM_UNKNOWN_ERR;
+  }
+
+  return NS_OK;
+}
+
 bool alarm::DoCheckPermission(nsCString aUrl) {
   if (NS_WARN_IF(!NS_IsMainThread())) {
     LOG("DoCheckPermission should not be called from non main threads.");
@@ -382,7 +406,7 @@ bool alarm::DoCheckPermission(nsCString aUrl) {
   nsresult rv = permissionManager->TestPermissionFromPrincipal(
       principal, "alarms"_ns, &permission);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    LOG("TestPermissionFromPrincipal failed. rv[%u] mUrl:[%s]", uint(rv),
+    LOG("TestPermissionFromPrincipal failed. rv[%x] mUrl:[%s]", uint(rv),
         aUrl.get());
     return false;
   }

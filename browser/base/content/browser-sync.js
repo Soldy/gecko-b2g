@@ -910,7 +910,7 @@ var gSync = {
       }
     } else if (state.status === UIState.STATUS_LOGIN_FAILED) {
       stateValue = "login-failed";
-      headerTitle = this.fluentStrings.formatValueSync("account-disconnected");
+      headerTitle = this.fluentStrings.formatValueSync("account-disconnected2");
       headerDescription = state.email;
       mainWindowEl.style.removeProperty("--avatar-image-url");
     } else if (state.status === UIState.STATUS_NOT_VERIFIED) {
@@ -1045,6 +1045,7 @@ var gSync = {
     const status = state.status;
     // Reset the status bar to its original state.
     appMenuLabel.setAttribute("label", defaultLabel);
+    appMenuLabel.removeAttribute("aria-labelledby");
     appMenuStatus.removeAttribute("fxastatus");
     appMenuAvatar.style.removeProperty("list-style-image");
 
@@ -1074,7 +1075,7 @@ var gSync = {
       );
       appMenuStatus.setAttribute("fxastatus", "login-failed");
       let errorLabel = this.fluentStrings.formatValueSync(
-        "account-disconnected"
+        "account-disconnected2"
       );
       appMenuStatus.setAttribute("tooltiptext", tooltipDescription);
       if (PanelUI.protonAppMenuEnabled) {
@@ -1082,6 +1083,12 @@ var gSync = {
         appMenuHeaderTitle.hidden = false;
         appMenuHeaderTitle.value = errorLabel;
         appMenuHeaderDescription.value = state.email;
+
+        appMenuLabel.removeAttribute("label");
+        appMenuLabel.setAttribute(
+          "aria-labelledby",
+          `${appMenuHeaderTitle.id},${appMenuHeaderDescription.id}`
+        );
       } else {
         appMenuLabel.setAttribute("label", errorLabel);
       }
@@ -1101,6 +1108,12 @@ var gSync = {
         appMenuHeaderTitle.hidden = false;
         appMenuHeaderTitle.value = unverifiedLabel;
         appMenuHeaderDescription.value = state.email;
+
+        appMenuLabel.removeAttribute("label");
+        appMenuLabel.setAttribute(
+          "aria-labelledby",
+          `${appMenuHeaderTitle.id},${appMenuHeaderDescription.id}`
+        );
       } else {
         appMenuLabel.setAttribute("label", unverifiedLabel);
       }
@@ -1259,35 +1272,6 @@ var gSync = {
     this.openFxAManagePage(entryPoint);
   },
 
-  async openSendFromFxaMenu(panel) {
-    this.emitFxaToolbarTelemetry("open_send", panel);
-    this.launchFxaService(gFxaSendLoginUrl);
-  },
-
-  async openMonitorFromFxaMenu(panel) {
-    this.emitFxaToolbarTelemetry("open_monitor", panel);
-    this.launchFxaService(gFxaMonitorLoginUrl);
-  },
-
-  launchFxaService(serviceUrl, panel) {
-    let entryPoint = "fxa_discoverability_native";
-    if (this.isPanelInsideAppMenu(panel)) {
-      entryPoint = "fxa_app_menu";
-    }
-
-    const url = new URL(serviceUrl);
-    url.searchParams.set("utm_source", "fxa-toolbar");
-    url.searchParams.set("utm_medium", "referral");
-    url.searchParams.set("entrypoint", entryPoint);
-
-    const state = UIState.get();
-    if (state.status == UIState.STATUS_SIGNED_IN) {
-      url.searchParams.set("email", state.email);
-    }
-
-    switchToTabHavingURI(url, true, { replaceQueryString: true });
-  },
-
   // Returns true if we managed to send the tab to any targets, false otherwise.
   async sendTabToDevice(url, targets, title) {
     const fxaCommandsDevices = [];
@@ -1437,9 +1421,17 @@ var gSync = {
           this.sendTabToDevice(t.url, to, t.title)
         )
       ).then(results => {
+        // Show the Sent! confirmation if any of the sends succeeded.
         if (results.includes(true)) {
-          let action = PageActions.actionForID("sendToDevice");
-          showBrowserPageActionFeedback(action);
+          // FxA button could be hidden with CSS since the user is logged out,
+          // although it seems likely this would only happen in testing...
+          let fxastatus = document.documentElement.getAttribute("fxastatus");
+          let anchorNode =
+            (fxastatus &&
+              fxastatus != "not_configured" &&
+              document.getElementById("fxa-toolbar-menu-button")) ||
+            document.getElementById("PanelUI-menu-button");
+          ConfirmationHint.show(anchorNode, "sendToDevice");
         }
         fxAccounts.flushLogFile();
       });

@@ -21,6 +21,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/Compression.h"
 #include "mozilla/MathAlgorithms.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Sprintf.h"  // SprintfLiteral
 #include "mozilla/Unused.h"
@@ -4485,7 +4486,8 @@ static bool CheckCoercedCall(FunctionValidator<Unit>& f, ParseNode* call,
                              Type ret, Type* type) {
   MOZ_ASSERT(ret.isCanonical());
 
-  if (!CheckRecursionLimitDontReport(f.cx())) {
+  AutoCheckRecursionLimit recursion(f.cx());
+  if (!recursion.checkDontReport(f.cx())) {
     return f.m().failOverRecursed();
   }
 
@@ -4817,7 +4819,8 @@ static bool CheckMultiply(FunctionValidator<Unit>& f, ParseNode* star,
 template <typename Unit>
 static bool CheckAddOrSub(FunctionValidator<Unit>& f, ParseNode* expr,
                           Type* type, unsigned* numAddOrSubOut = nullptr) {
-  if (!CheckRecursionLimitDontReport(f.cx())) {
+  AutoCheckRecursionLimit recursion(f.cx());
+  if (!recursion.checkDontReport(f.cx())) {
     return f.m().failOverRecursed();
   }
 
@@ -5199,7 +5202,8 @@ static bool CheckBitwise(FunctionValidator<Unit>& f, ParseNode* bitwise,
 
 template <typename Unit>
 static bool CheckExpr(FunctionValidator<Unit>& f, ParseNode* expr, Type* type) {
-  if (!CheckRecursionLimitDontReport(f.cx())) {
+  AutoCheckRecursionLimit recursion(f.cx());
+  if (!recursion.checkDontReport(f.cx())) {
     return f.m().failOverRecursed();
   }
 
@@ -5932,7 +5936,8 @@ static bool CheckBreakOrContinue(FunctionValidatorShared& f, bool isBreak,
 
 template <typename Unit>
 static bool CheckStatement(FunctionValidator<Unit>& f, ParseNode* stmt) {
-  if (!CheckRecursionLimitDontReport(f.cx())) {
+  AutoCheckRecursionLimit recursion(f.cx());
+  if (!recursion.checkDontReport(f.cx())) {
     return f.m().failOverRecursed();
   }
 
@@ -6432,21 +6437,22 @@ static bool GetDataProperty(JSContext* cx, HandleValue objVal, HandleAtom field,
     return LinkFail(cx, "accessing property of a Proxy");
   }
 
-  Rooted<PropertyDescriptor> desc(cx);
   RootedId id(cx, AtomToId(field));
-  if (!GetPropertyDescriptor(cx, obj, id, &desc)) {
+  Rooted<mozilla::Maybe<PropertyDescriptor>> desc(cx);
+  RootedObject holder(cx);
+  if (!GetPropertyDescriptor(cx, obj, id, &desc, &holder)) {
     return false;
   }
 
-  if (!desc.object()) {
+  if (!desc.isSome()) {
     return LinkFail(cx, "property not present on object");
   }
 
-  if (!desc.isDataDescriptor()) {
+  if (!desc->isDataDescriptor()) {
     return LinkFail(cx, "property is not a data property");
   }
 
-  v.set(desc.value());
+  v.set(desc->value());
   return true;
 }
 
@@ -6729,7 +6735,7 @@ static bool CheckBuffer(JSContext* cx, const AsmJSMetadata& metadata,
 
   buffer.set(&bufferObj->as<ArrayBufferObject>());
 
-  size_t memoryLength = buffer->byteLength().get();
+  size_t memoryLength = buffer->byteLength();
 
   if (!IsValidAsmJSHeapLength(memoryLength)) {
     UniqueChars msg(

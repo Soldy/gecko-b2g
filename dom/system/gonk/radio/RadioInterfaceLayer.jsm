@@ -62,7 +62,6 @@ const RADIOINTERFACE_CID = Components.ID(
 );
 
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
-// const kScreenStateChangedTopic = "screen-state-changed";
 
 const NS_PREFBRANCH_PREFCHANGE_TOPIC_ID = "nsPref:changed";
 
@@ -85,14 +84,9 @@ var DEBUG = RIL_DEBUG.DEBUG_RIL;
 
 function updateDebugFlag() {
   // Read debug setting from pref
-  let debugPref;
-  try {
-    debugPref =
-      debugPref || Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED);
-  } catch (e) {
-    debugPref = false;
-  }
-  DEBUG = RIL_DEBUG.DEBUG_RIL || debugPref;
+  DEBUG =
+    RIL_DEBUG.DEBUG_RIL ||
+    Services.prefs.getBoolPref(RIL_DEBUG.PREF_RIL_DEBUG_ENABLED, false);
 }
 updateDebugFlag();
 
@@ -665,15 +659,12 @@ function RadioInterface(aClientId) {
   this._exitEmergencyCbModeTimer = Cc["@mozilla.org/timer;1"].createInstance(
     Ci.nsITimer
   );
-
-  // Services.obs.addObserver(this, kScreenStateChangedTopic);
 }
 
 RadioInterface.prototype = {
   classID: RADIOINTERFACE_CID,
   QueryInterface: ChromeUtils.generateQI([
     Ci.nsIRadioInterface,
-    Ci.nsIObserver,
     Ci.nsIRilCallback,
   ]),
 
@@ -835,10 +826,6 @@ RadioInterface.prototype = {
 
   debug(s) {
     dump("-*- RadioInterface[" + this.clientId + "]: " + s + "\n");
-  },
-
-  shutdown() {
-    // Services.obs.removeObserver(this, kScreenStateChangedTopic);
   },
 
   _initIccInfo() {
@@ -2498,16 +2485,6 @@ RadioInterface.prototype = {
         );
       }
     });
-  },
-
-  // nsIObserver
-  observe(subject, topic, data) {
-    // switch (topic) {
-    //   case kScreenStateChangedTopic:
-    //     // Q do not support this command.
-    //     this.workerMessenger.send("setScreenState", { on: (data === "on") });
-    //     // break;
-    // }
   },
 
   // Flag to determine whether to update system clock automatically. It
@@ -4432,6 +4409,27 @@ RadioInterface.prototype = {
             "RILJ: [" +
               response.rilMessageToken +
               "] < RIL_REQUEST_STOP_NETWORK_SCAN error = " +
+              result.errorMsg +
+              " (" +
+              response.errorMsg +
+              ")"
+          );
+        }
+        break;
+      case "setUnsolResponseFilter":
+        if (response.errorMsg == 0) {
+          if (DEBUG) {
+            this.debug(
+              "RILJ: [" +
+                response.rilMessageToken +
+                "] < RIL_REQUEST_SET_UNSOLICITED_RESPONSE_FILTER"
+            );
+          }
+        } else if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              response.rilMessageToken +
+              "] < RIL_REQUEST_SET_UNSOLICITED_RESPONSE_FILTER error = " +
               result.errorMsg +
               " (" +
               response.errorMsg +
@@ -7020,7 +7018,20 @@ RadioInterface.prototype = {
         }
         this.rilworker.stopNetworkScan(message.rilMessageToken);
         break;
-
+      case "setUnsolResponseFilter":
+        if (DEBUG) {
+          this.debug(
+            "RILJ: [" +
+              message.rilMessageToken +
+              "] > RIL_REQUEST_SET_UNSOLICITED_RESPONSE_FILTER filter: " +
+              message.filter
+          );
+        }
+        this.rilworker.setUnsolResponseFilter(
+          message.rilMessageToken,
+          message.filter
+        );
+        break;
       default:
         break;
     }

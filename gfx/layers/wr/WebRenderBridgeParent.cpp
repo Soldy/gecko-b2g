@@ -335,7 +335,6 @@ WebRenderBridgeParent::WebRenderBridgeParent(
 #if defined(MOZ_WIDGET_ANDROID)
       mScreenPixelsTarget(nullptr),
 #endif
-      mPaused(false),
       mDestroyed(false),
       mReceivedDisplayList(false),
       mIsFirstPaint(true),
@@ -362,7 +361,6 @@ WebRenderBridgeParent::WebRenderBridgeParent(const wr::PipelineId& aPipelineId,
       mWrEpoch{0},
       mIdNamespace{0},
       mInitError(aError),
-      mPaused(false),
       mDestroyed(true),
       mReceivedDisplayList(false),
       mIsFirstPaint(false),
@@ -1620,10 +1618,13 @@ void WebRenderBridgeParent::MaybeCaptureScreenPixels() {
   if (mDestroyed) {
     return;
   }
-  MOZ_ASSERT(!mPaused);
 
   // This function should only get called in the root WRBP.
   MOZ_ASSERT(IsRootWebRenderBridgeParent());
+#  ifdef DEBUG
+  CompositorBridgeParent* cbp = GetRootCompositorBridgeParent();
+  MOZ_ASSERT(cbp && !cbp->IsPaused());
+#  endif
 
   SurfaceFormat format = SurfaceFormat::R8G8B8A8;  // On android we use RGBA8
   auto client_size = mWidget->GetClientSize();
@@ -1653,7 +1654,8 @@ void WebRenderBridgeParent::MaybeCaptureScreenPixels() {
 mozilla::ipc::IPCResult WebRenderBridgeParent::RecvGetSnapshot(
     PTextureParent* aTexture, bool* aNeedsYFlip) {
   *aNeedsYFlip = false;
-  if (mDestroyed || mPaused) {
+  CompositorBridgeParent* cbp = GetRootCompositorBridgeParent();
+  if (mDestroyed || !cbp || cbp->IsPaused()) {
     return IPC_OK();
   }
 
@@ -2106,11 +2108,18 @@ void WebRenderBridgeParent::CompositeToTarget(VsyncId aId,
   MOZ_ASSERT(aRect == nullptr);
 
   AUTO_PROFILER_TRACING_MARKER("Paint", "CompositeToTarget", GRAPHICS);
-  if (mPaused || !mReceivedDisplayList) {
+
+  bool paused = true;
+  CompositorBridgeParent* cbp = GetRootCompositorBridgeParent();
+  if (cbp) {
+    paused = cbp->IsPaused();
+  }
+
+  if (paused || !mReceivedDisplayList) {
     ResetPreviousSampleTime();
     mCompositionOpportunityId = mCompositionOpportunityId.Next();
     PROFILER_MARKER_TEXT("SkippedComposite", GRAPHICS, {},
-                         mPaused ? "Paused"_ns : "No display list"_ns);
+                         paused ? "Paused"_ns : "No display list"_ns);
     return;
   }
 
@@ -2313,6 +2322,53 @@ void WebRenderBridgeParent::NotifyDidSceneBuild(
   CompositeToTarget(mCompositorScheduler->GetLastVsyncId(), nullptr, nullptr);
 }
 
+static Telemetry::HistogramID GetHistogramId(const bool aIsLargePaint,
+                                             const bool aIsFullDisplayList) {
+  const Telemetry::HistogramID histogramIds[] = {
+      Telemetry::CONTENT_SMALL_PAINT_PHASE_WEIGHT_PARTIAL,
+      Telemetry::CONTENT_LARGE_PAINT_PHASE_WEIGHT_PARTIAL,
+      Telemetry::CONTENT_SMALL_PAINT_PHASE_WEIGHT_FULL,
+      Telemetry::CONTENT_LARGE_PAINT_PHASE_WEIGHT_FULL,
+  };
+
+  return histogramIds[(aIsFullDisplayList * 2) + aIsLargePaint];
+}
+
+static void RecordPaintPhaseTelemetry(wr::RendererStats* aStats) {
+  if (!aStats || !aStats->full_paint) {
+    return;
+  }
+
+  const double geckoDL = aStats->gecko_display_list_time;
+  const double wrDL = aStats->wr_display_list_time;
+  const double sceneBuild = aStats->scene_build_time;
+  const double frameBuild = aStats->frame_build_time;
+  const double totalMs = geckoDL + wrDL + sceneBuild + frameBuild;
+
+  // If the total time was >= 16ms, then it's likely we missed a frame due to
+  // painting. We bucket these metrics separately.
+  const bool isLargePaint = totalMs >= 16.0;
+
+  // Split the results based on display list build type, partial or full.
+  const bool isFullDisplayList = aStats->full_display_list;
+
+  auto AsPercentage = [&](const double aTimeMs) -> double {
+    MOZ_ASSERT(aTimeMs <= totalMs);
+    return (aTimeMs / totalMs) * 100.0;
+  };
+
+  auto RecordKey = [&](const nsCString& aKey, const double aTimeMs) -> void {
+    const auto val = static_cast<uint32_t>(AsPercentage(aTimeMs));
+    const auto histogramId = GetHistogramId(isLargePaint, isFullDisplayList);
+    Telemetry::Accumulate(histogramId, aKey, val);
+  };
+
+  RecordKey("dl"_ns, geckoDL);
+  RecordKey("wrdl"_ns, wrDL);
+  RecordKey("sb"_ns, sceneBuild);
+  RecordKey("fb"_ns, frameBuild);
+}
+
 Maybe<TransactionId> WebRenderBridgeParent::FlushTransactionIdsForEpoch(
     const wr::Epoch& aEpoch, const VsyncId& aCompositeStartId,
     const TimeStamp& aCompositeStartTime, const TimeStamp& aRenderStartTime,
@@ -2338,6 +2394,9 @@ Maybe<TransactionId> WebRenderBridgeParent::FlushTransactionIdsForEpoch(
           transactionId.mTxnStartTime, aCompositeStartId, aEndTime,
           fullPaintTime, mVsyncRate, transactionId.mContainsSVGGroup, true,
           aStats);
+
+      RecordPaintPhaseTelemetry(aStats);
+
       if (contentFrameTime > 200) {
         aOutputStats->AppendElement(FrameStats(
             transactionId.mId, aCompositeStartTime, aRenderStartTime, aEndTime,
@@ -2424,7 +2483,6 @@ void WebRenderBridgeParent::Pause() {
   }
 
   mApi->Pause();
-  mPaused = true;
 }
 
 bool WebRenderBridgeParent::Resume() {
@@ -2440,8 +2498,6 @@ bool WebRenderBridgeParent::Resume() {
 
   // Ensure we generate and render a frame immediately.
   ScheduleForcedGenerateFrame();
-
-  mPaused = false;
   return true;
 }
 

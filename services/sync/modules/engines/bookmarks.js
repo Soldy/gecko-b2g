@@ -425,12 +425,17 @@ BookmarksEngine.prototype = {
       if (
         Async.isShutdownException(ex) ||
         ex.status > 0 ||
-        ex.name == "MergeConflictError" ||
         ex.name == "InterruptedError"
       ) {
         // Don't run maintenance on shutdown or HTTP errors, or if we aborted
         // the sync because the user changed their bookmarks during merging.
         throw ex;
+      }
+      if (ex.name == "MergeConflictError") {
+        this._log.warn(
+          "Bookmark syncing ran into a merge conflict error...will retry later"
+        );
+        return;
       }
       // Run Places maintenance periodically to try to recover from corruption
       // that might have caused the sync to fail. We cap the interval because
@@ -505,7 +510,6 @@ BookmarksEngine.prototype = {
     try {
       let recordsToUpload = await buf.apply({
         remoteTimeSeconds: Resource.serverTime,
-        weakUpload: [...this._needWeakUpload.keys()],
         signal: watchdog.signal,
       });
       this._modified.replace(recordsToUpload);
@@ -514,7 +518,6 @@ BookmarksEngine.prototype = {
       if (watchdog.abortReason) {
         this._log.warn(`Aborting bookmark merge: ${watchdog.abortReason}`);
       }
-      this._needWeakUpload.clear();
     }
   },
 
@@ -541,9 +544,6 @@ BookmarksEngine.prototype = {
   },
 
   async _doCreateRecord(id) {
-    if (this._needWeakUpload.has(id)) {
-      return this._store.createRecord(id, this.name);
-    }
     let change = this._modified.changes[id];
     if (!change) {
       this._log.error(

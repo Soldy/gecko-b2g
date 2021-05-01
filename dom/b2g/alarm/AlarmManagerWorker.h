@@ -14,7 +14,8 @@ namespace dom {
 class AlarmManagerWorker final : public AlarmManagerImpl {
  public:
   NS_INLINE_DECL_REFCOUNTING(AlarmManagerWorker, override)
-  explicit AlarmManagerWorker(nsCString aUrl, nsIGlobalObject* aOuterGlobal);
+  explicit AlarmManagerWorker(nsIGlobalObject* aOuterGlobal);
+  virtual nsresult Init() override;
 
   virtual already_AddRefed<Promise> GetAll() override;
   virtual already_AddRefed<Promise> Add(JSContext* aCx,

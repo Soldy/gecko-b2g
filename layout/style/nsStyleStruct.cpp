@@ -1629,6 +1629,31 @@ void StyleImage::ResolveImage(Document& aDoc, const StyleImage* aOld) {
   const_cast<StyleComputedImageUrl*>(url)->ResolveImage(aDoc, old);
 }
 
+template <>
+Maybe<CSSIntSize> StyleImage::GetIntrinsicSize() const {
+  auto [finalImage, resolution] = FinalImageAndResolution();
+  imgRequestProxy* request = finalImage->GetImageRequest();
+  if (!request) {
+    return Nothing();
+  }
+  RefPtr<imgIContainer> image;
+  request->GetImage(getter_AddRefs(image));
+  if (!image) {
+    return Nothing();
+  }
+  // FIXME(emilio): Seems like this should be smarter about unspecified width /
+  // height, aspect ratio, etc, but this preserves the current behavior of our
+  // only caller for now...
+  int32_t w = 0, h = 0;
+  image->GetWidth(&w);
+  image->GetHeight(&h);
+  if (resolution != 0.0f && resolution != 1.0f) {
+    w = std::round(float(w) / resolution);
+    h = std::round(float(h) / resolution);
+  }
+  return Some(CSSIntSize{w, h});
+}
+
 // --------------------
 // nsStyleImageLayers
 //
@@ -1882,8 +1907,11 @@ static bool SizeDependsOnPositioningAreaSize(const StyleBackgroundSize& aSize,
       CSSIntSize imageSize;
       AspectRatio imageRatio;
       bool hasWidth, hasHeight;
-      nsLayoutUtils::ComputeSizeForDrawing(imgContainer, imageSize, imageRatio,
-                                           hasWidth, hasHeight);
+      // We could bother getting the right resolution here but it doesn't matter
+      // since we ignore `imageSize`.
+      nsLayoutUtils::ComputeSizeForDrawing(imgContainer,
+                                           /* aResolution = */ 1.0f, imageSize,
+                                           imageRatio, hasWidth, hasHeight);
 
       // If the image has a fixed width and height, rendering never depends on
       // the frame size.
@@ -2653,10 +2681,7 @@ nsChangeHint nsStyleDisplay::CalcDifference(
 //
 
 nsStyleVisibility::nsStyleVisibility(const Document& aDocument)
-    : mImageOrientation(
-          StaticPrefs::layout_css_image_orientation_initial_from_image()
-              ? StyleImageOrientation::FromImage
-              : StyleImageOrientation::None),
+    : mImageOrientation(StyleImageOrientation::FromImage),
       mDirection(aDocument.GetBidiOptions() == IBMBIDI_TEXTDIRECTION_RTL
                      ? StyleDirection::Rtl
                      : StyleDirection::Ltr),
@@ -2864,8 +2889,10 @@ nsStyleText::nsStyleText(const Document& aDocument)
                         : StyleRubyPosition::Over),
       mTextSizeAdjust(StyleTextSizeAdjust::Auto),
       mTextCombineUpright(NS_STYLE_TEXT_COMBINE_UPRIGHT_NONE),
-      mControlCharacterVisibility(
-          nsLayoutUtils::ControlCharVisibilityDefault()),
+      mMozControlCharacterVisibility(
+          StaticPrefs::layout_css_control_characters_visible()
+              ? StyleMozControlCharacterVisibility::Visible
+              : StyleMozControlCharacterVisibility::Hidden),
       mTextRendering(StyleTextRendering::Auto),
       mTextEmphasisColor(StyleColor::CurrentColor()),
       mWebkitTextFillColor(StyleColor::CurrentColor()),
@@ -2904,7 +2931,7 @@ nsStyleText::nsStyleText(const nsStyleText& aSource)
       mRubyPosition(aSource.mRubyPosition),
       mTextSizeAdjust(aSource.mTextSizeAdjust),
       mTextCombineUpright(aSource.mTextCombineUpright),
-      mControlCharacterVisibility(aSource.mControlCharacterVisibility),
+      mMozControlCharacterVisibility(aSource.mMozControlCharacterVisibility),
       mTextEmphasisPosition(aSource.mTextEmphasisPosition),
       mTextRendering(aSource.mTextRendering),
       mTextEmphasisColor(aSource.mTextEmphasisColor),
@@ -2934,7 +2961,8 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aNewData) const {
   }
 
   if (mTextCombineUpright != aNewData.mTextCombineUpright ||
-      mControlCharacterVisibility != aNewData.mControlCharacterVisibility) {
+      mMozControlCharacterVisibility !=
+          aNewData.mMozControlCharacterVisibility) {
     return nsChangeHint_ReconstructFrame;
   }
 
@@ -3038,6 +3066,7 @@ nsStyleUI::nsStyleUI(const Document& aDocument)
       mUserFocus(StyleUserFocus::None),
       mPointerEvents(StylePointerEvents::Auto),
       mCursor{{}, StyleCursorKind::Auto},
+      mAccentColor(StyleColorOrAuto::Auto()),
       mCaretColor(StyleColorOrAuto::Auto()),
       mScrollbarColor(StyleScrollbarColor::Auto()) {
   MOZ_COUNT_CTOR(nsStyleUI);
@@ -3050,6 +3079,7 @@ nsStyleUI::nsStyleUI(const nsStyleUI& aSource)
       mUserFocus(aSource.mUserFocus),
       mPointerEvents(aSource.mPointerEvents),
       mCursor(aSource.mCursor),
+      mAccentColor(aSource.mAccentColor),
       mCaretColor(aSource.mCaretColor),
       mScrollbarColor(aSource.mScrollbarColor) {
   MOZ_COUNT_CTOR(nsStyleUI);
@@ -3100,6 +3130,7 @@ nsChangeHint nsStyleUI::CalcDifference(const nsStyleUI& aNewData) const {
   }
 
   if (mCaretColor != aNewData.mCaretColor ||
+      mAccentColor != aNewData.mAccentColor ||
       mScrollbarColor != aNewData.mScrollbarColor) {
     hint |= nsChangeHint_RepaintFrame;
   }

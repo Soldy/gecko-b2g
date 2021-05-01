@@ -26,6 +26,7 @@
 #include "jit/JitFrames.h"
 #include "jit/JitRealm.h"
 #include "util/DifferentialTesting.h"
+#include "util/GetPidProvider.h"  // getpid()
 #include "util/Poison.h"
 #include "vm/ArrayObject.h"
 #include "vm/JSONPrinter.h"
@@ -36,13 +37,6 @@
 #include "gc/Marking-inl.h"
 #include "gc/Zone-inl.h"
 #include "vm/NativeObject-inl.h"
-
-#ifdef XP_WIN
-#  include <process.h>
-#  define getpid _getpid
-#else
-#  include <unistd.h>
-#endif
 
 using namespace js;
 using namespace gc;
@@ -1394,7 +1388,6 @@ void js::Nursery::sweep(JSTracer* trc) {
     zone->sweepAfterMinorGC(trc);
   }
 
-  sweepDictionaryModeObjects();
   sweepMapAndSetObjects();
 }
 
@@ -1766,11 +1759,6 @@ void js::Nursery::shrinkAllocableSpace(size_t newCapacity) {
   }
 }
 
-bool js::Nursery::queueDictionaryModeObjectToSweep(NativeObject* obj) {
-  MOZ_ASSERT(IsInsideNursery(obj));
-  return dictionaryModeObjects_.append(obj);
-}
-
 uintptr_t js::Nursery::currentEnd() const {
   // These are separate asserts because it can be useful to see which one
   // failed.
@@ -1790,17 +1778,6 @@ MOZ_ALWAYS_INLINE const js::gc::GCSchedulingTunables& js::Nursery::tunables()
 
 bool js::Nursery::isSubChunkMode() const {
   return capacity() <= NurseryChunkUsableSize;
-}
-
-void js::Nursery::sweepDictionaryModeObjects() {
-  for (auto obj : dictionaryModeObjects_) {
-    if (!IsForwarded(obj)) {
-      obj->sweepDictionaryListPointer();
-    } else {
-      Forwarded(obj)->updateDictionaryListPointerAfterMinorGC(obj);
-    }
-  }
-  dictionaryModeObjects_.clear();
 }
 
 void js::Nursery::sweepMapAndSetObjects() {

@@ -14,6 +14,7 @@
 #include "js/Warnings.h"  // JS::WarnUTF8
 #include "xpcpublic.h"
 
+#include "mozilla/fallible.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/java/EventCallbackWrappers.h"
@@ -52,7 +53,10 @@ nsresult BoxString(JSContext* aCx, JS::HandleValue aData,
     NS_ENSURE_TRUE(CheckJS(aCx, autoStr.init(aCx, str)), NS_ERROR_FAILURE);
 
     // StringParam can automatically convert a nsString to jstring.
-    aOut = jni::StringParam(autoStr, aOut.Env());
+    aOut = jni::StringParam(autoStr, aOut.Env(), fallible);
+    if (!aOut) {
+      return NS_ERROR_FAILURE;
+    }
     return NS_OK;
   }
 
@@ -949,13 +953,9 @@ void EventDispatcher::Attach(java::EventDispatcher::Param aDispatcher,
   dispatcher->SetAttachedToGecko(java::EventDispatcher::ATTACHED);
 }
 
-NS_IMETHODIMP
-EventDispatcher::Shutdown() {
-  MOZ_ASSERT(NS_IsMainThread());
+void EventDispatcher::Shutdown() {
   mDispatcher = nullptr;
   mDOMWindow = nullptr;
-  mListenersMap.Clear();
-  return NS_OK;
 }
 
 void EventDispatcher::Detach() {

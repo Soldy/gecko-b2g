@@ -301,8 +301,11 @@ nsString GonkGPSGeolocationProvider::sSettingRilDataApn =
     u"ril.data.apn.sim1"_ns;
 nsString GonkGPSGeolocationProvider::sSettingRilSuplApn =
     u"ril.supl.apn.sim1"_ns;
+nsString GonkGPSGeolocationProvider::sSettingRilSuplEsApn =
+    u"ril.emergency.apn.sim1"_ns;
 nsCString GonkGPSGeolocationProvider::sRilDataApn;
 nsCString GonkGPSGeolocationProvider::sRilSuplApn;
+nsCString GonkGPSGeolocationProvider::sRilSuplEsApn;
 #endif
 
 GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
@@ -317,6 +320,7 @@ GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
       mRilDataServiceId(0),
       mNumberOfRilServices(1),
       mSuplNetId(0),    // 0 represents "network unspecified"
+      mSuplEsNetId(0),  // 0 represents "network unspecified"
       mActiveNetId(0),  // 0 represents "network unspecified"
       mActiveType(nsINetworkInfo::NETWORK_TYPE_UNKNOWN),
       mActiveCapabilities(0),
@@ -351,6 +355,8 @@ GonkGPSGeolocationProvider::GonkGPSGeolocationProvider()
     settings->AddObserver(sSettingRilDataApn, this, this);
     settings->Get(sSettingRilSuplApn, this);
     settings->AddObserver(sSettingRilSuplApn, this, this);
+    settings->Get(sSettingRilSuplEsApn, this);
+    settings->AddObserver(sSettingRilSuplEsApn, this, this);
 #endif  // MOZ_B2G_RIL
   }
 
@@ -390,6 +396,7 @@ GonkGPSGeolocationProvider::~GonkGPSGeolocationProvider() {
 #ifdef MOZ_B2G_RIL
     settings->RemoveObserver(sSettingRilDataApn, this, this);
     settings->RemoveObserver(sSettingRilSuplApn, this, this);
+    settings->RemoveObserver(sSettingRilSuplEsApn, this, this);
 #endif  // MOZ_B2G_RIL
   }
 
@@ -973,6 +980,11 @@ NS_IMETHODIMP GonkGPSGeolocationProvider::HandleSettings(
     value.Trim("\"");
     sRilSuplApn = NS_ConvertUTF16toUTF8(value);
     DBG("ObserveSetting: supl APN: %s", sRilSuplApn.get());
+  } else if (name.Equals(sSettingRilSuplEsApn)) {
+    // Remove the surrounding " " of setting string
+    value.Trim("\"");
+    sRilSuplEsApn = NS_ConvertUTF16toUTF8(value);
+    DBG("ObserveSetting: supl es APN: %s", sRilSuplEsApn.get());
   } else if (name.Equals(kSettingRilDefaultServiceId)) {
     int32_t serviceId = 0;
     if (SVGContentUtils::ParseInteger(value, serviceId) == false) {
@@ -1027,20 +1039,35 @@ Return<void> AGnssCallback_V2_0::agnssStatusCb(
     IAGnssCallback_V2_0::AGnssStatusValue status) {
   class AGPSStatusEvent : public Runnable {
    public:
-    AGPSStatusEvent(IAGnssCallback_V2_0::AGnssStatusValue aStatus)
-        : Runnable("AGPSStatusEvent"), mStatus(aStatus) {}
+    AGPSStatusEvent(IAGnssCallback_V2_0::AGnssType aType,
+                    IAGnssCallback_V2_0::AGnssStatusValue aStatus)
+        : Runnable("AGPSStatusEvent"), mType(aType), mStatus(aStatus) {}
     NS_IMETHOD Run() override {
       RefPtr<GonkGPSGeolocationProvider> provider =
           GonkGPSGeolocationProvider::GetSingleton();
 
       switch (mStatus) {
         case IAGnssCallback_V2_0::AGnssStatusValue::REQUEST_AGNSS_DATA_CONN:
-          DBG("agnssStatusCb, REQUEST_AGNSS_DATA_CONN");
-          provider->RequestDataConnection();
+          DBG("agnssStatusCb, REQUEST_AGNSS_DATA_CONN, type: %d",
+              static_cast<int>(mType));
+          if (mType == IAGnssCallback_V2_0::AGnssType::SUPL) {
+            provider->RequestDataConnection(false);
+          } else if (mType == IAGnssCallback_V2_0::AGnssType::SUPL_EIMS) {
+            // Request emergency data call if SUPL-ES APN is available
+            provider->RequestDataConnection(
+                !GonkGPSGeolocationProvider::sRilSuplEsApn.IsEmpty());
+          }
           break;
         case IAGnssCallback_V2_0::AGnssStatusValue::RELEASE_AGNSS_DATA_CONN:
-          DBG("agnssStatusCb, RELEASE_AGNSS_DATA_CONN");
-          provider->ReleaseDataConnection();
+          DBG("agnssStatusCb, RELEASE_AGNSS_DATA_CONN, type: %d",
+              static_cast<int>(mType));
+          if (mType == IAGnssCallback_V2_0::AGnssType::SUPL) {
+            provider->ReleaseDataConnection(false);
+          } else if (mType == IAGnssCallback_V2_0::AGnssType::SUPL_EIMS) {
+            // Release emergency data call if SUPL-ES APN is available
+            provider->ReleaseDataConnection(
+                !GonkGPSGeolocationProvider::sRilSuplEsApn.IsEmpty());
+          }
           break;
         case IAGnssCallback_V2_0::AGnssStatusValue::AGNSS_DATA_CONNECTED:
           DBG("agnssStatusCb, AGNSS_DATA_CONNECTED");
@@ -1056,10 +1083,11 @@ Return<void> AGnssCallback_V2_0::agnssStatusCb(
     }
 
    private:
+    IAGnssCallback_V2_0::AGnssType mType;
     IAGnssCallback_V2_0::AGnssStatusValue mStatus;
   };
 
-  NS_DispatchToMainThread(new AGPSStatusEvent(status));
+  NS_DispatchToMainThread(new AGPSStatusEvent(type, status));
 
   return Void();
 }
@@ -1067,6 +1095,7 @@ Return<void> AGnssCallback_V2_0::agnssStatusCb(
 bool IsMetered(int aNetworkInterfaceType) {
   switch (aNetworkInterfaceType) {
     case nsINetworkInfo::NETWORK_TYPE_WIFI:
+    case nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC:
       return false;
     case nsINetworkInfo::NETWORK_TYPE_MOBILE:
     case nsINetworkInfo::NETWORK_TYPE_MOBILE_MMS:
@@ -1231,14 +1260,19 @@ void GonkGPSGeolocationProvider::UpdateApnObservers(uint32_t aServiceId) {
 
   settings->RemoveObserver(sSettingRilDataApn, this, this);
   settings->RemoveObserver(sSettingRilSuplApn, this, this);
+  settings->RemoveObserver(sSettingRilSuplEsApn, this, this);
   sSettingRilDataApn =
       aServiceId == 0 ? u"ril.data.apn.sim1"_ns : u"ril.data.apn.sim2"_ns;
   sSettingRilSuplApn =
       aServiceId == 0 ? u"ril.supl.apn.sim1"_ns : u"ril.supl.apn.sim2"_ns;
+  sSettingRilSuplEsApn = aServiceId == 0 ? u"ril.emergency.apn.sim1"_ns
+                                         : u"ril.emergency.apn.sim2"_ns;
   settings->Get(sSettingRilDataApn, this);
   settings->AddObserver(sSettingRilDataApn, this, this);
   settings->Get(sSettingRilSuplApn, this);
   settings->AddObserver(sSettingRilSuplApn, this, this);
+  settings->Get(sSettingRilSuplEsApn, this);
+  settings->AddObserver(sSettingRilSuplEsApn, this, this);
 }
 
 void GonkGPSGeolocationProvider::UpdateRadioInterface() {
@@ -1288,14 +1322,16 @@ void GonkGPSGeolocationProvider::SetupAGPS() {
   }
 }
 
-int32_t GonkGPSGeolocationProvider::GetDataConnectionState() {
+int32_t GonkGPSGeolocationProvider::GetDataConnectionState(
+    bool isEmergencySupl) {
   if (!mRadioInterface) {
     return nsINetworkInfo::NETWORK_STATE_UNKNOWN;
   }
 
   int32_t state;
-  nsresult rv = mRadioInterface->GetDataCallStateByType(
-      nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL, &state);
+  int type = isEmergencySupl ? nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC
+                             : nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL;
+  nsresult rv = mRadioInterface->GetDataCallStateByType(type, &state);
 
   if (NS_FAILED(rv)) {
     ERR("Failed to get SUPL data call state.");
@@ -1304,16 +1340,20 @@ int32_t GonkGPSGeolocationProvider::GetDataConnectionState() {
   return state;
 }
 
-void GonkGPSGeolocationProvider::AGpsDataConnectionOpen() {
-  uint64_t netHandle = GetNetHandle(mSuplNetId);
+void GonkGPSGeolocationProvider::AGpsDataConnectionOpen(bool isEmergencySupl) {
+  uint64_t netHandle =
+      GetNetHandle(isEmergencySupl ? mSuplEsNetId : mSuplNetId);
+
+  nsCString& apn = isEmergencySupl ? sRilSuplEsApn : sRilSuplApn;
 
   LOG("mAGnssHal_V2_0->data_conn_open_with_apn_ip_type(%llu, %s, "
       "APN_IP_IPV4V6), netId: %d",
-      netHandle, sRilSuplApn.get(), mSuplNetId);
+      netHandle, apn.get(), mSuplNetId);
 
   auto result = mAGnssHal_V2_0->dataConnOpen(
-      netHandle, std::string(sRilSuplApn.get(), sRilSuplApn.Length()),
+      netHandle, std::string(apn.get(), apn.Length()),
       IAGnss_V2_0::ApnIpType::IPV4V6);
+
   if (!result.isOk() || !result) {
     ERR("failed to set APN and its IP type to IAGnss");
   }
@@ -1330,7 +1370,8 @@ void GonkGPSGeolocationProvider::HandleAGpsDataConnection(
 
   int32_t type;
   rilInfo->GetType(&type);
-  if (type != nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL) {
+  if (type != nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL &&
+      type != nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC) {
     return;
   }
 
@@ -1339,20 +1380,29 @@ void GonkGPSGeolocationProvider::HandleAGpsDataConnection(
   if (state == nsINetworkInfo::NETWORK_STATE_CONNECTED) {
     int32_t netId;
     rilInfo->GetNetId(&netId);
-    // Update the net id of SUPL data call
-    mSuplNetId = netId;
-    AGpsDataConnectionOpen();
+    // Update the net id of SUPL/ECC data call
+    if (type == nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL) {
+      mSuplNetId = netId;
+      AGpsDataConnectionOpen(false);
+    } else {  // nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC
+      mSuplEsNetId = netId;
+      AGpsDataConnectionOpen(true);
+    }
   } else if (state == nsINetworkInfo::NETWORK_STATE_DISCONNECTED) {
     LOG("mAGnssHal_V2_0->data_conn_closed()");
     auto result = mAGnssHal_V2_0->dataConnClosed();
     if (!result.isOk() || !result) {
       ERR("failed to close IAGnss data connection");
     }
-    mSuplNetId = 0;
+    if (type == nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL) {
+      mSuplNetId = 0;
+    } else {
+      mSuplEsNetId = 0;
+    }
   }
 }
 
-void GonkGPSGeolocationProvider::RequestDataConnection() {
+void GonkGPSGeolocationProvider::RequestDataConnection(bool isEmergencySupl) {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (!mRadioInterface) {
@@ -1360,10 +1410,14 @@ void GonkGPSGeolocationProvider::RequestDataConnection() {
     return;
   }
 
-  if (GetDataConnectionState() != nsINetworkInfo::NETWORK_STATE_CONNECTED) {
+  if (GetDataConnectionState(isEmergencySupl) !=
+      nsINetworkInfo::NETWORK_STATE_CONNECTED) {
     LOG("nsIRadioInterface->SetupDataCallByType()");
-    nsresult rv = mRadioInterface->SetupDataCallByType(
-        nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL);
+
+    int32_t type = isEmergencySupl ? nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC
+                                   : nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL;
+    nsresult rv = mRadioInterface->SetupDataCallByType(type);
+
     if (NS_FAILED(rv)) {
       ERR("Failed to setup SUPL data call.");
     }
@@ -1371,11 +1425,11 @@ void GonkGPSGeolocationProvider::RequestDataConnection() {
     LOG("SUPL has already connected");
     // Ideally, HAL should not request a connection when it's already connected.
     // But we still call dataConnOpen here as an error-tolerant design.
-    AGpsDataConnectionOpen();
+    AGpsDataConnectionOpen(isEmergencySupl);
   }
 }
 
-void GonkGPSGeolocationProvider::ReleaseDataConnection() {
+void GonkGPSGeolocationProvider::ReleaseDataConnection(bool isEmergencySupl) {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (!mRadioInterface) {
@@ -1384,8 +1438,10 @@ void GonkGPSGeolocationProvider::ReleaseDataConnection() {
   }
 
   LOG("nsIRadioInterface->DeactivateDataCallByType()");
-  nsresult rv = mRadioInterface->DeactivateDataCallByType(
-      nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL);
+  int32_t type = isEmergencySupl ? nsINetworkInfo::NETWORK_TYPE_MOBILE_ECC
+                                 : nsINetworkInfo::NETWORK_TYPE_MOBILE_SUPL;
+  nsresult rv = mRadioInterface->DeactivateDataCallByType(type);
+
   if (NS_FAILED(rv)) {
     ERR("Failed to deactivate SUPL data call.");
   }

@@ -1964,7 +1964,9 @@ void BluetoothServiceBluedroid::PinRequestNotification(
   // If |aBdName| is empty, get device name from |mDeviceNameMap|;
   // Otherwise update <address, name> mapping with |aBdName|
   if (aBdName.IsCleared()) {
-    mDeviceNameMap.Get(aRemoteBdAddr, &bdName);
+    if (!mDeviceNameMap.Get(aRemoteBdAddr, &bdName)) {
+      BT_LOGD("BD name is unknown");
+    }
   } else {
     bdName.Assign(aBdName.mName, aBdName.mLength);
     mDeviceNameMap.Remove(aRemoteBdAddr);
@@ -2003,7 +2005,9 @@ void BluetoothServiceBluedroid::SspRequestNotification(
   // If |aBdName| is empty, get device name from |mDeviceNameMap|;
   // Otherwise update <address, name> mapping with |aBdName|
   if (aBdName.IsCleared()) {
-    mDeviceNameMap.Get(aRemoteBdAddr, &bdName);
+    if (!mDeviceNameMap.Get(aRemoteBdAddr, &bdName)) {
+      BT_LOGD("BD name is unknown");
+    }
   } else {
     bdName.Assign(aBdName.mName, aBdName.mLength);
     mDeviceNameMap.Remove(aRemoteBdAddr);
@@ -2075,7 +2079,9 @@ void BluetoothServiceBluedroid::BondStateChangedNotification(
 
       // Query pairing device name from hash table
       BluetoothRemoteName remotebdName;
-      mDeviceNameMap.Get(aRemoteBdAddr, &remotebdName);
+      if (!mDeviceNameMap.Get(aRemoteBdAddr, &remotebdName)) {
+        BT_LOGD("BD name is unknown");
+      }
       // Since mName is not 0-terminated, mLength is required here.
       NS_ConvertASCIItoUTF16 bdName(reinterpret_cast<char*>(remotebdName.mName),
                                     remotebdName.mLength);
@@ -2108,7 +2114,9 @@ void BluetoothServiceBluedroid::BondStateChangedNotification(
 
     // Query pairing device name from hash table
     BluetoothRemoteName remotebdName;
-    mDeviceNameMap.Get(aRemoteBdAddr, &remotebdName);
+    if (!mDeviceNameMap.Get(aRemoteBdAddr, &remotebdName)) {
+      BT_LOGD("BD name is unknown");
+    }
 
     // We don't assert |!remotebdName.IsEmpty()| since empty string is also
     // valid, according to Bluetooth Core Spec. v3.0 - Sec. 6.22:
@@ -2118,8 +2126,7 @@ void BluetoothServiceBluedroid::BondStateChangedNotification(
 
     // Use the cached CoD which is got from pairing request
     uint32_t remoteCod = 0;
-    mDeviceCodMap.Get(aRemoteBdAddr, &remoteCod);
-    if (remoteCod) {
+    if (!mDeviceCodMap.Get(aRemoteBdAddr, &remoteCod)) {
       AppendNamedValue(propertiesArray, "Cod", remoteCod);
     }
   }

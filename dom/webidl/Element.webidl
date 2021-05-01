@@ -115,9 +115,9 @@ interface Element : Node {
   boolean mozMatchesSelector(UTF8String selector);
 
   // Pointer events methods.
-  [Throws]
+  [UseCounter, Throws]
   void setPointerCapture(long pointerId);
-  [Throws]
+  [UseCounter, Throws]
   void releasePointerCapture(long pointerId);
   boolean hasPointerCapture(long pointerId);
 
@@ -130,14 +130,14 @@ interface Element : Node {
    * element.
    *
    */
-  [UseCounter]
+  [Deprecated=ElementSetCapture, Pref="dom.mouse_capture.enabled"]
   void setCapture(optional boolean retargetToElement = false);
 
   /**
    * If this element has captured the mouse, release the capture. If another
    * element has captured the mouse, this method has no effect.
    */
-  [UseCounter]
+  [Deprecated=ElementReleaseCapture, Pref="dom.mouse_capture.enabled"]
   void releaseCapture();
 
   /*
@@ -241,9 +241,9 @@ partial interface Element {
 // http://domparsing.spec.whatwg.org/#extensions-to-the-element-interface
 partial interface Element {
   [CEReactions, SetterNeedsSubjectPrincipal=NonSystem, Pure, SetterThrows, GetterCanOOM]
-  attribute [TreatNullAs=EmptyString] DOMString innerHTML;
+  attribute [LegacyNullToEmptyString] DOMString innerHTML;
   [CEReactions, Pure, SetterThrows]
-  attribute [TreatNullAs=EmptyString] DOMString outerHTML;
+  attribute [LegacyNullToEmptyString] DOMString outerHTML;
   [CEReactions, Throws]
   void insertAdjacentHTML(DOMString position, DOMString text);
 };

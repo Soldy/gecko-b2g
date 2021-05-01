@@ -89,7 +89,7 @@ fuzzy(0-20,0-999) fails-if(OSX>=1008&&!skiaContent) != downscale-2e.html?205,53,
 
 # Skip on Android because it runs reftests via http, and moz-icon isn't
 # accessible from http/https origins anymore.
-fuzzy(0-17,0-3221) fuzzy-if(gtkWidget&&!webrender,4-4,2616-2616) fuzzy-if(gtkWidget&&!webrender&&!layersGPUAccelerated,0-0,0-0) fuzzy-if(gtkWidget&&webrender,0-0,0-0) skip-if(Android) == downscale-moz-icon-1.html downscale-moz-icon-1-ref.html # gtkWidget Bug 1592059: regular is 2616, no-accel is 0, qr passes with 0
+fuzzy(0-17,0-3940) fuzzy-if(gtkWidget&&!webrender,4-4,2616-2616) fuzzy-if(gtkWidget&&!webrender&&!layersGPUAccelerated,0-0,0-0) fuzzy-if(gtkWidget&&webrender,0-0,0-0) skip-if(Android) == downscale-moz-icon-1.html downscale-moz-icon-1-ref.html # gtkWidget Bug 1592059: regular is 2616, no-accel is 0, qr passes with 0
 
 == downscale-png.html?16,16,interlaced downscale-png.html?16,16,normal
 == downscale-png.html?24,24,interlaced downscale-png.html?24,24,normal
@@ -111,7 +111,7 @@ fuzzy(0-1,0-1024) == downscale-32px.html?.jpg downscale-32px-ref.html
 == downscale-32px.html?-png-in.ico downscale-32px-ref.html
 
 # Test downscaling a JPEG with orientation metadata.
-pref(layout.css.image-orientation.initial-from-image,true) fuzzy(0-1,0-50) == downscale-orient.html downscale-orient-ref.html
+fuzzy(0-1,0-50) == downscale-orient.html downscale-orient-ref.html
 
 # RUN TESTS WITH DOWNSCALE-DURING-DECODE ENABLED:
 # ===============================================
@@ -178,7 +178,7 @@ fuzzy(0-20,0-999) != downscale-2f.html?205,53,bottom about:blank
 # Skip on WinXP with skia content
 # Skip on Android because it runs reftests via http, and moz-icon isn't
 # accessible from http/https origins anymore.
-fuzzy(0-53,0-6391) fuzzy-if(gtkWidget&&webrender,18-19,5502-5568) fails-if(/^Windows\x20NT\x205\.1/.test(http.oscpu)) skip-if(Android) == downscale-moz-icon-1.html downscale-moz-icon-1-ref.html # gtkWidget Bug 1592059
+fuzzy(0-53,0-6391) fuzzy-if(appleSilicon,20-20,11605-11605) fuzzy-if(gtkWidget&&webrender,18-19,5502-5568) fails-if(/^Windows\x20NT\x205\.1/.test(http.oscpu)) skip-if(Android) == downscale-moz-icon-1.html downscale-moz-icon-1-ref.html # gtkWidget Bug 1592059
 
 == downscale-png.html?16,16,interlaced downscale-png.html?16,16,normal
 == downscale-png.html?24,24,interlaced downscale-png.html?24,24,normal
@@ -200,7 +200,7 @@ fuzzy(0-18,0-128) == downscale-32px.html?-bmp-in.ico downscale-32px-ref.html
 fuzzy(0-18,0-128) == downscale-32px.html?-png-in.ico downscale-32px-ref.html
 
 # Test downscaling a JPEG with orientation metadata.
-pref(layout.css.image-orientation.initial-from-image,true) fuzzy(0-4,0-18) == downscale-orient.html downscale-orient-ref.html
+fuzzy(0-4,0-18) == downscale-orient.html downscale-orient-ref.html
 
 # Test images taller or wider than 32767 pixels.
 == huge-1.html?100x32768.png,100,100 huge-1.html?100x100.png,100,100

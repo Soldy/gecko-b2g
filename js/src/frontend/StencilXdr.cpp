@@ -176,11 +176,11 @@ template <XDRMode mode>
   uint8_t flags = 0;
 
   if (mode == XDR_ENCODE) {
-    flags = stencil.flags_.serialize();
+    flags = stencil.flags_.toRaw();
   }
   MOZ_TRY(xdr->codeUint8(&flags));
   if (mode == XDR_DECODE) {
-    stencil.flags_.deserialize(flags);
+    stencil.flags_.setRaw(flags);
   }
 
   MOZ_TRY(xdr->codeUint32(&stencil.propertyCount_));
@@ -218,12 +218,13 @@ template <XDRMode mode>
   if (mode == XDR_ENCODE) {
     length = baseScopeData->length;
   } else {
-    MOZ_TRY(xdr->peekRawUint32(&length));
+    MOZ_TRY(xdr->peekUint32(&length));
   }
 
   AssertScopeSpecificDataIsEncodable<FunctionScope>();
   AssertScopeSpecificDataIsEncodable<VarScope>();
   AssertScopeSpecificDataIsEncodable<LexicalScope>();
+  AssertScopeSpecificDataIsEncodable<ClassBodyScope>();
   AssertScopeSpecificDataIsEncodable<EvalScope>();
   AssertScopeSpecificDataIsEncodable<GlobalScope>();
   AssertScopeSpecificDataIsEncodable<ModuleScope>();
@@ -253,6 +254,10 @@ XDRResult StencilXDR::codeSharedData(XDRState<mode>* xdr,
     }
     MOZ_TRY(XDRImmutableScriptData<mode>(xdr, data->isd_));
     sisd = data.release();
+
+    if (!SharedImmutableScriptData::shareScriptData(cx, sisd)) {
+      return xdr->fail(JS::TranscodeResult::Throw);
+    }
   }
 
   return Ok();

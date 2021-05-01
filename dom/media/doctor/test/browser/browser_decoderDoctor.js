@@ -30,11 +30,14 @@ async function test_decoder_doctor_notification(
     await BrowserTestUtils.withNewTab(
       { gBrowser, url: TEST_URL },
       async function(browser) {
-        let awaitNotificationBar = BrowserTestUtils.waitForNotificationBar(
-          gBrowser,
-          browser,
-          "decoder-doctor-notification"
-        );
+        let awaitNotificationBar;
+        if (notificationMessage) {
+          awaitNotificationBar = BrowserTestUtils.waitForNotificationBar(
+            gBrowser,
+            browser,
+            "decoder-doctor-notification"
+          );
+        }
 
         await SpecialPowers.spawn(
           browser,
@@ -94,14 +97,9 @@ async function test_decoder_doctor_notification(
         }
         ok(notification, "Got decoder-doctor-notification notification");
 
-        const protonInfobarsEnabled = Services.prefs.getBoolPref(
-          "browser.proton.infobars.enabled",
-          false
-        );
         is(
           notification.messageText.textContent,
-          notificationMessage +
-            (protonInfobarsEnabled && isLink && label ? " " : ""),
+          notificationMessage + (gProton && isLink && label ? " " : ""),
           "notification message should match expectation"
         );
 

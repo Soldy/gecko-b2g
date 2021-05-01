@@ -63,7 +63,6 @@
 #include "nsExpirationTracker.h"
 #include "nsGkAtoms.h"
 #include "nsHashKeys.h"
-#include "nsIApplicationCacheContainer.h"
 #include "nsIChannel.h"
 #include "nsIChannelEventSink.h"
 #include "nsIContentViewer.h"
@@ -145,7 +144,6 @@ class nsHTMLDocument;
 class nsHTMLStyleSheet;
 class nsHtml5TreeOpExecutor;
 class nsIAppWindow;
-class nsIApplicationCache;
 class nsIAsyncVerifyRedirectCallback;
 class nsIBFCacheEntry;
 class nsIContent;
@@ -302,7 +300,8 @@ enum BFCacheStatus {
   HAS_ACTIVE_SPEECH_SYNTHESIS = 1 << 9,  // Status 9
   HAS_USED_VR = 1 << 10,                 // Status 10
   CONTAINS_REMOTE_SUBFRAMES = 1 << 11,   // Status 11
-  NOT_ONLY_TOPLEVEL_IN_BCG = 1 << 12     // Status 12
+  NOT_ONLY_TOPLEVEL_IN_BCG = 1 << 12,    // Status 12
+  ABOUT_PAGE = 1 << 13,                  // Status 13
 };
 
 }  // namespace dom
@@ -506,7 +505,6 @@ class ExternalResourceMap {
     DECL_SHIM(nsILoadContext, NSILOADCONTEXT)
     DECL_SHIM(nsIProgressEventSink, NSIPROGRESSEVENTSINK)
     DECL_SHIM(nsIChannelEventSink, NSICHANNELEVENTSINK)
-    DECL_SHIM(nsIApplicationCacheContainer, NSIAPPLICATIONCACHECONTAINER)
 #undef DECL_SHIM
   };
 
@@ -545,7 +543,6 @@ class Document : public nsINode,
                  public nsSupportsWeakReference,
                  public nsIRadioGroupContainer,
                  public nsIScriptObjectPrincipal,
-                 public nsIApplicationCacheContainer,
                  public DispatcherTrait,
                  public SupportsWeakPtr {
   friend class DocumentOrShadowRoot;
@@ -591,13 +588,10 @@ class Document : public nsINode,
     }                                                                         \
   } while (0)
 
-  // nsIApplicationCacheContainer
-  NS_DECL_NSIAPPLICATIONCACHECONTAINER
-
   // nsIRadioGroupContainer
-  NS_IMETHOD WalkRadioGroup(const nsAString& aName, nsIRadioVisitor* aVisitor,
-                            bool aFlushContent) final {
-    return DocumentOrShadowRoot::WalkRadioGroup(aName, aVisitor, aFlushContent);
+  NS_IMETHOD WalkRadioGroup(const nsAString& aName,
+                            nsIRadioVisitor* aVisitor) final {
+    return DocumentOrShadowRoot::WalkRadioGroup(aName, aVisitor);
   }
 
   void SetCurrentRadioButton(const nsAString& aName,
@@ -1201,10 +1195,7 @@ class Document : public nsINode,
 
   // Instead using this method, what you probably want is
   // RemoveFromBFCacheSync() as we do in MessagePort and BroadcastChannel.
-  void DisallowBFCaching() {
-    NS_ASSERTION(!mBFCacheEntry, "We're already in the bfcache!");
-    mBFCacheDisallowed = true;
-  }
+  void DisallowBFCaching();
 
   bool IsBFCachingAllowed() const { return !mBFCacheDisallowed; }
 
@@ -1519,6 +1510,9 @@ class Document : public nsINode,
   bool HasThirdPartyChannel();
 
   bool ShouldIncludeInTelemetry(bool aAllowExtensionURIs);
+
+  void AddMediaElementWithMSE();
+  void RemoveMediaElementWithMSE();
 
  protected:
   friend class nsUnblockOnloadEvent;
@@ -2097,7 +2091,7 @@ class Document : public nsINode,
    * Another variant of the above FlushPendingNotifications.  This function
    * takes a ChangesToFlush to specify whether throttled animations are flushed
    * or not.
-   * If in doublt, use the above FlushPendingNotifications.
+   * If in doubt, use the above FlushPendingNotifications.
    */
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void FlushPendingNotifications(ChangesToFlush aFlush);
@@ -2340,7 +2334,8 @@ class Document : public nsINode,
    */
   virtual bool CanSavePresentation(nsIRequest* aNewRequest,
                                    uint16_t& aBFCacheCombo,
-                                   bool aIncludeSubdocuments);
+                                   bool aIncludeSubdocuments,
+                                   bool aAllowUnloadListeners = true);
 
   virtual nsresult Init();
 
@@ -3253,8 +3248,11 @@ class Document : public nsINode,
 
   WindowContext* GetTopLevelWindowContext() const;
 
-  Document* GetTopLevelContentDocument();
-  const Document* GetTopLevelContentDocument() const;
+  // If the top-level ancestor content document for this document is in the same
+  // process, returns it. Otherwise, returns null. This function is not
+  // Fission-compatible, and should not be used in new code.
+  Document* GetTopLevelContentDocumentIfSameProcess();
+  const Document* GetTopLevelContentDocumentIfSameProcess() const;
 
   // Returns the associated app window if this is a top-level chrome document,
   // null otherwise.
@@ -3874,10 +3872,6 @@ class Document : public nsINode,
 
   FlashClassification DocumentFlashClassificationInternal();
 
-  // The application cache that this document is associated with, if
-  // any.  This can change during the lifetime of the document.
-  nsCOMPtr<nsIApplicationCache> mApplicationCache;
-
  public:
   bool IsThirdPartyForFlashClassifier();
 
@@ -4154,7 +4148,8 @@ class Document : public nsINode,
              mCommand != mozilla::Command::Copy &&
              mCommand != mozilla::Command::Paste &&
              mCommand != mozilla::Command::SetDocumentReadOnly &&
-             mCommand != mozilla::Command::GetHTML;
+             mCommand != mozilla::Command::GetHTML &&
+             mCommand != mozilla::Command::SelectAll;
     }
     bool IsCutOrCopyCommand() const {
       return mCommand == mozilla::Command::Cut ||
@@ -5229,6 +5224,8 @@ class Document : public nsINode,
   // See GetNextFormNumber and GetNextControlNumber.
   int32_t mNextFormNumber;
   int32_t mNextControlNumber;
+
+  uint32_t mMediaElementWithMSECount = 0;
 
   // Scope preloads per document.  This is used by speculative loading as well.
   PreloadService mPreloadService;

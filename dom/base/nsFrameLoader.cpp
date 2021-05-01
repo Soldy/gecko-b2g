@@ -78,6 +78,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/PresShellInlines.h"
+#include "mozilla/ProcessPriorityManager.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_fission.h"
 #include "mozilla/Unused.h"
@@ -1105,6 +1106,7 @@ bool nsFrameLoader::ShowRemoteFrame(const ScreenIntSize& size,
       if (nsCOMPtr<nsIObserverService> os = services::GetObserverService()) {
         os->NotifyObservers(ToSupports(this), "remote-browser-shown", nullptr);
       }
+      ProcessPriorityManager::RemoteBrowserFrameShown(this);
     }
   } else {
     nsIntRect dimensions;
@@ -3256,67 +3258,9 @@ void nsFrameLoader::RequestSHistoryUpdate(bool aImmediately) {
   }
 }
 
-#ifdef NS_PRINTING
-class WebProgressListenerToPromise final : public nsIWebProgressListener {
- public:
-  explicit WebProgressListenerToPromise(Promise* aPromise)
-      : mPromise(aPromise) {}
-
-  NS_DECL_ISUPPORTS
-
-  // NS_DECL_NSIWEBPROGRESSLISTENER
-  NS_IMETHOD OnStateChange(nsIWebProgress* aWebProgress, nsIRequest* aRequest,
-                           uint32_t aStateFlags, nsresult aStatus) override {
-    if (aStateFlags & nsIWebProgressListener::STATE_STOP &&
-        aStateFlags & nsIWebProgressListener::STATE_IS_DOCUMENT && mPromise) {
-      mPromise->MaybeResolveWithUndefined();
-      mPromise = nullptr;
-    }
-    return NS_OK;
-  }
-  NS_IMETHOD OnStatusChange(nsIWebProgress* aWebProgress, nsIRequest* aRequest,
-                            nsresult aStatus,
-                            const char16_t* aMessage) override {
-    if (aStatus != NS_OK && mPromise) {
-      mPromise->MaybeReject(ErrorResult(aStatus));
-      mPromise = nullptr;
-    }
-    return NS_OK;
-  }
-  NS_IMETHOD OnProgressChange(nsIWebProgress* aWebProgress,
-                              nsIRequest* aRequest, int32_t aCurSelfProgress,
-                              int32_t aMaxSelfProgress,
-                              int32_t aCurTotalProgress,
-                              int32_t aMaxTotalProgress) override {
-    return NS_OK;
-  }
-  NS_IMETHOD OnLocationChange(nsIWebProgress* aWebProgress,
-                              nsIRequest* aRequest, nsIURI* aLocation,
-                              uint32_t aFlags) override {
-    return NS_OK;
-  }
-  NS_IMETHOD OnSecurityChange(nsIWebProgress* aWebProgress,
-                              nsIRequest* aRequest, uint32_t aState) override {
-    return NS_OK;
-  }
-  NS_IMETHOD OnContentBlockingEvent(nsIWebProgress* aWebProgress,
-                                    nsIRequest* aRequest,
-                                    uint32_t aEvent) override {
-    return NS_OK;
-  }
-
- private:
-  ~WebProgressListenerToPromise() = default;
-
-  RefPtr<Promise> mPromise;
-};
-
-NS_IMPL_ISUPPORTS(WebProgressListenerToPromise, nsIWebProgressListener)
-#endif
-
 already_AddRefed<Promise> nsFrameLoader::PrintPreview(
-    nsIPrintSettings* aPrintSettings,
-    const Optional<uint64_t>& aSourceOuterWindowID, ErrorResult& aRv) {
+    nsIPrintSettings* aPrintSettings, BrowsingContext* aSourceBrowsingContext,
+    ErrorResult& aRv) {
   auto* ownerDoc = GetOwnerDoc();
   if (!ownerDoc) {
     aRv.ThrowNotSupportedError("No owner document");
@@ -3361,11 +3305,7 @@ already_AddRefed<Promise> nsFrameLoader::PrintPreview(
       return promise.forget();
     }
 
-    auto winID(aSourceOuterWindowID.WasPassed()
-                   ? Some(aSourceOuterWindowID.Value())
-                   : Nothing());
-
-    browserParent->SendPrintPreview(printData, winID)
+    browserParent->SendPrintPreview(printData, aSourceBrowsingContext)
         ->Then(
             GetMainThreadSerialEventTarget(), __func__, std::move(resolve),
             [promise](const mozilla::ipc::ResponseRejectReason) {
@@ -3376,9 +3316,9 @@ already_AddRefed<Promise> nsFrameLoader::PrintPreview(
   }
 
   RefPtr<nsGlobalWindowOuter> sourceWindow;
-  if (aSourceOuterWindowID.WasPassed()) {
+  if (aSourceBrowsingContext) {
     sourceWindow =
-        nsGlobalWindowOuter::GetOuterWindowWithId(aSourceOuterWindowID.Value());
+        nsGlobalWindowOuter::Cast(aSourceBrowsingContext->GetDOMWindow());
   } else {
     auto* ourDocshell = static_cast<nsDocShell*>(GetExistingDocShell());
     if (NS_WARN_IF(!ourDocshell)) {
@@ -3393,7 +3333,7 @@ already_AddRefed<Promise> nsFrameLoader::PrintPreview(
   }
 
   nsIDocShell* docShellToCloneInto = nullptr;
-  if (aSourceOuterWindowID.WasPassed()) {
+  if (aSourceBrowsingContext) {
     // We're going to call `Print()` below on a window that is not our own,
     // which happens when we are creating a new print preview document instead
     // of just applying a settings change to the existing PP document.  In this
@@ -3439,60 +3379,6 @@ void nsFrameLoader::ExitPrintPreview() {
     return;
   }
   webBrowserPrint->ExitPrintPreview();
-#endif
-}
-
-already_AddRefed<Promise> nsFrameLoader::Print(uint64_t aOuterWindowID,
-                                               nsIPrintSettings* aPrintSettings,
-                                               ErrorResult& aRv) {
-  RefPtr<Promise> promise =
-      Promise::Create(GetOwnerDoc()->GetOwnerGlobal(), aRv);
-
-#ifndef NS_PRINTING
-  promise->MaybeReject(ErrorResult(NS_ERROR_NOT_AVAILABLE));
-  return promise.forget();
-#else
-
-  RefPtr<WebProgressListenerToPromise> listener(
-      new WebProgressListenerToPromise(promise));
-
-  if (auto* browserParent = GetBrowserParent()) {
-    RefPtr<embedding::PrintingParent> printingParent =
-        browserParent->Manager()->GetPrintingParent();
-
-    embedding::PrintData printData;
-    nsresult rv = printingParent->SerializeAndEnsureRemotePrintJob(
-        aPrintSettings, listener, nullptr, &printData);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      promise->MaybeReject(ErrorResult(rv));
-      return promise.forget();
-    }
-
-    bool success = browserParent->SendPrint(aOuterWindowID, printData);
-    if (!success) {
-      promise->MaybeReject(ErrorResult(NS_ERROR_FAILURE));
-    }
-    return promise.forget();
-  }
-
-  RefPtr<nsGlobalWindowOuter> outerWindow =
-      nsGlobalWindowOuter::GetOuterWindowWithId(aOuterWindowID);
-  if (NS_WARN_IF(!outerWindow)) {
-    promise->MaybeReject(ErrorResult(NS_ERROR_FAILURE));
-    return promise.forget();
-  }
-
-  ErrorResult rv;
-  outerWindow->Print(aPrintSettings, listener,
-                     /* aDocShellToCloneInto = */ nullptr,
-                     nsGlobalWindowOuter::IsPreview::No,
-                     nsGlobalWindowOuter::IsForWindowDotPrint::No,
-                     /* aPrintPreviewCallback = */ nullptr, rv);
-  if (rv.Failed()) {
-    promise->MaybeReject(std::move(rv));
-  }
-
-  return promise.forget();
 #endif
 }
 

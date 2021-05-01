@@ -16,8 +16,8 @@ fn parse_comment() {
 
 #[test]
 fn parse_types() {
-    parse_str("const a : i32 = 2;").unwrap();
-    assert!(parse_str("const a : x32 = 2;").is_err());
+    parse_str("let a : i32 = 2;").unwrap();
+    assert!(parse_str("let a : x32 = 2;").is_err());
     parse_str("var t: texture_2d<f32>;").unwrap();
     parse_str("var t: texture_cube_array<i32>;").unwrap();
     parse_str("var t: texture_multisampled_2d<u32>;").unwrap();
@@ -26,10 +26,27 @@ fn parse_types() {
 }
 
 #[test]
+fn parse_type_inference() {
+    parse_str(
+        "
+        fn foo() {
+            let a = 2u;
+            let b: u32 = a;
+        }",
+    )
+    .unwrap();
+    assert!(parse_str(
+        "
+        fn foo() { let c : i32 = 2.0; }",
+    )
+    .is_err());
+}
+
+#[test]
 fn parse_type_cast() {
     parse_str(
         "
-        const a : i32 = 2;
+        let a : i32 = 2;
         fn main() {
             var x: f32 = f32(a);
             x = f32(i32(a + 1) / 2);
@@ -40,8 +57,8 @@ fn parse_type_cast() {
     parse_str(
         "
         fn main() {
-            const x: vec2<f32> = vec2<f32>(1.0, 2.0);
-            const y: vec2<u32> = vec2<u32>(x);
+            let x: vec2<f32> = vec2<f32>(1.0, 2.0);
+            let y: vec2<u32> = vec2<u32>(x);
         }
     ",
     )
@@ -53,7 +70,11 @@ fn parse_struct() {
     parse_str(
         "
         [[block]] struct Foo { x: i32; };
-        struct Bar { [[span(16)]] x: vec2<i32>; };
+        struct Bar {
+            [[size(16)]] x: vec2<i32>;
+            [[align(16)]] y: f32;
+            [[size(32), align(8)]] z: vec3<f32>;
+        };
         struct Empty {};
         var s: [[access(read_write)]] Foo;
     ",
@@ -180,7 +201,7 @@ fn parse_texture_load() {
         "
         var t: texture_3d<u32>;
         fn foo() {
-            const r: vec4<u32> = textureLoad(t, vec3<u32>(0.0, 1.0, 2.0), 1);
+            let r: vec4<u32> = textureLoad(t, vec3<u32>(0.0, 1.0, 2.0), 1);
         }
     ",
     )
@@ -189,7 +210,7 @@ fn parse_texture_load() {
         "
         var t: texture_multisampled_2d_array<i32>;
         fn foo() {
-            const r: vec4<i32> = textureLoad(t, vec2<i32>(10, 20), 2, 3);
+            let r: vec4<i32> = textureLoad(t, vec2<i32>(10, 20), 2, 3);
         }
     ",
     )
@@ -198,7 +219,20 @@ fn parse_texture_load() {
         "
         var t: [[access(read)]] texture_storage_1d_array<r32float>;
         fn foo() {
-            const r: vec4<f32> = textureLoad(t, 10, 2);
+            let r: vec4<f32> = textureLoad(t, 10, 2);
+        }
+    ",
+    )
+    .unwrap();
+}
+
+#[test]
+fn parse_texture_store() {
+    parse_str(
+        "
+        var t: [[access(write)]] texture_storage_2d<rgba8unorm>;
+        fn foo() {
+            textureStore(t, vec2<i32>(10, 20), vec4<f32>(0.0, 1.0, 2.0, 3.0));
         }
     ",
     )
@@ -213,8 +247,8 @@ fn parse_texture_query() {
         fn foo() {
             var dim: vec2<i32> = textureDimensions(t);
             dim = textureDimensions(t, 0);
-            const layers: i32 = textureNumLayers(t);
-            const samples: i32 = textureNumSamples(t);
+            let layers: i32 = textureNumLayers(t);
+            let samples: i32 = textureNumSamples(t);
         }
     ",
     )
@@ -225,8 +259,8 @@ fn parse_texture_query() {
 fn parse_postfix() {
     parse_str(
         "fn foo() {
-        const x: f32 = vec4<f32>(1.0, 2.0, 3.0, 4.0).xyz.rgbr.aaaa.wz.g;
-        const y: f32 = fract(vec2<f32>(0.5, x)).x;
+        let x: f32 = vec4<f32>(1.0, 2.0, 3.0, 4.0).xyz.rgbr.aaaa.wz.g;
+        let y: f32 = fract(vec2<f32>(0.5, x)).x;
     }",
     )
     .unwrap();
@@ -235,8 +269,38 @@ fn parse_postfix() {
 #[test]
 fn parse_expressions() {
     parse_str("fn foo() {
-        const x: f32 = select(0.0, 1.0, true);
-        const y: vec2<f32> = select(vec2<f32>(1.0, 1.0), vec2<f32>(x, x), vec2<bool>(x < 0.5, x > 0.5));
-        const z: bool = !(0.0 == 1.0);
+        let x: f32 = select(0.0, 1.0, true);
+        let y: vec2<f32> = select(vec2<f32>(1.0, 1.0), vec2<f32>(x, x), vec2<bool>(x < 0.5, x > 0.5));
+        let z: bool = !(0.0 == 1.0);
     }").unwrap();
+}
+
+#[test]
+fn parse_pointers() {
+    parse_str(
+        "fn foo() {
+        var x: f32 = 1.0;
+        let px = &x;
+        let py = frexp(0.5, px);
+    }",
+    )
+    .unwrap();
+}
+
+#[test]
+fn parse_struct_instantiation() {
+    parse_str(
+        "
+    struct Foo {
+        a: f32;
+        b: vec3<f32>;
+    };
+    
+    [[stage(fragment)]]
+    fn fs_main() {
+        var foo: Foo = Foo(0.0, vec3<f32>(0.0, 1.0, 42.0));
+    }
+    ",
+    )
+    .unwrap();
 }

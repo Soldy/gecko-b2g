@@ -114,9 +114,10 @@ void CacheRegisterAllocator::saveIonLiveRegisters(MacroAssembler& masm,
   // Step 1. Discard any dead operands so we can reuse their registers.
   freeDeadOperandLocations(masm);
 
-  // Step 2. Figure out the size of our live regs.
-  size_t sizeOfLiveRegsInBytes = liveRegs.gprs().size() * sizeof(intptr_t) +
-                                 liveRegs.fpus().getPushSizeInBytes();
+  // Step 2. Figure out the size of our live regs.  This is consistent with
+  // the fact that we're using storeRegsInMask to generate the save code and
+  // PopRegsInMask to generate the restore code.
+  size_t sizeOfLiveRegsInBytes = masm.PushRegsInMaskSizeInBytes(liveRegs);
 
   MOZ_ASSERT(sizeOfLiveRegsInBytes > 0);
 
@@ -520,6 +521,7 @@ bool IonCacheIRCompiler::init() {
     case CacheKind::TypeOf:
     case CacheKind::ToBool:
     case CacheKind::GetIntrinsic:
+    case CacheKind::NewArray:
     case CacheKind::NewObject:
       MOZ_CRASH("Unsupported IC");
   }
@@ -624,6 +626,7 @@ void IonCacheIRCompiler::assertFloatRegisterAvailable(FloatRegister reg) {
     case CacheKind::TypeOf:
     case CacheKind::ToBool:
     case CacheKind::GetIntrinsic:
+    case CacheKind::NewArray:
     case CacheKind::NewObject:
       MOZ_CRASH("Unsupported IC");
   }
@@ -2025,4 +2028,16 @@ bool IonCacheIRCompiler::emitReflectGetPrototypeOfResult(ObjOperandId objId) {
 bool IonCacheIRCompiler::emitHasClassResult(ObjOperandId objId,
                                             uint32_t claspOffset) {
   MOZ_CRASH("Call ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitNewArrayObjectResult(uint32_t arrayLength,
+                                                  uint32_t shapeOffset) {
+  MOZ_CRASH("NewArray ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
+                                                  uint32_t numDynamicSlots,
+                                                  gc::AllocKind allocKind,
+                                                  uint32_t shapeOffset) {
+  MOZ_CRASH("NewObject ICs not used in ion");
 }

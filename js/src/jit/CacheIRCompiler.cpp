@@ -46,6 +46,7 @@
 #include "vm/Uint8Clamped.h"
 
 #include "builtin/Boolean-inl.h"
+#include "gc/ObjectKind-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "jit/SharedICHelpers-inl.h"
 #include "jit/VMFunctionList-inl.h"
@@ -3600,16 +3601,20 @@ bool CacheIRCompiler::emitGuardXrayNoExpando(ObjOperandId objId) {
   return true;
 }
 
-bool CacheIRCompiler::emitGuardNoAllocationMetadataBuilder() {
+bool CacheIRCompiler::emitGuardNoAllocationMetadataBuilder(
+    uint32_t builderAddrOffset) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  AutoScratchRegister scratch(allocator, masm);
+
   FailurePath* failure;
   if (!addFailurePath(&failure)) {
     return false;
   }
 
-  masm.branchPtr(Assembler::NotEqual,
-                 AbsoluteAddress(cx_->realm()->addressOfMetadataBuilder()),
-                 ImmWord(0), failure->label());
+  StubFieldOffset builderField(builderAddrOffset, StubField::Type::RawPointer);
+  emitLoadStubField(builderField, scratch);
+  masm.branchPtr(Assembler::NotEqual, Address(scratch, 0), ImmWord(0),
+                 failure->label());
 
   return true;
 }
@@ -6078,52 +6083,6 @@ bool CacheIRCompiler::emitLoadValueTruthyResult(ValOperandId inputId) {
   masm.moveValue(BooleanValue(false), output.valueReg());
 
   masm.bind(&done);
-  return true;
-}
-
-bool CacheIRCompiler::emitLoadNewObjectFromTemplateResult(
-    uint32_t templateObjectOffset, uint32_t, uint32_t) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  AutoOutputRegister output(*this);
-  AutoScratchRegister obj(allocator, masm);
-  AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
-
-  TemplateObject templateObj(objectStubFieldUnchecked(templateObjectOffset));
-
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  masm.createGCObject(obj, scratch, templateObj, gc::DefaultHeap,
-                      failure->label());
-  masm.tagValue(JSVAL_TYPE_OBJECT, obj, output.valueReg());
-  return true;
-}
-
-bool CacheIRCompiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
-                                               uint32_t numDynamicSlots,
-                                               gc::AllocKind allocKind,
-                                               uint32_t shapeOffset) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  AutoOutputRegister output(*this);
-  AutoScratchRegister obj(allocator, masm);
-  AutoScratchRegister scratch(allocator, masm);
-  AutoScratchRegisterMaybeOutput shape(allocator, masm, output);
-
-  StubFieldOffset shapeSlot(shapeOffset, StubField::Type::Shape);
-
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  emitLoadStubField(shapeSlot, shape);
-  masm.createPlainGCObject(obj, shape, scratch, shape, numFixedSlots,
-                           numDynamicSlots, allocKind, gc::DefaultHeap,
-                           failure->label());
-
-  masm.tagValue(JSVAL_TYPE_OBJECT, obj, output.valueReg());
   return true;
 }
 

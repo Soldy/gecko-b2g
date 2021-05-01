@@ -8,6 +8,7 @@ FINAL_LIBRARY = "mozglue"
 
 EXPORTS.mozilla += [
     "AutoProfilerLabel.h",
+    "AwakeTimeStamp.h",
     "decimal/Decimal.h",
     "decimal/DoubleConversion.h",
     "IntegerPrintfMacros.h",
@@ -37,6 +38,7 @@ if CONFIG["OS_ARCH"] == "WINNT":
 
 SOURCES += [
     "AutoProfilerLabel.cpp",
+    "AwakeTimeStamp.cpp",
     "MmapFaultHandler.cpp",
     "Printf.cpp",
     "StackWalk.cpp",
@@ -86,6 +88,12 @@ if CONFIG["OS_ARCH"] == "WINNT":
     SOURCES += [
         "ConditionVariable_windows.cpp",
         "Mutex_windows.cpp",
+    ]
+# WASI hasn't supported cond vars and mutexes yet so noop implementation is used.
+elif CONFIG["OS_ARCH"] == "WASI":
+    SOURCES += [
+        "ConditionVariable_noop.cpp",
+        "Mutex_noop.cpp",
     ]
 else:
     SOURCES += [

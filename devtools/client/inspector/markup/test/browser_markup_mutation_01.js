@@ -17,7 +17,8 @@ const TEST_DATA = [
   {
     desc: "Adding an attribute",
     test: async function(testActor) {
-      await testActor.setAttribute("#node1", "newattr", "newattrval");
+      const browser = gBrowser.selectedBrowser;
+      await setAttributeInBrowser(browser, "#node1", "newattr", "newattrval");
     },
     check: async function(inspector) {
       const { editor } = await getContainerForSelector("#node1", inspector);
@@ -36,7 +37,8 @@ const TEST_DATA = [
   {
     desc: "Removing an attribute",
     test: async function(testActor) {
-      await testActor.removeAttribute("#node1", "newattr");
+      const browser = gBrowser.selectedBrowser;
+      await removeAttributeInBrowser(browser, "#node1", "newattr");
     },
     check: async function(inspector) {
       const { editor } = await getContainerForSelector("#node1", inspector);
@@ -51,7 +53,8 @@ const TEST_DATA = [
   {
     desc: "Re-adding an attribute",
     test: async function(testActor) {
-      await testActor.setAttribute("#node1", "newattr", "newattrval");
+      const browser = gBrowser.selectedBrowser;
+      await setAttributeInBrowser(browser, "#node1", "newattr", "newattrval");
     },
     check: async function(inspector) {
       const { editor } = await getContainerForSelector("#node1", inspector);
@@ -69,8 +72,14 @@ const TEST_DATA = [
   },
   {
     desc: "Changing an attribute",
-    test: async function(testActor) {
-      await testActor.setAttribute("#node1", "newattr", "newattrchanged");
+    test: async function() {
+      const browser = gBrowser.selectedBrowser;
+      await setAttributeInBrowser(
+        browser,
+        "#node1",
+        "newattr",
+        "newattrchanged"
+      );
     },
     check: async function(inspector) {
       const { editor } = await getContainerForSelector("#node1", inspector);
@@ -105,7 +114,8 @@ const TEST_DATA = [
       info(
         "Add the attribute 'otherattr' on the content node to trigger the mutation"
       );
-      await testActor.setAttribute("#node1", "otherattr", "othervalue");
+      const browser = gBrowser.selectedBrowser;
+      await setAttributeInBrowser(browser, "#node1", "otherattr", "othervalue");
     },
     check: async function(inspector) {
       const { editor } = await getContainerForSelector("#node1", inspector);
@@ -135,10 +145,10 @@ const TEST_DATA = [
     desc: "Adding ::after element",
     numMutations: 2,
     test: async function(testActor) {
-      await testActor.eval(`
-        let node1 = document.querySelector("#node1");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node1 = content.document.querySelector("#node1");
         node1.classList.add("pseudo");
-      `);
+      });
     },
     check: async function(inspector) {
       const { children } = await getContainerForSelector("#node1", inspector);
@@ -153,10 +163,10 @@ const TEST_DATA = [
     desc: "Removing ::after element",
     numMutations: 2,
     test: async function(testActor) {
-      await testActor.eval(`
-        let node1 = document.querySelector("#node1");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node1 = content.document.querySelector("#node1");
         node1.classList.remove("pseudo");
-      `);
+      });
     },
     check: async function(inspector) {
       const container = await getContainerForSelector("#node1", inspector);
@@ -183,11 +193,11 @@ const TEST_DATA = [
   {
     desc: "Adding a second text child",
     test: async function(testActor) {
-      await testActor.eval(`
-        let node1 = document.querySelector("#node1");
-        let newText = node1.ownerDocument.createTextNode("more");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node1 = content.document.querySelector("#node1");
+        const newText = node1.ownerDocument.createTextNode("more");
         node1.appendChild(newText);
-      `);
+      });
     },
     check: async function(inspector) {
       const container = await getContainerForSelector("#node1", inspector);
@@ -276,12 +286,12 @@ const TEST_DATA = [
   {
     desc: "Removing child nodes",
     test: async function(testActor) {
-      await testActor.eval(`
-        let node4 = document.querySelector("#node4");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node4 = content.document.querySelector("#node4");
         while (node4.firstChild) {
-          node4.removeChild(node4.firstChild);
+          node4.firstChild.remove();
         }
-      `);
+      });
     },
     check: async function(inspector) {
       const { children } = await getContainerForSelector("#node4", inspector);
@@ -291,11 +301,11 @@ const TEST_DATA = [
   {
     desc: "Appending a child to a different parent",
     test: async function(testActor) {
-      await testActor.eval(`
-        let node17 = document.querySelector("#node17");
-        let node2 = document.querySelector("#node2");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node17 = content.document.querySelector("#node17");
+        const node2 = content.document.querySelector("#node2");
         node2.appendChild(node17);
-      `);
+      });
     },
     check: async function(inspector) {
       const { children } = await getContainerForSelector("#node16", inspector);
@@ -327,13 +337,13 @@ const TEST_DATA = [
     //      node18
     //        node19
     test: async function(testActor) {
-      await testActor.eval(`
-        let node18 = document.querySelector("#node18");
-        let node20 = document.querySelector("#node20");
-        let node1 = document.querySelector("#node1");
+      await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+        const node18 = content.document.querySelector("#node18");
+        const node20 = content.document.querySelector("#node20");
+        const node1 = content.document.querySelector("#node1");
         node1.appendChild(node20);
         node20.appendChild(node18);
-      `);
+      });
     },
     check: async function(inspector) {
       await inspector.markup.expandAll();

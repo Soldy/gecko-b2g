@@ -113,7 +113,7 @@ class ResponsiveUI {
   }
 
   get currentTarget() {
-    return this.targetList.targetFront;
+    return this.commands.targetCommand.targetFront;
   }
 
   get watcherFront() {
@@ -327,8 +327,8 @@ class ResponsiveUI {
       // any resource & target anymore, the JSWindowActors will be unregistered
       // which will trigger an early destruction of the RDM target, before we
       // could finalize the cleanup.
-      this.targetList.unwatchTargets(
-        [this.targetList.TYPES.FRAME],
+      this.commands.targetCommand.unwatchTargets(
+        [this.commands.targetCommand.TYPES.FRAME],
         this.onTargetAvailable
       );
 
@@ -337,7 +337,7 @@ class ResponsiveUI {
         { onAvailable: this.onNetworkResourceAvailable }
       );
 
-      this.targetList.destroy();
+      this.commands.targetCommand.destroy();
     }
 
     // Show the browser UI now.
@@ -370,13 +370,12 @@ class ResponsiveUI {
 
   async connectToServer() {
     this.commands = await CommandsFactory.forTab(this.tab);
-    this.targetList = this.commands.targetCommand;
-    this.resourceWatcher = new ResourceWatcher(this.targetList);
+    this.resourceWatcher = new ResourceWatcher(this.commands.targetCommand);
 
-    await this.targetList.startListening();
+    await this.commands.targetCommand.startListening();
 
-    await this.targetList.watchTargets(
-      [this.targetList.TYPES.FRAME],
+    await this.commands.targetCommand.watchTargets(
+      [this.commands.targetCommand.TYPES.FRAME],
       this.onTargetAvailable
     );
 
@@ -786,10 +785,15 @@ class ResponsiveUI {
       0
     );
 
-    const { type, angle } = this.getInitialViewportOrientation({
-      width,
-      height,
-    });
+    // Restore the previously set orientation, or get it from the initial viewport if it
+    // wasn't set yet.
+    const { type, angle } =
+      this.commands.targetConfigurationCommand.configuration
+        .rdmPaneOrientation ||
+      this.getInitialViewportOrientation({
+        width,
+        height,
+      });
 
     await this.updateDPPX(pixelRatio);
     await this.updateScreenOrientation(type, angle);
@@ -848,14 +852,21 @@ class ResponsiveUI {
   /**
    * Set or clear the emulated user agent.
    *
-   * @return boolean
-   *         Whether a reload is needed to apply the change.
+   * @param {String|null} userAgent: The user agent to set on the page. Set to null to revert
+   *                      the user agent to its original value
+   * @return {Boolean} Whether a reload is needed to apply the change.
    */
-  updateUserAgent(userAgent) {
-    if (!userAgent) {
-      return this.responsiveFront.clearUserAgentOverride();
-    }
-    return this.responsiveFront.setUserAgentOverride(userAgent);
+  async updateUserAgent(userAgent) {
+    const getConfigurationCustomUserAgent = () =>
+      this.commands.targetConfigurationCommand.configuration.customUserAgent ||
+      "";
+    const previousCustomUserAgent = getConfigurationCustomUserAgent();
+    await this.commands.targetConfigurationCommand.updateConfiguration({
+      customUserAgent: userAgent,
+    });
+
+    const updatedUserAgent = getConfigurationCustomUserAgent();
+    return previousCustomUserAgent !== updatedUserAgent;
   }
 
   /**
@@ -871,22 +882,23 @@ class ResponsiveUI {
   async updateTouchSimulation(enabled) {
     let reloadNeeded;
     if (enabled) {
+      reloadNeeded = await this.commands.targetConfigurationCommand.setTouchEventsOverride(
+        "enabled"
+      );
+
       const metaViewportEnabled = Services.prefs.getBoolPref(
         "devtools.responsive.metaViewport.enabled",
         false
       );
-
-      reloadNeeded = await this.responsiveFront.setTouchEventsOverride(
-        "enabled"
-      );
-
       if (metaViewportEnabled) {
         reloadNeeded |= await this.responsiveFront.setMetaViewportOverride(
           Ci.nsIDocShell.META_VIEWPORT_OVERRIDE_ENABLED
         );
       }
     } else {
-      reloadNeeded = await this.responsiveFront.clearTouchEventsOverride();
+      reloadNeeded = await this.commands.targetConfigurationCommand.setTouchEventsOverride(
+        null
+      );
       reloadNeeded |= await this.responsiveFront.clearMetaViewportOverride();
     }
     return reloadNeeded;
@@ -907,16 +919,13 @@ class ResponsiveUI {
    *        reloaded/navigated to, so we should not be simulating "orientationchange".
    */
   async updateScreenOrientation(type, angle, isViewportRotated = false) {
-    await this.responsiveFront.simulateScreenOrientationChange(
-      type,
-      angle,
-      isViewportRotated
+    await this.commands.targetConfigurationCommand.simulateScreenOrientationChange(
+      {
+        type,
+        angle,
+        isViewportRotated,
+      }
     );
-
-    // Used by tests.
-    if (!isViewportRotated) {
-      this.emit("only-viewport-orientation-changed");
-    }
   }
 
   /**
@@ -926,7 +935,9 @@ class ResponsiveUI {
    *        Whether or not touch is enabled for the simulated device.
    */
   async updateMaxTouchPointsEnabled(touchSimulationEnabled) {
-    return this.responsiveFront.setMaxTouchPoints(touchSimulationEnabled);
+    return this.commands.targetConfigurationCommand.updateConfiguration({
+      rdmPaneMaxTouchPoints: touchSimulationEnabled ? 1 : 0,
+    });
   }
 
   /**

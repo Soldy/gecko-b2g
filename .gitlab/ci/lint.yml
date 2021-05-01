@@ -1,0 +1,116 @@
+# these base jobs are defined with reference to taskcluster/ci/source-test/mozlint.yml,
+# initiating the linters classified by file extension.
+# note that eslint needs some specific prerequisites.
+.lint_eslint:
+  extends: .lint_base
+  # lock this job to specific runner in order to ultilize cache
+  tags:
+    - gecko-eslint
+  variables:
+    SPECIFIC_LINTERS: "eslint codespell"
+    PATHSPEC: "*.{js,jsm,jsx,xul,html,xhtml} ':(glob)**/.eslintignore' ':(glob)**/*eslintrc*' 'tools/lint/eslint/eslint-plugin-mozilla/' 'tools/lint/eslint/eslint-plugin-spidermonkey-js/'"
+  script:
+    - |
+      if [[ ${GIT_CLONE_PATH##*/} == koost ]]; then
+        if [[ -d ${GIT_CLONE_PATH}/node_modules ]]; then
+          msg "mv ${GIT_CLONE_PATH}/node_modules ./"
+          mv ${GIT_CLONE_PATH}/node_modules ./
+        fi
+      fi
+    - |
+      if ! [[ -d node_modules ]]; then
+        msg "No node_modules restored from cache, extract from artifacts stored on mirror (possibly outdated)"
+        if ${CI_USE_MIRROR}; then
+          msg "Extract node_modules from mirror instead of installation via mach."
+          tar -xzf ${LOCAL_GIT_MIRROR}/gecko-lint/eslint.tar.gz
+        fi
+      fi
+    - |
+      cp -r /build/node_modules_eslint node_modules &&
+      ln -sf ../tools/lint/eslint/eslint-plugin-mozilla node_modules &&
+      ln -sf ../tools/lint/eslint/eslint-plugin-spidermonkey-js node_modules
+    - './mach lint -l ${SPECIFIC_LINTERS// /" -l "} ${MACH_LINT_PARAMETERS} "${changed_files[@]}"'
+  after_script:
+    # mv node_modules back to GIT_CLONE_PATH in order for cache
+    - |
+      if [[ ${GIT_CLONE_PATH##*/} == koost ]]; then
+        echo "move node_modules back to ${GIT_CLONE_PATH} in order for cache."
+        mv ../node_modules ./
+      fi
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - changes:
+      - "**/*.{js,jsm,jsx,xul,html,xhtml}"
+      # Run when eslint policies change.
+      - "**/.eslintignore"
+      - "**/*eslintrc*"
+      # The plugin implementing custom checks by moz.
+      - "tools/lint/eslint/eslint-plugin-mozilla/**"
+      - "tools/lint/eslint/eslint-plugin-spidermonkey-js/**"
+  # cache node_modules as taskcluster does
+  cache:
+    key: "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}-eslint"
+    paths:
+      - node_modules/
+    policy: pull-push
+
+.lint_common:
+  extends: .lint_base
+  stage: lint
+  variables:
+    SPECIFIC_LINTERS: "license rejected-words file-whitespace"
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - when: on_success
+
+.lint_cpp:
+  extends: .lint_base
+  stage: lint
+  variables:
+    PATHSPEC: '*.{c,cpp,cc,h}'
+    SPECIFIC_LINTERS: "codespell mingw-capitalization clang-format cpp-virtual-final"
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - changes:
+      - "**/*.{c,cpp,cc,h}"
+
+.lint_python:
+  extends: .lint_base
+  variables:
+  # it's weird that '*.py' is not as recognizable as '*.{c,cpp,cc,h}' for git
+  # hence glob is alternatively used here
+    PATHSPEC: "'**/*.py'"
+    SPECIFIC_LINTERS: "codespell flake8 black pylint"
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - changes:
+      - "**/*.py"
+
+.lint_rs:
+  extends: .lint_base
+  variables:
+    PATHSPEC: '**/Cargo.toml **/*.rs'
+    SPECIFIC_LINTERS: "file-perm rustfmt clippy"
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - changes:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+
+.lint_yml:
+  extends: .lint_base
+  variables:
+    PATHSPEC: "'*.yml' '*.yaml' ':(glob)**/.ymllint'"
+    SPECIFIC_LINTERS: 'yaml'
+  rules:
+    - if: '$CI_MERGE_REQUEST_TITLE =~ /skip-lint|^WIP\:/'
+      when: never
+    - changes:
+      - '**/*.yml'
+      - '**/*.yaml'
+      - '**/.ymllint'

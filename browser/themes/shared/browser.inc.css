@@ -14,8 +14,6 @@
   --toolbar-bgimage: var(--toolbar-non-lwt-bgimage);
   --toolbar-color: var(--toolbar-non-lwt-textcolor);
 
-  /* Note: Setting this to 0 (without px) breaks CSS calculations for OSX. */
-  --space-above-tabbar: 0px;
   --tabs-navbar-shadow-size: 1px;
 
   --panelui-subview-transition-duration: 150ms;
@@ -33,15 +31,20 @@
   --buttons-destructive-active-bgcolor: #810220;
   --buttons-destructive-color: #fbfbfe;
 
+  --autocomplete-popup-hover-background: var(--arrowpanel-dimmed);
+  --autocomplete-popup-separator-color: color-mix(in srgb, currentColor 14%, transparent);
+
   --identity-box-margin-inline: 4px;
   --identity-box-label-opacity: .8;
   --urlbar-box-bgcolor: var(--button-bgcolor);
-  --urlbar-box-hover-bgcolor: color-mix(in srgb, var(--urlbar-box-bgcolor), currentColor 12%);
-  --urlbar-box-active-bgcolor: color-mix(in srgb, var(--urlbar-box-bgcolor), currentColor 21%);
-
+  --urlbar-box-hover-bgcolor: var(--button-hover-bgcolor);
+  --urlbar-box-active-bgcolor: var(--button-active-bgcolor);
   --urlbar-min-height: 32px;
+  --urlbar-icon-fill-opacity: 0.9;
   --urlbar-icon-padding: 6px; /* (32px - 2px border - 2px padding - 16px icon) / 2 */
-  --urlbar-separator-color: var(--panel-separator-color);
+  /* This should be used for icons and chiclets inside the input field. It makes
+     the gap around them more uniform when they are close to the field edges */
+  --urlbar-icon-border-radius: calc(var(--toolbarbutton-border-radius) - 1px);
   --urlbar-popup-url-color: -moz-nativehyperlinktext;
 
   --lwt-additional-images: none;
@@ -50,11 +53,20 @@
   --lwt-popup-brighttext-url-color: #74c0ff;
 }
 
+@media (prefers-contrast) {
+  :root {
+    --autocomplete-popup-separator-color: color-mix(in srgb, currentColor 86%, transparent);
+    --urlbar-icon-fill-opacity: 1;
+  }
+}
+
 @media not (-moz-proton) {
   :root {
     --focus-outline-width: 0;
     --identity-box-margin-inline: 3px;
     --identity-box-label-opacity: .6;
+    --urlbar-icon-fill-opacity: .6;
+    --urlbar-icon-border-radius: 0;
   }
 } /*** END !proton ***/
 
@@ -68,7 +80,7 @@
   --urlbar-icon-padding: 7px; /* (34px - 2px border - 2px padding - 16px icon) / 2 */
 }
 
-@media not (-moz-proton-urlbar) {
+@media not (-moz-proton) {
 :root {
   --urlbar-min-height: 30px;
   --urlbar-icon-padding: 6px; /* (30px - 2px border - 16px icon) / 2 */
@@ -108,14 +120,24 @@
   }
 }
 
-:root[lwt-toolbar-field-brighttext] {
+:root[lwt-toolbar-field-focus-brighttext] {
   --lwt-popup-brighttext-url-color: #00ddff;
 }
-} /*** END proton ***/
 
-:root[extradragspace][tabsintitlebar]:not([inFullscreen]) {
-  --space-above-tabbar: 8px;
+/* Increase the contrast of urlbar boxes in brighttext LWT.
+   In practice these are bumped-up --button(-hover)-bgcolor rules */
+:root:-moz-lwtheme-brighttext:not([lwt-default-theme-in-dark-mode]) {
+  --urlbar-box-bgcolor: color-mix(in srgb, currentColor 16%, transparent);
+  --urlbar-box-hover-bgcolor: color-mix(in srgb, currentColor 22%, transparent);
 }
+/* Linux dark OS */
+@media (prefers-color-scheme: dark) {
+  :root:not(:-moz-lwtheme) {
+    --urlbar-box-bgcolor: color-mix(in srgb, currentColor 16%, transparent);
+    --urlbar-box-hover-bgcolor: color-mix(in srgb, currentColor 22%, transparent);
+  }
+}
+} /*** END proton ***/
 
 @media (min-resolution: 1.5dppx) {
   :root {
@@ -235,7 +257,6 @@
 #PersonalToolbar[customizing] {
   outline: 1px dashed;
   outline-offset: -3px;
-  -moz-outline-radius: 2px;
 }
 
 #PersonalToolbar[customizing]:empty {
@@ -261,20 +282,6 @@ menupopup::part(drop-indicator) {
   margin-inline-end: -4em;
   background-color: Highlight;
   pointer-events: none;
-}
-
-/* Required for Library animation */
-
-#navigator-toolbox {
-  position: relative;
-}
-
-#library-animatable-box {
-  display: none;
-}
-
-#library-animatable-box[animate] {
-  display: block;
 }
 
 /* Back / Forward context menu */
@@ -506,7 +513,7 @@ menupopup::part(drop-indicator) {
   margin: 3px;
   border: none;
   border-radius: 2px;
-  background-image: url(chrome://browser/skin/stop.svg);
+  background-image: url(chrome://global/skin/icons/close.svg);
   background-color: transparent;
   background-repeat: no-repeat;
   background-position: center;
@@ -803,8 +810,6 @@ menupopup::part(drop-indicator) {
 }
 
 .ac-has-end-icon {
-  /* icon width + icon end margin */
-  padding-inline-end: calc(12px + 8px);
   text-overflow: ellipsis;
   overflow: hidden;
 }
@@ -861,11 +866,24 @@ menupopup::part(drop-indicator) {
 #webRTC-selectMicrophone-icon {
   display: none;
 }
+
+#webRTC-selectWindow-menulist {
+  margin-inline: 2px;
+}
+
+.ac-has-end-icon {
+  /* Password manager's username field icon width + icon end margin */
+  padding-inline-end: calc(12px + 8px);
+}
 } /** END not Proton **/
 
 @media (-moz-proton-doorhangers) {
 popupnotificationcontent {
   margin-block-start: 8px;
+}
+
+.popup-notification-body menulist {
+  margin-inline: 0;
 }
 
 .popup-notification-checkbox {
@@ -896,10 +914,10 @@ popupnotificationcontent {
 }
 
 .popup-notification-body :is(description, label, checkbox, input) {
-  margin-inline-start: 0;
+  margin-inline: 0;
 }
 
-.popup-notification-body html|input {
+.popup-notification-body input {
   padding: 8px;
   border-radius: 4px;
   border: 0;
@@ -909,7 +927,22 @@ popupnotificationcontent {
   color: var(--input-color, FieldText);
 }
 
-.popup-notification-body html|input:focus-visible {
+.popup-notification-body input.ac-has-end-icon {
+  --input-padding-from-arrow-side: calc(8px + 16px + 8px); /* spacing from the end + arrow element width + extra spacing) */
+  padding-inline-end: var(--input-padding-from-arrow-side);
+}
+
+/* Avoid overlapping the text on the arrow icon when switching input text direction */
+.popup-notification-body:-moz-locale-dir(rtl) input.ac-has-end-icon:dir(ltr) {
+  padding-left: var(--input-padding-from-arrow-side);
+  padding-right: 8px;
+}
+.popup-notification-body:-moz-locale-dir(ltr) input.ac-has-end-icon:dir(rtl) {
+  padding-right: var(--input-padding-from-arrow-side);
+  padding-left: 8px;
+}
+
+.popup-notification-body input:focus-visible {
   outline: 2px solid var(--focus-outline-color);
 }
 
@@ -940,6 +973,7 @@ popupnotificationcontent {
 
 .popup-notification-description {
   font-weight: 600;
+  margin-top: 0;
 }
 } /** END Proton **/
 

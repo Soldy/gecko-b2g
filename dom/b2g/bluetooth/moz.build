@@ -13,9 +13,6 @@ if CONFIG["MOZ_B2G_RIL"]:
 
 UNIFIED_SOURCES += [
     "common/BluetoothCommon.cpp",
-]
-
-UNIFIED_SOURCES += [
     "common/BluetoothGattReplyRunnable.cpp",
     "common/BluetoothInterface.cpp",
     "common/BluetoothProfileController.cpp",
@@ -140,6 +137,11 @@ EXPORTS.mozilla.dom.bluetooth += [
 ]
 
 EXPORTS.mozilla.dom += ["common/webapi/BluetoothUUID.h"]
+
+# Bluetooth module often uses array designators for the mapping between enum and
+# array, therefore, silences c99-designator warnings of clang.
+if CONFIG["CC_TYPE"] == "clang":
+    CXXFLAGS += ["-Wno-c99-designator"]
 
 IPDL_SOURCES += [
     "ipc/BluetoothTypes.ipdlh",

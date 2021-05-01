@@ -32,7 +32,7 @@
 #include "js/ErrorReport.h"
 #include "js/ForOfIterator.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/friend/StackLimits.h"    // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/PropertySpec.h"
 #include "js/RootingAPI.h"
 #include "js/TypeDecls.h"
@@ -429,16 +429,26 @@ Shape* js::ErrorObject::assignInitialShape(JSContext* cx,
                                            Handle<ErrorObject*> obj) {
   MOZ_ASSERT(obj->empty());
 
+  uint32_t slot;
   if (!NativeObject::addProperty(cx, obj, cx->names().fileName, FILENAME_SLOT,
-                                 0)) {
+                                 0, &slot)) {
     return nullptr;
   }
+  MOZ_ASSERT(slot == FILENAME_SLOT);
+
   if (!NativeObject::addProperty(cx, obj, cx->names().lineNumber,
-                                 LINENUMBER_SLOT, 0)) {
+                                 LINENUMBER_SLOT, 0, &slot)) {
     return nullptr;
   }
-  return NativeObject::addProperty(cx, obj, cx->names().columnNumber,
-                                   COLUMNNUMBER_SLOT, 0);
+  MOZ_ASSERT(slot == LINENUMBER_SLOT);
+
+  if (!NativeObject::addProperty(cx, obj, cx->names().columnNumber,
+                                 COLUMNNUMBER_SLOT, 0, &slot)) {
+    return nullptr;
+  }
+  MOZ_ASSERT(slot == COLUMNNUMBER_SLOT);
+
+  return obj->shape();
 }
 
 /* static */
@@ -462,12 +472,12 @@ bool js::ErrorObject::init(JSContext* cx, Handle<ErrorObject*> obj,
   // |new Error("")| -- but not in others -- |new Error(undefined)|,
   // |new Error()|.
   if (message) {
-    Shape* messageShape = NativeObject::addProperty(
-        cx, obj, cx->names().message, MESSAGE_SLOT, 0);
-    if (!messageShape) {
+    uint32_t slot;
+    if (!NativeObject::addProperty(cx, obj, cx->names().message, MESSAGE_SLOT,
+                                   0, &slot)) {
       return false;
     }
-    MOZ_ASSERT(messageShape->slot() == MESSAGE_SLOT);
+    MOZ_ASSERT(slot == MESSAGE_SLOT);
   }
 
   MOZ_ASSERT(obj->lookupPure(NameToId(cx->names().fileName))->slot() ==
@@ -778,7 +788,8 @@ JSString* js::ErrorToSource(JSContext* cx, HandleObject obj) {
  * Return a string that may eval to something similar to the original object.
  */
 static bool exn_toSource(JSContext* cx, unsigned argc, Value* vp) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return false;
   }
   CallArgs args = CallArgsFromVp(argc, vp);

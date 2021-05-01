@@ -250,7 +250,7 @@ var gGestureSupport = {
         : aEvent.DIRECTION_LEFT;
     }
 
-    return true;
+    return canGoBack || canGoForward;
   },
 
   /**
@@ -375,6 +375,7 @@ var gGestureSupport = {
           aEvent.altKey,
           aEvent.shiftKey,
           aEvent.metaKey,
+          0,
           aEvent,
           aEvent.mozInputSource
         );

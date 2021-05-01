@@ -14,12 +14,15 @@ const {
 types.addDictType("target-configuration.configuration", {
   cacheDisabled: "nullable:boolean",
   colorSchemeSimulation: "nullable:string",
+  customUserAgent: "nullable:string",
   javascriptEnabled: "nullable:boolean",
   overrideDPPX: "nullable:number",
   paintFlashing: "nullable:boolean",
   printSimulationEnabled: "nullable:boolean",
+  rdmPaneOrientation: "nullable:json",
   restoreFocus: "nullable:boolean",
   serviceWorkersTestingEnabled: "nullable:boolean",
+  touchEventsOverride: "nullable:string",
 });
 
 const targetConfigurationSpec = generateActorSpec({
